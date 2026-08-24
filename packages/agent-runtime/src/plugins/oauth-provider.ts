@@ -8,8 +8,21 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import {
+  OAuthClientInformationFullSchema,
+  OAuthClientInformationSchema,
+  OAuthMetadataSchema,
+  OAuthProtectedResourceMetadataSchema,
+  OAuthTokensSchema,
+  OpenIdProviderDiscoveryMetadataSchema,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 
-import { isJsonNumber } from "@chief/relay-contracts";
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import { workspaceSecrets } from "../workspace-secrets.js";
 
@@ -28,6 +41,91 @@ export interface StoredOAuthSession {
   updatedAt: number;
 }
 
+function parseStoredOAuthSession(
+  source: string,
+): StoredOAuthSession | undefined {
+  const value: unknown = JSON.parse(source);
+  if (
+    !isJsonObject(value) ||
+    value.version !== 1 ||
+    !isJsonString(value.serverUrl) ||
+    !isJsonString(value.state) ||
+    !isJsonNumber(value.updatedAt)
+  ) {
+    return undefined;
+  }
+  const clientInformation =
+    value.clientInformation === undefined
+      ? undefined
+      : (OAuthClientInformationFullSchema.safeParse(value.clientInformation)
+          .data ??
+        OAuthClientInformationSchema.safeParse(value.clientInformation).data);
+  if (value.clientInformation !== undefined && !clientInformation)
+    return undefined;
+  const tokens =
+    value.tokens === undefined
+      ? undefined
+      : OAuthTokensSchema.safeParse(value.tokens).data;
+  if (value.tokens !== undefined && !tokens) return undefined;
+  let discovery: OAuthDiscoveryState | undefined;
+  if (value.discovery !== undefined) {
+    if (
+      !isJsonObject(value.discovery) ||
+      !isJsonString(value.discovery.authorizationServerUrl)
+    ) {
+      return undefined;
+    }
+    const authorizationServerMetadata =
+      value.discovery.authorizationServerMetadata === undefined
+        ? undefined
+        : (OAuthMetadataSchema.safeParse(
+            value.discovery.authorizationServerMetadata,
+          ).data ??
+          OpenIdProviderDiscoveryMetadataSchema.safeParse(
+            value.discovery.authorizationServerMetadata,
+          ).data);
+    const resourceMetadata =
+      value.discovery.resourceMetadata === undefined
+        ? undefined
+        : OAuthProtectedResourceMetadataSchema.safeParse(
+            value.discovery.resourceMetadata,
+          ).data;
+    if (
+      (value.discovery.authorizationServerMetadata !== undefined &&
+        !authorizationServerMetadata) ||
+      (value.discovery.resourceMetadata !== undefined && !resourceMetadata) ||
+      (value.discovery.resourceMetadataUrl !== undefined &&
+        !isJsonString(value.discovery.resourceMetadataUrl))
+    ) {
+      return undefined;
+    }
+    discovery = {
+      authorizationServerUrl: value.discovery.authorizationServerUrl,
+      authorizationServerMetadata,
+      resourceMetadata,
+      resourceMetadataUrl: value.discovery.resourceMetadataUrl,
+    };
+  }
+  if (
+    (value.codeVerifier !== undefined && !isJsonString(value.codeVerifier)) ||
+    (value.authorizedWithoutTokens !== undefined &&
+      !isJsonBoolean(value.authorizedWithoutTokens))
+  ) {
+    return undefined;
+  }
+  return {
+    version: 1,
+    serverUrl: value.serverUrl,
+    state: value.state,
+    clientInformation,
+    tokens,
+    codeVerifier: value.codeVerifier,
+    discovery,
+    authorizedWithoutTokens: value.authorizedWithoutTokens,
+    updatedAt: value.updatedAt,
+  };
+}
+
 function secretName(pluginId: string, serverName: string) {
   const safe = `${pluginId}-${serverName}`.replace(/[^A-Za-z0-9._-]/g, "_");
   return `plugin-oauth-${safe}.json`;
@@ -43,7 +141,7 @@ export async function readOAuthSession(
       workspaceId,
       secretName(pluginId, serverName),
     );
-    return value ? (JSON.parse(value) as StoredOAuthSession) : undefined;
+    return value ? parseStoredOAuthSession(value) : undefined;
   } catch {
     return undefined;
   }

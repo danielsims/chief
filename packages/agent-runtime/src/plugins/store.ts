@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 
-import { isJsonObject } from "@chief/relay-contracts";
-
-import type { PluginInstallRecord, PluginWorkspaceState } from "./types.js";
+import type {
+  PluginCatalogSource,
+  PluginInstallRecord,
+  PluginWorkspaceState,
+} from "./types.js";
 import { workspaceKey, workspaceRoot } from "../workspace-secrets.js";
 import { loadAgentPlugin } from "./loader.js";
 
@@ -27,6 +30,30 @@ const DEFAULT_CATALOGS = [
     format: "agent-catalog" as const,
   },
 ] as const;
+
+const pluginCatalogSourceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  catalogUrl: z.string(),
+  homepage: z.string().optional(),
+  enabled: z.boolean(),
+  format: z.enum(["agent-catalog", "integrations-sh"]).optional(),
+});
+
+const pluginInstallRecordSchema = z.object({
+  id: z.string(),
+  packageRoot: z.string(),
+  sourceSha: z.string().optional(),
+  enabled: z.boolean(),
+  trusted: z.boolean(),
+  installedAt: z.number(),
+});
+
+const savedPluginStateSchema = z.object({
+  catalogSources: z.array(pluginCatalogSourceSchema).optional(),
+  marketplaceSources: z.array(pluginCatalogSourceSchema).optional(),
+  installations: z.record(z.string(), pluginInstallRecordSchema).optional(),
+});
 
 export function pluginsRoot(workspaceId: string) {
   const sharedRoot = process.env.CHIEF_PLUGIN_ROOT?.trim();
@@ -78,29 +105,23 @@ export async function readPluginState(
   workspaceId: string,
 ): Promise<PluginWorkspaceState> {
   try {
-    const raw = JSON.parse(await readFile(statePath(workspaceId), "utf8")) as
-      | (Partial<PluginWorkspaceState> & {
-          marketplaceSources?: PluginWorkspaceState["catalogSources"];
-        })
-      | undefined;
-    const savedSources = Array.isArray(raw?.catalogSources)
-      ? raw.catalogSources
-      : Array.isArray(raw?.marketplaceSources)
-        ? raw.marketplaceSources.map((source) => ({
-            ...source,
-            format:
-              source.format === "integrations-sh"
-                ? ("integrations-sh" as const)
-                : ("agent-catalog" as const),
-          }))
-        : undefined;
+    const raw = savedPluginStateSchema.parse(
+      JSON.parse(await readFile(statePath(workspaceId), "utf8")),
+    );
+    const savedSources = (raw.catalogSources ?? raw.marketplaceSources)?.map(
+      (source) =>
+        ({
+          ...source,
+          format:
+            source.format === "integrations-sh"
+              ? "integrations-sh"
+              : "agent-catalog",
+        }) satisfies PluginCatalogSource,
+    );
     return {
       version: 2,
       catalogSources: savedSources ?? [...DEFAULT_CATALOGS],
-      installations:
-        raw?.installations && isJsonObject(raw.installations)
-          ? raw.installations
-          : {},
+      installations: raw.installations ?? {},
     };
   } catch {
     return {

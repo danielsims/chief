@@ -1,25 +1,17 @@
-/* eslint-disable max-lines */
-
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import test from "node:test";
-import { createClient } from "@libsql/client";
 
-import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 import type { LocalMessage } from "../src/local-store.js";
 import { LocalStore } from "../src/local-store.js";
-
-const encryptionKey = "chief-runtime-integration-test-encryption-key";
-process.env.CHIEF_DATABASE_ENCRYPTION_KEY = encryptionKey;
-
-function fixture(name: string) {
-  const directory = mkdtempSync(join(tmpdir(), `chief-${name}-`));
-  const path = join(directory, "chief.sqlite");
-  return { directory, path, store: new LocalStore(path) };
-}
+import { localStoreFixture as fixture } from "./local-store-test-fixture.js";
 
 void test("root chat lists exclude private roots and child executions", async () => {
   const { directory, store } = fixture("chat-tree");
@@ -223,6 +215,14 @@ void test("messages preserve IDs, JSON parts, typed metadata, and position order
       source: "slack";
       thread: string;
     }
+    const parseTestMessageMetadata = (
+      value: JsonObject | undefined,
+    ): Metadata | undefined => {
+      const record = parseJsonObject(value);
+      return record?.source === "slack" && isJsonString(record.thread)
+        ? { source: record.source, thread: record.thread }
+        : undefined;
+    };
     const messages: LocalMessage<Metadata>[] = [
       {
         id: "assistant-id",
@@ -247,7 +247,11 @@ void test("messages preserve IDs, JSON parts, typed metadata, and position order
     ];
     await store.saveMessages("workspace", "root", messages);
 
-    const stored = await store.messages<Metadata>("workspace", "root");
+    const stored = await store.messages<Metadata>(
+      "workspace",
+      "root",
+      parseTestMessageMetadata,
+    );
     assert.deepEqual(
       stored.map(({ id, position }) => ({ id, position })),
       [
@@ -436,304 +440,6 @@ void test("deleting a root cascades to child chats and all messages", async () =
     assert.equal(await store.chatRecord("workspace", "child"), null);
     assert.deepEqual(await store.messages("workspace", "child"), []);
   } finally {
-    await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("diagnostics are workspace scoped, redacted, capped, and leveled", async () => {
-  const { directory, store } = fixture("diagnostics");
-  try {
-    await store.createChat({
-      id: "diagnostic-session",
-      organizationId: "workspace-a",
-      visibility: "user",
-      agent: "chief",
-      provider: "codex",
-      lastText: "Useful context authorization=last-text-secret",
-      summary: "Useful summary Bearer summary-secret",
-      error: "Useful error token=error-secret",
-    });
-    await store.createChat({
-      id: "other-session",
-      organizationId: "workspace-b",
-      visibility: "user",
-      agent: "chief",
-      provider: "codex",
-    });
-    await store.saveDiagnosticEvent("workspace-a", "diagnostic-session", 0, {
-      type: "permission",
-      requestId: "permission-1",
-      toolName: "analytics.read",
-      input: {
-        authorization: "Bearer private",
-        nested: { apiKey: "also-private" },
-      },
-    });
-    await store.saveDiagnosticEvent("workspace-a", "diagnostic-session", 1, {
-      type: "message",
-      role: "user",
-      content: [{ type: "text", text: "x".repeat(70_000) }],
-    });
-    await store.saveDiagnosticEvent("workspace-a", "diagnostic-session", 2, {
-      type: "error",
-      message: "failed",
-    });
-    await store.saveDiagnosticEvent("workspace-a", "diagnostic-session", 3, {
-      type: "stream",
-      text: [
-        "Useful diagnostic text",
-        "Authorization: Bearer bearer-secret",
-        "https://example.test/path?token=query-secret&view=useful",
-        '{"apiKey":"json-secret"}',
-        "client_secret=assignment-secret",
-        "github_pat_1234567890abcdef vcp_1234567890abcdefghijklmnop",
-        "sk-proj-1234567890abcdef",
-      ].join(" "),
-    });
-
-    const diagnostics = await store.diagnostics("workspace-a");
-    assert.deepEqual(
-      diagnostics.sessions.map((session) => session.id),
-      ["diagnostic-session"],
-    );
-    assert.deepEqual(
-      diagnostics.events.map((event) => event.level),
-      ["warn", "info", "error", "debug"],
-    );
-    const redacted = JSON.stringify(diagnostics.events[0]?.data);
-    assert.ok(!redacted.includes("private"));
-    assert.equal(redacted.match(/\[REDACTED\]/g)?.length, 2);
-    const capped = JSON.stringify(diagnostics.events[1]?.data);
-    assert.ok(Buffer.byteLength(capped, "utf8") <= 64 * 1024);
-    assert.match(capped, /"truncated":true/);
-    const arbitrary = JSON.stringify(diagnostics.events[3]?.data);
-    assert.match(arbitrary, /Useful diagnostic text/);
-    assert.match(arbitrary, /view=useful/);
-    for (const secret of [
-      "bearer-secret",
-      "query-secret",
-      "json-secret",
-      "assignment-secret",
-      "1234567890abcdef",
-    ]) {
-      assert.ok(!arbitrary.includes(secret), `${secret} was redacted`);
-    }
-    const diagnosticSession = diagnostics.sessions[0];
-    assert.ok(diagnosticSession);
-    assert.match(diagnosticSession.lastText ?? "", /Useful context/);
-    assert.match(diagnosticSession.summary ?? "", /Useful summary/);
-    assert.match(diagnosticSession.error ?? "", /Useful error/);
-    assert.ok(!JSON.stringify(diagnosticSession).includes("secret"));
-    assert.deepEqual(await store.diagnostics("missing-workspace"), {
-      sessions: [],
-      events: [],
-    });
-    await assert.rejects(
-      store.saveDiagnosticEvent("workspace-b", "diagnostic-session", 3, {
-        type: "stream",
-        text: "wrong workspace",
-      }),
-      /not found in this workspace/,
-    );
-  } finally {
-    await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("baseline contains only the required singular one-word tables", async () => {
-  const { directory, path, store } = fixture("table-names");
-  const client = createClient({ url: `file:${path}`, encryptionKey });
-  try {
-    await store.health();
-    const result = await client.execute(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%' ORDER BY name",
-    );
-    assert.deepEqual(
-      result.rows.map((row) => {
-        assert.ok(isJsonString(row.name));
-        return row.name;
-      }),
-      [
-        "action",
-        "audit",
-        "binding",
-        "browser",
-        "campaign",
-        "cell_alarm",
-        "cell_event",
-        "cell_lease",
-        "cell_outbox",
-        "cell_project_lease",
-        "cell_state",
-        "channel",
-        "checkout",
-        "content",
-        "dataset",
-        "event",
-        "file",
-        "message",
-        "post",
-        "preference",
-        "project",
-        "project_access_request",
-        "project_grant",
-        "project_operation",
-        "project_provider_link",
-        "prospect",
-        "provider_connection",
-        "schedule",
-        "session",
-        "trend",
-        "version",
-      ],
-    );
-    for (const table of [
-      "action",
-      "browser",
-      "campaign",
-      "content",
-      "dataset",
-      "event",
-      "file",
-      "message",
-      "preference",
-      "prospect",
-      "schedule",
-      "session",
-      "trend",
-      "version",
-    ]) {
-      const columns = await client.execute(`PRAGMA table_info(${table})`);
-      const names = columns.rows.map((row) => row.name);
-      assert.ok(
-        names.includes("organization_id"),
-        `${table} has organization_id`,
-      );
-      assert.ok(
-        !names.includes("workspace_id"),
-        `${table} excludes workspace_id`,
-      );
-    }
-    const messageColumns = await client.execute("PRAGMA table_info(message)");
-    const messageNames = messageColumns.rows.map((row) => row.name);
-    assert.ok(messageNames.includes("session_id"));
-    assert.ok(!messageNames.includes("chat_id"));
-    assert.ok(messageNames.includes("organization_id"));
-    const eventColumns = await client.execute("PRAGMA table_info(event)");
-    assert.ok(
-      eventColumns.rows.map((row) => row.name).includes("organization_id"),
-    );
-    for (const table of ["file", "version"]) {
-      const columns = await client.execute(`PRAGMA table_info(${table})`);
-      const names = columns.rows.map((row) => row.name);
-      assert.ok(names.includes("source_session_id"));
-      assert.ok(!names.includes("source_run_id"));
-    }
-  } finally {
-    client.close();
-    await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("an interrupted additive channel migration resumes without data loss", async () => {
-  const {
-    directory,
-    path,
-    store: initialStore,
-  } = fixture("interrupted-channel-migration");
-  let store = initialStore;
-  try {
-    await store.createChat({
-      id: "preserved-chat",
-      organizationId: "workspace",
-      visibility: "user",
-      agent: "general",
-      provider: "codex",
-    });
-    await store.close();
-
-    const client = createClient({ url: `file:${path}`, encryptionKey });
-    await client.execute("DROP TABLE audit");
-    await client.execute("ALTER TABLE channel DROP COLUMN workstream");
-    client.close();
-
-    store = new LocalStore(path);
-    await store.health();
-    assert.ok(await store.chatRecord("workspace", "preserved-chat"));
-
-    const repairedClient = createClient({
-      url: `file:${path}`,
-      encryptionKey,
-    });
-    const channelColumns = await repairedClient.execute(
-      "PRAGMA table_info(channel)",
-    );
-    const channelColumnNames = channelColumns.rows.map((row) => row.name);
-    for (const name of [
-      "visibility",
-      "kind",
-      "lifecycle",
-      "archived_at",
-      "created_by",
-      "agent_permissions",
-      "workstream",
-      "operation_key",
-      "version",
-    ]) {
-      assert.ok(channelColumnNames.includes(name), `channel.${name}`);
-    }
-    for (const [table, expected] of [
-      [
-        "schedule",
-        ["trigger", "operation_key", "version", "webhook_secret_hash"],
-      ],
-      ["session", ["trigger_context"]],
-      ["audit", ["sequence", "previous_hash", "hash"]],
-      ["preference", ["tool_permissions"]],
-    ] as const) {
-      const columns = await repairedClient.execute(
-        `PRAGMA table_info(${table})`,
-      );
-      const names = columns.rows.map((row) => row.name);
-      for (const name of expected) {
-        assert.ok(names.includes(name), `${table}.${name}`);
-      }
-    }
-    const audit = await repairedClient.execute(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit'",
-    );
-    assert.equal(audit.rows.length, 1);
-    repairedClient.close();
-  } finally {
-    await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("an obsolete pre-release baseline is replaced on startup", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-obsolete-baseline-"));
-  const path = join(directory, "chief.sqlite");
-  const obsoleteClient = createClient({
-    url: `file:${path}`,
-    encryptionKey,
-  });
-  await obsoleteClient.execute(
-    "CREATE TABLE preference (organization_id text NOT NULL)",
-  );
-  obsoleteClient.close();
-
-  const store = new LocalStore(path);
-  let client: ReturnType<typeof createClient> | undefined;
-  try {
-    await store.health();
-    client = createClient({ url: `file:${path}`, encryptionKey });
-    const columns = await client.execute("PRAGMA table_info(message)");
-    assert.ok(columns.rows.map((row) => row.name).includes("organization_id"));
-  } finally {
-    client?.close();
     await store.close();
     rmSync(directory, { recursive: true, force: true });
   }

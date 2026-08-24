@@ -10,12 +10,18 @@ import {
   isJsonNumber,
   isJsonString,
   parseJsonObject,
-  parseJsonValue,
 } from "@chief/relay-contracts";
 
 import type { ContentBlock, StartOptions } from "../types.js";
 import type { AcpRuntimeAdapter, PendingAcpRpc } from "./acp-runtime.js";
 import type { OpenCodeTerminalState } from "./opencode-support.js";
+import {
+  identifier,
+  isToolCallUpdate,
+  text,
+  toolInput,
+  toolInputCode,
+} from "./acp-update.js";
 import { BaseDriver } from "./base.js";
 import { agentEnvironment } from "./environment.js";
 import {
@@ -27,7 +33,7 @@ import {
 
 export class AcpDriver extends BaseDriver {
   private process: ChildProcess | null = null;
-  private sessionId: string | undefined;
+  protected sessionId: string | undefined;
   private buffer = "";
   private nextRpcId = 0;
   private pending = new Map<number | string, PendingAcpRpc>();
@@ -43,7 +49,7 @@ export class AcpDriver extends BaseDriver {
   private stream = "";
   private thinking = "";
   private stopping = false;
-  private access: StartOptions["access"] = "guarded";
+  protected access: StartOptions["access"] = "guarded";
   private cwd = homedir();
   private environment: NodeJS.ProcessEnv = { ...process.env };
   private readonly hostServices = new OpenCodeHostServices({
@@ -198,7 +204,7 @@ export class AcpDriver extends BaseDriver {
     await this.start({ ...options, resumeSessionId: this.sessionId });
   }
 
-  private async restartIfNeeded() {
+  protected async restartIfNeeded() {
     if (this.process?.stdin && this.process.exitCode === null) return;
     this.process = null;
     if (!this.startOptions) {
@@ -277,7 +283,7 @@ export class AcpDriver extends BaseDriver {
     }
   }
 
-  private handle(message: JsonObject) {
+  protected handle(message: JsonObject) {
     const id =
       isJsonNumber(message.id) || isJsonString(message.id)
         ? message.id
@@ -338,45 +344,25 @@ export class AcpDriver extends BaseDriver {
       if (text) this.emitEvent({ type: "thinkingStream", text });
       return;
     }
-    if (
-      type === "tool_call" ||
-      type === "tool_call_start" ||
-      type === "tool_call_update" ||
-      type === "tool_call_end"
-    ) {
+    if (isToolCallUpdate(type)) {
       this.toolUpdate(update, String(type));
     }
   }
 
   private toolUpdate(update: JsonObject, eventType: string) {
     const nested = record(update.toolCall ?? update.tool_call ?? update.tool);
-    const id = this.identifier(
+    const id = identifier(
       [update.toolCallId, update.tool_call_id, update.id, nested.id],
       randomUUID(),
     );
-    const name = this.text(
+    const name = text(
       [update.title, update.name, update.toolName, nested.name],
       `${this.runtime.name} tool`,
     );
-    let input: JsonValue | undefined =
-      update.input ?? update.rawInput ?? update.arguments ?? nested.input ?? {};
-    if (isJsonString(input)) {
-      const inputText = input;
-      try {
-        const parsed: unknown = JSON.parse(inputText);
-        input = parseJsonValue(parsed);
-      } catch {
-        input = { value: inputText };
-      }
-    }
-    const inputObject = parseJsonObject(input);
-    if (
-      (input === undefined ||
-        (inputObject && Object.keys(inputObject).length === 0)) &&
-      isJsonString(update.rawInput) &&
-      update.rawInput.trim()
-    ) {
-      input = { code: update.rawInput };
+    let input = toolInput(update, nested);
+    const rawInput = toolInputCode(update, input);
+    if (rawInput) {
+      input = { code: rawInput };
     }
     if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
       console.error(
@@ -409,7 +395,7 @@ export class AcpDriver extends BaseDriver {
     if (!complete) return;
     const failed = status === "failed";
     const content = failed
-      ? this.text([update.error, update.message], "Tool call failed")
+      ? text([update.error, update.message], "Tool call failed")
       : textContent(update.content) ||
         (isJsonString(update.result)
           ? update.result
@@ -440,8 +426,8 @@ export class AcpDriver extends BaseDriver {
         (option) =>
           option.kind === "reject_once" || option.id === "reject-once",
       ) ?? options.at(-1);
-    const allowId = this.identifier([allow?.optionId, allow?.id], "allow-once");
-    const denyId = this.identifier([deny?.optionId, deny?.id], "reject-once");
+    const allowId = identifier([allow?.optionId, allow?.id], "allow-once");
+    const denyId = identifier([deny?.optionId, deny?.id], "reject-once");
     if (this.access === "full") {
       this.respond(id, {
         outcome: { outcome: "selected", optionId: allowId },
@@ -449,7 +435,7 @@ export class AcpDriver extends BaseDriver {
       return;
     }
     const toolCall = record(params.toolCall);
-    const toolCallId = this.identifier([toolCall.toolCallId, toolCall.id], "");
+    const toolCallId = identifier([toolCall.toolCallId, toolCall.id], "");
     const activeTool = this.activeTools.get(toolCallId);
     const requestId = randomUUID();
     this.permissions.set(requestId, {
@@ -462,7 +448,7 @@ export class AcpDriver extends BaseDriver {
       requestId,
       toolName:
         activeTool?.name ??
-        this.text(
+        text(
           [toolCall.name, params.toolName, params.title],
           `${this.runtime.name} tool`,
         ),
@@ -476,7 +462,7 @@ export class AcpDriver extends BaseDriver {
     this.emitEvent({ type: "status", status: "waiting" });
   }
 
-  private rpc(method: string, params: JsonObject, timeoutMs = 30_000) {
+  protected rpc(method: string, params: JsonObject, timeoutMs = 30_000) {
     return new Promise<JsonValue | undefined>((resolve, reject) => {
       if (!this.process?.stdin) {
         reject(new Error(`${this.runtime.name} is not running.`));
@@ -497,7 +483,7 @@ export class AcpDriver extends BaseDriver {
     });
   }
 
-  private respond(id: number | string, result: JsonValue | undefined) {
+  protected respond(id: number | string, result: JsonValue | undefined) {
     this.process?.stdin?.write(
       `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`,
     );
@@ -509,21 +495,5 @@ export class AcpDriver extends BaseDriver {
       request.reject(new Error(message));
     }
     this.pending.clear();
-  }
-
-  private identifier(
-    values: (JsonValue | undefined)[],
-    fallback: string,
-  ): string {
-    const value = values.find(
-      (candidate) => isJsonString(candidate) || isJsonNumber(candidate),
-    );
-    return isJsonString(value) || isJsonNumber(value)
-      ? String(value)
-      : fallback;
-  }
-
-  private text(values: (JsonValue | undefined)[], fallback: string): string {
-    return values.find(isJsonString) ?? fallback;
   }
 }

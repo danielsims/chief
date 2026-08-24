@@ -14,6 +14,7 @@ import type {
   DriverType,
   McpServerSpec,
   MessageAttachment,
+  StartOptions,
 } from "./types.js";
 import { normalizeAssistantEvent } from "./agent-output.js";
 import { agentEventProducedOutput } from "./agent-retry.js";
@@ -138,7 +139,9 @@ export class AgentSession extends EventEmitter {
                   `toolInput=${JSON.stringify(
                     enriched.content
                       .filter((block) => block.type === "tool_use")
-                      .map((block) => String(block.input).slice(0, 160)),
+                      .map((block) =>
+                        JSON.stringify(block.input).slice(0, 160),
+                      ),
                   )}`,
                   `text=${JSON.stringify(
                     enriched.content
@@ -163,10 +166,7 @@ export class AgentSession extends EventEmitter {
           enriched.type === "exit"
         ) {
           this.status = enriched.type === "error" ? "error" : "idle";
-          // Some providers finish before their final assistant message. Keep the
-          // turn owner after a successful result so
-          // that late content remains attached to the channel thread that
-          // started it; the next user prompt replaces this context atomically.
+          // Keep successful turn ownership for a provider's late final message.
           if (enriched.type !== "result") this.activeReplyContext = undefined;
         }
         this.record(enriched);
@@ -174,7 +174,7 @@ export class AgentSession extends EventEmitter {
         else this.clearStallWatchdog();
       }
     });
-    this.driver.on("state", (state: unknown) => {
+    this.driver.on("state", (state) => {
       this.driverState = state;
       this.emit("state", state);
     });
@@ -275,12 +275,7 @@ export class AgentSession extends EventEmitter {
     ];
   }
 
-  /**
-   * The provider's final assistant message contains the entire streamed text.
-   * Any text already flushed (markers or tool-call boundaries) must not be
-   * repeated, so this emits only the un-flushed remainder. Returns nothing when
-   * there is no remaining text.
-   */
+  /** Emits only the final message text that has not already streamed. */
   private finalAssistantMessage(event: AgentEvent): AgentEvent[] {
     if (event.type !== "message") return [event];
     const tail = this.streamTail.trim();
@@ -293,7 +288,6 @@ export class AgentSession extends EventEmitter {
         },
       ];
     }
-    // No streamed text this turn (provider sent one full message): keep it.
     if (!this.streamedThisTurn) return [event];
     return [];
   }
@@ -307,7 +301,7 @@ export class AgentSession extends EventEmitter {
     this.clearStallWatchdog();
     this.stallTimer = setTimeout(() => {
       if (!this.isBusy) return;
-      void this.driver.interrupt().catch(() => {});
+      void this.driver.interrupt().catch(() => undefined);
       this.status = "idle";
       this.record({
         type: "error",
@@ -319,7 +313,11 @@ export class AgentSession extends EventEmitter {
     this.stallTimer.unref();
   }
 
-  async start(cwd: string, resumeSessionId?: string, resumeState?: unknown) {
+  async start(
+    cwd: string,
+    resumeSessionId?: string,
+    resumeState?: StartOptions["resumeState"],
+  ) {
     this.workingDirectory = cwd;
     if (!resumeSessionId && this.config.driver !== "remote") {
       this.promptBootstrap = remoteHistoryContext(this.events);

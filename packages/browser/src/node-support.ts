@@ -96,10 +96,45 @@ function isExecutable(path: string) {
 
 export const agentBrowserExecutable = resolveAgentBrowserExecutable();
 
-interface AgentBrowserEnvelope<T> {
-  success?: boolean;
-  data?: T;
-  error?: string;
+export type BrowserBoundaryValue =
+  | boolean
+  | BrowserBoundaryRecord
+  | BrowserBoundaryValue[]
+  | null
+  | number
+  | string;
+
+export interface BrowserBoundaryRecord {
+  readonly [key: string]: BrowserBoundaryValue;
+}
+
+function isBrowserBoundaryValue(value: unknown): value is BrowserBoundaryValue {
+  if (value === null) return true;
+  if (Array.isArray(value)) return value.every(isBrowserBoundaryValue);
+  if (value instanceof Object) {
+    return Object.values(value).every(isBrowserBoundaryValue);
+  }
+  return (
+    value === true ||
+    value === false ||
+    (Number(value) === value && Number.isFinite(Number(value))) ||
+    parseBrowserText(value) !== undefined
+  );
+}
+
+export function parseBrowserText(value: unknown): string | undefined {
+  const text = String(value);
+  return text === value ? text : undefined;
+}
+
+export function parseBrowserBoolean(value: BrowserBoundaryValue | undefined) {
+  return value === true ? true : value === false ? false : undefined;
+}
+
+export function isBrowserRecord(
+  value: unknown,
+): value is BrowserBoundaryRecord {
+  return Object(value) === value && !Array.isArray(value);
 }
 
 export interface AgentBrowserSessionOptions {
@@ -226,13 +261,12 @@ export function lastUsedChromeProfile(
 ): string | undefined {
   if (!localStatePath) return undefined;
   try {
-    const state = JSON.parse(readFileSync(localStatePath, "utf8")) as {
-      profile?: { last_used?: unknown };
-    };
-    const profile = state.profile?.last_used;
-    return typeof profile === "string" && profile.trim()
-      ? profile.trim()
-      : undefined;
+    const state: unknown = JSON.parse(readFileSync(localStatePath, "utf8"));
+    if (!isBrowserRecord(state) || !isBrowserRecord(state.profile)) {
+      return undefined;
+    }
+    const profile = parseBrowserText(state.profile.last_used)?.trim();
+    return profile === "" ? undefined : profile;
   } catch {
     return undefined;
   }
@@ -264,37 +298,24 @@ export function safeSessionId(value: string) {
   return safe;
 }
 
-export function parseJson<T>(output: string): T {
-  const value = JSON.parse(output) as AgentBrowserEnvelope<T> | T;
-  if (
-    value &&
-    typeof value === "object" &&
-    "success" in value &&
-    value.success === false
-  ) {
-    const message =
-      "error" in value && typeof value.error === "string"
-        ? value.error
-        : "agent-browser failed";
-    throw new Error(message);
+export function parseJson(output: string): BrowserBoundaryValue {
+  const value: unknown = JSON.parse(output);
+  if (!isBrowserBoundaryValue(value)) {
+    throw new Error("agent-browser returned unsupported JSON.");
   }
-  if (value && typeof value === "object" && "data" in value) {
-    return value.data as T;
+  if (!isBrowserRecord(value)) return value;
+  if (parseBrowserBoolean(value.success) === false) {
+    throw new Error(parseBrowserText(value.error) ?? "agent-browser failed");
   }
-  return value as T;
+  return value.data ?? value;
 }
 
-export function commandError(error: unknown) {
-  if (!error || typeof error !== "object") return new Error(String(error));
-  const result = error as {
-    message?: string;
-    stderr?: string;
-    stdout?: string;
-  };
+export function parseCommandError(error: unknown) {
+  if (!isBrowserRecord(error)) return new Error(String(error));
   const detail = [
-    result.stderr?.trim(),
-    result.stdout?.trim(),
-    result.message,
+    parseBrowserText(error.stderr)?.trim(),
+    parseBrowserText(error.stdout)?.trim(),
+    parseBrowserText(error.message),
   ].find((candidate) => candidate);
   return new Error(detail ?? "agent-browser command failed");
 }

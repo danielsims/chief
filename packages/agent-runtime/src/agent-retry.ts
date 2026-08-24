@@ -8,7 +8,7 @@ const TERMINAL_FAILURE =
   /\b(?:approval|cancel(?:led|ed)|cannot delegate|disabled|forbidden|invalid|interrupted|not configured|permission|sign[ -]?in|unauthori[sz]ed|unknown agent)\b/i;
 
 /** Provider-neutral retry classification shared by root and specialist turns. */
-export function retryableAgentFailure(error: unknown) {
+export function retryableAgentFailure<TError>(error: TError): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return !TERMINAL_FAILURE.test(message);
 }

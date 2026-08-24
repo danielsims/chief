@@ -31,11 +31,7 @@ export function isDeploymentNotFound(error: unknown, depth = 0): boolean {
     return isDeploymentNotFound(error.cause, depth + 1);
   }
   if (!isJsonObject(error)) return false;
-  const value = error as {
-    message?: unknown;
-    status?: unknown;
-    cause?: unknown;
-  };
+  const value = error;
   if (
     isJsonString(value.message) &&
     (value.message === DEPLOYMENT_REQUIRED_MESSAGE ||
@@ -46,7 +42,9 @@ export function isDeploymentNotFound(error: unknown, depth = 0): boolean {
   return isDeploymentNotFound(value.cause, depth + 1);
 }
 
-export function safeRuntimeError(error: unknown) {
+export function safeRuntimeError(
+  error: Parameters<typeof isDeploymentNotFound>[0],
+): string {
   if (isDeploymentNotFound(error)) return DEPLOYMENT_REQUIRED_MESSAGE;
   const message = error instanceof Error ? error.message : String(error);
   if (/Failed query:|insert into|update .+ set|SQLITE_/i.test(message)) {

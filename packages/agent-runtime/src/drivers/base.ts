@@ -147,7 +147,7 @@ export abstract class BaseDriver extends EventEmitter {
     this.emit("event", event);
   }
 
-  protected emitState(state: unknown) {
+  protected emitState<TState>(state: TState): void {
     this.emit("state", state);
   }
 

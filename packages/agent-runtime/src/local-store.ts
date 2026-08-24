@@ -1,17 +1,8 @@
-/* eslint-disable max-lines */
-
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-  Client,
-  InArgs,
-  InStatement,
-  ResultSet,
-  Transaction,
-  TransactionMode,
-} from "@libsql/client";
+import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import {
@@ -29,9 +20,10 @@ import {
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
+import { z } from "zod";
 
 import type { JsonObject } from "@chief/relay-contracts";
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonString, jsonObjectSchema } from "@chief/relay-contracts";
 
 import type {
   ActionItem,
@@ -54,11 +46,14 @@ import type {
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
+import { allAgentToolPermissions } from "./agent-tool-permissions.js";
+import { availableCapabilities } from "./capabilities/index.js";
 import { CellSqliteStore } from "./cells/sqlite-store.js";
 import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
 import { retryDatabaseWrite } from "./database-write-retry.js";
 import * as schema from "./db/schema.js";
+import { serializeLocalClient } from "./local-store-client.js";
 import {
   diagnosticData,
   diagnosticLevel,
@@ -88,109 +83,64 @@ const RESTART_SESSION_ERROR =
 const RESTART_RETRY_SUMMARY =
   "Chief restarted before this session used any tools. It will continue automatically.";
 
+const channelActionSchema = z.object({
+  type: z.literal("member-added"),
+  actorName: z.string(),
+  actorId: z.string().optional(),
+  actorType: z.enum(["user", "agent"]).optional(),
+  agentIds: z.array(z.string()),
+  userIds: z.array(z.string()).optional(),
+});
+
+const agentMessageMetadataSchema = z.union([
+  z.object({
+    type: z.literal("result"),
+    ok: z.boolean(),
+    costUsd: z.number().optional(),
+    durationMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    code: z.literal("deployment_not_found").optional(),
+  }),
+  z.object({
+    type: z.literal("permissionResolved"),
+    requestId: z.string(),
+    behavior: z.enum(["allow", "deny"]),
+  }),
+  z.object({
+    type: z.literal("channel"),
+    threadRootId: z.string().optional(),
+    mentions: z.array(z.string()).optional(),
+    channelAction: channelActionSchema.optional(),
+  }),
+]);
+
+function parseAgentMessageMetadata(
+  value: JsonObject | undefined,
+): AgentMessageMetadata | undefined {
+  return agentMessageMetadataSchema.safeParse(value).data;
+}
+
+function isAgentCapabilityId(
+  value: string,
+): value is NonNullable<AgentPreference["capabilities"]>[number] {
+  return availableCapabilities.some((capability) => capability.id === value);
+}
+
+function isAgentToolPermission(
+  value: string,
+): value is NonNullable<AgentPreference["toolPermissions"]>[number] {
+  return allAgentToolPermissions.some((permission) => permission === value);
+}
+
 class ScheduleSessionClaimConflict extends Error {}
 
 const moduleDirectory = import.meta.dirname;
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
-
-/**
- * libSQL can overlap an interactive transaction with another operation even
- * when its connection concurrency is one. Hold a process-local queue for the
- * complete lifetime of each transaction so every LocalStore and ChannelStore
- * operation observes one ordered database boundary.
- */
-function serializeLocalClient(client: Client): Client {
-  let tail: Promise<unknown> = Promise.resolve();
-  const enqueue = <T>(operation: () => Promise<T>) => {
-    const result = tail.then(operation, operation);
-    tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
-  function execute(statement: InStatement): Promise<ResultSet>;
-  function execute(sql: string, args?: InArgs): Promise<ResultSet>;
-  function execute(statement: InStatement | string, args?: InArgs) {
-    return enqueue(() =>
-      isJsonString(statement)
-        ? client.execute(statement, args)
-        : client.execute(statement),
-    );
-  }
-  const transaction = (mode?: TransactionMode) => {
-    let release: (() => void) | undefined;
-    const occupied = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const previous = tail;
-    tail = previous.then(
-      () => occupied,
-      () => occupied,
-    );
-    return previous.then(async () => {
-      try {
-        const started = await client.transaction(mode);
-        let released = false;
-        const finish = () => {
-          if (released) return;
-          released = true;
-          release?.();
-        };
-        const wrapped: Transaction = {
-          execute: started.execute.bind(started),
-          batch: started.batch.bind(started),
-          executeMultiple: started.executeMultiple.bind(started),
-          async rollback() {
-            try {
-              await started.rollback();
-            } finally {
-              finish();
-            }
-          },
-          async commit() {
-            try {
-              await started.commit();
-            } finally {
-              finish();
-            }
-          },
-          close() {
-            try {
-              started.close();
-            } finally {
-              finish();
-            }
-          },
-          get closed() {
-            return started.closed;
-          },
-        };
-        return wrapped;
-      } catch (error) {
-        release?.();
-        throw error;
-      }
-    });
-  };
-  return {
-    execute,
-    batch: (statements, mode) => enqueue(() => client.batch(statements, mode)),
-    migrate: (statements) => enqueue(() => client.migrate(statements)),
-    transaction,
-    executeMultiple: (sql) => enqueue(() => client.executeMultiple(sql)),
-    sync: () => enqueue(() => client.sync()),
-    close: () => client.close(),
-    reconnect: () => client.reconnect(),
-    get closed() {
-      return client.closed;
-    },
-    get protocol() {
-      return client.protocol;
-    },
-  };
-}
 
 function defaultDatabasePath() {
   return process.env.CHIEF_DATABASE_PATH ?? CHIEF_DATABASE_PATH;
@@ -255,7 +205,7 @@ export interface LocalMessage<Metadata = AgentMessageMetadata> {
   id: string;
   sessionId: string;
   role: "system" | "user" | "assistant";
-  parts: unknown[];
+  parts: ChiefUIMessage["parts"];
   metadata?: Metadata;
   position: number;
   createdAt: number;
@@ -464,7 +414,7 @@ export class LocalStore {
       threadRootId: run.threadRootId ?? undefined,
       anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      title: run.title ?? undefined,
+      title: run.title,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -487,7 +437,7 @@ export class LocalStore {
       threadRootId: run.threadRootId ?? undefined,
       anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      title: run.title ?? undefined,
+      title: run.title,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -701,10 +651,20 @@ export class LocalStore {
     return updated.rowsAffected > 0;
   }
 
-  async messages<Metadata = AgentMessageMetadata>(
+  async messages(
     workspaceId: string,
     chatId: string,
-  ): Promise<LocalMessage<Metadata>[]> {
+  ): Promise<LocalMessage<AgentMessageMetadata>[]>;
+  async messages<Metadata>(
+    workspaceId: string,
+    chatId: string,
+    parseMetadata: (value: JsonObject | undefined) => Metadata | undefined,
+  ): Promise<LocalMessage<Metadata>[]>;
+  async messages<Metadata>(
+    workspaceId: string,
+    chatId: string,
+    parseMetadata?: (value: JsonObject | undefined) => Metadata | undefined,
+  ) {
     await this.ready;
     const chat = await this.db
       .select({ id: schema.sessions.id })
@@ -728,12 +688,13 @@ export class LocalStore {
       )
       .orderBy(schema.messages.position)
       .all();
+    const metadataParser = parseMetadata ?? parseAgentMessageMetadata;
     return rows.map((message) => ({
       id: message.id,
       sessionId: message.sessionId,
       role: message.role,
       parts: message.parts,
-      metadata: message.metadata as Metadata | undefined,
+      metadata: metadataParser(message.metadata ?? undefined),
       position: message.position,
       createdAt: message.createdAt,
     }));
@@ -749,7 +710,7 @@ export class LocalStore {
       .map((message) => ({
         id: message.id,
         role: message.role,
-        parts: message.parts as ChiefUIMessage["parts"],
+        parts: message.parts,
         metadata: {
           createdAt: message.createdAt,
           ...(message.metadata?.type === "channel"
@@ -807,6 +768,10 @@ export class LocalStore {
           .values(
             messages.map((message) => ({
               ...message,
+              metadata:
+                message.metadata === undefined
+                  ? undefined
+                  : jsonObjectSchema.parse(message.metadata),
               organizationId: workspaceId,
             })),
           )
@@ -2005,7 +1970,7 @@ export class LocalStore {
           transcriptRows.flatMap((row) => {
             const event = agentEvent({
               ...row,
-              metadata: row.metadata as AgentMessageMetadata | undefined,
+              metadata: parseAgentMessageMetadata(row.metadata ?? undefined),
             });
             return event ? [event] : [];
           }),
@@ -2818,11 +2783,11 @@ export class LocalStore {
       driver: preference.driver ?? undefined,
       model: preference.model ?? undefined,
       approvals: preference.approvals ?? undefined,
-      capabilities: preference.capabilities as
-        AgentPreference["capabilities"] | undefined,
+      capabilities: preference.capabilities?.filter(isAgentCapabilityId),
       integrations: preference.integrations ?? undefined,
-      toolPermissions: preference.toolPermissions as
-        AgentPreference["toolPermissions"] | undefined,
+      toolPermissions: preference.toolPermissions?.filter(
+        isAgentToolPermission,
+      ),
     }));
   }
 

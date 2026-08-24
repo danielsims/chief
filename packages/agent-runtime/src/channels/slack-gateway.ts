@@ -57,7 +57,7 @@ export function slackSourceAllowed(
 interface SlackEnvelope {
   envelope_id?: string;
   team_id?: string;
-  ack: (response?: unknown) => Promise<void>;
+  ack: <TResponse>(response?: TResponse) => Promise<void>;
   event?: {
     type?: string;
     subtype?: string;
@@ -167,14 +167,14 @@ export class SlackGateway {
     for (const [chatId] of this.listeners) {
       await this.manager
         .release(this.config.workspaceId, chatId)
-        .catch(() => {});
+        .catch(() => undefined);
     }
     this.listeners.clear();
-    await this.socket?.disconnect().catch(() => {});
+    await this.socket?.disconnect().catch(() => undefined);
     this.socket = null;
   }
 
-  private async dispatch(envelope: SlackEnvelope) {
+  private async dispatch(envelope: SlackEnvelope): Promise<void> {
     const event = envelope.event;
     if (!event?.channel || !event.ts) return;
     const channel = event.channel;

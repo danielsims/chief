@@ -65,16 +65,6 @@ struct AgentDetailView: View {
         }
         .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
 
-        NavigationLink {
-          AgentDeploymentView(agent: agent, config: config)
-        } label: {
-          AgentSettingsDestination(
-            icon: "server.rack",
-            title: "Deployment",
-            detail: "On this iPhone"
-          )
-        }
-        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
       }
     }
     .scrollContentBackground(.hidden)
@@ -347,103 +337,6 @@ private struct AgentPermissionsView: View {
     .background(ChiefTheme.background)
     .navigationTitle("Permissions")
     .navigationBarTitleDisplayMode(.inline)
-  }
-}
-
-private struct AgentDeploymentView: View {
-  @Environment(AppModel.self) private var model
-  let agent: AgentSummary
-  let config: AgentConfig
-
-  @State private var showsCloudflareNotice = false
-
-  var body: some View {
-    List {
-      Section("Runtime") {
-        deploymentOption(
-          icon: "iphone.gen3",
-          title: "Cell",
-          detail: "Runs on this iPhone",
-          selected: true
-        ) {
-          Haptics.selection()
-        }
-
-        deploymentOption(
-          icon: "cloud",
-          title: "Cloudflare",
-          detail: "Hosted dedicated cell",
-          badge: "Soon",
-          selected: false
-        ) {
-          Haptics.medium()
-          showsCloudflareNotice = true
-        }
-      }
-
-      Section("Cell details") {
-        LabeledContent("Agent", value: agent.name)
-        LabeledContent("Model", value: config.model)
-        LabeledContent("Workspace", value: model.workspace?.name ?? "Unavailable")
-      }
-
-      Section {
-        Text("Each agent always remains one isolated cell with its own database, identity, mailbox, and job queue. Changing where it runs will never combine multiple agents into one runtime.")
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
-    .navigationTitle("Deployment")
-    .navigationBarTitleDisplayMode(.inline)
-    .alert("Cloudflare deployment isn’t connected yet", isPresented: $showsCloudflareNotice) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text("Hosted provisioning will appear here once Chief can create and verify a dedicated Cloudflare cell. This agent continues running safely on this iPhone.")
-    }
-  }
-
-  private func deploymentOption(
-    icon: String,
-    title: String,
-    detail: String,
-    badge: String? = nil,
-    selected: Bool,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      HStack(spacing: 12) {
-        Image(systemName: icon)
-          .font(.system(size: 18, weight: .medium))
-          .foregroundStyle(ChiefTheme.secondary)
-          .frame(width: 28)
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 7) {
-            Text(title).font(.system(size: 15, weight: .medium))
-            if let badge {
-              Text(badge)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(ChiefTheme.secondary)
-                .padding(.horizontal, 6)
-                .frame(height: 19)
-                .background(ChiefTheme.elevated, in: Capsule())
-            }
-          }
-          Text(detail)
-            .font(.system(size: 12))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
-        Spacer()
-        if selected {
-          Image(systemName: "checkmark")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(ChiefTheme.accent)
-        }
-      }
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
   }
 }
 

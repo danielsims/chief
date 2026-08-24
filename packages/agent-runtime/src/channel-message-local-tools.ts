@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
 
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
@@ -35,7 +36,6 @@ interface MessageToolResult {
   value?: unknown;
   status?: number;
 }
-
 const THREAD_PREVIEW_LIMIT = 3;
 const THREAD_PREVIEW_LENGTH = 600;
 
@@ -166,7 +166,7 @@ async function searchMessages(
 export async function handleChannelMessageLocalTool(input: {
   request: Request;
   workspaceId: string;
-  body: Record<string, unknown>;
+  body: JsonObject;
   context: ChannelLocalToolContext;
   channel?: WorkspaceChannel;
   tail?: string;

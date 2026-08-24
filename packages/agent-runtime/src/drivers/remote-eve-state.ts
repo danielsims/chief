@@ -1,8 +1,10 @@
 import type { InputRequest, SessionState } from "eve/client";
 
 import {
+  isJsonBoolean,
   isJsonNumber,
   isJsonObject,
+  isJsonString,
   parseJsonValue,
 } from "@chief/relay-contracts";
 
@@ -18,30 +20,41 @@ export interface RemoteDriverState {
   costUsd?: number;
 }
 
-export function savedRemoteDriverState(
-  value: unknown,
+export function savedRemoteDriverState<TState>(
+  value: TState,
   host: string,
 ): RemoteDriverState | undefined {
   if (!value || !isJsonObject(value)) return undefined;
-  const state = value as Partial<RemoteDriverState>;
+  const state = value;
+  const session = state.session;
   if (
     state.version !== 1 ||
     state.host !== host ||
-    !state.session ||
-    !isJsonNumber(state.session.streamIndex)
+    !isJsonObject(session) ||
+    !isJsonNumber(session.streamIndex)
   ) {
     return undefined;
   }
+  const parsedSession: SessionState = {
+    streamIndex: session.streamIndex,
+    continuationToken: isJsonString(session.continuationToken)
+      ? session.continuationToken
+      : undefined,
+    sessionId: isJsonString(session.sessionId) ? session.sessionId : undefined,
+  };
   return {
     version: 1,
     host,
-    session: state.session,
-    inFlight: state.inFlight === true,
-    awaitingInput: state.awaitingInput === true,
-    activeTurnId: state.activeTurnId,
-    pendingRequests: state.pendingRequests,
-    turnStartedAt: state.turnStartedAt,
-    costUsd: state.costUsd,
+    session: parsedSession,
+    inFlight: isJsonBoolean(state.inFlight) && state.inFlight,
+    awaitingInput: isJsonBoolean(state.awaitingInput) && state.awaitingInput,
+    activeTurnId: isJsonString(state.activeTurnId)
+      ? state.activeTurnId
+      : undefined,
+    turnStartedAt: isJsonNumber(state.turnStartedAt)
+      ? state.turnStartedAt
+      : undefined,
+    costUsd: isJsonNumber(state.costUsd) ? state.costUsd : undefined,
   };
 }
 
@@ -52,7 +65,7 @@ interface RemoteAction {
   remoteAgentName?: string;
 }
 
-export function remoteActionName(action: RemoteAction) {
+export function remoteActionName(action: RemoteAction): string {
   const name =
     action.toolName ??
     action.subagentName ??

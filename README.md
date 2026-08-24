@@ -41,7 +41,6 @@ Agents can use focused playbooks, connected services, and general workspace tool
 | -------------------------------------------------------------- | --------------------------------------------------------------------- |
 | [`apps/desktop`](./apps/desktop/README.md)                     | Tauri desktop app and React interface.                                |
 | [`apps/web`](./apps/web/README.md)                             | Marketing site, authentication, and desktop auth bridge.              |
-| [`apps/workspace`](./apps/workspace/README.md)                 | Eve workspace used to build and run deployable agents.                |
 | [`packages/agent-runtime`](./packages/agent-runtime/README.md) | Local Node runtime, scheduling, tools, channels, and agent execution. |
 | [`packages/email`](./packages/email/README.md)                 | React Email templates and Cloudflare Email Service transport.         |
 | [`packages/ui`](./packages/ui/README.md)                       | Shared components, typography, and design tokens.                     |

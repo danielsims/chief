@@ -1,4 +1,13 @@
+import type { z } from "zod";
+
 import type { BrowserCredentialSetupRecipe } from "./integration-setup-recipes.js";
+import {
+  connectionListSchema,
+  emptyResponseSchema,
+  integrationListSchema,
+  policySchema,
+  toolListSchema,
+} from "./tools/executor-api-schemas.js";
 
 interface Manifest {
   connection: {
@@ -21,27 +30,16 @@ interface Integration {
   }[];
 }
 
-interface Connection {
-  integration: string;
-  name: string;
-  owner: "org" | "user";
-}
-
 interface Tool {
   address: string;
   name: string;
   requiresApproval?: boolean | null;
 }
 
-interface Policy {
-  owner: "org" | "user";
-  pattern: string;
-  action: "approve" | "require_approval" | "block";
-}
-
-type Request = <T = unknown>(
+type Request = <T>(
   manifest: Manifest,
   path: string,
+  schema: z.ZodType<T>,
   init?: RequestInit,
 ) => Promise<T>;
 
@@ -86,7 +84,7 @@ export async function configureReadOnlyConnectionPolicies(
   tools: Tool[],
   request: Request,
 ) {
-  const policies = await request<Policy[]>(manifest, "/policies");
+  const policies = await request(manifest, "/policies", policySchema.array());
   for (const tool of tools.filter((candidate) => candidate.requiresApproval)) {
     const pattern = tool.address.replace(/^tools\./, "");
     if (
@@ -100,7 +98,7 @@ export async function configureReadOnlyConnectionPolicies(
         (policy) => policy.owner === "org" && policy.pattern === pattern,
       )
     ) {
-      await request(manifest, "/policies", {
+      await request(manifest, "/policies", emptyResponseSchema, {
         method: "POST",
         body: JSON.stringify({ owner: "org", pattern, action: "approve" }),
       });
@@ -115,17 +113,23 @@ export async function configureBrowserCredentialIntegration(
 ) {
   const key = `${manifest.connection.apiBaseUrl}\0${recipe.id}`;
   if (prepared.has(key)) return;
-  const integrations = await request<Integration[]>(manifest, "/integrations");
+  const integrations = await request(
+    manifest,
+    "/integrations",
+    integrationListSchema,
+  );
   const spec = { kind: "url", url: recipe.integration.specUrl };
   if (integrations.some((item) => item.slug === recipe.integration.slug)) {
     await request(
       manifest,
       `/openapi/integrations/${recipe.integration.slug}/spec`,
+      emptyResponseSchema,
       { method: "POST", body: JSON.stringify({ spec }) },
     );
     await request(
       manifest,
       `/openapi/integrations/${recipe.integration.slug}/config`,
+      emptyResponseSchema,
       {
         method: "POST",
         body: JSON.stringify({
@@ -136,7 +140,7 @@ export async function configureBrowserCredentialIntegration(
       },
     );
   } else {
-    await request(manifest, "/openapi/specs", {
+    await request(manifest, "/openapi/specs", emptyResponseSchema, {
       method: "POST",
       body: JSON.stringify({
         spec,
@@ -158,8 +162,8 @@ export async function configureIntegrationSetupPolicies(
   policyMatches: (pattern: string, tool: string) => boolean,
 ) {
   const [tools, policies] = await Promise.all([
-    request<Tool[]>(manifest, "/tools?includeAnnotations=true"),
-    request<Policy[]>(manifest, "/policies"),
+    request(manifest, "/tools?includeAnnotations=true", toolListSchema),
+    request(manifest, "/policies", policySchema.array()),
   ]);
   for (const tool of tools) {
     const pattern = tool.address.replace(/^tools\./, "");
@@ -178,7 +182,7 @@ export async function configureIntegrationSetupPolicies(
     ) {
       continue;
     }
-    await request(manifest, "/policies", {
+    await request(manifest, "/policies", emptyResponseSchema, {
       method: "POST",
       body: JSON.stringify({ owner: "org", pattern, action: "approve" }),
     });
@@ -201,7 +205,11 @@ export async function storeBrowserGeneratedCredential(
   input: { domain: string; integrationSlug: string; credential: string },
   request: Request,
 ) {
-  const integrations = await request<Integration[]>(manifest, "/integrations");
+  const integrations = await request(
+    manifest,
+    "/integrations",
+    integrationListSchema,
+  );
   const integration = integrations.find(
     (candidate) => candidate.slug === input.integrationSlug,
   );
@@ -227,9 +235,10 @@ export async function storeBrowserGeneratedCredential(
     );
   }
   const connectionName = "chief";
-  const connections = await request<Connection[]>(
+  const connections = await request(
     manifest,
     `/connections?integration=${encodeURIComponent(integration.slug)}&owner=org`,
+    connectionListSchema,
   );
   if (
     connections.some(
@@ -242,10 +251,11 @@ export async function storeBrowserGeneratedCredential(
     await request(
       manifest,
       `/connections/org/${encodeURIComponent(integration.slug)}/${connectionName}`,
+      emptyResponseSchema,
       { method: "DELETE" },
     );
   }
-  await request(manifest, "/connections", {
+  await request(manifest, "/connections", emptyResponseSchema, {
     method: "POST",
     body: JSON.stringify({
       owner: "org",

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { isJsonObject } from "@chief/relay-contracts";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type {
   ProjectCheckoutRecord,
@@ -86,18 +86,20 @@ export function assertRemoteUrl(value: string) {
   return trimmed;
 }
 
-function gitError(error: unknown) {
+function textGitError(error: unknown) {
   if (!error || !isJsonObject(error)) return String(error);
-  const record = error as {
-    stderr?: string;
-    stdout?: string;
-    message?: string;
-  };
+  const record = error;
   return redactUrlCredentials(
-    [record.stderr?.trim(), record.stdout?.trim(), record.message].find(
-      (value) => Boolean(value),
-    ) ?? "Git could not complete the operation.",
+    [record.stderr, record.stdout, record.message]
+      .filter(isJsonString)
+      .map((value) => value.trim())
+      .find(Boolean) ?? "Git could not complete the operation.",
   );
+}
+
+function parseExitCode(value: string | number | null | undefined) {
+  const code = Number(value);
+  return Number.isInteger(code) ? code : undefined;
 }
 
 export async function git(
@@ -115,7 +117,7 @@ export async function git(
     });
     return result.stdout.trim();
   } catch (error) {
-    throw new Error(gitError(error));
+    throw new Error(textGitError(error));
   }
 }
 
@@ -140,7 +142,7 @@ export async function gitBuffer(
         if (error) {
           reject(
             new Error(
-              gitError({
+              textGitError({
                 message: error.message,
                 stderr: stderr.toString("utf8"),
               }),
@@ -149,6 +151,47 @@ export async function gitBuffer(
           return;
         }
         resolve(stdout);
+      },
+    );
+  });
+}
+
+export async function gitExitCode(
+  args: string[],
+  cwd: string,
+  timeout = GIT_TIMEOUT_MS,
+) {
+  const command = await gitCommand(args);
+  return new Promise<number>((resolve, reject) => {
+    execFile(
+      "git",
+      command,
+      {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+        maxBuffer: GIT_OUTPUT_LIMIT,
+        timeout,
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(0);
+          return;
+        }
+        const exitCode = parseExitCode(error.code);
+        if (exitCode !== undefined) {
+          resolve(exitCode);
+          return;
+        }
+        reject(
+          new Error(
+            textGitError({
+              message: error.message,
+              stderr,
+              stdout,
+            }),
+          ),
+        );
       },
     );
   });

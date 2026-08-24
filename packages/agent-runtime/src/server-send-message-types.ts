@@ -10,7 +10,7 @@ export interface HandleSendMessageOptions {
   authorizeWorkspace: (
     workspaceId: string,
     capability: Message["executorCapability"],
-  ) => Promise<unknown>;
+  ) => Promise<void>;
   bindRootSession: (
     workspaceId: string,
     chatId: string,

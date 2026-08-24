@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { LocalChatRecord } from "./local-store.js";
 import type {
   AgentToolPermission,
   DriverType,
@@ -20,7 +21,7 @@ export interface MissionControlHeartbeatManager {
     title: string,
     provider?: DriverType,
     model?: string,
-  ): Promise<unknown>;
+  ): Promise<RootChatCreation>;
   recurringWorkByOperationKey(
     workspaceId: string,
     operationKey: string,
@@ -28,7 +29,7 @@ export interface MissionControlHeartbeatManager {
   saveRecurringWork(
     workspaceId: string,
     work: RecurringWorkRecord,
-  ): Promise<unknown>;
+  ): Promise<void>;
   store: {
     channelStore(): {
       get(
@@ -46,6 +47,8 @@ export interface MissionControlHeartbeatManager {
     };
   };
 }
+
+type RootChatCreation = LocalChatRecord | null | void;
 
 export const MISSION_CONTROL_HEARTBEAT_OPERATION_KEY =
   "chief-mission-control-heartbeat";

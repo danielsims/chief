@@ -42,6 +42,26 @@ interface Bootstrap {
   run: Promise<string>;
 }
 
+function onboardingReadyPromise() {
+  const handlers = {
+    resolve: (_chatId: string): void => {
+      throw new Error(
+        "Onboarding readiness was resolved before initialization.",
+      );
+    },
+    reject: (_error: Error): void => {
+      throw new Error(
+        "Onboarding readiness was rejected before initialization.",
+      );
+    },
+  };
+  const promise = new Promise<string>((resolve, reject) => {
+    handlers.resolve = resolve;
+    handlers.reject = reject;
+  });
+  return { promise, handlers };
+}
+
 export async function handleBootstrapOnboardingWork({
   authorizeWorkspace,
   bindRootSession,
@@ -56,7 +76,7 @@ export async function handleBootstrapOnboardingWork({
   authorizeWorkspace: (
     workspaceId: string,
     capability: Message["executorCapability"],
-  ) => Promise<unknown>;
+  ) => Promise<void>;
   bindRootSession: (
     workspaceId: string,
     chatId: string,
@@ -89,12 +109,10 @@ export async function handleBootstrapOnboardingWork({
   }
   let bootstrap = activeBootstrap;
   if (!bootstrap) {
-    let resolveReady!: (chatId: string) => void;
-    let rejectReady!: (error: unknown) => void;
-    const ready = new Promise<string>((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
-    });
+    const readiness = onboardingReadyPromise();
+    const ready = readiness.promise;
+    const resolveReady = readiness.handlers.resolve;
+    const rejectReady = readiness.handlers.reject;
     const preparedRun = (async () => {
       console.log(
         `[chief] preparing onboarding in the mission channel for ${msg.workspaceId}`,
@@ -431,7 +449,8 @@ export async function handleBootstrapOnboardingWork({
       await broadcastWorkspaceData(msg.workspaceId);
       return chatId;
     })();
-    const run = preparedRun.catch((error: unknown) => {
+    const run = preparedRun.catch((cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
       rejectReady(error);
       throw error;
     });

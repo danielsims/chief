@@ -202,16 +202,20 @@ export function browserThreadRoot(
  * schedule without re-authenticating), or to "none" to force isolation when an
  * environment sets the variable globally.
  */
-export function integrationBrowserProfile(setting?: string) {
+export type IntegrationBrowserProfile = string | undefined;
+
+export function integrationBrowserProfile(
+  setting?: string,
+): IntegrationBrowserProfile {
   const configured = setting?.trim();
   if (!configured || configured === "none") return undefined;
   return configured;
 }
 
 interface ManagedBrowserSession {
-  close(): Promise<unknown>;
-  clearSavedState(): Promise<unknown>;
-  setViewport(width: number, height: number): Promise<unknown>;
+  close(): Promise<void>;
+  clearSavedState(): Promise<void>;
+  setViewport(width: number, height: number): Promise<void>;
 }
 
 export class BrowserSessionRegistry<

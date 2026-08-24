@@ -1,12 +1,38 @@
 import type { GoogleOAuthClientIdentity } from "./types.js";
 import { createGoogleDesktopOAuthIdentity } from "./credentials.js";
 
+type BrowserBoundaryValue =
+  | boolean
+  | BrowserBoundaryRecord
+  | BrowserBoundaryValue[]
+  | null
+  | number
+  | string;
+
+interface BrowserBoundaryRecord {
+  readonly [key: string]: BrowserBoundaryValue;
+}
+
 export interface GoogleOAuthCaptureBrowser {
-  click(labels: string[]): Promise<unknown>;
-  evaluate<T>(expression: string): Promise<T>;
+  click(labels: string[]): Promise<boolean | void>;
+  evaluate(expression: string): Promise<BrowserBoundaryValue>;
   getUrl(): Promise<string>;
-  open(url: string): Promise<unknown>;
-  waitForFunction(expression: string, timeout?: number): Promise<unknown>;
+  open(url: string): Promise<BrowserOpenResult | void>;
+  waitForFunction(expression: string, timeout?: number): Promise<void>;
+}
+
+interface BrowserOpenResult {
+  connected: boolean;
+  enabled: boolean;
+  port: number;
+  screencasting: boolean;
+  url: string;
+}
+
+function parseGoogleOAuthText(value: BrowserBoundaryValue): string | undefined {
+  if (value instanceof Object) return undefined;
+  const text = String(value);
+  return text === value ? text : undefined;
 }
 
 const CLIENT_ID_EXPRESSION = `(() => {
@@ -58,8 +84,8 @@ export async function captureGoogleDesktopOAuthClient(
       "Open the newly created Google OAuth client before capturing it.",
     );
   }
-  const modalClientId = await browser.evaluate<string | null>(
-    CLIENT_ID_EXPRESSION,
+  const modalClientId = parseGoogleOAuthText(
+    await browser.evaluate(CLIENT_ID_EXPRESSION),
   );
   const pathValue = /^\/auth\/clients\/([^/]+)\/?$/.exec(
     currentUrl.pathname,
@@ -84,14 +110,14 @@ export async function captureGoogleDesktopOAuthClient(
   if (!pathClientId) await browser.open(detailsUrl.toString());
 
   await browser.waitForFunction(INFORMATION_READY_EXPRESSION, 15_000);
-  let clientSecret = await browser.evaluate<string | null>(
-    CLIENT_SECRET_EXPRESSION,
+  let clientSecret = parseGoogleOAuthText(
+    await browser.evaluate(CLIENT_SECRET_EXPRESSION),
   );
   if (!clientSecret) {
     await browser.click(["Information and summary"]);
     await browser.waitForFunction(SUMMARY_READY_EXPRESSION, 15_000);
-    clientSecret = await browser.evaluate<string | null>(
-      CLIENT_SECRET_EXPRESSION,
+    clientSecret = parseGoogleOAuthText(
+      await browser.evaluate(CLIENT_SECRET_EXPRESSION),
     );
   }
   if (!clientSecret) {
@@ -101,8 +127,8 @@ export async function captureGoogleDesktopOAuthClient(
       "Add secret",
     ]);
     await browser.waitForFunction(CLIENT_SECRET_READY_EXPRESSION, 15_000);
-    clientSecret = await browser.evaluate<string | null>(
-      CLIENT_SECRET_EXPRESSION,
+    clientSecret = parseGoogleOAuthText(
+      await browser.evaluate(CLIENT_SECRET_EXPRESSION),
     );
   }
   return createGoogleDesktopOAuthIdentity({

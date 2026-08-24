@@ -43,7 +43,11 @@ import {
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 type Message = Extract<ClientMessage, { type: "openChat" }>;
-const DRIVER_TYPES = new Set<DriverType>(["codex", "opencode", "remote"]);
+const DRIVER_TYPES = ["codex", "opencode", "remote"] as const;
+
+function isDriverType(value: string): value is DriverType {
+  return DRIVER_TYPES.some((driver) => driver === value);
+}
 
 /** Opening a timeline reuses non-interactive work instead of taking its lane. */
 export interface LiveSessionState {
@@ -96,7 +100,7 @@ export async function handleOpenChat({
   authorizeWorkspace: (
     workspaceId: string,
     capability: Message["executorCapability"],
-  ) => Promise<unknown>;
+  ) => Promise<void>;
   bindRootSession: (
     workspaceId: string,
     chatId: string,
@@ -209,7 +213,7 @@ export async function handleOpenChat({
       integrationSetups.remove(msg.workspaceId, msg.chatId);
     }
   }
-  if (!storedChat || !DRIVER_TYPES.has(storedChat.provider as DriverType)) {
+  if (!storedChat || !isDriverType(storedChat.provider)) {
     throw new Error("This chat has an unsupported agent app.");
   }
   // Timeline reads are local and must not wait for provider, Executor, or
@@ -235,9 +239,7 @@ export async function handleOpenChat({
     );
   }
   const driver =
-    requestedExecution?.driver ??
-    preference?.driver ??
-    (storedChat.provider as DriverType);
+    requestedExecution?.driver ?? preference?.driver ?? storedChat.provider;
   const model = requestedExecution
     ? requestedExecution.model
     : (preference?.model ?? storedChat.model);

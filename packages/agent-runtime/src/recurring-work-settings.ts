@@ -11,12 +11,12 @@ export interface RecurringWorkSettingsManager {
   saveRecurringWork(
     workspaceId: string,
     work: RecurringWorkRecord,
-  ): Promise<unknown>;
+  ): Promise<void>;
   setScheduleWebhookSecretHash(
     workspaceId: string,
     workId: string,
     hash: string | undefined,
-  ): Promise<unknown>;
+  ): Promise<void>;
 }
 
 /** Applies user-editable schedule fields without widening the approved grant. */

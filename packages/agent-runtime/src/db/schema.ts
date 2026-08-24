@@ -22,6 +22,7 @@ import type {
   ActionResolution,
   AnalyticsDataset,
   ChannelActor,
+  ChiefUIMessage,
   InputRequest,
   SessionArtifact,
 } from "../types.js";
@@ -86,7 +87,7 @@ export const channelAudit = sqliteTable(
     channelId: text("channel_id").notNull(),
     action: text().$type<ChannelAuditAction>().notNull(),
     actor: text({ mode: "json" }).$type<ChannelActorIdentity>().notNull(),
-    detail: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    detail: text({ mode: "json" }).$type<JsonObject>().notNull(),
     sequence: integer().notNull().default(1),
     previousHash: text("previous_hash"),
     hash: text(),
@@ -202,8 +203,8 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     role: text({ enum: ["system", "user", "assistant"] }).notNull(),
-    parts: text({ mode: "json" }).$type<unknown[]>().notNull(),
-    metadata: text({ mode: "json" }).$type<unknown>(),
+    parts: text({ mode: "json" }).$type<ChiefUIMessage["parts"]>().notNull(),
+    metadata: text({ mode: "json" }).$type<JsonObject>(),
     position: integer().notNull(),
     createdAt: integer("created_at").notNull(),
   },

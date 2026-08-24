@@ -4,7 +4,12 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 import type * as schema from "./db/schema.js";
 import type {
@@ -47,16 +52,21 @@ function redactString(value: string) {
     .replace(STRING_SECRET_ASSIGNMENT, "$1[REDACTED]");
 }
 
-function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
+function redactSecrets<TValue>(
+  value: TValue,
+  seen = new WeakSet<object>(),
+): JsonValue {
   const bigint = bigintSchema.safeParse(value);
   if (bigint.success) return bigint.data.toString();
   if (isJsonString(value)) return redactString(value);
-  if (!value || !isJsonObject(value)) return value;
-  if (seen.has(value)) return "[CIRCULAR]";
-  seen.add(value);
   if (Array.isArray(value)) {
     return value.map((item) => redactSecrets(item, seen));
   }
+  if (!value || !isJsonObject(value)) {
+    return parseJsonValue(value) ?? String(value);
+  }
+  if (seen.has(value)) return "[CIRCULAR]";
+  seen.add(value);
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
@@ -65,7 +75,7 @@ function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
   );
 }
 
-function diagnosticData(event: AgentEvent) {
+function diagnosticData(event: AgentEvent): JsonValue {
   const redacted = redactSecrets(event);
   const bytes = Buffer.byteLength(JSON.stringify(redacted), "utf8");
   return bytes <= MAX_DIAGNOSTIC_EVENT_BYTES
