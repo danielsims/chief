@@ -23,7 +23,9 @@ struct AppRootView: View {
 
   var body: some View {
     Group {
-      if model.isSwitchingWorkspace {
+      if model.isSwitchingWorkspace
+        || (model.phase == .workspace && !model.isWorkspaceReadyForPresentation)
+      {
         LaunchView()
       } else {
         switch model.phase {
