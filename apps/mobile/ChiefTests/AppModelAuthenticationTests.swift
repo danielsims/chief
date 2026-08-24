@@ -17,9 +17,12 @@ final class AppModelAuthenticationTests: XCTestCase {
     model.completeSignIn(.fixture)
     await model.hydrateWorkspace()
 
-    XCTAssertEqual(model.session?.accessToken, "fixture-account-token")
+    XCTAssertEqual(model.session?.accessToken, ChiefSession.fixture.accessToken)
     XCTAssertEqual(model.phase, .onboarding)
-    XCTAssertEqual(try? sessions.load()?.accessToken, "fixture-account-token")
+    XCTAssertEqual(
+      try? sessions.load()?.accessToken,
+      ChiefSession.fixture.accessToken
+    )
   }
 
   func testUnauthorizedRelayPreservesStoredAccountSession() async throws {
@@ -34,9 +37,12 @@ final class AppModelAuthenticationTests: XCTestCase {
 
     await model.start()
 
-    XCTAssertEqual(model.session?.accessToken, "fixture-account-token")
+    XCTAssertEqual(model.session?.accessToken, ChiefSession.fixture.accessToken)
     XCTAssertEqual(model.phase, .onboarding)
-    XCTAssertEqual(try sessions.load()?.accessToken, "fixture-account-token")
+    XCTAssertEqual(
+      try sessions.load()?.accessToken,
+      ChiefSession.fixture.accessToken
+    )
   }
 
   func testSignInKeepsLaunchSurfaceUntilWorkspaceHydrationResolves() {
