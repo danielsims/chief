@@ -11,7 +11,15 @@ let tokenPromise: Promise<string> | null = null;
 type PluginHostRequest =
   | { workspaceId: string; refresh: boolean }
   | { workspaceId: string; pluginId: string; trusted: boolean }
-  | { workspaceId: string; pluginId: string };
+  | {
+      workspaceId: string;
+      pluginId: string;
+      oauthClient?: {
+        serverName: string;
+        clientId: string;
+        clientSecret?: string;
+      };
+    };
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) =>

@@ -78,15 +78,36 @@ const pluginSnapshotSchema = z.object({
   warning: z.string().optional(),
 });
 
-const pluginAuthorizationActionSchema = z.object({
-  kind: z.literal("plugin_authorization"),
+const pluginAuthorizationActionBaseSchema = z.object({
   pluginId: z.string(),
   pluginName: z.string(),
   description: z.string(),
   provider: z.string(),
-  authorizationUrl: z.string(),
-  status: z.literal("authorization_required"),
 });
+
+const pluginOAuthUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" ||
+    (url.protocol === "http:" &&
+      ["127.0.0.1", "localhost"].includes(url.hostname))
+  );
+});
+
+const pluginAuthorizationActionSchema = z.union([
+  pluginAuthorizationActionBaseSchema.extend({
+    kind: z.literal("plugin_authorization"),
+    authorizationUrl: pluginOAuthUrlSchema,
+    status: z.literal("authorization_required"),
+  }),
+  pluginAuthorizationActionBaseSchema.extend({
+    kind: z.literal("plugin_oauth_client"),
+    serverName: z.string(),
+    callbackUrl: pluginOAuthUrlSchema,
+    setupUrl: pluginOAuthUrlSchema.optional(),
+    status: z.literal("client_configuration_required"),
+  }),
+]);
 
 const connectedPluginActionSchema = z.object({
   pluginId: z.string(),
@@ -178,6 +199,7 @@ export async function routeRelayWorkspaceDataCommand(
       const response = await requestDesktopPluginHost("/plugins/authorize", {
         workspaceId: context.snapshot.id,
         pluginId: message.pluginId,
+        oauthClient: message.oauthClient,
       });
       const action = pluginAuthorizationAction(response);
       const snapshot = pluginSnapshot(response);

@@ -264,9 +264,20 @@ const clientMessageWireSchema = z.union([
   }),
   workspaceMessage("deleteWorkspaceEnvironmentVariable", { key: z.string() }),
   workspaceMessage("listPlugins", { refresh: z.boolean().optional() }),
-  ...["installPlugin", "authorizePlugin", "uninstallPlugin"].map((type) =>
+  ...["installPlugin", "uninstallPlugin"].map((type) =>
     workspaceMessage(type, { pluginId: z.string(), requestId: z.string() }),
   ),
+  workspaceMessage("authorizePlugin", {
+    pluginId: z.string(),
+    requestId: z.string(),
+    oauthClient: z
+      .object({
+        serverName: z.string().min(1),
+        clientId: z.string().min(1),
+        clientSecret: z.string().min(1).optional(),
+      })
+      .optional(),
+  }),
   workspaceMessage("disconnectGoogleAnalytics", { requestId: z.string() }),
   workspaceMessage("saveSlackChannel", {
     settings: recordSchema,

@@ -61,32 +61,68 @@ export function pluginAuthorizationFromResult(
   const value = structuredToolResult(result);
   if (
     !object(value) ||
-    value.kind !== "plugin_authorization" ||
-    value.status !== "authorization_required" ||
     !isJsonString(value.pluginId) ||
     !isJsonString(value.pluginName) ||
     !isJsonString(value.description) ||
-    !isJsonString(value.provider) ||
-    !isJsonString(value.authorizationUrl)
+    !isJsonString(value.provider)
   ) {
     return undefined;
   }
-  try {
-    const url = new URL(value.authorizationUrl);
-    if (url.protocol !== "https:" && url.hostname !== "127.0.0.1")
-      return undefined;
-  } catch {
+  if (
+    value.kind === "plugin_oauth_client" &&
+    value.status === "client_configuration_required" &&
+    isJsonString(value.serverName) &&
+    isJsonString(value.callbackUrl) &&
+    (value.setupUrl === undefined || isJsonString(value.setupUrl)) &&
+    safeUrl(value.callbackUrl) &&
+    (value.setupUrl === undefined || safeUrl(value.setupUrl))
+  ) {
+    const action: Extract<
+      PluginAuthorizationAction,
+      { kind: "plugin_oauth_client" }
+    > = {
+      kind: value.kind,
+      status: value.status,
+      pluginId: value.pluginId,
+      pluginName: value.pluginName,
+      description: value.description,
+      provider: value.provider,
+      serverName: value.serverName,
+      callbackUrl: value.callbackUrl,
+    };
+    if (value.setupUrl) action.setupUrl = value.setupUrl;
+    return action;
+  }
+  if (
+    value.kind !== "plugin_authorization" ||
+    value.status !== "authorization_required" ||
+    !isJsonString(value.authorizationUrl) ||
+    !safeUrl(value.authorizationUrl)
+  ) {
     return undefined;
   }
   return {
-    kind: "plugin_authorization",
-    status: "authorization_required",
+    kind: value.kind,
+    status: value.status,
     pluginId: value.pluginId,
     pluginName: value.pluginName,
     description: value.description,
     provider: value.provider,
     authorizationUrl: value.authorizationUrl,
   };
+}
+
+function safeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["127.0.0.1", "localhost"].includes(url.hostname))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function pluginListFromResult(

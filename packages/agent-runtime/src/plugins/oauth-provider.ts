@@ -207,6 +207,16 @@ export function oauthConnectionStatus(
     : "authorization_required";
 }
 
+export function requiresConfiguredOAuthClient(
+  session: StoredOAuthSession,
+): boolean {
+  return Boolean(
+    !session.clientInformation &&
+    session.discovery?.authorizationServerMetadata &&
+    !session.discovery.authorizationServerMetadata.registration_endpoint,
+  );
+}
+
 export class ChiefOAuthProvider implements OAuthClientProvider {
   private authorizationUrl?: URL;
 

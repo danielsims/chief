@@ -49,12 +49,23 @@ export interface AgentPluginSummary extends AgentPluginCatalogEntry {
   diagnostics?: string[];
 }
 
-export interface PluginAuthorizationAction {
-  kind: "plugin_authorization";
+interface PluginAuthorizationActionBase {
   pluginId: string;
   pluginName: string;
   description: string;
   provider: string;
-  authorizationUrl: string;
-  status: "authorization_required";
 }
+
+export type PluginAuthorizationAction =
+  | (PluginAuthorizationActionBase & {
+      kind: "plugin_authorization";
+      authorizationUrl: string;
+      status: "authorization_required";
+    })
+  | (PluginAuthorizationActionBase & {
+      kind: "plugin_oauth_client";
+      serverName: string;
+      callbackUrl: string;
+      setupUrl?: string;
+      status: "client_configuration_required";
+    });

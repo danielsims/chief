@@ -58,3 +58,27 @@ void test("rejects malformed client messages", () => {
     undefined,
   );
 });
+
+void test("parses configured OAuth clients at the authorization boundary", () => {
+  const message = parseClientMessage(
+    JSON.stringify({
+      type: "authorizePlugin",
+      workspaceId: "workspace-1",
+      pluginId: "analytics",
+      requestId: "request-1",
+      oauthClient: {
+        serverName: "analytics-mcp",
+        clientId: "oauth-client-id",
+        clientSecret: "oauth-client-secret",
+      },
+      executorCapability,
+    }),
+  );
+
+  assert.equal(
+    message?.type === "authorizePlugin"
+      ? message.oauthClient?.clientId
+      : undefined,
+    "oauth-client-id",
+  );
+});
