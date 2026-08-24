@@ -6,7 +6,6 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm lint && pnpm typecheck && pnpm format:fix",
-    "check:node": "node apps/workspace/scripts/assert-node-version.mjs .nvmrc",
     "check:staged": "lint-staged --concurrent false && pnpm lint:source-size && pnpm typecheck",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
@@ -18,7 +17,7 @@
     "executor:image": "docker build --file apps/executor/Dockerfile --tag chief-executor:dev .",
     "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
     "format:fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
-    "lint": "pnpm oxlint . && lint:source-size",
+    "lint": "pnpm oxlint . && pnpm lint:source-size",
     "lint:source-size": "node tooling/scripts/check-source-file-length.mjs",
     "lint:fix": "oxlint . --fix",
     "mobile:build": "pnpm mobile:generate && xcodebuild -project apps/mobile/ChiefMobile.xcodeproj -scheme Chief -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO",

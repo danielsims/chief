@@ -31,7 +31,6 @@ export const chiefOxlintConfig: OxlintConfig = {
     },
     {
       files: typescriptFiles,
-      excludeFiles: ["apps/workspace/**"],
       rules: {
         "no-undef": "off",
         ...typescriptRules,
@@ -76,30 +75,6 @@ export const chiefOxlintConfig: OxlintConfig = {
       files: ["apps/relay/test/**/*.ts"],
       rules: relayTestRules,
     },
-    {
-      files: ["apps/workspace/**/*.{js,mjs,ts}"],
-      rules: {
-        "max-lines": ["error", { max: 500 }],
-        "no-undef": "off",
-        "typescript/ban-ts-comment": "error",
-        "typescript/no-duplicate-enum-values": "error",
-        "typescript/no-empty-object-type": "error",
-        "typescript/no-explicit-any": "error",
-        "typescript/no-extra-non-null-assertion": "error",
-        "typescript/no-misused-new": "error",
-        "typescript/no-namespace": "error",
-        "typescript/no-non-null-asserted-optional-chain": "error",
-        "typescript/no-require-imports": "error",
-        "typescript/no-this-alias": "error",
-        "typescript/no-unnecessary-type-constraint": "error",
-        "typescript/no-unsafe-declaration-merging": "error",
-        "typescript/no-unsafe-function-type": "error",
-        "typescript/no-wrapper-object-types": "error",
-        "typescript/prefer-as-const": "error",
-        "typescript/prefer-namespace-keyword": "error",
-        "typescript/triple-slash-reference": "error",
-      },
-    },
   ],
 };
 
@@ -121,8 +96,6 @@ export const chiefIgnorePatterns = [
   "apps/relay/.wrangler/**",
   "apps/relay/worker-configuration.d.ts",
   "apps/web/next-env.d.ts",
-  "apps/workspace/.eve/**",
-  "apps/workspace/.workflow-data/**",
   "packages/agent-runtime/scripts/**",
 ];
 

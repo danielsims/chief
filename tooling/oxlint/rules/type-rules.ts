@@ -120,9 +120,70 @@ function annotationRole(
 
 export const noUnknownParameters = defineRule({
   create(context) {
+    function isPromiseRejectionParameter(node: ESTree.TSUnknownKeyword) {
+      let candidate: ESTree.Node | null = node.parent;
+      for (let depth = 0; candidate !== null && depth < 6; depth += 1) {
+        if (
+          candidate.type === "CallExpression" &&
+          candidate.callee.type === "MemberExpression" &&
+          !candidate.callee.computed &&
+          candidate.callee.property.type === "Identifier" &&
+          candidate.callee.property.name === "catch"
+        ) {
+          return true;
+        }
+        candidate = candidate.parent;
+      }
+      return false;
+    }
+
+    function isTypeGuardParameter(node: ESTree.TSUnknownKeyword) {
+      let candidate: ESTree.Node | null = node.parent;
+      for (let depth = 0; candidate !== null && depth < 4; depth += 1) {
+        if (!isFunctionNode(candidate)) {
+          candidate = candidate.parent;
+          continue;
+        }
+        return (
+          "returnType" in candidate &&
+          candidate.returnType?.typeAnnotation.type === "TSTypePredicate"
+        );
+      }
+      return false;
+    }
+
+    function isBoundaryParserParameter(node: ESTree.TSUnknownKeyword) {
+      let candidate: ESTree.Node | null = node.parent;
+      for (let depth = 0; candidate !== null && depth < 5; depth += 1) {
+        if (!isFunctionNode(candidate)) {
+          candidate = candidate.parent;
+          continue;
+        }
+        const parent = candidate.parent;
+        const name =
+          candidate.type === "FunctionDeclaration"
+            ? candidate.id?.name
+            : parent?.type === "VariableDeclarator" &&
+                parent.id.type === "Identifier"
+              ? parent.id.name
+              : undefined;
+        return /^(is|has|parse|validate|record|text|string|object)/.test(
+          name ?? "",
+        );
+      }
+      return false;
+    }
+
     return {
       TSUnknownKeyword(node) {
-        if (annotationRole(node) !== "parameter") return;
+        if (
+          annotationRole(node) !== "parameter" ||
+          isPromiseRejectionParameter(node) ||
+          isTypeGuardParameter(node) ||
+          isBoundaryParserParameter(node)
+        ) {
+          return;
+        }
         context.report({
           node,
           message:
