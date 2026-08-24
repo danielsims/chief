@@ -1,18 +1,22 @@
+import { z } from "zod";
+
 import { env } from "./env";
 
 const REPOSITORY = "danielsims/chief";
 
-export interface GitHubAsset {
-  id: number;
-  name: string;
-}
+const githubReleaseSchema = z.object({
+  tag_name: z.string(),
+  body: z.string().nullable(),
+  published_at: z.string(),
+  assets: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+    }),
+  ),
+});
 
-export interface GitHubRelease {
-  tag_name: string;
-  body: string | null;
-  published_at: string;
-  assets: GitHubAsset[];
-}
+export type GitHubRelease = z.infer<typeof githubReleaseSchema>;
 
 export function githubHeaders(accept: string) {
   return {
@@ -34,7 +38,9 @@ export async function getLatestRelease(): Promise<GitHubRelease | null> {
   );
 
   if (!response.ok) return null;
-  return (await response.json()) as GitHubRelease;
+
+  const release = githubReleaseSchema.safeParse(await response.json());
+  return release.success ? release.data : null;
 }
 
 export async function getReleaseAssetDownloadUrl(

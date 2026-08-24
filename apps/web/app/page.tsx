@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { LandingPlaybook } from "./team-playbooks";
 import { HeroWorkspace } from "./hero-workspace";
 import {
@@ -141,9 +143,9 @@ export default function Home() {
               agents researches, builds, writes and keeps recurring work moving,
               then brings the useful results and real decisions back to you.
             </p>
-            <a className="button button-primary" href="/download">
+            <Link className="button button-primary" href="/download">
               Download for macOS <AppleIcon />
-            </a>
+            </Link>
           </div>
         </section>
 
@@ -224,9 +226,9 @@ export default function Home() {
             <span>Download the Chief app</span>
             <span>and let the work begin.</span>
           </h2>
-          <a className="button button-primary" href="/download">
+          <Link className="button button-primary" href="/download">
             Download for macOS <AppleIcon />
-          </a>
+          </Link>
         </section>
 
         <MarketingFooter />
