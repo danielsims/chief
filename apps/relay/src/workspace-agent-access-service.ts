@@ -4,7 +4,6 @@ import {
   agentIdSchema,
   isJsonObject,
   parseJsonObject,
-  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import type { AgentConfigRow } from "./workspace-channel-store";
@@ -16,6 +15,7 @@ import {
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
 export class WorkspaceAgentAccessService {
   private readonly channels: WorkspaceChannelStore;
@@ -164,19 +164,8 @@ export class WorkspaceAgentAccessService {
     if (!workspace.snapshot_json) {
       return json({ runtime: null, managed: false });
     }
-    const snapshot = workspaceSnapshotSchema.safeParse(
-      JSON.parse(workspace.snapshot_json),
-    );
-    if (!snapshot.success) {
-      throw new HttpError(
-        409,
-        "workspace_runtime_invalid",
-        "This workspace has an invalid runtime configuration.",
-      );
-    }
-    const agent = snapshot.data.agents.find(
-      (candidate) => candidate.id === agentId,
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
     if (!agent) {
       throw new HttpError(
         404,
@@ -188,10 +177,10 @@ export class WorkspaceAgentAccessService {
       managed: true,
       runtime: this.channels.agentConfiguration(agentId).deploymentTarget,
       workspace: {
-        id: snapshot.data.id,
-        name: snapshot.data.name,
-        website: snapshot.data.website,
-        selectedApps: snapshot.data.selectedApps,
+        id: snapshot.id,
+        name: snapshot.name,
+        website: snapshot.website,
+        selectedApps: snapshot.selectedApps,
       },
       agent,
       config: this.channels.agentConfiguration(agentId),

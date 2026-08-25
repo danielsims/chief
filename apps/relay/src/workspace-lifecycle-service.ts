@@ -16,6 +16,7 @@ import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { defaultAgentConfigFor } from "./workspace-agent-config";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
+  decodeWorkspaceSnapshot,
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
 } from "./workspace-defaults";
@@ -200,7 +201,7 @@ export class WorkspaceLifecycleService {
       );
     }
     const reconciled = reconcileWorkspaceAgents(
-      workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json)),
+      decodeWorkspaceSnapshot(workspace.snapshot_json),
     );
     if (reconciled.changed) {
       this.storage.sql.exec(
@@ -227,9 +228,9 @@ export class WorkspaceLifecycleService {
       .toArray()
       .map((row) => String(row.agent_id));
     const snapshotAgentIds = workspace.snapshot_json
-      ? workspaceSnapshotSchema
-          .parse(JSON.parse(workspace.snapshot_json))
-          .agents.map((agent) => agent.id)
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json).agents.map(
+          (agent) => agent.id,
+        )
       : [];
     return json({
       conversationIds,
@@ -263,7 +264,13 @@ export class WorkspaceLifecycleService {
         context.principal.agentId,
       ),
     );
-    if (key?.pubkey !== context.principal.pubkey) {
+    // The relay's own hosted cell executes Chief inside a trusted Durable Object
+    // boundary and presents the all-zero relay pubkey. It does not hold a
+    // device-registered key, so it must be allowed to finalize onboarding even
+    // when no key is registered. Phone/desktop cells carry a real key and must
+    // still match it.
+    const isHostedCell = context.principal.pubkey === "0".repeat(64);
+    if (!isHostedCell && key?.pubkey !== context.principal.pubkey) {
       throw new HttpError(
         403,
         "agent_key_mismatch",
@@ -285,7 +292,7 @@ export class WorkspaceLifecycleService {
       result.openingMessage,
     );
     const previous = reconcileWorkspaceAgents(
-      workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json)),
+      decodeWorkspaceSnapshot(workspace.snapshot_json),
     ).snapshot;
     const existing = previous.conversations.find(
       (conversation) => conversation.id === "mission-control",
