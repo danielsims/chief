@@ -85,13 +85,13 @@ pub fn start_workspace_cells(
     crate::relay_identity::validate_identifier(&workspace_id, "workspace")?;
     let active = agents
         .iter()
-        .map(|agent| cell_key(&relay_url, &workspace_id, &agent.agent_id))
+        .map(|agent| cell_key(&relay_url, &workspace_id, &agent.agent_id, &agent.config))
         .collect::<HashSet<_>>();
     supervisor.stop_removed(&cell_scope(&relay_url, &workspace_id), &active);
 
     for agent in agents {
         crate::relay_identity::validate_identifier(&agent.agent_id, "agent")?;
-        let key = cell_key(&relay_url, &workspace_id, &agent.agent_id);
+        let key = cell_key(&relay_url, &workspace_id, &agent.agent_id, &agent.config);
         if supervisor.contains(&key) {
             continue;
         }
@@ -107,8 +107,14 @@ pub fn start_workspace_cells(
     Ok(())
 }
 
-fn cell_key(relay_url: &str, workspace_id: &str, agent_id: &str) -> String {
-    format!("{relay_url}\0{workspace_id}\0{agent_id}")
+fn cell_key(
+    relay_url: &str,
+    workspace_id: &str,
+    agent_id: &str,
+    config: &serde_json::Value,
+) -> String {
+    let config_key = hex::encode(Sha256::digest(config.to_string().as_bytes()));
+    format!("{relay_url}\0{workspace_id}\0{agent_id}\0{config_key}")
 }
 
 fn cell_scope(relay_url: &str, workspace_id: &str) -> String {
@@ -148,6 +154,9 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
             path: packaged,
             packaged: true,
         });
+    }
+    if !cfg!(debug_assertions) {
+        return Err("Chief's built-in agent tools are unavailable. Reinstall Chief.".to_string());
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../packages/agent-runtime")
