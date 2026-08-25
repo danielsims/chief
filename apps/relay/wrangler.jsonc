@@ -3,7 +3,8 @@
   "name": "chief-relay",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-17",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "experimental"],
+  "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
       { "name": "WORKSPACES", "class_name": "WorkspaceObject" },
@@ -51,6 +52,7 @@
     },
   ],
   "ai": { "binding": "AI" },
+  "browser": { "binding": "BROWSER" },
   "ratelimits": [
     {
       "name": "EDGE_REQUEST_RATE_LIMITER",

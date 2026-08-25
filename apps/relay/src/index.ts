@@ -1,5 +1,7 @@
 import { routeRelayRequest } from "./router";
 
+export { WorkspaceServiceProxy } from "@cloudflare/computer";
+
 export { AgentObject } from "./agent-object";
 export { AccountObject } from "./account-object";
 export { AnalyticsObject } from "./analytics-object";

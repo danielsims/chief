@@ -21,6 +21,7 @@ import {
   readTrustedWorkspaceSocketTicket,
 } from "./internal-context";
 import { WorkspaceAccessService } from "./workspace-access-service";
+import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import {
   routeWorkspaceChannel,
@@ -99,20 +100,24 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
 
     const access = new WorkspaceAccessService(this.ctx.storage, this.env);
+    const agents = new WorkspaceAgentAccessService(this.ctx.storage, this.env);
     if (operation === "members-list") return access.membersList(request);
     if (operation === "member-role-set") return access.memberRoleSet(request);
-    if (operation === "agent-config-get") return access.agentConfigGet(request);
+    if (operation === "agent-config-get") return agents.configGet(request);
+    if (operation === "agent-runtime-get") {
+      return agents.runtimeDescriptor(request);
+    }
     if (operation === "agent-config-set") {
-      return access.agentConfigSet(request);
+      return agents.configSet(request);
     }
     if (operation === "authorize-conversation") {
-      return access.authorizeConversation(request);
+      return agents.authorizeConversation(request);
     }
     if (operation === "authorize-agent-runtime") {
-      return access.authorizeAgentRuntime(request);
+      return agents.authorizeRuntime(request);
     }
     if (operation === "agent-hosting-context") {
-      return access.agentHostingContext(request);
+      return agents.hostingContext(request);
     }
     if (operation === "register-agent-key") {
       return access.registerAgentKey(request, readTrustedIdentity(request));

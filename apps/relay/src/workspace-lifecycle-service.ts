@@ -172,8 +172,10 @@ export class WorkspaceLifecycleService {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
           providerAssigned: true,
-          driver: input.inferenceProvider,
-          model: input.inferenceModel,
+          deploymentTarget: input.runtime,
+          driver:
+            input.runtime === "cloud" ? "remote" : input.inferenceProvider,
+          model: input.runtime === "cloud" ? "auto" : input.inferenceModel,
         });
         this.storage.sql.exec(
           `INSERT INTO agent_configs (agent_id, config_json, updated_at)

@@ -10,6 +10,8 @@ const prospectSchema: z.ZodType<ProspectRecord> = z.object({
   source: z.string(),
   sourceUrl: z.string().optional(),
   summary: z.string(),
+  evidence: z.string().optional(),
+  outreachAngle: z.string().optional(),
   relevance: z.enum(["high", "medium", "low"]),
   status: z.enum(["new", "researching", "contacted", "dismissed"]),
   foundAt: z.number(),

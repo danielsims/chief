@@ -140,7 +140,7 @@ export const createWorkspaceCommandSchema = z
     commandId: commandIdSchema,
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
-    runtime: z.enum(["phone", "mac", "cloud"]),
+    runtime: z.enum(["phone", "desktop", "cloud"]),
     inferenceProvider: z.string().trim().min(1).max(64),
     inferenceModel: z.string().trim().min(1).max(128),
     selectedApps: z.array(z.string().trim().min(1).max(128)).max(100),
@@ -174,7 +174,7 @@ export const workspaceSnapshotSchema = z
       .array(z.string().trim().min(1).max(128))
       .max(100)
       .default([]),
-    runtime: z.enum(["phone", "mac", "cloud"]).nullable().default(null),
+    runtime: z.enum(["phone", "desktop", "cloud"]).nullable().default(null),
     imageURL: z.url().nullable(),
     onboardingComplete: z.boolean(),
     conversations: z.array(conversationSummarySchema),

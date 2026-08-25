@@ -4,7 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
-  agentConfigResultSchema,
+  agentRuntimeDescriptorSchema,
   createWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
@@ -36,14 +36,49 @@ describe("channel HTTP surface", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(agentConfigResultSchema.parse(await response.json())).toMatchObject({
+    expect(agentRuntimeDescriptorSchema.parse(await response.json())).toEqual({
+      workspaceId,
       agentId: "chief",
-      config: {
-        providerAssigned: true,
-        driver: "openCodeGo",
-        model: "deepseek-v4-flash",
+      address: url,
+      deploymentTarget: "phone",
+      status: "waiting",
+      computer: "local-celld",
+    });
+  });
+
+  it("accepts idempotent work at the agent's stable URL", async () => {
+    const workspaceId = await setupWorkspace();
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/agents/chief`;
+    const invoke = () =>
+      worker.fetch(
+        signedRequest(
+          url,
+          "POST",
+          JSON.stringify({
+            instruction: "Prepare a concise workspace update.",
+            idempotencyKey: "daily-workspace-update",
+          }),
+        ),
+        relayEnv(),
+        createExecutionContext(),
+      );
+
+    const first = await invoke();
+    const duplicate = await invoke();
+
+    expect(first.status).toBe(202);
+    expect(await first.json()).toMatchObject({
+      duplicate: false,
+      job: {
+        agentId: "chief",
+        kind: "agent.invoke",
+        payload: {
+          conversationId: "chief",
+          instruction: "Prepare a concise workspace update.",
+        },
       },
     });
+    expect(await duplicate.json()).toMatchObject({ duplicate: true });
   });
 
   it("creates, lists, gets, and lists members over the router", async () => {
