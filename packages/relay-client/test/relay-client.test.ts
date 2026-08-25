@@ -142,10 +142,11 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const requests: { method: string; path: string; body: unknown }[] = [];
   const config = {
     enabled: true,
-    providerAssigned: true,
     deploymentTarget: "cloud" as const,
-    driver: "codex",
-    model: "auto",
+    inference: {
+      provider: "opencode" as const,
+      model: "opencode-go/deepseek-v4-flash" as const,
+    },
     approvals: "auto" as const,
     capabilities: [],
     integrations: [],
@@ -181,8 +182,8 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const workspace = account.forWorkspace("workspace-a");
 
   assert.equal(
-    (await workspace.loadAgentConfig("chief")).config.driver,
-    "codex",
+    (await workspace.loadAgentConfig("chief")).config.inference.provider,
+    "opencode",
   );
   await workspace.saveAgentConfig("chief", config);
   await workspace.registerAgentKey("chief", "a".repeat(64));

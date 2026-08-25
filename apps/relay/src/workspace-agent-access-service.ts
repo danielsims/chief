@@ -96,22 +96,7 @@ export class WorkspaceAgentAccessService {
         "Expected an agent configuration.",
       );
     }
-    const parsedConfig = agentConfigSchema.parse({
-      ...configInput,
-      deploymentTarget:
-        configInput.deploymentTarget ??
-        (configInput.driver === "remote" ? "cloud" : "desktop"),
-    });
-    if (
-      (parsedConfig.deploymentTarget === "cloud") !==
-      (parsedConfig.driver === "remote")
-    ) {
-      throw new HttpError(
-        409,
-        "agent_runtime_provider_mismatch",
-        "Chief Cloud uses the cloud provider; local providers run on a phone or desktop.",
-      );
-    }
+    const parsedConfig = agentConfigSchema.parse(configInput);
     const updatedAt = new Date().toISOString();
     this.storage.sql.exec(
       `INSERT INTO agent_configs (agent_id, config_json, updated_at)
@@ -179,10 +164,19 @@ export class WorkspaceAgentAccessService {
     if (!workspace.snapshot_json) {
       return json({ runtime: null, managed: false });
     }
-    const snapshot = workspaceSnapshotSchema.parse(
+    const snapshot = workspaceSnapshotSchema.safeParse(
       JSON.parse(workspace.snapshot_json),
     );
-    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
+    if (!snapshot.success) {
+      throw new HttpError(
+        409,
+        "workspace_runtime_invalid",
+        "This workspace has an invalid runtime configuration.",
+      );
+    }
+    const agent = snapshot.data.agents.find(
+      (candidate) => candidate.id === agentId,
+    );
     if (!agent) {
       throw new HttpError(
         404,
@@ -194,10 +188,10 @@ export class WorkspaceAgentAccessService {
       managed: true,
       runtime: this.channels.agentConfiguration(agentId).deploymentTarget,
       workspace: {
-        id: snapshot.id,
-        name: snapshot.name,
-        website: snapshot.website,
-        selectedApps: snapshot.selectedApps,
+        id: snapshot.data.id,
+        name: snapshot.data.name,
+        website: snapshot.data.website,
+        selectedApps: snapshot.data.selectedApps,
       },
       agent,
       config: this.channels.agentConfiguration(agentId),

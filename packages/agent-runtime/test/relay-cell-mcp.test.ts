@@ -9,8 +9,11 @@ void test("a cell exposes only its permission-filtered tools over loopback MCP",
   const previous = process.env.CHIEF_AGENT_CONFIG;
   process.env.CHIEF_AGENT_CONFIG = JSON.stringify({
     enabled: true,
-    driver: "codex",
-    model: "gpt-5.6-luna",
+    deploymentTarget: "desktop",
+    inference: {
+      provider: "opencode",
+      model: "opencode-go/deepseek-v4-flash",
+    },
     approvals: "auto",
     capabilities: [],
     integrations: [],
@@ -46,8 +49,11 @@ void test("plugin recommendations do not grant plugin management", async () => {
   const previous = process.env.CHIEF_AGENT_CONFIG;
   process.env.CHIEF_AGENT_CONFIG = JSON.stringify({
     enabled: true,
-    driver: "codex",
-    model: "gpt-5.6-luna",
+    deploymentTarget: "desktop",
+    inference: {
+      provider: "opencode",
+      model: "opencode-go/deepseek-v4-flash",
+    },
     approvals: "auto",
     capabilities: [],
     integrations: [],

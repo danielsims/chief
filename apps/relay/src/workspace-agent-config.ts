@@ -28,6 +28,7 @@ export function defaultAgentConfigFor(agentId: string) {
         "schedules.run",
         "agents.delegate",
         "projects.read",
+        "browser.use",
       ],
     });
   }
