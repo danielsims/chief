@@ -33,7 +33,7 @@ const relayCellHostInstructions = `# Relay cell tool binding
 
 In this relay-hosted cell, the canonical plugin tools are named plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation and authorization require explicit user approval from a plugin card. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
 
-The canonical browser tools are browser_navigate, browser_snapshot, browser_click, browser_type, browser_scroll, browser_back, and browser_release. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Navigate, snapshot before drawing conclusions, and release when finished.`;
+The canonical browser tools are browser_open, browser_snapshot, browser_click, browser_fill, browser_select, browser_press, and browser_close. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Open the page, snapshot before drawing conclusions, and close it when finished.`;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -101,12 +101,12 @@ function postedFinalToOrigin(
       ? event.content.some((block) => {
           if (
             block.type !== "tool_use" ||
-            !block.name.includes("relay_message_post")
+            !block.name.includes("channels_messages_post")
           ) {
             return false;
           }
           const input = parseJsonObject(block.input);
-          if (input?.conversationId !== conversationId) return false;
+          if (input?.channelId !== conversationId) return false;
           const key = parseJsonString(input.idempotencyKey) ?? "";
           return key.includes("result") || key.includes("handoff");
         })
@@ -172,6 +172,8 @@ async function executeJob(
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnStart = priorEvents.length;
     process.env.CHIEF_CONVERSATION_ID = conversationId;
+    process.env.CHIEF_THREAD_ROOT_ID =
+      parseJsonString(job.payload.threadRootId) ?? "";
     relayMcp = await startRelayCellMcpHttpServer();
     const agentSession = new AgentSession(
       {
@@ -240,7 +242,7 @@ async function executeJob(
       privateInstructions: [
         workspaceContext(job),
         job.kind === "conversation.message"
-          ? `Return exactly one user-facing final reply. Do not call relay_message_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use relay_reaction_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
+          ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,
       ]
         .filter(Boolean)

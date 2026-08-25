@@ -39,3 +39,4 @@ packageExtensions:
 
 patchedDependencies:
   "@browser-ui/react@0.2.0": patches/@browser-ui__react@0.2.0.patch
+  "@cloudflare/computer@0.2.1": patches/@cloudflare__computer@0.2.1.patch

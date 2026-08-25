@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { localToolsOpenApi } from "../src/local-tools.js";
-import { requestProjectAccessInputSchema } from "../src/tools/local/toolkits/projects/request-project-access.js";
+import { requestProjectAccessInputSchema } from "../src/tools/toolkits/projects/request-project-access.js";
 
 void test("project access requests expose one explicit capability batch", () => {
   const specification = localToolsOpenApi("http://127.0.0.1:4318");

@@ -72,6 +72,8 @@ export async function callPluginTool(
     client: RelayClient;
     workspaceId: string;
     agentId: string;
+    conversationId: string;
+    threadRootId?: string;
   },
 ) {
   const { client, workspaceId, agentId } = context;
@@ -79,9 +81,9 @@ export async function callPluginTool(
     return await plugins.snapshot(workspaceId, input.refresh === true);
   }
   if (name === "plugins_recommend") {
-    const conversationId = requiredString(input, "conversationId");
+    const conversationId = requiredString(input, "channelId");
     const threadRootId = optionalString(input, "threadRootId");
-    const rationale = optionalString(input, "rationale");
+    const rationale = requiredString(input, "content");
     const idempotencyKey = requiredString(input, "idempotencyKey");
     const requested = Array.isArray(input.pluginIds)
       ? [
@@ -112,7 +114,7 @@ export async function callPluginTool(
       messageId: commandId,
       conversationId,
       threadRootId,
-      body: rationale ?? "Here are the plugins I recommend.",
+      body: rationale,
       mentions: [],
       components: selected.map((plugin) => {
         const placement = {
@@ -151,9 +153,8 @@ export async function callPluginTool(
       requiredString(input, "pluginId"),
     );
     if (authorization.status === "connected") return authorization;
-    const conversationId = requiredString(input, "conversationId");
-    const threadRootId = optionalString(input, "threadRootId");
-    const idempotencyKey = requiredString(input, "idempotencyKey");
+    const { conversationId, threadRootId } = context;
+    const idempotencyKey = `${requiredString(input, "pluginId")}:authorize`;
     const commandId = deterministicUuid(
       `${workspaceId}:${agentId}:${conversationId}:${threadRootId ?? ""}:plugin-authorization:${idempotencyKey}`,
     );
