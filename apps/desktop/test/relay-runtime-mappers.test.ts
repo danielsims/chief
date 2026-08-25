@@ -85,6 +85,47 @@ void test("authored agent replies remain channel events", () => {
   assert.equal(toChannelEvents(reply, snapshot, null).length, 1);
 });
 
+void test("relay membership components retain their channel action", () => {
+  const membership = conversationMessageSchema.parse({
+    id: "membership-1",
+    workspaceId: "workspace-a",
+    conversationId: "mission-control",
+    author: { kind: "system", id: "chief-relay" },
+    body: "Chief added Marketer and Prospector to the channel.",
+    components: [
+      {
+        id: "membership-component-1",
+        kind: "channel-action",
+        version: 1,
+        payload: {
+          type: "member-added",
+          actorId: "chief",
+          actorName: "Chief",
+          actorType: "agent",
+          targetId: "brand",
+          targetKind: "agent",
+          targetName: "Marketer",
+          targetIds: "brand,prospector",
+          targetNames: "Marketer,Prospector",
+          agentIds: "brand,prospector",
+          userIds: "",
+        },
+      },
+    ],
+    createdAt: "2026-08-22T00:00:00.000Z",
+    sequence: 2,
+  });
+
+  assert.deepEqual(toChiefMessage(membership).metadata?.channelAction, {
+    type: "member-added",
+    actorId: "chief",
+    actorName: "Chief",
+    actorType: "agent",
+    agentIds: ["brand", "prospector"],
+    userIds: [],
+  });
+});
+
 void test("durable activity errors terminate the working indicator", () => {
   const failure = message([
     {

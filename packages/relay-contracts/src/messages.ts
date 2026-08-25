@@ -69,6 +69,22 @@ export const pluginActionPayloadSchema = z
   })
   .strict();
 
+export const channelMemberAddedPayloadSchema = z
+  .object({
+    type: z.literal("member-added"),
+    actorId: z.string().trim().min(1).max(128),
+    actorName: z.string().trim().min(1).max(256),
+    actorType: z.enum(["agent", "user"]),
+    targetId: z.string().trim().min(1).max(128),
+    targetKind: z.enum(["agent", "user"]),
+    targetName: z.string().trim().min(1).max(256),
+    targetIds: z.string().max(2_048),
+    targetNames: z.string().max(4_096),
+    agentIds: z.string().max(2_048),
+    userIds: z.string().max(2_048),
+  })
+  .strict();
+
 const pluginAuthorizationPayloadBaseSchema = z.object({
   workspaceId: workspaceIdSchema,
   conversationId: conversationIdSchema,
@@ -127,7 +143,9 @@ export const messageComponentSchema = z
           ? pluginActionPayloadSchema
           : component.kind === "plugin.authorization"
             ? pluginAuthorizationPayloadSchema
-            : undefined;
+            : component.kind === "channel-action"
+              ? channelMemberAddedPayloadSchema
+              : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {
