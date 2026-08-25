@@ -7,12 +7,14 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -241,9 +243,9 @@ if (expectedRuntime.platform !== "win32") {
 }
 
 // Prompts and bundled plugin metadata remain filesystem assets shared by every
-// provider. Provider CLIs themselves are discovered from the user's machine;
-// Chief no longer embeds Codex, pnpm, Vercel, Eve, or deployment workspaces.
+// provider. Provider CLIs are discovered from the user's machine.
 copyPackage(join(packageRoot, "src/agents"), join(runtimeRoot, "agents"));
+copyPackage(join(packageRoot, "drizzle"), join(runtimeRoot, "drizzle"));
 const bundledPluginsRoot = join(packageRoot, "src/plugins-bundled");
 if (existsSync(bundledPluginsRoot)) {
   copyPackage(bundledPluginsRoot, join(runtimeRoot, "plugins-bundled"));
@@ -260,18 +262,20 @@ renameSync(stagedSidecarPath, sidecarPath);
 // Smoke-load the exact packaged worker before Tauri spends time constructing
 // an installer. A disabled config exits after all imports and native bindings
 // have loaded without opening a relay connection.
-execFileSync(sidecarPath, [join(runtimeRoot, "dist/relay-cell-worker.mjs")], {
-  cwd: runtimeRoot,
-  env: {
-    ...process.env,
-    CHIEF_AGENT_CONFIG: JSON.stringify({
-      driver: "opencode",
-      enabled: false,
-      model: "auto",
-    }),
-  },
-  stdio: "inherit",
-});
+const smokeRoot = mkdtempSync(join(tmpdir(), "chief-agent-runtime-"));
+try {
+  execFileSync(
+    sidecarPath,
+    [join(runtimeRoot, "dist/relay-cell-worker.mjs"), "smoke"],
+    {
+      cwd: runtimeRoot,
+      env: { ...process.env, CHIEF_CELL_ROOT: smokeRoot },
+      stdio: "inherit",
+    },
+  );
+} finally {
+  rmSync(smokeRoot, { recursive: true, force: true });
+}
 execFileSync(sidecarPath, [join(runtimeRoot, "dist/plugin-host-worker.mjs")], {
   cwd: runtimeRoot,
   env: { ...process.env, CHIEF_PLUGIN_HOST_SMOKE: "1" },

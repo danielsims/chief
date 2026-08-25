@@ -423,6 +423,14 @@ async function listenForJobs() {
   }
 }
 
+async function smokeLocalStore() {
+  const cellRoot = requiredEnvironment("CHIEF_CELL_ROOT");
+  mkdirSync(cellRoot, { recursive: true, mode: 0o700 });
+  const store = new LocalStore(join(cellRoot, "cell.sqlite"));
+  await store.health();
+  await store.close();
+}
+
 // A tiny health endpoint lets the native supervisor distinguish a live cell
 // process from one that failed before loading its isolated database.
 function healthEndpoint() {
@@ -436,6 +444,8 @@ function healthEndpoint() {
 
 if (mode === "mcp") {
   await runRelayCellMcpServer();
+} else if (mode === "smoke") {
+  await smokeLocalStore();
 } else {
   healthEndpoint();
   await listenForJobs();
