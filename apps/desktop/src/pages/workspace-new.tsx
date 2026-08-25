@@ -93,6 +93,7 @@ export function CreateWorkspacePage() {
   const [model, setModel] = useState(
     initialDraft?.model ?? "opencode-go/deepseek-v4-flash",
   );
+  const [apiKey, setApiKey] = useState("");
   const [selectedApps, setSelectedApps] = useState<Set<string>>(
     () => new Set(initialDraft?.selectedApps ?? []),
   );
@@ -244,6 +245,7 @@ export function CreateWorkspacePage() {
             inferenceModel: model || "auto",
             selectedApps: Array.from(selectedApps).sort(),
           }),
+          apiKey,
         );
         window.localStorage.removeItem(createDraftKey);
         void navigate("/", { replace: true });
@@ -253,6 +255,7 @@ export function CreateWorkspacePage() {
       }
     },
     [
+      apiKey,
       createDraftKey,
       isWorking,
       model,
@@ -404,6 +407,7 @@ export function CreateWorkspacePage() {
               runtime={runtime}
               provider={provider}
               model={model}
+              apiKey={apiKey}
               selectedApps={selectedApps}
               working={isWorking}
               connected={relay.client !== null}
@@ -417,6 +421,7 @@ export function CreateWorkspacePage() {
               }}
               onProviderChange={setProvider}
               onModelChange={setModel}
+              onApiKeyChange={setApiKey}
               onSelectedAppsChange={setSelectedApps}
               onStepChange={setCreateStep}
               onBackToHome={leaveCreateFlow}

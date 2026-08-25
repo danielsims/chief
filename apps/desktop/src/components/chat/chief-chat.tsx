@@ -105,7 +105,6 @@ export function ChiefChat({
     browserRuns,
     browserSessions,
     channelResolved,
-    chatReady,
     childSessions,
     cloudOrganizationId,
     controls,
@@ -257,7 +256,7 @@ export function ChiefChat({
               {!channelResolved && !isNew && !composerOpen ? (
                 <ChatSkeleton />
               ) : null}
-              {(chatReady || isNew) &&
+              {channelResolved &&
               !composerOpen &&
               messages.length === 0 &&
               !showOptimisticInitialPrompt ? (

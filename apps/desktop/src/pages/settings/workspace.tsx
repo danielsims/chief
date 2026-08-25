@@ -26,7 +26,6 @@ import { useAuth } from "../../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
-  setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
 import { RELAY_URL } from "../../lib/config";
@@ -67,7 +66,13 @@ function LogoPreview({
   );
 }
 
-function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
+function DeleteWorkspaceCard({
+  workspaceId,
+  workspaceName,
+}: {
+  workspaceId: string;
+  workspaceName: string;
+}) {
   const { client, switchWorkspace, workspaces } = useRelaySession();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -79,21 +84,22 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
     setError(null);
     try {
       if (!client) throw new Error("Chief is not connected to the relay.");
-      await client.deleteWorkspace(org.id);
+      await client.deleteWorkspace(workspaceId);
 
       const remainingOnRelay = await client.listWorkspaces();
       rememberRelayWorkspaces(RELAY_URL, remainingOnRelay);
       const [nextOnRelay] = remainingOnRelay;
       if (nextOnRelay) {
-        await setActiveAuthOrganization(nextOnRelay.id);
-        await client.switchWorkspace(nextOnRelay.id);
+        // Relay workspaces are not BetterAuth organizations; switch through the
+        // relay session so it reconnects the client to the next workspace.
+        await switchWorkspace(nextOnRelay.id);
         window.location.assign("/");
         return;
       }
 
       const fallback = workspaces.find(
         (workspace) =>
-          workspace.id !== org.id &&
+          workspace.id !== workspaceId &&
           relayForWorkspace(workspace.id) !== new URL(RELAY_URL).origin,
       );
       if (fallback) {
@@ -137,7 +143,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {org.name}</DialogTitle>
+            <DialogTitle>Delete {workspaceName}</DialogTitle>
             <DialogDescription>
               This deletes the workspace and all of its data. Type the workspace
               name to confirm.
@@ -147,7 +153,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
             autoFocus
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
-            placeholder={org.name}
+            placeholder={workspaceName}
           />
           {error && <p className="text-destructive text-xs">{error}</p>}
           <DialogFooter>
@@ -157,7 +163,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
             <Button
               variant="destructive"
               size="sm"
-              disabled={confirmation !== org.name || deleting}
+              disabled={confirmation !== workspaceName || deleting}
               onClick={() => void handleDelete()}
             >
               {deleting ? "Deleting..." : "Delete permanently"}
@@ -170,7 +176,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
 }
 
 export function WorkspaceSettings() {
-  const { client } = useRelaySession();
+  const { client, snapshot } = useRelaySession();
   const { cloudOrganizationId } = useAuth();
 
   const [org, setOrg] = useState<AuthOrganization | null>(null);
@@ -405,7 +411,7 @@ export function WorkspaceSettings() {
         </CardContent>
       </Card>
 
-      {org ? <InviteWorkspaceMemberCard organization={org} /> : null}
+      {org && <InviteWorkspaceMemberCard organization={org} />}
 
       {org && DevelopmentOnboardingReplay ? (
         <Suspense fallback={null}>
@@ -413,7 +419,14 @@ export function WorkspaceSettings() {
         </Suspense>
       ) : null}
 
-      {org && <DeleteWorkspaceCard org={org} />}
+      {snapshot ? (
+        <DeleteWorkspaceCard
+          workspaceId={snapshot.id}
+          workspaceName={snapshot.name}
+        />
+      ) : org ? (
+        <DeleteWorkspaceCard workspaceId={org.id} workspaceName={org.name} />
+      ) : null}
     </>
   );
 }
