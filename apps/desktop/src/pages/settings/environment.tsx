@@ -3,6 +3,13 @@ import { KeyRound, LockKeyhole, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@chief/ui/components/card";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -134,107 +141,111 @@ export function EnvironmentSettings() {
   };
 
   return (
-    <section>
-      <div className="flex items-start justify-between gap-6">
-        <div>
-          <h2 className="text-sm font-medium">Environment variables</h2>
-          <p className="text-muted-foreground mt-1 max-w-xl text-sm leading-6">
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-6 space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle>Environment variables</CardTitle>
+          <CardDescription className="max-w-xl leading-6">
             Credentials and configuration available to agents in this workspace.
             Values requested by an agent appear here automatically.
-          </p>
+          </CardDescription>
         </div>
         <Button onClick={openAdd} disabled={!connected}>
           Add environment variable
         </Button>
-      </div>
+      </CardHeader>
 
-      <div className="relative mt-6">
-        <Search
-          size={15}
-          className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
-        />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search variables"
-          className="pl-9"
-        />
-      </div>
+      <CardContent>
+        <div className="relative">
+          <Search
+            size={15}
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
+          />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search variables"
+            className="pl-9"
+          />
+        </div>
 
-      <div className="mt-3 divide-y border">
-        {error ? (
-          <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
-            <KeyRound size={20} strokeWidth={1.5} />
-            <p className="mt-3 text-sm font-medium">
-              The local vault did not respond
-            </p>
-            <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-5">
-              Your values remain protected. Chief will retry without exposing or
-              replacing anything.
-            </p>
-            <Button className="mt-4" variant="outline" onClick={refresh}>
-              Try again
-            </Button>
-          </div>
-        ) : variables === null ? (
-          <div className="text-muted-foreground p-5 text-sm">
-            {connected
-              ? "Loading variables…"
-              : "Connecting to the local vault…"}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
-            <KeyRound size={20} strokeWidth={1.5} />
-            <p className="mt-3 text-sm font-medium">
-              {query ? "No matching variables" : "No environment variables yet"}
-            </p>
-            {!query ? (
-              <p className="text-muted-foreground mt-1 text-xs">
-                Variables supplied during integration setup will appear here.
+        <div className="mt-3 divide-y overflow-hidden rounded-xl border">
+          {error ? (
+            <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
+              <KeyRound size={20} strokeWidth={1.5} />
+              <p className="mt-3 text-sm font-medium">
+                The local vault did not respond
               </p>
-            ) : null}
-          </div>
-        ) : (
-          filtered.map((variable) => (
-            <div
-              key={variable.key}
-              className="hover:bg-accent/30 flex min-h-20 items-center gap-4 px-4 transition-colors"
-            >
-              <span className="flex size-8 shrink-0 items-center justify-center border">
-                <LockKeyhole size={14} className="text-muted-foreground" />
-              </span>
-              <button
-                type="button"
-                onClick={() => openEdit(variable.key)}
-                className="min-w-0 flex-1 text-left"
-              >
-                <span className="block truncate font-mono text-xs font-medium">
-                  {variable.key}
-                </span>
-                <span className="text-muted-foreground mt-1 block font-mono text-xs tracking-widest">
-                  ••••••••••••
-                </span>
-              </button>
-              <span className="text-muted-foreground border px-2 py-1 text-[10px]">
-                Sensitive
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Delete ${variable.key}`}
-                onClick={() => setDeletingKey(variable.key)}
-              >
-                <Trash2 size={14} />
+              <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-5">
+                Your values remain protected. Chief will retry without exposing
+                or replacing anything.
+              </p>
+              <Button className="mt-4" variant="outline" onClick={refresh}>
+                Try again
               </Button>
             </div>
-          ))
-        )}
-      </div>
+          ) : variables === null ? (
+            <div className="text-muted-foreground p-5 text-sm">
+              {connected
+                ? "Loading variables…"
+                : "Connecting to the local vault…"}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
+              <KeyRound size={20} strokeWidth={1.5} />
+              <p className="mt-3 text-sm font-medium">
+                {query
+                  ? "No matching variables"
+                  : "No environment variables yet"}
+              </p>
+              {!query ? (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Variables supplied during integration setup will appear here.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            filtered.map((variable) => (
+              <div
+                key={variable.key}
+                className="hover:bg-accent/30 flex min-h-20 items-center gap-4 px-4 transition-colors"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border">
+                  <LockKeyhole size={14} className="text-muted-foreground" />
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openEdit(variable.key)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <span className="block truncate font-mono text-xs font-medium">
+                    {variable.key}
+                  </span>
+                  <span className="text-muted-foreground mt-1 block font-mono text-xs tracking-widest">
+                    ••••••••••••
+                  </span>
+                </button>
+                <span className="text-muted-foreground rounded-full border px-2 py-1 text-[10px]">
+                  Sensitive
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete ${variable.key}`}
+                  onClick={() => setDeletingKey(variable.key)}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
 
-      <p className="text-muted-foreground mt-3 text-xs leading-5">
-        Chief injects these only into local agent processes for this workspace.
-        Secret values stay in the system credential store.
-      </p>
+        <p className="text-muted-foreground mt-3 text-xs leading-5">
+          Chief injects these only into local agent processes for this
+          workspace. Secret values stay in the system credential store.
+        </p>
+      </CardContent>
 
       <VariableDialog
         key={`${editingKey ?? "new"}-${dialogOpen ? "open" : "closed"}`}
@@ -272,6 +283,6 @@ export function EnvironmentSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </Card>
   );
 }

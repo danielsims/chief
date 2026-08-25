@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Outlet, useLocation } from "react-router";
 
 import { TooltipProvider } from "@chief/ui/components/tooltip";
@@ -6,6 +7,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../lib/auth/auth-context";
 import { AppTopChrome } from "./app-top-chrome";
+import { SettingsSidebar } from "./settings-sidebar";
 import { Sidebar } from "./sidebar";
 import { WorkspaceContentSurface } from "./workspace-content-surface";
 import { WorkspaceRail } from "./workspace-rail";
@@ -30,8 +32,12 @@ export function Layout() {
   const location = useLocation();
   const overview = location.pathname === "/";
   const channel = location.pathname.startsWith("/conversations");
+  const settings = location.pathname.startsWith("/settings");
+  const reducedMotion = useReducedMotion();
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+  const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(true);
+  const activeSidebarOpen = settings ? settingsSidebarOpen : sidebarOpen;
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -39,6 +45,11 @@ export function Layout() {
       return !open;
     });
   }, []);
+  const toggleSettingsSidebar = useCallback(() => {
+    setSettingsSidebarOpen((open) => !open);
+  }, []);
+
+  const toggleActiveSidebar = settings ? toggleSettingsSidebar : toggleSidebar;
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -75,21 +86,45 @@ export function Layout() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <AppTopChrome
             hasWorkspaceRail={isAuthenticated}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={toggleSidebar}
+            sidebarOpen={activeSidebarOpen}
+            onToggleSidebar={toggleActiveSidebar}
           />
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            {sidebarOpen ? (
-              <Sidebar
-                width={sidebarWidth}
-                onResizeStart={startSidebarResize}
-              />
+            {activeSidebarOpen ? (
+              <div
+                style={{ width: sidebarWidth }}
+                className="relative h-full shrink-0 overflow-hidden transition-[width] duration-200"
+              >
+                <AnimatePresence initial={false} mode="wait">
+                  <motion.div
+                    key={settings ? "settings" : "workspace"}
+                    initial={{ opacity: reducedMotion ? 1 : 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: reducedMotion ? 1 : 0 }}
+                    transition={{ duration: reducedMotion ? 0 : 0.16 }}
+                    className="absolute inset-0"
+                  >
+                    {settings ? (
+                      <SettingsSidebar width={sidebarWidth} />
+                    ) : (
+                      <Sidebar
+                        width={sidebarWidth}
+                        onResizeStart={startSidebarResize}
+                      />
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
             ) : null}
-            <WorkspaceContentSurface balancedGutter={!sidebarOpen}>
+            <WorkspaceContentSurface balancedGutter={!activeSidebarOpen}>
               <div
                 className={cn(
                   "min-h-0 min-w-0 flex-1",
-                  channel ? "overflow-hidden" : "overflow-y-auto px-8 pb-8",
+                  settings
+                    ? "overflow-y-auto"
+                    : channel
+                      ? "overflow-hidden"
+                      : "overflow-y-auto px-8 pb-8",
                   overview && "overflow-hidden px-8 pb-8",
                 )}
               >

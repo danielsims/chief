@@ -3,7 +3,13 @@ import { useState } from "react";
 import { Check, Copy, ShieldCheck } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
-import { Card, CardContent } from "@chief/ui/components/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@chief/ui/components/card";
 
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../../lib/config";
 
@@ -20,6 +26,12 @@ export function ConnectionSettings() {
 
   return (
     <Card>
+      <CardHeader>
+        <CardTitle>Connection</CardTitle>
+        <CardDescription>
+          The relay and signed device identity used by this workspace.
+        </CardDescription>
+      </CardHeader>
       <CardContent className="divide-y p-0">
         <ConnectionRow label="Relay address">
           <div className="flex min-w-0 items-center gap-2">
