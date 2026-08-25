@@ -50,7 +50,6 @@
       "migrations_dir": "../../packages/auth/migrations",
     },
   ],
-  "ai": { "binding": "AI" },
   "browser": { "binding": "BROWSER" },
   "ratelimits": [
     {
@@ -82,7 +81,6 @@
   "vars": {
     "RELAY_DEPLOYMENT": "chief-cloud",
     "HOSTED_CELL_ENABLED": "true",
-    "HOSTED_CELL_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "ACCOUNT_IDENTITY_MODE": "chief-account",
     "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
     "AUTH_UI_ORIGIN": "https://heychief.sh",

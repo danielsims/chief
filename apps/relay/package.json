@@ -9,8 +9,8 @@
     "dev": "wrangler dev",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint apps/relay",
-    "test": "vitest run --exclude test/cloudflare-agent-inference.test.ts",
-    "test:live-ai": "vitest run test/cloudflare-agent-inference.test.ts",
+    "test": "vitest run --exclude test/opencode-agent-inference.test.ts",
+    "test:live-opencode": "vitest run test/opencode-agent-inference.test.ts",
     "types": "wrangler types --strict-vars false",
     "typecheck": "tsc --noEmit"
   },
