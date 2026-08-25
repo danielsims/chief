@@ -1,4 +1,10 @@
-import type { WorkspaceSnapshot } from "@chief/relay-contracts";
+import { z } from "zod";
+
+import type { JsonObject, WorkspaceSnapshot } from "@chief/relay-contracts";
+import {
+  parseJsonObject,
+  workspaceSnapshotSchema,
+} from "@chief/relay-contracts";
 
 export const defaultWorkspaceAgents = [
   {
@@ -50,6 +56,41 @@ export const defaultWorkspaceAgents = [
     status: "idle",
   },
 ] as const satisfies WorkspaceSnapshot["agents"];
+
+/** Normalizes a stored workspace snapshot so older or drifted data can never
+ * brick the workspace. The only lenient field today is `runtime`: a stale
+ * value outside the current enum falls back to the schema's own nullable
+ * default instead of throwing. We log the offending value so the drift is
+ * root-caused, then repair it persistently at the next write. */
+export function decodeWorkspaceSnapshot(json: string): WorkspaceSnapshot {
+  // The stored JSON is trusted to be a JSON object (it was written by the
+  // schema); this boundary parser either yields one or leaves no path to
+  // repair, in which case the original schema error is the honest failure.
+  const raw = parseJsonObject(JSON.parse(json));
+  if (!raw) throw new Error("Stored workspace snapshot is not a JSON object.");
+  const parsed = workspaceSnapshotSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  const staleRuntime = workspaceSnapshotRuntimeSafeParse(raw);
+  if (staleRuntime) {
+    console.warn("[workspace-snapshot] lenient runtime decode", {
+      runtime: staleRuntime,
+    });
+    return workspaceSnapshotSchema.parse({ ...raw, runtime: null });
+  }
+  throw parsed.error;
+}
+
+/** Returns the stored runtime value when it is a string outside the enum. */
+function workspaceSnapshotRuntimeSafeParse(raw: JsonObject) {
+  const knownRuntime = z
+    .enum(["phone", "desktop", "cloud"])
+    .safeParse(raw.runtime);
+  if (knownRuntime.success) return undefined;
+  // Only a string that the enum rejects is repairable; anything else (a number
+  // or missing key) is not a runtime-drift case.
+  const candidate = z.string().safeParse(raw.runtime);
+  return candidate.success ? candidate.data : undefined;
+}
 
 export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
   snapshot: WorkspaceSnapshot;
