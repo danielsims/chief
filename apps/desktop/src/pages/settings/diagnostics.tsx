@@ -5,6 +5,13 @@ import type {
   DiagnosticEventRecord,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@chief/ui/components/card";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../../lib/auth/auth-context";
@@ -172,14 +179,14 @@ function SessionList({
 function EventList({ events }: { events: DiagnosticEventRecord[] }) {
   if (events.length === 0) {
     return (
-      <div className="text-muted-foreground flex min-h-32 items-center justify-center border px-5 text-center text-xs">
+      <div className="text-muted-foreground flex min-h-32 items-center justify-center rounded-xl border px-5 text-center text-xs">
         No diagnostic events were recorded for this session.
       </div>
     );
   }
 
   return (
-    <div className="divide-y border">
+    <div className="divide-y overflow-hidden rounded-xl border">
       {events.map((event) => (
         <details key={event.id} className="group">
           <summary className="hover:bg-accent/30 flex cursor-pointer list-none items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
@@ -232,13 +239,13 @@ function SessionDetails({
           </p>
           <h3 className="mt-1 text-2xl font-normal">{session.title}</h3>
         </div>
-        <span className="flex items-center gap-2 border px-2 py-1 text-[10px] uppercase">
+        <span className="flex items-center gap-2 rounded-full border px-2 py-1 text-[10px] uppercase">
           <span className={cn("size-1.5", statusTone(session.status))} />
           {session.status.replace("_", " ")}
         </span>
       </div>
 
-      <dl className="mt-4 grid border sm:grid-cols-2">
+      <dl className="mt-4 grid overflow-hidden rounded-xl border sm:grid-cols-2">
         <MetadataItem label="Kind" value={session.kind} />
         <MetadataItem label="Visibility" value={session.visibility} />
         <MetadataItem label="Agent" value={session.agent} />
@@ -268,7 +275,7 @@ function SessionDetails({
       </dl>
 
       {session.summary ? (
-        <section className="mt-4 border p-4">
+        <section className="mt-4 rounded-xl border p-4">
           <h4 className="text-muted-foreground text-[10px] tracking-wide uppercase">
             Summary
           </h4>
@@ -278,7 +285,7 @@ function SessionDetails({
         </section>
       ) : null}
       {session.error ? (
-        <section className="border-destructive/40 bg-destructive/5 mt-4 border p-4">
+        <section className="border-destructive/40 bg-destructive/5 mt-4 rounded-xl border p-4">
           <h4 className="text-destructive text-[10px] tracking-wide uppercase">
             Error
           </h4>
@@ -326,39 +333,42 @@ export function DiagnosticsSettings() {
   );
 
   return (
-    <section>
-      <h2 className="text-sm font-medium">Session diagnostics</h2>
-      <p className="text-muted-foreground mt-1 text-sm leading-6">
-        Read-only runtime sessions and redacted event data for this workspace.
-      </p>
-
-      {loading ? (
-        <div className="text-muted-foreground mt-6 flex min-h-64 items-center justify-center border text-sm">
-          Loading session diagnostics...
-        </div>
-      ) : sessions.length === 0 ? (
-        <div className="mt-6 flex min-h-64 items-center justify-center border px-6 text-center">
-          <div>
-            <p className="text-sm font-medium">No diagnostic sessions</p>
-            <p className="text-muted-foreground mt-1 text-xs leading-5">
-              Runtime sessions will appear here after an agent starts work.
-            </p>
+    <Card>
+      <CardHeader>
+        <CardTitle>Diagnostics</CardTitle>
+        <CardDescription>
+          Read-only runtime sessions and redacted event data for this workspace.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-muted-foreground flex min-h-64 items-center justify-center rounded-xl border text-sm">
+            Loading session diagnostics...
           </div>
-        </div>
-      ) : (
-        <div className="mt-6 grid min-h-[560px] overflow-hidden border lg:grid-cols-[260px_minmax(0,1fr)]">
-          <SessionList
-            sessions={tree}
-            selectedId={selected?.id}
-            onSelect={setSelectedId}
-          />
-          {selected ? (
-            <div className="min-h-0 overflow-y-auto">
-              <SessionDetails session={selected} events={selectedEvents} />
+        ) : sessions.length === 0 ? (
+          <div className="flex min-h-64 items-center justify-center rounded-xl border px-6 text-center">
+            <div>
+              <p className="text-sm font-medium">No diagnostic sessions</p>
+              <p className="text-muted-foreground mt-1 text-xs leading-5">
+                Runtime sessions will appear here after an agent starts work.
+              </p>
             </div>
-          ) : null}
-        </div>
-      )}
-    </section>
+          </div>
+        ) : (
+          <div className="grid min-h-[560px] overflow-hidden rounded-xl border lg:grid-cols-[260px_minmax(0,1fr)]">
+            <SessionList
+              sessions={tree}
+              selectedId={selected?.id}
+              onSelect={setSelectedId}
+            />
+            {selected ? (
+              <div className="min-h-0 overflow-y-auto">
+                <SessionDetails session={selected} events={selectedEvents} />
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
