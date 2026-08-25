@@ -1,3 +1,4 @@
+import type { ConversationMessage } from "@chief/relay-contracts";
 import { appendMessageResultSchema } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "./internal-context";
@@ -22,9 +23,24 @@ export async function dispatchAppendedMessage(
   const result = appendMessageResultSchema.parse(
     await input.response.clone().json(),
   );
-  const workspaceResponse = await env.WORKSPACES.get(
-    env.WORKSPACES.idFromName(input.workspaceId),
-  ).fetch(
+  const workspaceResponse = await dispatchPersistedMessage(env, {
+    ...input,
+    message: result.message,
+  });
+  return workspaceResponse.ok ? input.response : workspaceResponse;
+}
+
+export function dispatchPersistedMessage(
+  env: Env,
+  input: {
+    message: ConversationMessage;
+    principal: Parameters<typeof withTrustedContext>[1]["principal"];
+    requestId: string;
+    workspaceId: Parameters<typeof withTrustedContext>[1]["workspaceId"];
+    conversationId: string;
+  },
+) {
+  return env.WORKSPACES.get(env.WORKSPACES.idFromName(input.workspaceId)).fetch(
     withTrustedContext(
       new Request("https://workspace.internal/agent-message-dispatch", {
         method: "POST",
@@ -32,12 +48,11 @@ export async function dispatchAppendedMessage(
           "content-type": "application/json",
           "x-chief-internal-operation": "agent-message-dispatch",
         },
-        body: JSON.stringify({ message: result.message }),
+        body: JSON.stringify({ message: input.message }),
       }),
       input,
     ),
   );
-  return workspaceResponse.ok ? input.response : workspaceResponse;
 }
 
 function isMessageAppend(

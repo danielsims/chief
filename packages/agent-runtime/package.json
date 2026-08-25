@@ -16,6 +16,7 @@
     "./integration-requests": "./src/integration-requests.ts",
     "./local-tools": "./src/tools/model.ts",
     "./portable-agent-runner": "./src/portable-agent-runner.ts",
+    "./onboarding-message-pacing": "./src/onboarding-message-pacing.ts",
     "./recurring-work": "./src/recurring-work.ts"
   },
   "scripts": {

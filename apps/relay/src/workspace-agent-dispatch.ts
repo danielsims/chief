@@ -27,18 +27,24 @@ export async function dispatchWorkspaceMessage(
   request: Request,
 ) {
   const context = readTrustedContext(request);
-  if (context.principal.kind !== "user") {
+  if (context.principal.kind === "service") {
     return json({ agentIds: [] });
   }
 
   const { message, replyAgentId } = dispatchMessageSchema.parse(
     await parseJson(request),
   );
+  const authorMatchesPrincipal =
+    (context.principal.kind === "user" &&
+      message.author.kind === "user" &&
+      message.author.id === context.principal.userId) ||
+    (context.principal.kind === "agent" &&
+      message.author.kind === "agent" &&
+      message.author.id === context.principal.agentId);
   if (
     message.workspaceId !== context.workspaceId ||
     message.conversationId !== context.conversationId ||
-    message.author.kind !== "user" ||
-    message.author.id !== context.principal.userId
+    !authorMatchesPrincipal
   ) {
     throw new HttpError(
       409,
@@ -59,6 +65,7 @@ export async function dispatchWorkspaceMessage(
     channel,
     message.mentions,
     replyAgentId,
+    context.principal.kind === "agent" ? context.principal.agentId : undefined,
   );
   const now = new Date().toISOString();
 
@@ -144,6 +151,7 @@ function eligibleAgentIds(
   channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
   mentions: readonly string[],
   replyAgentId?: string,
+  sourceAgentId?: string,
 ) {
   const candidates =
     channel.kind === "direct"
@@ -154,6 +162,7 @@ function eligibleAgentIds(
       : [...mentions, ...(replyAgentId ? [replyAgentId] : [])];
   const ready: string[] = [];
   for (const value of new Set(candidates)) {
+    if (value === sourceAgentId) continue;
     const parsed = agentIdSchema.safeParse(value);
     if (!parsed.success || !store.memberRole("agent", parsed.data)) continue;
     if (

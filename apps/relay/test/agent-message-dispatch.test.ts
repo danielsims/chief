@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { agentIdSchema, agentJobSchema } from "@chief/relay-contracts";
+
+import { publishAgentMessage } from "../src/agent-message-publisher";
 import { withTrustedContext } from "../src/internal-context";
 import {
   agentId,
@@ -83,6 +86,71 @@ describe("workspace agent message dispatch", () => {
     });
 
     expect(await response.json()).toEqual({ agentIds: [] });
+  });
+
+  it("queues an agent mentioned by another agent", async () => {
+    const ctx = await setup();
+    const chiefId = agentIdSchema.parse("chief");
+    const chiefPubkey = hexKey("chief-dispatch");
+    await registerAgent(ctx, chiefId, chiefPubkey);
+    await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    await assignAgentProvider(ctx);
+    const now = new Date().toISOString();
+    await publishAgentMessage(
+      ctx.env,
+      agentJobSchema.parse({
+        id: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+        agentId: chiefId,
+        agentPubkey: chiefPubkey,
+        kind: "workspace.onboarding",
+        payload: {},
+        status: "leased",
+        attempt: 1,
+        availableAt: now,
+        leaseExpiresAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      {
+        conversationId: "mission-control",
+        body: "Hey @Coordinator, take this.",
+        mentions: [agentId],
+      },
+      crypto.randomUUID(),
+    );
+
+    const agent = ctx.env.AGENTS.get(
+      ctx.env.AGENTS.idFromName(`${ctx.workspaceId}:${agentId}`),
+    );
+    const claim = await agent.fetch(
+      withTrustedContext(
+        new Request("https://agent.internal/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            workerId: "agent-mention-test",
+            leaseSeconds: 60,
+          }),
+        }),
+        {
+          principal: agentPrincipal(ctx, agentId, hexKey(String(agentId))),
+          requestId: crypto.randomUUID(),
+          workspaceId: ctx.workspaceId,
+        },
+      ),
+    );
+    expect(await claim.json()).toMatchObject({
+      job: {
+        agentId,
+        kind: "conversation.message",
+        payload: {
+          conversationId: "mission-control",
+          mentions: [agentId],
+          instruction: "Hey @Coordinator, take this.",
+        },
+      },
+    });
   });
 });
 
