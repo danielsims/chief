@@ -113,6 +113,14 @@ export async function publishAgentMessage(
     );
   }
   const result = appendMessageResultSchema.parse(await response.json());
+  // Onboarding kickoff messages are the single wake for the specialist cells:
+  // the dedicated workspace.kickoff.* job (enqueued by `enqueueKickoff`) is the
+  // authoritative, cross-platform run. Dispatch their mentions here would also
+  // enqueue a competing conversation.message job into mission-control, so the
+  // agent would run the kickoff twice and dump its work there. Do not double-
+  // dispatch during onboarding. Every other agent-authored mention still wakes
+  // its target as normal.
+  if (job.kind === "workspace.onboarding") return;
   const dispatch = await dispatchPersistedMessage(env, {
     message: result.message,
     principal: agent,

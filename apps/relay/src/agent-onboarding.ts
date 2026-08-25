@@ -11,6 +11,7 @@ import {
   workspaceOnboardingResultSchema,
 } from "@chief/relay-contracts";
 
+import { channelIdForKey } from "./hosted-agent-tools/toolkits/channels";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 
@@ -70,10 +71,13 @@ export async function publishOnboardingResult(
     ),
   );
   if (!snapshotResponse.ok) {
+    const detail = await snapshotResponse.text().catch(() => "");
     throw new HttpError(
-      502,
+      snapshotResponse.status,
       "onboarding_snapshot_failed",
-      "Chief's workspace setup could not be finalized.",
+      `Chief's workspace setup could not be finalized (${snapshotResponse.status}).${
+        detail ? ` ${detail.slice(0, 500)}` : ""
+      }`,
     );
   }
   await enqueueKickoff(env, job, agent, kickoffThreadRoots(messages));
@@ -99,6 +103,7 @@ async function enqueueKickoff(
       agentId: "brand",
       mention: "Marketer",
       kind: "workspace.kickoff.marketing",
+      operationKey: "marketing-channel",
       payload: {
         ...common,
         conversationId: "marketing",
@@ -112,6 +117,7 @@ async function enqueueKickoff(
       agentId: "prospector",
       mention: "Prospector",
       kind: "workspace.kickoff.prospecting",
+      operationKey: "prospecting-channel",
       payload: {
         ...common,
         conversationId: "prospecting",
@@ -125,6 +131,7 @@ async function enqueueKickoff(
       agentId: "engineer",
       mention: "Engineer",
       kind: "workspace.kickoff.engineering",
+      operationKey: "engineering-channel",
       payload: {
         ...common,
         conversationId: "engineering",
@@ -139,6 +146,7 @@ async function enqueueKickoff(
       agentId: "setup",
       mention: "Setup",
       kind: "workspace.kickoff.setup",
+      operationKey: "setup-channel",
       payload: {
         ...common,
         conversationId: "setup",
@@ -159,6 +167,7 @@ async function enqueueKickoff(
         `Chief did not publish ${entry.mention}'s Mission Control kickoff.`,
       );
     }
+    const conversationId = await channelIdForKey(entry.operationKey);
     const command = {
       commandId: crypto.randomUUID(),
       protocolVersion: 1,
@@ -169,6 +178,7 @@ async function enqueueKickoff(
         kind: entry.kind,
         payload: {
           ...entry.payload,
+          conversationId,
           threadRootId,
           instruction: `${entry.payload.instruction} The exact Mission Control threadRootId is ${JSON.stringify(threadRootId)}.`,
         },
