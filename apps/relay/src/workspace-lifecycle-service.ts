@@ -1,5 +1,6 @@
 import type { UserPrincipal } from "@chief/relay-contracts";
 import {
+  agentConfigSchema,
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
   createWorkspaceCommandSchema,
@@ -12,6 +13,7 @@ import type { readTrustedIdentity } from "./internal-context";
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { defaultAgentConfigFor } from "./workspace-agent-config";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   defaultWorkspaceAgents,
@@ -166,6 +168,21 @@ export class WorkspaceLifecycleService {
         createdAt,
       );
       this.channels.seedSnapshotAgents(snapshot, createdAt);
+      for (const agent of snapshot.agents) {
+        const config = agentConfigSchema.parse({
+          ...defaultAgentConfigFor(agent.id),
+          providerAssigned: true,
+          driver: input.inferenceProvider,
+          model: input.inferenceModel,
+        });
+        this.storage.sql.exec(
+          `INSERT INTO agent_configs (agent_id, config_json, updated_at)
+           VALUES (?, ?, ?)`,
+          agent.id,
+          JSON.stringify(config),
+          createdAt,
+        );
+      }
     });
     return this.snapshot(context);
   }

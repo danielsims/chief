@@ -142,6 +142,15 @@ export class WorkspaceChannelStore {
       : defaultAgentConfigFor(agentId);
   }
 
+  agentPubkey(agentId: string) {
+    return firstRow<{ pubkey: string }>(
+      this.storage.sql.exec(
+        "SELECT pubkey FROM agent_keys WHERE agent_id = ?",
+        agentId,
+      ),
+    )?.pubkey;
+  }
+
   requireAgentCapability(principal: Principal, capability: string) {
     if (principal.kind !== "agent") return;
     const config = this.agentConfiguration(principal.agentId);

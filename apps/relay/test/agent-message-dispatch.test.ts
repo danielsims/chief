@@ -10,6 +10,7 @@ import {
   registerTestAgent as registerAgent,
   channelRpc as rpc,
   setupChannelTest as setup,
+  testConversationMessages,
 } from "./channel-test-helpers";
 import { hexKey } from "./helpers";
 
@@ -17,6 +18,7 @@ describe("workspace agent message dispatch", () => {
   it("queues one idempotent job for the agent member of a direct message", async () => {
     const ctx = await setup();
     await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    await assignAgentProvider(ctx);
     const direct = await rpc(
       ctx,
       ctx.principal,
@@ -63,6 +65,45 @@ describe("workspace agent message dispatch", () => {
     });
   });
 
+  it("publishes a durable activity error when the addressed agent has no provider", async () => {
+    const ctx = await setup();
+    await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    const direct = await rpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      envelope({ participant: { kind: "agent", principalId: agentId } }),
+    );
+    const conversationId = (
+      (await direct.json()) as { conversation: { id: string } }
+    ).conversation.id;
+    const message = testMessage(ctx, conversationId, "Can you review this?");
+
+    const dispatched = await dispatchMessage(ctx, ctx.principal, message);
+
+    expect(await dispatched.json()).toEqual({ agentIds: [] });
+    const messages = await testConversationMessages(
+      ctx,
+      ctx.principal,
+      conversationId,
+    );
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          author: { kind: "agent", id: agentId },
+          components: [
+            expect.objectContaining({
+              kind: "error",
+              payload: expect.objectContaining({
+                code: "agent_provider_required",
+              }),
+            }),
+          ],
+        }),
+      ]),
+    );
+  });
+
   it("does not dispatch a private-channel mention to an agent outside it", async () => {
     const ctx = await setup();
     await registerAgent(ctx, agentId, hexKey(String(agentId)));
@@ -84,6 +125,30 @@ describe("workspace agent message dispatch", () => {
     expect(await response.json()).toEqual({ agentIds: [] });
   });
 });
+
+async function assignAgentProvider(ctx: Awaited<ReturnType<typeof setup>>) {
+  const response = await rpc(ctx, ctx.principal, "agent-config-set", {
+    agentId,
+    config: {
+      enabled: true,
+      driver: "openCodeGo",
+      model: "deepseek-v4-flash",
+      approvals: "auto",
+      capabilities: [],
+      integrations: [],
+      toolPermissions: [
+        "workspace.read",
+        "channels.read",
+        "channels.create",
+        "members.read",
+        "members.manage",
+        "messages.read",
+        "messages.send",
+      ],
+    },
+  });
+  expect(response.status).toBe(200);
+}
 
 function testMessage(
   ctx: Awaited<ReturnType<typeof setup>>,

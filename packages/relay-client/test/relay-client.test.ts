@@ -142,6 +142,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const requests: { method: string; path: string; body: unknown }[] = [];
   const config = {
     enabled: true,
+    providerAssigned: true,
     driver: "codex",
     model: "auto",
     approvals: "auto" as const,
