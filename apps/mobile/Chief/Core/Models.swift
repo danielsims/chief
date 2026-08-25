@@ -746,6 +746,7 @@ enum JSONValue: Codable, Sendable {
 struct OnboardingDraft: Equatable, Sendable {
   enum RuntimeLocation: String, CaseIterable, Sendable { case phone, cloud }
   enum InferenceProvider: String, CaseIterable, Sendable {
+    case cloud = "remote"
     case openCodeGo
     #if DEBUG
       /// Development-only inference supplied by this Mac's signed-in Codex

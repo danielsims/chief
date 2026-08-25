@@ -1590,7 +1590,7 @@ private struct CreateWorkspaceInput: Codable {
     name = draft.companyName
     website = draft.website
     runtime = draft.runtime?.rawValue ?? "phone"
-    inferenceProvider = draft.inferenceProvider?.rawValue ?? "openCodeGo"
+    inferenceProvider = draft.inferenceProvider?.rawValue ?? "remote"
     inferenceModel = draft.inferenceModel
     selectedApps = draft.selectedApps.sorted()
   }

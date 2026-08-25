@@ -4,6 +4,7 @@ import Foundation
 /// only so the owner UI and local runtime can start without a blank flash.
 struct AgentConfig: Codable, Equatable, Sendable {
   var enabled: Bool = true
+  var deploymentTarget: String = "cloud"
   var driver: String = "openCodeGo"
   var model: String = OpenCodeModelCatalog.recommendedFreeModelID
   var approvals: String = "auto"  // auto | ask

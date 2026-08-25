@@ -66,6 +66,11 @@ export function relayAgentConfig(
     ...current,
     enabled: preference.enabled,
     providerAssigned: assignedDriver ? true : current.providerAssigned,
+    deploymentTarget: assignedDriver
+      ? assignedDriver === "remote"
+        ? "cloud"
+        : "desktop"
+      : current.deploymentTarget,
     driver: assignedDriver ? relayDriver(assignedDriver) : current.driver,
     model: assignedDriver ? assignedModel(preference.model) : current.model,
     approvals: preference.approvals ?? current.approvals,

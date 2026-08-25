@@ -130,14 +130,21 @@ private struct RuntimeStep: View {
         title: "This iPhone",
         detail: "Run a lightweight agent privately on this device.",
         selected: draft.runtime == .phone
-      ) { draft.runtime = .phone }
+      ) {
+        draft.runtime = .phone
+        if draft.inferenceProvider == .cloud { draft.inferenceProvider = nil }
+      }
       Divider().overlay(ChiefTheme.line)
       OptionRow(
         icon: { Image(systemName: "cloud") },
         title: "Chief Cloud",
         detail: "Keep agents working even when your devices are offline.",
         selected: draft.runtime == .cloud
-      ) { draft.runtime = .cloud }
+      ) {
+        draft.runtime = .cloud
+        draft.inferenceProvider = .cloud
+        draft.inferenceModel = "auto"
+      }
     }
   }
 }
@@ -155,6 +162,17 @@ private struct InferenceStep: View {
       title: "How should your agents think?",
       detail: "Choose the inference provider that powers your agents."
     ) {
+      if draft.runtime == .cloud {
+        OptionRow(
+          icon: { Image(systemName: "cloud") },
+          title: "Chief Cloud",
+          detail: "Durable compute, browser, files, Git, and artifacts.",
+          selected: true
+        ) {
+          draft.inferenceProvider = .cloud
+          draft.inferenceModel = "auto"
+        }
+      } else {
       OptionRow(
         icon: { Image(systemName: "internaldrive") },
         title: "On device",
@@ -226,10 +244,11 @@ private struct InferenceStep: View {
           }
         }
       #endif
+      }
     }
     .animation(.easeInOut(duration: 0.22), value: draft.inferenceProvider)
     .task(id: draft.inferenceProvider) {
-      guard draft.inferenceProvider == .openCodeGo else { return }
+      guard draft.runtime == .phone, draft.inferenceProvider == .openCodeGo else { return }
       loadingOpenCodeModels = true
       openCodeModels = await OpenCodeModelCatalog.load()
       if !openCodeModels.contains(where: { $0.id == draft.inferenceModel }) {

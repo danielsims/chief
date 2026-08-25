@@ -835,8 +835,8 @@ final class AppModel {
       guard workspace?.id == loaded.id else { return }
       isWorkspaceReadyForPresentation = true
       await refreshWorkspaces()
-      await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentConfigCache(for: loaded)
+      await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentJobs(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
@@ -862,11 +862,11 @@ final class AppModel {
     }
   }
 
-  /// Register every roster agent's own pubkey with the workspace so each agent can
-  /// self-authenticate and post as itself (no impersonation). Idempotent: the
-  /// relay ignores re-registration of an existing key.
   private func registerAgentKeyIfNeeded(workspaceID: String) async {
-    let roster = workspace?.agents.map(\.id) ?? ["chief"]
+    let roster = (workspace?.agents ?? []).compactMap { agent in
+      let config = configStore.load(workspaceID: workspaceID, agentID: agent.id)
+      return config?.deploymentTarget == "phone" ? agent.id : nil
+    }
     await withTaskGroup(of: Void.self) { group in
       for agentID in roster {
         group.addTask { [weak self] in
@@ -1304,10 +1304,6 @@ final class AppModel {
       return
     }
     onboardingError = nil
-    guard onboarding.runtime == .phone else {
-      onboardingError = "Chief Cloud setup is not available in this build yet."
-      return
-    }
     let selection =
       "runtime=\(onboarding.runtime?.rawValue ?? "nil") provider=\(onboarding.inferenceProvider?.rawValue ?? "nil") model=\(onboarding.inferenceModel)"
     onboardingLog.info("completing \(selection)")
@@ -1476,7 +1472,7 @@ final class AppModel {
   }
 
   private func recoverPendingOnboarding(for snapshot: WorkspaceSnapshot) {
-    onboarding.runtime = .phone
+    onboarding.runtime = snapshot.runtime == "cloud" ? .cloud : .phone
     onboarding.companyName = snapshot.name
     onboarding.step = 3
     #if DEBUG
@@ -1499,6 +1495,7 @@ final class AppModel {
   }
 
   private func hasRecoverableInferenceCredential(for workspaceID: String) -> Bool {
+    if workspace?.id == workspaceID, workspace?.runtime == "cloud" { return true }
     #if DEBUG
       if DevCodexBridgeSettings.isEnabled(for: workspaceID),
         DevCodexBridgeSettings.isConfigured,
@@ -2416,7 +2413,11 @@ final class AppModel {
   private func startAgentLoopIfNeeded() {
     guard phase == .workspace, let workspace else { return }
     guard agentLoopTask == nil else { return }
-    let roster = workspace.agents.map(\.id)
+    let roster = workspace.agents.compactMap { agent in
+      let config = configStore.load(workspaceID: workspace.id, agentID: agent.id)
+      return config?.deploymentTarget == "phone" ? agent.id : nil
+    }
+    guard !roster.isEmpty else { return }
     let loop = WorkspaceAgentLoop(
       relay: relay,
       workspaceID: workspace.id,

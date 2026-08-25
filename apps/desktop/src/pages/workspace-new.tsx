@@ -84,9 +84,12 @@ export function CreateWorkspacePage() {
   const [createStep, setCreateStep] = useState(initialDraft?.step ?? 0);
   const [name, setName] = useState(initialDraft?.name ?? "");
   const [website, setWebsite] = useState(initialDraft?.website ?? "");
+  const [runtime, setRuntime] = useState<"cloud" | "desktop">(
+    initialDraft?.runtime ?? "cloud",
+  );
   const [provider, setProvider] = useState<
-    "claude" | "codex" | "opencode" | null
-  >(initialDraft?.provider ?? null);
+    "claude" | "codex" | "opencode" | "remote" | null
+  >(initialDraft?.provider ?? "remote");
   const [model, setModel] = useState(initialDraft?.model ?? "auto");
   const [selectedApps, setSelectedApps] = useState<Set<string>>(
     () => new Set(initialDraft?.selectedApps ?? []),
@@ -133,6 +136,7 @@ export function CreateWorkspacePage() {
       step: createStep,
       name,
       website,
+      runtime,
       provider,
       model,
       selectedApps: Array.from(selectedApps).sort(),
@@ -145,6 +149,7 @@ export function CreateWorkspacePage() {
     model,
     name,
     provider,
+    runtime,
     selectedApps,
     website,
   ]);
@@ -161,7 +166,8 @@ export function CreateWorkspacePage() {
     setCreateStep(0);
     setName("");
     setWebsite("");
-    setProvider(null);
+    setRuntime("cloud");
+    setProvider("remote");
     setModel("auto");
     setSelectedApps(new Set());
     returnToWorkspaceHome();
@@ -231,7 +237,7 @@ export function CreateWorkspacePage() {
             commandId: crypto.randomUUID(),
             name: trimmedName,
             website: website.trim(),
-            runtime: "mac",
+            runtime,
             inferenceProvider: provider,
             inferenceModel: model || "auto",
             selectedApps: Array.from(selectedApps).sort(),
@@ -252,6 +258,7 @@ export function CreateWorkspacePage() {
       navigate,
       provider,
       relay,
+      runtime,
       selectedApps,
       website,
     ],
@@ -392,6 +399,7 @@ export function CreateWorkspacePage() {
             <CreateForm
               name={name}
               website={website}
+              runtime={runtime}
               provider={provider}
               model={model}
               selectedApps={selectedApps}
@@ -400,6 +408,11 @@ export function CreateWorkspacePage() {
               step={createStep}
               onNameChange={setName}
               onWebsiteChange={setWebsite}
+              onRuntimeChange={(value) => {
+                setRuntime(value);
+                setProvider(value === "cloud" ? "remote" : null);
+                setModel("auto");
+              }}
               onProviderChange={setProvider}
               onModelChange={setModel}
               onSelectedAppsChange={setSelectedApps}
