@@ -7,7 +7,6 @@ import {
   channelRecordSchema,
   conversationIdSchema,
   workspaceIdSchema,
-  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -16,6 +15,7 @@ import {
   effectiveAgentConfigFor,
   hasAgentPermission,
 } from "./workspace-agent-config";
+import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
 const channelMemberRowSchema = z.object({
   conversation_id: z.string(),
@@ -319,9 +319,7 @@ export class WorkspaceChannelStore {
       ),
     );
     if (!workspace?.snapshot_json) return names;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     for (const agent of snapshot.agents) {
       names.set(`agent:${agent.id}`, agent.name);
     }
@@ -340,9 +338,7 @@ export class WorkspaceChannelStore {
       ),
     );
     if (!workspace?.snapshot_json) return;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     mutate(snapshot.conversations);
     this.storage.sql.exec(
       "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
@@ -357,9 +353,7 @@ export class WorkspaceChannelStore {
       this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
     );
     if (!workspace?.snapshot_json) return;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     this.seedSnapshotChannels(
       snapshot,
       workspace.created_by_user_id,
