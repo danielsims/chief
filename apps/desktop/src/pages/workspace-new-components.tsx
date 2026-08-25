@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
-import { ArrowLeft, Check, Cloud, Laptop } from "lucide-react";
+import { ArrowLeft, Check, Laptop } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@chief/ui/components/button";
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@chief/ui/components/select";
 
+import { ChiefMark } from "../components/chief-mark";
 import { useProviderModels } from "../lib/runtime";
 import {
   ProviderOption,
@@ -44,7 +45,7 @@ export function CreateForm({
   name: string;
   website: string;
   runtime: "cloud" | "desktop";
-  provider: "claude" | "codex" | "opencode" | "remote" | null;
+  provider: "claude" | "codex" | "opencode" | null;
   model: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
@@ -61,6 +62,15 @@ export function CreateForm({
   onSubmit: (event: React.FormEvent) => void;
 }) {
   const providerModels = useProviderModels(provider);
+  const models =
+    runtime === "cloud"
+      ? [
+          {
+            value: "opencode-go/deepseek-v4-flash",
+            label: "DeepSeek V4 Flash",
+          },
+        ]
+      : selectableProviderModels(providerModels.models);
   const appListRef = useRef<HTMLDivElement>(null);
   const [canScrollApps, setCanScrollApps] = useState(false);
   const updateAppScrollCue = useCallback(() => {
@@ -168,7 +178,7 @@ export function CreateForm({
                 label="Chief Cloud"
                 selected={runtime === "cloud"}
                 onClick={() => onRuntimeChange("cloud")}
-                icon={<Cloud size={27} />}
+                icon={<ChiefMark className="size-7" />}
               />
               <ProviderOption
                 label="This Mac"
@@ -178,71 +188,56 @@ export function CreateForm({
               />
             </div>
           ) : step === 2 ? (
-            runtime === "cloud" ? (
-              <div className="border-foreground bg-muted flex items-center gap-3 rounded-xl border px-4 py-3.5">
-                <Cloud size={24} />
-                <span>
-                  <span className="block text-sm font-medium">Chief Cloud</span>
-                  <span className="text-muted-foreground mt-0.5 block text-xs">
-                    Durable compute, browser, files, Git, and artifacts
-                  </span>
-                </span>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <ProviderOption
-                    label="Codex"
-                    selected={provider === "codex"}
-                    onClick={() => onProviderChange("codex")}
-                    icon={<OpenAI size={27} />}
-                  />
-                  <ProviderOption
-                    label="Claude"
-                    selected={provider === "claude"}
-                    onClick={() => onProviderChange("claude")}
-                    icon={<Claude.Color size={27} />}
-                  />
-                  <ProviderOption
-                    label="OpenCode"
-                    selected={provider === "opencode"}
-                    onClick={() => onProviderChange("opencode")}
-                    icon={<OpenCode size={27} />}
-                  />
-                </div>
-                {provider ? (
-                  <div>
-                    <Field label="Model" htmlFor="agent-model">
-                      <Select
-                        value={model || "auto"}
-                        onValueChange={onModelChange}
-                      >
-                        <SelectTrigger
-                          id="agent-model"
-                          className="w-full"
-                          aria-label="Agent model"
-                        >
-                          <SelectValue placeholder="Auto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto</SelectItem>
-                          {selectableProviderModels(providerModels.models).map(
-                            (option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ),
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
+            <div className="space-y-3">
+              <div
+                className={`grid gap-2 ${runtime === "cloud" ? "sm:grid-cols-1" : "sm:grid-cols-3"}`}
+              >
+                {runtime === "desktop" ? (
+                  <>
+                    <ProviderOption
+                      label="Codex"
+                      selected={provider === "codex"}
+                      onClick={() => onProviderChange("codex")}
+                      icon={<OpenAI size={27} />}
+                    />
+                    <ProviderOption
+                      label="Claude"
+                      selected={provider === "claude"}
+                      onClick={() => onProviderChange("claude")}
+                      icon={<Claude.Color size={27} />}
+                    />
+                  </>
                 ) : null}
+                <ProviderOption
+                  label="OpenCode"
+                  selected={provider === "opencode"}
+                  onClick={() => onProviderChange("opencode")}
+                  icon={<OpenCode size={27} />}
+                />
               </div>
-            )
+              {provider ? (
+                <div>
+                  <Field label="Model" htmlFor="agent-model">
+                    <Select value={model} onValueChange={onModelChange}>
+                      <SelectTrigger
+                        id="agent-model"
+                        className="w-full"
+                        aria-label="Agent model"
+                      >
+                        <SelectValue placeholder="Choose model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {models.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="relative">
               <div

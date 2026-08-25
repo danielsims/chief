@@ -35,7 +35,13 @@ void test("team assignment preserves each agent's existing policy", () => {
     },
   ];
 
-  const next = executionPreferencesForTeam(agents, current, "codex", "gpt-5.6");
+  const next = executionPreferencesForTeam(
+    agents,
+    current,
+    "desktop",
+    "codex",
+    "gpt-5.6",
+  );
 
   assert.deepEqual(next, [
     {
@@ -43,12 +49,14 @@ void test("team assignment preserves each agent's existing policy", () => {
       enabled: false,
       approvals: "ask",
       integrations: ["slack"],
+      deploymentTarget: "desktop",
       driver: "codex",
       model: "gpt-5.6",
     },
     {
       agentId: "brand",
       enabled: true,
+      deploymentTarget: "desktop",
       driver: "codex",
       model: "gpt-5.6",
     },
