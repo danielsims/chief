@@ -1,12 +1,5 @@
-import { Workspace, WorkspaceStub } from "@cloudflare/computer";
-import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import { Workspace } from "@cloudflare/computer";
 import { createGitClient } from "@cloudflare/computer/git";
-import curlCommands from "@cloudflare/computer/shell/curl";
-import fileCommands from "@cloudflare/computer/shell/file";
-import htmlCommands from "@cloudflare/computer/shell/html-to-markdown";
-import jqCommands from "@cloudflare/computer/shell/jq";
-import javascriptCommands from "@cloudflare/computer/shell/js-exec";
-import sqliteCommands from "@cloudflare/computer/shell/sqlite";
 import { DurableObject } from "cloudflare:workers";
 
 import type { JsonObject, JsonValue } from "@chief/relay-contracts";
@@ -39,7 +32,7 @@ export class AgentObject extends DurableObject<Env> {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    this.workspace = createWorkspace(state, env);
+    this.workspace = createWorkspace(state);
     this.computer = new CloudflareAgentComputer(this.workspace);
     const broadcast = (event: JsonObject) => this.broadcast(event);
     this.queue = new AgentJobQueue(state.storage, env, broadcast);
@@ -61,8 +54,12 @@ export class AgentObject extends DurableObject<Env> {
     });
   }
 
-  __getWorkspaceStub() {
-    return Promise.resolve(new WorkspaceStub(this.workspace));
+  executeComputer(command: string, cwd?: string) {
+    return this.computer.execute(command, cwd);
+  }
+
+  runComputerGit(argv: string[], cwd?: string) {
+    return this.computer.git(argv, cwd);
   }
 
   async fetch(request: Request) {
@@ -226,26 +223,9 @@ export class AgentObject extends DurableObject<Env> {
   }
 }
 
-function createWorkspace(state: DurableObjectState, env: Env) {
+function createWorkspace(state: DurableObjectState) {
   return new Workspace({
     storage: state.storage,
-    backends: [
-      new WorkerShellBackend({
-        id: "worker-shell",
-        loader: env.LOADER,
-        workspace: { binding: "AGENTS", id: state.id.toString() },
-        ctx: state,
-        egress: { mode: "direct" },
-        commands: [
-          curlCommands,
-          fileCommands,
-          htmlCommands,
-          jqCommands,
-          javascriptCommands,
-          sqliteCommands,
-        ],
-      }),
-    ],
     git: createGitClient(),
     defaultGitIdentity: {
       name: "Chief Agent",

@@ -1,4 +1,5 @@
 import type { Workspace } from "@cloudflare/computer";
+import { Bash, InMemoryFs } from "just-bash";
 
 import type {
   AgentComputer,
@@ -7,7 +8,7 @@ import type {
 } from "@chief/agent-computer";
 
 export class CloudflareAgentComputer implements AgentComputer {
-  readonly backend = "cloudflare-worker";
+  readonly backend = "cloudflare-just-bash";
 
   constructor(private readonly workspace: Workspace) {}
 
@@ -70,20 +71,16 @@ export class CloudflareAgentComputer implements AgentComputer {
   }
 
   async execute(command: string, cwd = "/workspace") {
-    const handle = await this.workspace.runtime.exec(command, {
-      backend: "worker-shell",
+    const fs = await this.loadShellFileSystem();
+    const bash = new Bash({
+      fs,
       cwd,
-      encoding: "utf8",
-      timeoutMs: 120_000,
+      network: { dangerouslyAllowFullInternetAccess: true },
+      executionLimits: { maxExecutionTimeMs: 120_000 },
     });
-    try {
-      const result = await handle.result();
-      return executionResult(result);
-    } finally {
-      await this.workspace.runtime.disposeExec(handle.id, {
-        backend: handle.backend,
-      });
-    }
+    const result = await bash.exec(command);
+    await this.persistShellFileSystem(fs);
+    return executionResult(result);
   }
 
   async git(argv: string[], cwd = "/workspace") {
@@ -96,6 +93,67 @@ export class CloudflareAgentComputer implements AgentComputer {
     await this.workspace.fs.mkdir(path.slice(0, separator), {
       recursive: true,
     });
+  }
+
+  private async loadShellFileSystem() {
+    const fs = new InMemoryFs(undefined, {
+      maxTotalBytes: MAX_COMPUTER_BYTES,
+    });
+    await fs.mkdir("/workspace", { recursive: true });
+    await copyWorkspaceToShell(this.workspace, fs, "/workspace");
+    return fs;
+  }
+
+  private async persistShellFileSystem(fs: InMemoryFs) {
+    await this.workspace.fs.rm("/workspace", {
+      recursive: true,
+      force: true,
+    });
+    await this.workspace.fs.mkdir("/workspace", { recursive: true });
+    const paths = fs
+      .getAllPaths()
+      .filter((path) => path === "/workspace" || path.startsWith("/workspace/"))
+      .sort((left, right) => left.length - right.length);
+    for (const path of paths) {
+      if (path === "/workspace") continue;
+      const stat = await fs.lstat(path);
+      if (stat.isDirectory) {
+        await this.workspace.fs.mkdir(path, { recursive: true });
+      } else if (stat.isSymbolicLink) {
+        await this.workspace.fs.symlink(await fs.readlink(path), path);
+      } else {
+        await this.ensureParent(path);
+        await this.workspace.fs.writeFile(path, await fs.readFileBuffer(path));
+      }
+      await this.workspace.fs.chmod(path, stat.mode);
+    }
+  }
+}
+
+const MAX_COMPUTER_BYTES = 8 * 1_024 * 1_024;
+
+async function copyWorkspaceToShell(
+  workspace: Workspace,
+  fs: InMemoryFs,
+  directory: string,
+): Promise<void> {
+  const entries = await workspace.fs.readdir(directory).catch(() => []);
+  for (const entry of entries) {
+    const path = joinPath(directory, entry.name);
+    if (entry.isDirectory) {
+      await fs.mkdir(path, { recursive: true });
+      await copyWorkspaceToShell(workspace, fs, path);
+    } else if (entry.isSymbolicLink) {
+      await fs.symlink(await workspace.fs.readlink(path), path);
+    } else {
+      const stream = await workspace.fs.readFile(path);
+      await fs.writeFile(
+        path,
+        new Uint8Array(await new Response(stream).arrayBuffer()),
+      );
+    }
+    const stat = await workspace.fs.lstat(path);
+    await fs.chmod(path, stat.mode);
   }
 }
 

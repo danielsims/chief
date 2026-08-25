@@ -26,6 +26,7 @@
     "@noble/hashes": "^2.3.0",
     "@platformatic/vfs": "0.4.0",
     "jose": "^6.2.3",
+    "just-bash": "3.4.2",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -9,7 +9,6 @@ interface __BaseEnv_Env {
   SOCKET_TICKET_RATE_LIMITER: RateLimit;
   AUTH_REQUEST_RATE_LIMITER: RateLimit;
   DEVICE_BIND_RATE_LIMITER: RateLimit;
-  LOADER: WorkerLoader;
   BROWSER: BrowserRun;
   AI: Ai;
   RELAY_DEPLOYMENT: string;

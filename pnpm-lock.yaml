@@ -340,6 +340,9 @@ importers:
       jose:
         specifier: ^6.2.3
         version: 6.2.3
+      just-bash:
+        specifier: 3.4.2
+        version: 3.4.2
       zod:
         specifier: "catalog:"
         version: 4.4.3
