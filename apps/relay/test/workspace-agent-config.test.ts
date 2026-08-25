@@ -90,6 +90,7 @@ describe("workspace agent capability policy", () => {
   it("upgrades the exact legacy Advertising permission snapshot", () => {
     const config = effectiveAgentConfigFor("ads", {
       enabled: true,
+      providerAssigned: true,
       driver: "codex",
       model: "gpt-5.6-luna",
       approvals: "auto",
@@ -126,6 +127,7 @@ describe("workspace agent capability policy", () => {
   it("upgrades the exact legacy Setup permission snapshot", () => {
     const config = effectiveAgentConfigFor("setup", {
       enabled: true,
+      providerAssigned: true,
       driver: "codex",
       model: "gpt-5.6-luna",
       approvals: "auto",

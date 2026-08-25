@@ -1,11 +1,13 @@
 import { z } from "zod";
 
+import type { AgentPrincipal } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   conversationMessageSchema,
   pluginActionPayloadSchema,
 } from "@chief/relay-contracts";
 
+import { publishAgentErrorActivity } from "./agent-activity-error";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
@@ -54,7 +56,7 @@ export async function dispatchWorkspaceMessage(
     message.conversationId,
     context.principal,
   );
-  const agentIds = eligibleAgentIds(
+  const dispatch = eligibleAgentIds(
     store,
     channel,
     message.mentions,
@@ -63,7 +65,7 @@ export async function dispatchWorkspaceMessage(
   const now = new Date().toISOString();
 
   await Promise.all(
-    agentIds.map(async (agentId) => {
+    dispatch.ready.map(async (agentId) => {
       const id = await deterministicUuid(
         `${context.workspaceId}:${message.id}:${agentId}:conversation-message`,
       );
@@ -114,7 +116,33 @@ export async function dispatchWorkspaceMessage(
     }),
   );
 
-  return json({ agentIds });
+  await Promise.all(
+    dispatch.providerRequired.map(async (agentId) => {
+      const pubkey = store.agentPubkey(agentId);
+      if (!pubkey) return;
+      const principal: AgentPrincipal = {
+        kind: "agent",
+        agentId: agentIdSchema.parse(agentId),
+        pubkey,
+        workspaceId: message.workspaceId,
+        role: "member",
+      };
+      await publishAgentErrorActivity(env, {
+        principal,
+        conversationId: message.conversationId,
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
+        seed: `${context.workspaceId}:${message.id}:${agentId}:provider-required`,
+        code: "agent_provider_required",
+        title: "Agent provider required",
+        message:
+          "Choose an agent provider and model before this agent can respond.",
+      });
+    }),
+  );
+
+  return json({ agentIds: dispatch.ready });
 }
 
 function dispatchedInstruction(
@@ -152,9 +180,11 @@ function eligibleAgentIds(
           .filter((member) => member.kind === "agent")
           .map((member) => member.principalId)
       : [...mentions, ...(replyAgentId ? [replyAgentId] : [])];
-  return [...new Set(candidates)].flatMap((value) => {
+  const ready: string[] = [];
+  const providerRequired: string[] = [];
+  for (const value of new Set(candidates)) {
     const parsed = agentIdSchema.safeParse(value);
-    if (!parsed.success || !store.memberRole("agent", parsed.data)) return [];
+    if (!parsed.success || !store.memberRole("agent", parsed.data)) continue;
     if (
       Number(channel.is_private) === 1 &&
       !store.channelMembership(
@@ -163,10 +193,14 @@ function eligibleAgentIds(
         parsed.data,
       )
     ) {
-      return [];
+      continue;
     }
-    return store.agentConfiguration(parsed.data).enabled ? [parsed.data] : [];
-  });
+    const config = store.agentConfiguration(parsed.data);
+    if (!config.enabled) continue;
+    if (!config.providerAssigned) providerRequired.push(parsed.data);
+    else ready.push(parsed.data);
+  }
+  return { providerRequired, ready };
 }
 
 async function deterministicUuid(value: string) {

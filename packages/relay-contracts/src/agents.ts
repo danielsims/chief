@@ -15,6 +15,7 @@ import { jsonObjectSchema, jsonValueSchema } from "./json";
 export const agentConfigSchema = z
   .object({
     enabled: z.boolean(),
+    providerAssigned: z.boolean().default(true),
     driver: z.string().trim().min(1).max(64),
     model: z.string().trim().min(1).max(128),
     approvals: z.enum(["auto", "ask"]),
@@ -60,6 +61,7 @@ export const agentConfigSchema = z
 
 export const defaultAgentConfig = agentConfigSchema.parse({
   enabled: true,
+  providerAssigned: false,
   driver: "openCodeGo",
   model: "deepseek-v4-flash-free",
   approvals: "auto",

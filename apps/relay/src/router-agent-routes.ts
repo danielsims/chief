@@ -28,6 +28,7 @@ const agentSocketTicketRoute =
 const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
+const agentResourceRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)$/u;
 const agentCellSnapshotRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/cell-snapshot$/u;
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
@@ -111,8 +112,13 @@ export async function routeAgentRequest(
   }
 
   const agentConfig = agentConfigRoute.exec(url.pathname);
-  if (agentConfig) {
-    if (request.method !== "GET" && request.method !== "POST") {
+  const agentResource = agentResourceRoute.exec(url.pathname);
+  const agentRoute = agentConfig ?? agentResource;
+  if (agentRoute) {
+    if (
+      (agentResource && request.method !== "GET") ||
+      (agentConfig && request.method !== "GET" && request.method !== "POST")
+    ) {
       return relayError(
         405,
         "method_not_allowed",
@@ -120,8 +126,8 @@ export async function routeAgentRequest(
         requestId,
       );
     }
-    const workspaceId = parseWorkspaceId(agentConfig[1]);
-    const agentId = parseAgentId(agentConfig[2]);
+    const workspaceId = parseWorkspaceId(agentRoute[1]);
+    const agentId = parseAgentId(agentRoute[2]);
     const authenticated = await authenticateRelayRequest(request, env);
     const principal = await authorizeWorkspace(env, {
       identity: authenticated.identity,
@@ -129,11 +135,13 @@ export async function routeAgentRequest(
       workspaceId,
     });
     const operation =
-      request.method === "POST" ? "agent-config-set" : "agent-config-get";
+      agentConfig && request.method === "POST"
+        ? "agent-config-set"
+        : "agent-config-get";
     const target = new URL(request.url);
     target.searchParams.set("agentId", agentId);
     const body =
-      request.method === "POST"
+      agentConfig && request.method === "POST"
         ? await authenticated.request.text()
         : undefined;
     const workspace = env.WORKSPACES.get(

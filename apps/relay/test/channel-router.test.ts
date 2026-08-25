@@ -4,6 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentConfigResultSchema,
   createWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
@@ -24,6 +25,27 @@ const owner = {
 };
 
 describe("channel HTTP surface", () => {
+  it("exposes each agent at its workspace-scoped URL", async () => {
+    const workspaceId = await setupWorkspace();
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/agents/chief`;
+
+    const response = await worker.fetch(
+      signedRequest(url, "GET"),
+      relayEnv(),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(agentConfigResultSchema.parse(await response.json())).toMatchObject({
+      agentId: "chief",
+      config: {
+        providerAssigned: true,
+        driver: "openCodeGo",
+        model: "deepseek-v4-flash",
+      },
+    });
+  });
+
   it("creates, lists, gets, and lists members over the router", async () => {
     const workspaceId = await setupWorkspace();
     const request = (path: string, method = "GET", body?: string) =>
