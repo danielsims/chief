@@ -11,14 +11,20 @@ export interface PortableAgentTurn {
   messages: AgentInferenceMessage[];
   tools: readonly AgentInferenceTool[];
   execute: (call: AgentInferenceToolCall) => Promise<JsonValue>;
+  /** Optional explicit cap for callers that want one. By default an agent
+   * works as long as its turn requires; the loop exits the moment the model
+   * returns a tool-call-free answer. */
   maxRounds?: number;
   maxTokens?: number;
   temperature?: number;
 }
 
 export async function runPortableAgentTurn(input: PortableAgentTurn) {
-  const maxRounds = input.maxRounds ?? 24;
-  for (let round = 0; round < maxRounds; round += 1) {
+  let round = 0;
+  for (;;) {
+    if (input.maxRounds !== undefined && round >= input.maxRounds) {
+      throw new Error(`The agent exceeded ${input.maxRounds} tool rounds.`);
+    }
     const response = await input.inference.complete({
       messages: input.messages,
       tools: input.tools,
@@ -46,8 +52,8 @@ export async function runPortableAgentTurn(input: PortableAgentTurn) {
         content: JSON.stringify(result).slice(0, 20_000),
       });
     }
+    round += 1;
   }
-  throw new Error(`The agent exceeded ${maxRounds} tool rounds.`);
 }
 
 async function executeTool(

@@ -45,6 +45,29 @@ describe("OpenCodeAgentInference", () => {
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });
 
+  it("accepts a null tool_calls field from the Go API", async () => {
+    const request = async function (
+      this: void,
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) {
+      expect(this).toBeUndefined();
+      return Response.json({
+        choices: [{ message: { content: "ok", tool_calls: null } }],
+      });
+    };
+    const inference = new OpenCodeAgentInference("test-key", request);
+
+    const result = await inference.complete({
+      messages: [{ role: "user", content: "Hi." }],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(result).toEqual({ content: "ok", toolCalls: [] });
+  });
+
   it.skipIf(!liveApiKey || liveApiKey === "test")(
     "completes a live model-to-tool-to-model round",
     async () => {
