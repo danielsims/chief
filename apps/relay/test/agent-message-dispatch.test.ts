@@ -103,7 +103,7 @@ describe("workspace agent message dispatch", () => {
         workspaceId: ctx.workspaceId,
         agentId: chiefId,
         agentPubkey: chiefPubkey,
-        kind: "workspace.onboarding",
+        kind: "conversation.message",
         payload: {},
         status: "leased",
         attempt: 1,

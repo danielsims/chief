@@ -34,6 +34,19 @@ async function deterministicId(value: string) {
     .join("");
 }
 
+/**
+ * Deterministic channel id for an agent-created work channel. The kickoff
+ * payload and the channels_create tool both derive the same id from the same
+ * operationKey, so the specialist's final publish lands in the channel it
+ * created rather than a conversation that never exists.
+ */
+export async function channelIdForKey(
+  operationKey: string,
+  prefix = "channel",
+) {
+  return `${prefix}-${await deterministicId(operationKey)}`;
+}
+
 export async function deterministicUuid(value: string) {
   const bytes = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
@@ -194,7 +207,7 @@ export const hostedChannelTools = [
           protocolVersion: 1,
           occurredAt: new Date().toISOString(),
           payload: {
-            conversationId: `channel-${await deterministicId(operationKey)}`,
+            conversationId: await channelIdForKey(operationKey),
             name: requiredString(input, "name"),
             isPrivate: input.visibility === "private",
           },
