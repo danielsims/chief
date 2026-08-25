@@ -15,10 +15,13 @@ import { jsonObjectSchema, jsonValueSchema } from "./json";
 export const agentConfigSchema = z
   .object({
     enabled: z.boolean(),
-    providerAssigned: z.boolean().default(true),
     deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
-    driver: z.string().trim().min(1).max(64),
-    model: z.string().trim().min(1).max(128),
+    inference: z
+      .object({
+        provider: z.literal("opencode"),
+        model: z.literal("opencode-go/deepseek-v4-flash"),
+      })
+      .strict(),
     approvals: z.enum(["auto", "ask"]),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
@@ -62,10 +65,11 @@ export const agentConfigSchema = z
 
 export const defaultAgentConfig = agentConfigSchema.parse({
   enabled: true,
-  providerAssigned: false,
   deploymentTarget: "cloud",
-  driver: "remote",
-  model: "auto",
+  inference: {
+    provider: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+  },
   approvals: "auto",
   capabilities: [],
   integrations: [],

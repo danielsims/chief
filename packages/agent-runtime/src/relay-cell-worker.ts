@@ -193,10 +193,13 @@ async function executeJob(
       },
       conversationId,
       {
-        driver: normalizeDriver(config.driver),
+        driver: normalizeDriver(config.inference.provider),
         access: "guarded",
         workspaceId: job.workspaceId,
-        model: config.model.toLowerCase() === "auto" ? undefined : config.model,
+        model:
+          config.inference.model.toLowerCase() === "auto"
+            ? undefined
+            : config.inference.model,
         mcpServers: [
           relayMcp.spec,
           ...(await plugins.mcpServers(job.workspaceId)),

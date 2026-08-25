@@ -171,11 +171,11 @@ export class WorkspaceLifecycleService {
       for (const agent of snapshot.agents) {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
-          providerAssigned: true,
           deploymentTarget: input.runtime,
-          driver:
-            input.runtime === "cloud" ? "remote" : input.inferenceProvider,
-          model: input.runtime === "cloud" ? "auto" : input.inferenceModel,
+          inference: {
+            provider: "opencode",
+            model: "opencode-go/deepseek-v4-flash",
+          },
         });
         this.storage.sql.exec(
           `INSERT INTO agent_configs (agent_id, config_json, updated_at)

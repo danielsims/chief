@@ -228,6 +228,7 @@ export interface CampaignRecord {
 export interface AgentPreference {
   agentId: string;
   enabled: boolean;
+  deploymentTarget?: "phone" | "desktop" | "cloud";
   driver?: DriverType;
   model?: string;
   approvals?: AgentApprovalMode;

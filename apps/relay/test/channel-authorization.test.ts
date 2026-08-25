@@ -125,8 +125,11 @@ describe("channel authorization", () => {
       agentId,
       config: {
         enabled: false,
-        driver: "openCodeGo",
-        model: "deepseek-v4-flash",
+        deploymentTarget: "cloud",
+        inference: {
+          provider: "opencode",
+          model: "opencode-go/deepseek-v4-flash",
+        },
         approvals: "ask",
         capabilities: [],
         integrations: [],
@@ -148,8 +151,11 @@ describe("channel authorization", () => {
       agentId,
       config: {
         enabled: true,
-        driver: "openCodeGo",
-        model: "deepseek-v4-flash",
+        deploymentTarget: "cloud",
+        inference: {
+          provider: "opencode",
+          model: "opencode-go/deepseek-v4-flash",
+        },
         approvals: "auto",
         capabilities: [],
         integrations: [],
@@ -228,8 +234,11 @@ describe("channel authorization", () => {
       agentId,
       config: {
         enabled: true,
-        driver: "openCodeGo",
-        model: "deepseek-v4-flash",
+        deploymentTarget: "cloud",
+        inference: {
+          provider: "opencode",
+          model: "opencode-go/deepseek-v4-flash",
+        },
         approvals: "auto",
         capabilities: [],
         integrations: [],
