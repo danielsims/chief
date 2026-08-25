@@ -42,6 +42,9 @@
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
   ],
+  "limits": {
+    "subrequests": 1000,
+  },
   "d1_databases": [
     {
       "binding": "AUTH_DB",
