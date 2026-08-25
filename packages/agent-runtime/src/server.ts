@@ -3051,6 +3051,7 @@ export function startServer(port = PORT) {
               send({
                 type: "agentPreferences",
                 workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
                 preferences: await manager.listAgentPreferences(
                   msg.workspaceId,
                 ),

@@ -13,7 +13,7 @@ void test("a live runtime failure introduces an unread error", () => {
     message: "The agent stopped.",
   });
 
-  assert.equal(controls.error, "The agent stopped.");
+  assert.deepEqual(controls.error, { message: "The agent stopped." });
   assert.equal(controls.errorAcknowledged, false);
 });
 
@@ -23,6 +23,6 @@ void test("history replay retains diagnostics without restoring the alert", () =
     false,
   );
 
-  assert.equal(controls.error, "The agent stopped.");
+  assert.deepEqual(controls.error, { message: "The agent stopped." });
   assert.equal(controls.errorAcknowledged, true);
 });

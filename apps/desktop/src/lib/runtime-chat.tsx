@@ -152,7 +152,7 @@ export function useRuntimeChat(
       if (msg.type === "error" && msg.chatId === chatId) {
         setControls((current) => ({
           ...current,
-          error: msg.message,
+          error: { message: msg.message },
           errorAcknowledged: false,
           status: "idle",
         }));

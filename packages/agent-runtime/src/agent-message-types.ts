@@ -184,7 +184,9 @@ export type ChiefMessageEventMetadata =
   | {
       type: "error";
       message: string;
-      code?: "deployment_not_found";
+      title?: string;
+      code?: string;
+      agentId?: string;
     }
   | {
       type: "permissionResolved";
@@ -324,5 +326,11 @@ export type AgentEvent =
     }
   | { type: "questionResolved"; requestId: string }
   | { type: "status"; status: AgentStatus }
-  | { type: "error"; message: string }
+  | {
+      type: "error";
+      message: string;
+      title?: string;
+      code?: string;
+      agentId?: string;
+    }
   | { type: "exit"; code: number | null };

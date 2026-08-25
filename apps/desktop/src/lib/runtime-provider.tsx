@@ -18,7 +18,6 @@ import type {
 
 import type { RuntimeBrowserSession } from "./browser-sessions";
 import type { RuntimeContextValue, RuntimeStatus } from "./runtime-context";
-import type { RuntimeTransport } from "./runtime-transport";
 import {
   anchorBrowserRun as anchorRuntimeBrowserRun,
   anchorBrowserSession as anchorRuntimeBrowserSession,
@@ -34,8 +33,7 @@ import {
   upsertBrowserRun as upsertRuntimeBrowserRun,
 } from "./browser-sessions";
 import { navigateApp, notifySystem } from "./notifications";
-import { PendingRelayRuntimeClient } from "./pending-relay-runtime-client";
-import { RelayRuntimeClient } from "./relay-runtime-client";
+import { useRelayRuntimeTransport } from "./relay-runtime-transport";
 import { useRelaySession } from "./relay-session";
 import { useWorkspaceCapability } from "./workspace-capability";
 
@@ -53,12 +51,7 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const relaySession = useRelaySession();
-  const client = useMemo<RuntimeTransport>(() => {
-    if (relaySession.client && relaySession.snapshot) {
-      return new RelayRuntimeClient(relaySession.client, relaySession.snapshot);
-    }
-    return new PendingRelayRuntimeClient(relaySession.error);
-  }, [relaySession.client, relaySession.error, relaySession.snapshot]);
+  const client = useRelayRuntimeTransport(relaySession);
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [agents, setAgents] = useState<AgentDefinition[]>([]);

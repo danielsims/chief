@@ -24,8 +24,15 @@ export interface ChatControlState {
   questions: PendingQuestion[];
   toolProgress: Record<string, string>;
   lastCostUsd?: number;
-  error?: string;
+  error?: ChatRuntimeError;
   errorAcknowledged?: boolean;
+}
+
+export interface ChatRuntimeError {
+  message: string;
+  title?: string;
+  code?: string;
+  agentId?: string;
 }
 
 export const emptyChatControls: ChatControlState = {
@@ -77,7 +84,8 @@ export function reduceChatControls(
         ),
       };
     case "result": {
-      const error = event.ok ? undefined : visibleRuntimeError(event.error);
+      const message = event.ok ? undefined : visibleRuntimeError(event.error);
+      const error = message ? { message } : undefined;
       return {
         ...controls,
         status: "idle",
@@ -97,15 +105,20 @@ export function reduceChatControls(
           event.status === "running" ? undefined : controls.errorAcknowledged,
       };
     case "error":
-      return withError(controls, visibleRuntimeError(event.message));
+      return withError(controls, {
+        message: visibleRuntimeError(event.message) ?? "The agent stopped.",
+        ...(event.title ? { title: event.title } : undefined),
+        ...(event.code ? { code: event.code } : undefined),
+        ...(event.agentId ? { agentId: event.agentId } : undefined),
+      });
     case "exit":
       return event.code && event.code !== 0
-        ? withError(
-            controls,
-            visibleRuntimeError(
-              `Agent process exited with code ${event.code}.`,
-            ),
-          )
+        ? withError(controls, {
+            message:
+              visibleRuntimeError(
+                `Agent process exited with code ${event.code}.`,
+              ) ?? "The agent process stopped.",
+          })
         : { ...controls, status: "idle" };
     default:
       return controls;
@@ -182,7 +195,7 @@ function reduceQuestion(
 
 function withError(
   controls: ChatControlState,
-  error: string | undefined,
+  error: ChatRuntimeError | undefined,
 ): ChatControlState {
   return {
     ...controls,

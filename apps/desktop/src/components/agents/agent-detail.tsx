@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageCircle, X } from "lucide-react";
+import { CircleAlert, MessageCircle, Users, X } from "lucide-react";
 import { Link } from "react-router";
 
 import type {
@@ -89,7 +89,10 @@ export function AgentDetail({
   integrations,
   channels,
   ready,
+  saving,
+  preferenceError,
   onSave,
+  onApplyExecutionToTeam,
   onClose,
   onUpdateChannelAgents,
 }: {
@@ -99,15 +102,26 @@ export function AgentDetail({
   integrations: AgentIntegrationOption[];
   channels: readonly WorkspaceChannel[];
   ready: boolean;
+  saving: boolean;
+  preferenceError: string | null;
   onSave: (preference: AgentPreference) => void;
+  onApplyExecutionToTeam: (driver: DriverType, model?: string) => void;
   onClose?: () => void;
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
 }) {
   const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
   const enabled = override?.enabled ?? true;
-  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
-  const models = useProviderModels(driver);
+  const driver = override
+    ? (override.driver ?? null)
+    : getWorkspaceProvider(workspaceId);
   const model = override?.model ?? "";
+  const [executionDraft, setExecutionDraft] = useState<{
+    driver: DriverType;
+    model: string;
+  } | null>(null);
+  const selectedDriver = executionDraft?.driver ?? driver;
+  const selectedModel = executionDraft?.model ?? model;
+  const models = useProviderModels(selectedDriver);
   const approvals = override?.approvals ?? getToolApprovals(workspaceId);
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
   const assignedIntegrations =
@@ -116,7 +130,10 @@ export function AgentDetail({
     agent.id,
     override?.toolPermissions,
   );
-  const meta = driver ? PROVIDER_META[driver] : null;
+  const meta = selectedDriver ? PROVIDER_META[selectedDriver] : null;
+  const executionChanged = Boolean(
+    selectedDriver && (selectedDriver !== driver || selectedModel !== model),
+  );
   const sharedChannels = channels.filter(
     (channel) => channel.visibility !== "direct",
   );
@@ -155,6 +172,18 @@ export function AgentDetail({
       integrations: patch.integrations ?? assignedIntegrations,
       toolPermissions: patch.toolPermissions ?? toolPermissions,
     });
+  };
+
+  const applyExecution = () => {
+    if (!selectedDriver) return;
+    save({ driver: selectedDriver, model: selectedModel });
+    setExecutionDraft(null);
+  };
+
+  const applyExecutionToTeam = () => {
+    if (!selectedDriver) return;
+    onApplyExecutionToTeam(selectedDriver, selectedModel || undefined);
+    setExecutionDraft(null);
   };
 
   return (
@@ -217,84 +246,148 @@ export function AgentDetail({
           {agent.description}
         </p>
 
-        <div className="bg-muted/25 mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl px-4 py-3.5">
-          <div>
-            <p className="text-[13px] font-medium">Agent app and model</p>
-            <p className="text-muted-foreground mt-0.5 text-[11px]">
-              {meta
-                ? `${agent.name} runs through ${meta.label}.`
-                : "Choose the local agent app that runs this agent."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={driver ?? undefined}
-              disabled={!ready}
-              onValueChange={(value) => {
-                if (isDriverType(value)) save({ driver: value, model: "" });
-              }}
-            >
-              <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
-                {meta ? (
-                  <span className="flex items-center gap-2">
-                    <meta.Icon size={14} />
-                    {meta.label}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    Choose agent app
-                  </span>
-                )}
-              </SelectTrigger>
-              <SelectContent className="min-w-40">
-                <SelectGroup>
-                  <SelectLabel>Local agent apps</SelectLabel>
-                  <SelectItem value="claude">
-                    <ProviderOption provider="claude" />
-                  </SelectItem>
-                  <SelectItem value="codex">
-                    <ProviderOption provider="codex" />
-                  </SelectItem>
-                  <SelectItem value="opencode">
-                    <ProviderOption provider="opencode" />
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {driver ? (
+        <div className="bg-muted/25 mt-6 rounded-2xl px-4 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-[13px] font-medium">
+                Agent provider and model
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-[11px]">
+                {meta
+                  ? `${agent.name} runs through ${meta.label}.`
+                  : "Choose the provider that runs this agent."}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <Select
-                value={model || "__auto__"}
+                value={selectedDriver ?? undefined}
                 disabled={!ready}
-                onValueChange={(value) =>
-                  save({ model: value === "__auto__" ? "" : value })
-                }
+                onValueChange={(value) => {
+                  if (isDriverType(value)) {
+                    setExecutionDraft({ driver: value, model: "" });
+                  }
+                }}
               >
-                <SelectTrigger className="bg-background/70 h-9 w-auto max-w-56 min-w-40 rounded-xl px-2.5 text-xs">
-                  <span className="truncate">
-                    {models.loading
-                      ? "Loading…"
-                      : (models.models.find((item) => item.value === model)
-                          ?.label ??
-                          model) ||
-                        "Auto-select model"}
-                  </span>
+                <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
+                  {meta ? (
+                    <span className="flex items-center gap-2">
+                      <meta.Icon size={14} />
+                      {meta.label}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Choose provider
+                    </span>
+                  )}
                 </SelectTrigger>
-                <SelectContent className="max-h-72 min-w-56">
-                  {(models.models.length
-                    ? models.models
-                    : [{ value: "", label: "Auto-select model" }]
-                  ).map((item) => (
-                    <SelectItem
-                      key={item.value || "auto"}
-                      value={item.value || "__auto__"}
-                    >
-                      {item.label}
+                <SelectContent className="min-w-40">
+                  <SelectGroup>
+                    <SelectLabel>Agent providers</SelectLabel>
+                    <SelectItem value="claude">
+                      <ProviderOption provider="claude" />
                     </SelectItem>
-                  ))}
+                    <SelectItem value="codex">
+                      <ProviderOption provider="codex" />
+                    </SelectItem>
+                    <SelectItem value="opencode">
+                      <ProviderOption provider="opencode" />
+                    </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
-            ) : null}
+              {selectedDriver ? (
+                <Select
+                  value={selectedModel || "__auto__"}
+                  disabled={!ready}
+                  onValueChange={(value) =>
+                    setExecutionDraft({
+                      driver: selectedDriver,
+                      model: value === "__auto__" ? "" : value,
+                    })
+                  }
+                >
+                  <SelectTrigger className="bg-background/70 h-9 w-auto max-w-56 min-w-40 rounded-xl px-2.5 text-xs">
+                    <span className="truncate">
+                      {models.loading
+                        ? "Loading…"
+                        : (models.models.find(
+                            (item) => item.value === selectedModel,
+                          )?.label ??
+                            selectedModel) ||
+                          "Auto-select model"}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 min-w-56">
+                    {(models.models.length
+                      ? models.models
+                      : [{ value: "", label: "Auto-select model" }]
+                    ).map((item) => (
+                      <SelectItem
+                        key={item.value || "auto"}
+                        value={item.value || "__auto__"}
+                      >
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
           </div>
+
+          {!driver ? (
+            <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-3 py-2.5">
+              <CircleAlert
+                size={14}
+                className="mt-0.5 shrink-0 text-amber-500"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium">Agent provider required</p>
+                <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
+                  {agent.name} cannot respond until you assign a provider and
+                  model.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {preferenceError ? (
+            <div className="border-destructive/20 bg-destructive/5 mt-3 flex items-start gap-2.5 rounded-xl border px-3 py-2.5">
+              <CircleAlert
+                size={14}
+                className="text-destructive mt-0.5 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium">
+                  Agent provider was not saved
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
+                  {preferenceError}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {executionChanged ? (
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!ready || saving}
+                onClick={applyExecutionToTeam}
+              >
+                <Users size={13} />
+                Apply to team
+              </Button>
+              <Button
+                size="sm"
+                disabled={!ready || saving}
+                onClick={applyExecution}
+              >
+                {saving ? "Saving…" : `Apply to ${agent.name}`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </header>
 

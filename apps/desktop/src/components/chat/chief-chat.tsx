@@ -223,7 +223,7 @@ export function ChiefChat({
     <>
       {controls.error && !controls.errorAcknowledged ? (
         <ChatErrorStatus
-          key={controls.error}
+          key={`${controls.error.code ?? "runtime"}:${controls.error.message}`}
           onOpen={() => {
             dismissError();
             setActivityOpen(true);

@@ -93,6 +93,9 @@ void test("routes createChannel through the relay and emits the created channel"
     listMessages() {
       throw new Error("not used in this test");
     },
+    loadAgentConfig() {
+      throw new Error("not used in this test");
+    },
     listProjects() {
       throw new Error("not used in this test");
     },
@@ -103,6 +106,12 @@ void test("routes createChannel through the relay and emits the created channel"
       throw new Error("not used in this test");
     },
     reactToMessage() {
+      throw new Error("not used in this test");
+    },
+    registerAgentKey() {
+      throw new Error("not used in this test");
+    },
+    saveAgentConfig() {
       throw new Error("not used in this test");
     },
     startDirectMessage() {
