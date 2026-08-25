@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Cloud, Laptop } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@chief/ui/components/button";
@@ -24,6 +24,7 @@ import {
 export function CreateForm({
   name,
   website,
+  runtime,
   provider,
   model,
   selectedApps,
@@ -32,6 +33,7 @@ export function CreateForm({
   step,
   onNameChange,
   onWebsiteChange,
+  onRuntimeChange,
   onProviderChange,
   onModelChange,
   onSelectedAppsChange,
@@ -41,7 +43,8 @@ export function CreateForm({
 }: {
   name: string;
   website: string;
-  provider: "claude" | "codex" | "opencode" | null;
+  runtime: "cloud" | "desktop";
+  provider: "claude" | "codex" | "opencode" | "remote" | null;
   model: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
@@ -49,6 +52,7 @@ export function CreateForm({
   step: number;
   onNameChange: (value: string) => void;
   onWebsiteChange: (value: string) => void;
+  onRuntimeChange: (value: "cloud" | "desktop") => void;
   onProviderChange: (value: "claude" | "codex" | "opencode") => void;
   onModelChange: (value: string) => void;
   onSelectedAppsChange: (value: Set<string>) => void;
@@ -119,9 +123,11 @@ export function CreateForm({
           step === 0
             ? "Add a website if there’s one your agents should understand."
             : step === 1
-              ? "Each agent runs in its own private cell on this Mac."
+              ? "Each agent gets a stable address and runs where you choose."
               : step === 2
-                ? "Choose the agent app and starting model."
+                ? runtime === "cloud"
+                  ? "Chief Cloud keeps the team available across devices."
+                  : "Choose the local agent app and starting model."
                 : "Choose the apps your team already uses."
         }
       />
@@ -157,63 +163,86 @@ export function CreateForm({
               </Field>
             </div>
           ) : step === 1 ? (
-            <div className="border-foreground bg-muted rounded-xl border px-4 py-3.5">
-              <span className="block text-sm font-medium">This Mac</span>
-              <span className="text-muted-foreground mt-0.5 block text-xs">
-                Private and persistent
-              </span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ProviderOption
+                label="Chief Cloud"
+                selected={runtime === "cloud"}
+                onClick={() => onRuntimeChange("cloud")}
+                icon={<Cloud size={27} />}
+              />
+              <ProviderOption
+                label="This Mac"
+                selected={runtime === "desktop"}
+                onClick={() => onRuntimeChange("desktop")}
+                icon={<Laptop size={27} />}
+              />
             </div>
           ) : step === 2 ? (
-            <div className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-3">
-                <ProviderOption
-                  label="Codex"
-                  selected={provider === "codex"}
-                  onClick={() => onProviderChange("codex")}
-                  icon={<OpenAI size={27} />}
-                />
-                <ProviderOption
-                  label="Claude"
-                  selected={provider === "claude"}
-                  onClick={() => onProviderChange("claude")}
-                  icon={<Claude.Color size={27} />}
-                />
-                <ProviderOption
-                  label="OpenCode"
-                  selected={provider === "opencode"}
-                  onClick={() => onProviderChange("opencode")}
-                  icon={<OpenCode size={27} />}
-                />
+            runtime === "cloud" ? (
+              <div className="border-foreground bg-muted flex items-center gap-3 rounded-xl border px-4 py-3.5">
+                <Cloud size={24} />
+                <span>
+                  <span className="block text-sm font-medium">Chief Cloud</span>
+                  <span className="text-muted-foreground mt-0.5 block text-xs">
+                    Durable compute, browser, files, Git, and artifacts
+                  </span>
+                </span>
               </div>
-              {provider ? (
-                <div>
-                  <Field label="Model" htmlFor="agent-model">
-                    <Select
-                      value={model || "auto"}
-                      onValueChange={onModelChange}
-                    >
-                      <SelectTrigger
-                        id="agent-model"
-                        className="w-full"
-                        aria-label="Agent model"
-                      >
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Auto</SelectItem>
-                        {selectableProviderModels(providerModels.models).map(
-                          (option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </Field>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <ProviderOption
+                    label="Codex"
+                    selected={provider === "codex"}
+                    onClick={() => onProviderChange("codex")}
+                    icon={<OpenAI size={27} />}
+                  />
+                  <ProviderOption
+                    label="Claude"
+                    selected={provider === "claude"}
+                    onClick={() => onProviderChange("claude")}
+                    icon={<Claude.Color size={27} />}
+                  />
+                  <ProviderOption
+                    label="OpenCode"
+                    selected={provider === "opencode"}
+                    onClick={() => onProviderChange("opencode")}
+                    icon={<OpenCode size={27} />}
+                  />
                 </div>
-              ) : null}
-            </div>
+                {provider ? (
+                  <div>
+                    <Field label="Model" htmlFor="agent-model">
+                      <Select
+                        value={model || "auto"}
+                        onValueChange={onModelChange}
+                      >
+                        <SelectTrigger
+                          id="agent-model"
+                          className="w-full"
+                          aria-label="Agent model"
+                        >
+                          <SelectValue placeholder="Auto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto</SelectItem>
+                          {selectableProviderModels(providerModels.models).map(
+                            (option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                ) : null}
+              </div>
+            )
           ) : (
             <div className="relative">
               <div

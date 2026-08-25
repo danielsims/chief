@@ -4,15 +4,17 @@ import {
   isJsonString,
 } from "@chief/relay-contracts";
 
-export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
+export type WorkspaceInferenceProvider =
+  "claude" | "codex" | "opencode" | "remote" | null;
 
-const createDraftVersion = 1;
+const createDraftVersion = 2;
 
 export interface CreateWorkspaceDraft {
   version: typeof createDraftVersion;
   step: number;
   name: string;
   website: string;
+  runtime: "cloud" | "desktop";
   provider: WorkspaceInferenceProvider;
   model: string;
   selectedApps: string[];
@@ -39,6 +41,7 @@ export function readCreateWorkspaceDraft(
       step > 3 ||
       !isJsonString(value.name) ||
       !isJsonString(value.website) ||
+      (value.runtime !== "cloud" && value.runtime !== "desktop") ||
       !isJsonString(value.model) ||
       !Array.isArray(value.selectedApps) ||
       !value.selectedApps.every((app) => isJsonString(app)) ||
@@ -46,7 +49,8 @@ export function readCreateWorkspaceDraft(
         value.provider !== null &&
         value.provider !== "claude" &&
         value.provider !== "codex" &&
-        value.provider !== "opencode")
+        value.provider !== "opencode" &&
+        value.provider !== "remote")
     ) {
       return null;
     }
@@ -55,10 +59,12 @@ export function readCreateWorkspaceDraft(
       step,
       name: value.name,
       website: value.website,
+      runtime: value.runtime,
       provider:
         value.provider === "claude" ||
         value.provider === "codex" ||
-        value.provider === "opencode"
+        value.provider === "opencode" ||
+        value.provider === "remote"
           ? value.provider
           : null,
       model: value.model,
