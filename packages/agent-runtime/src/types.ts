@@ -330,6 +330,7 @@ export type ServerMessage =
       type: "agentPreferences";
       workspaceId: string;
       preferences: AgentPreference[];
+      requestId?: string;
     }
   | {
       type: "chats";

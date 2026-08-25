@@ -72,8 +72,10 @@ export function useRuntimeChatTransport({
           setControls((current) => ({
             ...current,
             status: "idle",
-            error:
-              "Chief is reconnecting to the relay. Your message was not sent.",
+            error: {
+              message:
+                "Chief is reconnecting to the relay. Your message was not sent.",
+            },
             errorAcknowledged: false,
           }));
         } else if (

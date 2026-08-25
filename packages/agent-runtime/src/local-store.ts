@@ -103,7 +103,9 @@ const agentMessageMetadataSchema = z.union([
   z.object({
     type: z.literal("error"),
     message: z.string(),
-    code: z.literal("deployment_not_found").optional(),
+    title: z.string().optional(),
+    code: z.string().optional(),
+    agentId: z.string().optional(),
   }),
   z.object({
     type: z.literal("permissionResolved"),

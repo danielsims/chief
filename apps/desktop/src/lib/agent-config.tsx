@@ -136,8 +136,10 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
         const approvals =
           durable?.approvals ?? mirror.approvals ?? localConfig.approvals;
         return {
-          driver: durable?.driver ?? mirror.driver ?? localConfig.provider,
-          model: durable?.model ?? mirror.model ?? "",
+          driver: durable
+            ? (durable.driver ?? null)
+            : (mirror.driver ?? localConfig.provider),
+          model: durable ? (durable.model ?? "") : (mirror.model ?? ""),
           enabled: durable?.enabled ?? mirror.enabled ?? true,
           approvals,
           access: approvals === "ask" ? "guarded" : "full",

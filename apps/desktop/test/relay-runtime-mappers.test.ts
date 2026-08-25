@@ -102,6 +102,9 @@ void test("durable activity errors terminate the working indicator", () => {
 
   assert.deepEqual(agentRunEvent(failure), {
     type: "error",
+    agentId: "advertising",
+    code: "agent_run_failed",
+    title: "Run interrupted",
     message: "The relay write failed.",
   });
 });

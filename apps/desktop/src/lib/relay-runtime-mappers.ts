@@ -43,6 +43,13 @@ export function agentRunEvent(message: ConversationMessage) {
     if (error) {
       return {
         type: "error" as const,
+        agentId: message.author.id,
+        ...(isJsonString(error.payload.code)
+          ? { code: error.payload.code }
+          : undefined),
+        ...(isJsonString(error.payload.title)
+          ? { title: error.payload.title }
+          : undefined),
         message: isJsonString(error.payload.message)
           ? error.payload.message
           : "The agent run was interrupted.",
@@ -150,7 +157,9 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation ? agentForDirect(conversation.name, snapshot) : undefined;
+  return conversation?.kind === "direct"
+    ? agentForDirect(conversation.name, snapshot)
+    : undefined;
 }
 
 export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {

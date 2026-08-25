@@ -181,6 +181,7 @@ export type ClientMessage =
     }
   | {
       type: "saveAgentPreference";
+      requestId: string;
       workspaceId: string;
       preference: AgentPreference;
       executorCapability: ExecutorCapability;

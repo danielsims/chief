@@ -1,20 +1,13 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-import type {
-  AgentDefinition,
-  ClientMessage,
-  ServerMessage,
-} from "@chief/agent-runtime/types";
+import type { ClientMessage, ServerMessage } from "@chief/agent-runtime/types";
 import type { WorkspaceSubscription } from "@chief/relay-client";
 import type {
   ConversationEvent,
   ConversationMessage,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
-import {
-  agentIdSchema,
-  appendMessageCommandSchema,
-} from "@chief/relay-contracts";
+import { agentIdSchema } from "@chief/relay-contracts";
 
 import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import type {
@@ -25,12 +18,17 @@ import type {
 import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
 import { relayConversationId } from "./relay-channel-adapter";
 import {
+  relayAgentDefinitions,
+  relayAgentPreferencesMessage,
+  saveRelayAgentPreference,
+} from "./relay-runtime-agents";
+import {
   createRelayWorkspaceChannel,
   loadRelayWorkspaceChannels,
 } from "./relay-runtime-channels";
 import {
-  parsePublicRelayErrorMessage,
   parseRelayError,
+  relayRuntimeErrorMessage,
 } from "./relay-runtime-errors";
 import {
   agentForDirect,
@@ -41,6 +39,7 @@ import {
   toChannelMessageEvent,
   toChiefMessage,
 } from "./relay-runtime-mappers";
+import { appendRelayMessage } from "./relay-runtime-messages";
 import { routeRelayWorkspaceDataCommand } from "./relay-runtime-workspace-data";
 import {
   loadWorkspaceCursor,
@@ -82,7 +81,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.statusListener("connecting");
     void this.refreshSnapshot()
       .then(() => {
-        this.emit({ type: "agents", agents: this.agentDefinitions() });
+        this.emit({
+          type: "agents",
+          agents: relayAgentDefinitions(this.snapshot),
+        });
         this.statusListener("connected");
       })
       .catch((error) => {
@@ -142,7 +144,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     switch (message.type) {
       case "listAgents":
-        this.emit({ type: "agents", agents: this.agentDefinitions() });
+        this.emit({
+          type: "agents",
+          agents: relayAgentDefinitions(this.snapshot),
+        });
         return;
       case "listChannels":
         await this.listChannels();
@@ -152,6 +157,21 @@ export class RelayRuntimeClient implements RuntimeTransport {
         return;
       case "listChats":
         await this.listChats();
+        return;
+      case "listAgentPreferences":
+        this.emit(
+          await relayAgentPreferencesMessage(this.relay, this.snapshot),
+        );
+        return;
+      case "saveAgentPreference":
+        await saveRelayAgentPreference(this.relay, this.snapshot, message);
+        this.emit(
+          await relayAgentPreferencesMessage(
+            this.relay,
+            this.snapshot,
+            message.requestId,
+          ),
+        );
         return;
       case "listChannelEvents":
         await this.openChannelEvents(message.channelId);
@@ -185,17 +205,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private async refreshSnapshot() {
     this.snapshot = await this.relay.activeWorkspace();
-  }
-
-  private agentDefinitions(): AgentDefinition[] {
-    return this.snapshot.agents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      role: agent.role,
-      description:
-        "Runs in its own isolated cell and collaborates through the Chief relay.",
-      instructions: "",
-    }));
   }
 
   private async listChannels() {
@@ -275,7 +284,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
       workspaceId: this.snapshot.id,
       chatId,
       messages: page.messages.map((message) => toChiefMessage(message)),
-      events: [],
+      events: page.messages.flatMap((message) => {
+        const event = agentRunEvent(message);
+        return event ? [event] : [];
+      }),
       running: false,
     });
     await this.subscribeConversation(conversationId);
@@ -405,22 +417,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
     message: Extract<ClientMessage, { type: "sendMessage" }>,
   ) {
     const conversationId = this.conversationIdForChat(message.chatId);
-    const command = appendMessageCommandSchema.parse({
-      commandId: crypto.randomUUID(),
-      protocolVersion: 1,
-      occurredAt: new Date().toISOString(),
-      payload: {
-        messageId: message.messageId,
-        conversationId,
-        ...(message.threadRootId
-          ? { threadRootId: message.threadRootId }
-          : undefined),
-        body: message.text,
-        mentions: message.mentions ?? [],
-        components: message.components ?? [],
-      },
-    });
-    const result = await this.relay.appendMessage(conversationId, command);
+    const result = await appendRelayMessage(
+      this.relay,
+      conversationId,
+      message,
+    );
     this.rememberMessage(result.message);
     this.emit({
       type: "message",
@@ -467,12 +468,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private recordError(error: Error, chatId?: string, requestId?: string) {
     console.error("[Chief relay] Runtime request failed", error);
-    this.emit({
-      type: "error",
-      message: parsePublicRelayErrorMessage(error),
-      ...(chatId ? { chatId } : undefined),
-      ...(requestId ? { requestId } : undefined),
-    });
+    this.emit(relayRuntimeErrorMessage(error, chatId, requestId));
   }
 
   private conversationIdForChat(

@@ -2,12 +2,14 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { useSearchParams } from "react-router";
 
+import type { DriverType } from "@chief/agent-runtime/types";
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentIntegrationOption } from "../components/agents/agent-detail";
 import { AgentDetail } from "../components/agents/agent-detail";
 import { PageTitle } from "../components/page-title";
+import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
 import { useAuth } from "../lib/auth/auth-context";
 import { useLocalIntegrationStatus } from "../lib/local-integration-status";
 import { PLAYBOOKS } from "../lib/playbook-catalog";
@@ -77,6 +79,16 @@ export function AgentsPage() {
       params.delete("libraryAgent");
       return params;
     });
+  };
+  const applyExecutionToTeam = (driver: DriverType, model?: string) => {
+    for (const preference of executionPreferencesForTeam(
+      agents,
+      overrides,
+      driver,
+      model,
+    )) {
+      agentPreferences.save(preference);
+    }
   };
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
@@ -161,7 +173,10 @@ export function AgentsPage() {
                   integrations={integrations}
                   channels={workspaceChannels.channels}
                   ready={ready}
+                  saving={agentPreferences.saving}
+                  preferenceError={agentPreferences.error}
                   onSave={agentPreferences.save}
+                  onApplyExecutionToTeam={applyExecutionToTeam}
                   onUpdateChannelAgents={workspaceChannels.updateChannelAgents}
                 />
               </section>

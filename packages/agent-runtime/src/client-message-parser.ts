@@ -206,7 +206,10 @@ const clientMessageWireSchema = z.union([
     addTools: z.array(z.string()),
     rerun: z.boolean().optional(),
   }),
-  workspaceMessage("saveAgentPreference", { preference: recordSchema }),
+  workspaceMessage("saveAgentPreference", {
+    requestId: z.string(),
+    preference: recordSchema,
+  }),
   workspaceMessage("openChat", {
     chatId: z.string(),
     workspaceContext: z.string().optional(),

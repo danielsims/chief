@@ -116,7 +116,9 @@ export function TeamAgentCard({
   onSelect: () => void;
 }) {
   const enabled = override?.enabled ?? true;
-  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
+  const driver = override
+    ? (override.driver ?? null)
+    : getWorkspaceProvider(workspaceId);
   const meta = driver ? PROVIDER_META[driver] : null;
   const capabilityCount =
     override?.capabilities?.length ?? agent.capabilities?.length ?? 0;
