@@ -2,6 +2,33 @@ import type {
   ChannelEvent,
   ChiefMessageMetadata,
 } from "@chief/agent-runtime/types";
+import type { MessageComponent } from "@chief/relay-contracts";
+import { channelMemberAddedPayloadSchema } from "@chief/relay-contracts";
+
+function commaSeparatedIds(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function channelActionFromComponent(
+  component: MessageComponent,
+): ChiefMessageMetadata["channelAction"] | undefined {
+  if (component.kind !== "channel-action" || component.version !== 1) {
+    return undefined;
+  }
+  const parsed = channelMemberAddedPayloadSchema.safeParse(component.payload);
+  if (!parsed.success) return undefined;
+  return {
+    type: parsed.data.type,
+    actorName: parsed.data.actorName,
+    actorId: parsed.data.actorId,
+    actorType: parsed.data.actorType,
+    agentIds: commaSeparatedIds(parsed.data.agentIds),
+    userIds: commaSeparatedIds(parsed.data.userIds),
+  };
+}
 
 export function channelActionFromEvent(
   event: ChannelEvent,

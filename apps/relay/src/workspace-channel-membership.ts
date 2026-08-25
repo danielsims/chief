@@ -288,6 +288,14 @@ export class WorkspaceChannelMembership {
               targetName: targets[0]?.name ?? "a member",
               targetIds: targets.map((target) => target.id).join(","),
               targetNames: targetNames.join(","),
+              agentIds: targets
+                .filter((target) => target.kind === "agent")
+                .map((target) => target.id)
+                .join(","),
+              userIds: targets
+                .filter((target) => target.kind === "user")
+                .map((target) => target.id)
+                .join(","),
             },
           },
         ],

@@ -17,6 +17,8 @@ import {
   pluginRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
 
+import { channelActionFromComponent } from "./channel-actions";
+
 const activityComponentKinds = new Set([
   "agent.activity",
   "thinking",
@@ -63,6 +65,9 @@ export function agentRunEvent(message: ConversationMessage) {
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const channelAction = message.components
+    .map(channelActionFromComponent)
+    .find((action) => action !== undefined);
   return {
     id: message.id,
     role: message.author.kind === "user" ? "user" : "assistant",
@@ -77,6 +82,7 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       ...(message.mentions.length > 0
         ? { mentions: message.mentions }
         : undefined),
+      ...(channelAction ? { channelAction } : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
