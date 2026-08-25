@@ -129,7 +129,6 @@ export function CreateForm({
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
           key={`control-${step}`}
-          layout
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
@@ -186,45 +185,34 @@ export function CreateForm({
                   icon={<OpenCode size={27} />}
                 />
               </div>
-              <AnimatePresence initial={false}>
-                {provider ? (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.24, ease: "easeOut" }}
-                    className="overflow-hidden"
-                  >
-                    <Field label="Model" htmlFor="agent-model">
-                      <Select
-                        value={model || "auto"}
-                        onValueChange={onModelChange}
+              {provider ? (
+                <div>
+                  <Field label="Model" htmlFor="agent-model">
+                    <Select
+                      value={model || "auto"}
+                      onValueChange={onModelChange}
+                    >
+                      <SelectTrigger
+                        id="agent-model"
+                        className="w-full"
+                        aria-label="Agent model"
                       >
-                        <SelectTrigger
-                          id="agent-model"
-                          className="w-full"
-                          aria-label="Agent model"
-                        >
-                          <SelectValue placeholder="Auto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto</SelectItem>
-                          {selectableProviderModels(providerModels.models).map(
-                            (option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ),
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
+                        <SelectValue placeholder="Auto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        {selectableProviderModels(providerModels.models).map(
+                          (option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ),
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="relative">
