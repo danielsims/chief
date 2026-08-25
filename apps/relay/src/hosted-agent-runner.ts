@@ -5,11 +5,13 @@ import type {
   AgentInferenceMessage,
 } from "@chief/agent-computer";
 import type {
+  AgentConfig,
   AgentJob,
   AgentJobCompletionResult,
   AgentPrincipal,
   ConversationMessage,
 } from "@chief/relay-contracts";
+import { runPortableAgentTurn } from "@chief/agent-runtime/portable-agent-runner";
 import {
   conversationIdSchema,
   isJsonString,
@@ -34,7 +36,7 @@ interface HostingContext {
     selectedApps: string[];
   };
   agent?: { id: string; name: string; role: string };
-  config?: { enabled: boolean; toolPermissions: string[] };
+  config?: AgentConfig;
 }
 
 export async function loadAgentHostingContext(
@@ -86,9 +88,13 @@ export async function runHostedAgentJob(
     principal,
     conversationId,
   ).catch(() => [] satisfies ConversationMessage[]);
+  const messageId = stringPayload(job, "messageId");
   const messages: AgentInferenceMessage[] = [
     { role: "system", content: systemPrompt(job, context, browserEnabled) },
-    ...history.slice(-30).map(historyMessage),
+    ...history
+      .filter((message) => message.id !== messageId)
+      .slice(-30)
+      .map((message) => historyMessage(message, job.agentId)),
     {
       role: "user",
       content:
@@ -97,61 +103,23 @@ export async function runHostedAgentJob(
     },
   ];
 
-  let finalText = "";
-  for (let round = 0; round < 12; round += 1) {
-    const response = await inference.complete({
-      messages,
-      tools: hostedAgentToolDefinitions(browserEnabled),
-      maxTokens: 1_500,
-      temperature: 0.3,
-    });
-    messages.push({
-      role: "assistant",
-      content: response.content,
-      ...(response.toolCalls.length > 0
-        ? { toolCalls: response.toolCalls }
-        : undefined),
-    });
-    if (response.toolCalls.length === 0) {
-      finalText = response.content?.trim() ?? "";
-      break;
-    }
-    for (const call of response.toolCalls) {
-      try {
-        const output = await executeHostedAgentTool(
-          computer,
-          browserEnabled ? browser : undefined,
-          env,
-          job,
-          principal,
-          call.name,
-          call.arguments,
-        );
-        messages.push({
-          role: "tool",
-          toolCallId: call.id,
-          name: call.name,
-          content: JSON.stringify(output).slice(0, 20_000),
-        });
-      } catch (error) {
-        messages.push({
-          role: "tool",
-          toolCallId: call.id,
-          name: call.name,
-          content: JSON.stringify({
-            ok: false,
-            error:
-              error instanceof Error ? error.message : "Tool execution failed.",
-          }),
-        });
-      }
-    }
-  }
+  const finalText = await runPortableAgentTurn({
+    inference,
+    messages,
+    tools: hostedAgentToolDefinitions(browserEnabled),
+    execute: async (call) =>
+      await executeHostedAgentTool(
+        computer,
+        browserEnabled ? browser : undefined,
+        env,
+        job,
+        principal,
+        call.name,
+        call.arguments,
+      ),
+  });
   if (job.kind === "workspace.onboarding") {
     return { openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE };
-  }
-  if (!finalText) {
-    throw new Error("The hosted agent finished without a final response.");
   }
   return {
     publishedMessage: {
@@ -169,21 +137,28 @@ function systemPrompt(
   browserEnabled: boolean,
 ) {
   const agentName = context.agent?.name ?? job.agentId;
+  const agentRole = context.agent?.role ?? "workspace agent";
   const workspace = context.workspace;
   const website = workspace?.website.trim();
   const selectedApps = workspace?.selectedApps.join(", ");
-  return `You are ${agentName}, a durable Chief workspace agent running in a Cloudflare cell.
-Preserve the agent's continuity across deployment targets. Be concise and never claim a tool succeeded unless its result says so.
+  return `You are ${agentName}, the workspace's ${agentRole}. You are the same durable agent whether your cell runs on a phone, desktop, or in Chief Cloud.
+Reply naturally to casual conversation without calling tools. For substantive requests, own the outcome and use the tools available in this turn before you answer. Never claim a tool succeeded unless its result says so.
 Workspace: ${workspace?.name ?? job.workspaceId}. Website: ${nonEmptyOr(website, "not supplied")}. Selected apps: ${nonEmptyOr(selectedApps, "none")}.
-Use relay and computer tools whenever the instruction asks for an action. Execute required calls now; do not replace them with prose. The durable computer provides files, bounded shell commands, Git, and authenticated artifacts.${browserEnabled ? " The browser tools provide a real remote browser for public web pages." : " Browser access is not granted to this agent."}
-Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. Installation and authorization are not available to this deployment, so never claim a provider is connected.
-If a capability is not exposed as a tool, say so plainly. Do not invent plugin authorization, research, messages, or sources.
+The durable computer provides files, shell commands, Git, and artifacts. Use it when the request needs work, not for ordinary chat.${browserEnabled ? " The browser tools provide a real remote browser for public web pages." : " Do not imply that you inspected a live web page."}
+Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. A recommendation is not an installed or authorized connection.
+If one part of a request is impossible with the tools in this turn, complete every useful part that is possible. Then name the exact missing operation. Never return a generic capability refusal, and never invent research, messages, sources, or tool results.
 Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
 }
 
-function historyMessage(message: ConversationMessage): AgentInferenceMessage {
+function historyMessage(
+  message: ConversationMessage,
+  currentAgentId: string,
+): AgentInferenceMessage {
   return {
-    role: message.author.kind === "agent" ? "assistant" : "user",
+    role:
+      message.author.kind === "agent" && message.author.id === currentAgentId
+        ? "assistant"
+        : "user",
     content: `${message.author.id}: ${message.body}`,
   };
 }

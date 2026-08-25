@@ -11,13 +11,14 @@ import { agentJobSchema, isJsonString } from "@chief/relay-contracts";
 import type { AgentJobQueue } from "./agent-job-queue";
 import type { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
 import type { CloudflareAgentComputer } from "./cloudflare-agent-computer";
-import type { CloudflareAgentInference } from "./cloudflare-agent-inference";
+import { publishAgentErrorActivity } from "./agent-activity-error";
 import { firstAgentRow } from "./agent-job-store";
 import { hostedPrincipal, safeJsonArray } from "./agent-object-values";
 import {
   loadAgentHostingContext,
   runHostedAgentJob,
 } from "./hosted-agent-runner";
+import { createOpenCodeAgentInference } from "./opencode-agent-inference";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 
@@ -32,7 +33,6 @@ export class AgentHostedExecution {
     private readonly env: Env,
     private readonly computer: CloudflareAgentComputer,
     private readonly browser: CloudflareAgentBrowser,
-    private readonly inference: CloudflareAgentInference,
     private readonly queue: AgentJobQueue,
     private readonly broadcast: (event: JsonObject) => void,
   ) {}
@@ -64,6 +64,9 @@ export class AgentHostedExecution {
     const hosting = await loadAgentHostingContext(this.env, job, principal);
     if (hosting?.runtime !== "cloud" || hosting.config?.enabled === false)
       return;
+    if (!hosting.config) {
+      throw new Error("The hosted agent configuration is unavailable.");
+    }
 
     const claim = await this.queue.claim(
       claimRequest(),
@@ -75,7 +78,7 @@ export class AgentHostedExecution {
       const result = await runHostedAgentJob(
         this.computer,
         this.browser,
-        this.inference,
+        createOpenCodeAgentInference(this.env.OPENCODE_API_KEY),
         this.env,
         lease.job,
         principal,
@@ -102,6 +105,31 @@ export class AgentHostedExecution {
         error: message,
         retryAt,
       });
+      const conversationId = isJsonString(lease.job.payload.conversationId)
+        ? lease.job.payload.conversationId
+        : "mission-control";
+      const threadRootId = isJsonString(lease.job.payload.threadRootId)
+        ? lease.job.payload.threadRootId
+        : undefined;
+      await publishAgentErrorActivity(this.env, {
+        principal,
+        conversationId,
+        ...(threadRootId ? { threadRootId } : undefined),
+        seed: `${lease.job.id}:hosted-run`,
+        code: "agent_run_failed",
+        title: "Agent run failed",
+        message: hostedErrorMessage(message),
+      }).catch((publishError) =>
+        console.error("Hosted cell error activity failed", {
+          workspaceId: lease.job.workspaceId,
+          agentId: lease.job.agentId,
+          jobId: lease.job.id,
+          error:
+            publishError instanceof Error
+              ? publishError.message
+              : "Unknown activity publication error.",
+        }),
+      );
       await this.complete(lease.leaseToken, principal, {
         status: "failed",
         error: message.slice(0, 4_000),
@@ -204,6 +232,16 @@ export class AgentHostedExecution {
       updatedAt,
     );
   }
+}
+
+function hostedErrorMessage(error: string) {
+  if (error.startsWith("OpenCode inference failed")) {
+    return "OpenCode could not complete this run. Chief will retry automatically.";
+  }
+  if (error.includes("OpenCode Go is not configured")) {
+    return "Hosted OpenCode inference is not configured. Chief will retry after it is restored.";
+  }
+  return "Chief could not complete this run. It will retry automatically.";
 }
 
 function claimRequest() {

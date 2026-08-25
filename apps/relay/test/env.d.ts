@@ -10,5 +10,6 @@ declare module "cloudflare:workers" {
       "chief-cloud" | "cloudflare-byoc" | "self-hosted" | "local";
     RELAY_PUBLIC_URL?: string;
     BOOTSTRAP_TOKEN_SHA256: string;
+    OPENCODE_API_KEY?: string;
   }
 }

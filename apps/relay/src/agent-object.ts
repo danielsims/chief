@@ -19,7 +19,6 @@ import {
 import { parseStoredJson } from "./agent-object-values";
 import { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
 import { CloudflareAgentComputer } from "./cloudflare-agent-computer";
-import { CloudflareAgentInference } from "./cloudflare-agent-inference";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { initializeSocketTickets } from "./socket-ticket-store";
@@ -41,7 +40,6 @@ export class AgentObject extends DurableObject<Env> {
       env,
       this.computer,
       new CloudflareAgentBrowser(env.BROWSER),
-      new CloudflareAgentInference(env.AI, env.HOSTED_CELL_MODEL),
       this.queue,
       broadcast,
     );

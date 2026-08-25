@@ -15,6 +15,7 @@
     "./integration-setup-recipes": "./src/integration-setup-recipes.ts",
     "./integration-requests": "./src/integration-requests.ts",
     "./local-tools": "./src/tools/model.ts",
+    "./portable-agent-runner": "./src/portable-agent-runner.ts",
     "./recurring-work": "./src/recurring-work.ts"
   },
   "scripts": {
