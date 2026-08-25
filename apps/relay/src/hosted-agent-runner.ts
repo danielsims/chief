@@ -11,7 +11,9 @@ import type {
   AgentPrincipal,
   ConversationMessage,
 } from "@chief/relay-contracts";
+import { getAgent } from "@chief/agent-runtime/agents";
 import { runPortableAgentTurn } from "@chief/agent-runtime/portable-agent-runner";
+import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
 import {
   conversationIdSchema,
   isJsonString,
@@ -90,7 +92,10 @@ export async function runHostedAgentJob(
   ).catch(() => [] satisfies ConversationMessage[]);
   const messageId = stringPayload(job, "messageId");
   const messages: AgentInferenceMessage[] = [
-    { role: "system", content: systemPrompt(job, context, browserEnabled) },
+    {
+      role: "system",
+      content: systemPrompt(job, context, browserEnabled),
+    },
     ...history
       .filter((message) => message.id !== messageId)
       .slice(-30)
@@ -136,18 +141,50 @@ function systemPrompt(
   context: HostingContext,
   browserEnabled: boolean,
 ) {
+  const agentId = job.agentId;
+  const definition = getAgent(agentId);
+  const identity = definition?.instructions ?? genericIdentity(job, context);
+  const permissions = context.config?.toolPermissions ?? [];
+  const workspaceContext = workspaceContextBlock(job, context, browserEnabled);
+  return assembleAgentPrompt({
+    identity,
+    capabilities: context.config?.capabilities,
+    permissions,
+    deployment: "cloud",
+    workspaceContext,
+  }).text;
+}
+
+function genericIdentity(job: AgentJob, context: HostingContext) {
   const agentName = context.agent?.name ?? job.agentId;
   const agentRole = context.agent?.role ?? "workspace agent";
+  return `# Identity
+
+You are ${agentName}, the workspace's ${agentRole}. You are the same durable agent whether your cell runs on a phone, desktop, or in Chief Cloud.
+Reply naturally to casual conversation without calling tools. For substantive requests, own the outcome and use the tools available in this turn before you answer. Never claim a tool succeeded unless its result says so.
+If one part of a request is impossible with the tools in this turn, complete every useful part that is possible. Then name the exact missing operation. Never return a generic capability refusal, and never invent research, messages, sources, or tool results.
+Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
+}
+
+function workspaceContextBlock(
+  job: AgentJob,
+  context: HostingContext,
+  browserEnabled: boolean,
+) {
   const workspace = context.workspace;
   const website = workspace?.website.trim();
   const selectedApps = workspace?.selectedApps.join(", ");
-  return `You are ${agentName}, the workspace's ${agentRole}. You are the same durable agent whether your cell runs on a phone, desktop, or in Chief Cloud.
-Reply naturally to casual conversation without calling tools. For substantive requests, own the outcome and use the tools available in this turn before you answer. Never claim a tool succeeded unless its result says so.
-Workspace: ${workspace?.name ?? job.workspaceId}. Website: ${nonEmptyOr(website, "not supplied")}. Selected apps: ${nonEmptyOr(selectedApps, "none")}.
-The durable computer provides files, shell commands, Git, and artifacts. Use it when the request needs work, not for ordinary chat.${browserEnabled ? " The browser tools provide a real remote browser for public web pages." : " Do not imply that you inspected a live web page."}
-Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. A recommendation is not an installed or authorized connection.
-If one part of a request is impossible with the tools in this turn, complete every useful part that is possible. Then name the exact missing operation. Never return a generic capability refusal, and never invent research, messages, sources, or tool results.
-Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
+  const lines = [
+    `Workspace: ${workspace?.name ?? job.workspaceId}.`,
+    `Website: ${nonEmptyOr(website, "not supplied")}.`,
+    `Selected apps: ${nonEmptyOr(selectedApps, "none")}.`,
+    `The durable computer provides files, shell commands, Git, and artifacts. Use it when the request needs work, not for ordinary chat.`,
+    browserEnabled
+      ? "The browser tools provide a real remote browser for public web pages."
+      : "Do not imply that you inspected a live web page.",
+    "Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. A recommendation is not an installed or authorized connection.",
+  ];
+  return lines.join("\n");
 }
 
 function historyMessage(

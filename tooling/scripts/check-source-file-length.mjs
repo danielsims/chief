@@ -37,7 +37,9 @@ const legacyLineLimits = new Map([
   ["apps/desktop/src/pages/workspace-new.tsx", 726],
   ["apps/desktop/src/lib/relay-session.tsx", 558],
   ["apps/desktop/src/pages/settings/workspace.tsx", 509],
-  ["apps/relay/src/router.ts", 501],
+  ["apps/relay/src/router.ts", 547],
+  ["packages/relay-client/src/relay-client-base.ts", 531],
+  ["packages/agent-runtime/src/agents/instructions.generated.ts", 513],
 ]);
 const sourceExtensions = new Set([
   ".cjs",

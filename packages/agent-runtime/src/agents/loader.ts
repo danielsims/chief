@@ -1,12 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AgentDefinition } from "../types.js";
-import { availableCapabilities } from "../capabilities/index.js";
-import { composeAgentCapabilities } from "../capabilities/types.js";
-import { agentManifests } from "./manifest.js";
-
+/** Filesystem root for authored agent definitions (skills live on disk). */
 export function agentDefinitionsRoot(): string {
   const bundledOrSourceRoot = fileURLToPath(
     new URL("../agents/", import.meta.url),
@@ -26,34 +22,4 @@ export function agentDefinitionsRoot(): string {
     );
   }
   return root;
-}
-
-const capabilityById = new Map(
-  availableCapabilities.map((capability) => [capability.id, capability]),
-);
-
-export function loadAgentDefinitions(): AgentDefinition[] {
-  const root = agentDefinitionsRoot();
-  return agentManifests.map((manifest) => {
-    const baseInstructions = readFileSync(
-      join(root, manifest.id, "instructions.md"),
-      "utf8",
-    ).trim();
-    const definition: AgentDefinition = {
-      ...manifest,
-      capabilities: manifest.capabilities
-        ? [...manifest.capabilities]
-        : undefined,
-      delegates: manifest.delegates ? [...manifest.delegates] : undefined,
-      instructions: baseInstructions,
-    };
-    const capabilities = (manifest.capabilities ?? []).map((id) => {
-      const capability = capabilityById.get(id);
-      if (!capability) {
-        throw new Error(`Unknown capability ${id} on agent ${manifest.id}.`);
-      }
-      return capability;
-    });
-    return composeAgentCapabilities(definition, capabilities);
-  });
 }
