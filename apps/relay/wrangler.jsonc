@@ -3,8 +3,7 @@
   "name": "chief-relay",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-17",
-  "compatibility_flags": ["nodejs_compat", "experimental"],
-  "worker_loaders": [{ "binding": "LOADER" }],
+  "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
     "bindings": [
       { "name": "WORKSPACES", "class_name": "WorkspaceObject" },
