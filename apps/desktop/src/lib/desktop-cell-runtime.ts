@@ -20,10 +20,7 @@ export async function ensureDesktopCells(
   );
   const agents = await Promise.all(
     configurations
-      .filter(
-        ({ config }) =>
-          config.providerAssigned && config.deploymentTarget === "desktop",
-      )
+      .filter(({ config }) => config.deploymentTarget === "desktop")
       .map(async ({ agentId, config }) => {
         const pubkey = await invoke<string>("relay_agent_public_key", {
           relayUrl: RELAY_URL,

@@ -88,9 +88,11 @@ export function CreateWorkspacePage() {
     initialDraft?.runtime ?? "cloud",
   );
   const [provider, setProvider] = useState<
-    "claude" | "codex" | "opencode" | "remote" | null
-  >(initialDraft?.provider ?? "remote");
-  const [model, setModel] = useState(initialDraft?.model ?? "auto");
+    "claude" | "codex" | "opencode" | null
+  >(initialDraft?.provider ?? "opencode");
+  const [model, setModel] = useState(
+    initialDraft?.model ?? "opencode-go/deepseek-v4-flash",
+  );
   const [selectedApps, setSelectedApps] = useState<Set<string>>(
     () => new Set(initialDraft?.selectedApps ?? []),
   );
@@ -167,8 +169,8 @@ export function CreateWorkspacePage() {
     setName("");
     setWebsite("");
     setRuntime("cloud");
-    setProvider("remote");
-    setModel("auto");
+    setProvider("opencode");
+    setModel("opencode-go/deepseek-v4-flash");
     setSelectedApps(new Set());
     returnToWorkspaceHome();
   }, [createDraftKey, returnToWorkspaceHome]);
@@ -410,8 +412,8 @@ export function CreateWorkspacePage() {
               onWebsiteChange={setWebsite}
               onRuntimeChange={(value) => {
                 setRuntime(value);
-                setProvider(value === "cloud" ? "remote" : null);
-                setModel("auto");
+                setProvider("opencode");
+                setModel("opencode-go/deepseek-v4-flash");
               }}
               onProviderChange={setProvider}
               onModelChange={setModel}

@@ -43,13 +43,17 @@ export function relayAgentPreference(
   result: AgentConfigResult,
 ): AgentPreference {
   const config = result.config;
-  const driver = config.providerAssigned
-    ? desktopDriver(config.driver)
-    : undefined;
+  const driver =
+    config.deploymentTarget === "cloud"
+      ? "remote"
+      : desktopDriver(config.inference.provider);
   return {
     agentId: result.agentId,
     enabled: config.enabled,
-    ...(driver ? { driver, model: autoModel(config.model) } : undefined),
+    deploymentTarget: config.deploymentTarget,
+    ...(driver
+      ? { driver, model: autoModel(config.inference.model) }
+      : undefined),
     approvals: config.approvals,
     capabilities: config.capabilities.filter(isAgentCapability),
     integrations: config.integrations,
@@ -65,14 +69,13 @@ export function relayAgentConfig(
   return agentConfigSchema.parse({
     ...current,
     enabled: preference.enabled,
-    providerAssigned: assignedDriver ? true : current.providerAssigned,
-    deploymentTarget: assignedDriver
-      ? assignedDriver === "remote"
-        ? "cloud"
-        : "desktop"
-      : current.deploymentTarget,
-    driver: assignedDriver ? relayDriver(assignedDriver) : current.driver,
-    model: assignedDriver ? assignedModel(preference.model) : current.model,
+    deploymentTarget: preference.deploymentTarget ?? current.deploymentTarget,
+    inference: assignedDriver
+      ? {
+          provider: "opencode",
+          model: "opencode-go/deepseek-v4-flash",
+        }
+      : current.inference,
     approvals: preference.approvals ?? current.approvals,
     capabilities: preference.capabilities ?? current.capabilities,
     integrations: preference.integrations ?? current.integrations,
@@ -93,17 +96,8 @@ function desktopDriver(value: string): DriverType | undefined {
   return undefined;
 }
 
-function relayDriver(value: DriverType) {
-  return value === "opencode" ? "openCodeGo" : value;
-}
-
 function autoModel(value: string) {
   return value.toLowerCase() === "auto" ? undefined : value;
-}
-
-function assignedModel(value: string | undefined) {
-  const model = value?.trim();
-  return model && model.length > 0 ? model : "auto";
 }
 
 function isAgentCapability(value: string): value is AgentCapabilityId {

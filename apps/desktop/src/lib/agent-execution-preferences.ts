@@ -7,6 +7,7 @@ import type {
 export function executionPreferencesForTeam(
   agents: readonly AgentDefinition[],
   preferences: readonly AgentPreference[],
+  deploymentTarget: "phone" | "desktop" | "cloud",
   driver: DriverType,
   model?: string,
 ) {
@@ -16,6 +17,7 @@ export function executionPreferencesForTeam(
       ...current,
       agentId: agent.id,
       enabled: current?.enabled ?? true,
+      deploymentTarget,
       driver,
       model,
     };

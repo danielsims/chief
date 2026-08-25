@@ -4,10 +4,9 @@ import {
   isJsonString,
 } from "@chief/relay-contracts";
 
-export type WorkspaceInferenceProvider =
-  "claude" | "codex" | "opencode" | "remote" | null;
+export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
 
-const createDraftVersion = 2;
+const createDraftVersion = 3;
 
 export interface CreateWorkspaceDraft {
   version: typeof createDraftVersion;
@@ -49,8 +48,7 @@ export function readCreateWorkspaceDraft(
         value.provider !== null &&
         value.provider !== "claude" &&
         value.provider !== "codex" &&
-        value.provider !== "opencode" &&
-        value.provider !== "remote")
+        value.provider !== "opencode")
     ) {
       return null;
     }
@@ -63,8 +61,7 @@ export function readCreateWorkspaceDraft(
       provider:
         value.provider === "claude" ||
         value.provider === "codex" ||
-        value.provider === "opencode" ||
-        value.provider === "remote"
+        value.provider === "opencode"
           ? value.provider
           : null,
       model: value.model,

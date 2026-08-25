@@ -80,10 +80,15 @@ export function AgentsPage() {
       return params;
     });
   };
-  const applyExecutionToTeam = (driver: DriverType, model?: string) => {
+  const applyExecutionToTeam = (
+    deploymentTarget: "phone" | "desktop" | "cloud",
+    driver: DriverType,
+    model?: string,
+  ) => {
     for (const preference of executionPreferencesForTeam(
       agents,
       overrides,
+      deploymentTarget,
       driver,
       model,
     )) {

@@ -8,13 +8,15 @@ import {
   relayAgentPreference,
 } from "../src/lib/relay-agent-preferences.ts";
 
-const unassigned = agentConfigResultSchema.parse({
+const cloud = agentConfigResultSchema.parse({
   agentId: "chief",
   config: {
     enabled: true,
-    providerAssigned: false,
-    driver: "openCodeGo",
-    model: "deepseek-v4-flash-free",
+    deploymentTarget: "cloud",
+    inference: {
+      provider: "opencode",
+      model: "opencode-go/deepseek-v4-flash",
+    },
     approvals: "auto",
     capabilities: [],
     integrations: [],
@@ -23,33 +25,42 @@ const unassigned = agentConfigResultSchema.parse({
   updatedAt: null,
 });
 
-void test("an unassigned relay default stays unassigned in agent settings", () => {
-  const preference = relayAgentPreference(unassigned);
+void test("cloud deployment uses OpenCode Go inference", () => {
+  const preference = relayAgentPreference(cloud);
 
-  assert.equal(preference.driver, undefined);
-  assert.equal(preference.model, undefined);
+  assert.equal(preference.deploymentTarget, "cloud");
+  assert.equal(preference.driver, "remote");
+  assert.equal(preference.model, "opencode-go/deepseek-v4-flash");
 });
 
-void test("choosing Codex explicitly assigns the relay agent provider", () => {
-  const config = relayAgentConfig(unassigned.config, {
+void test("choosing a desktop deployment persists OpenCode inference", () => {
+  const config = relayAgentConfig(cloud.config, {
     agentId: "chief",
     enabled: true,
-    driver: "codex",
-  });
-
-  assert.equal(config.providerAssigned, true);
-  assert.equal(config.driver, "codex");
-  assert.equal(config.model, "auto");
-});
-
-void test("OpenCode uses the relay's portable driver identifier", () => {
-  const config = relayAgentConfig(unassigned.config, {
-    agentId: "chief",
-    enabled: true,
+    deploymentTarget: "desktop",
     driver: "opencode",
     model: "opencode-go/deepseek-v4-flash",
   });
 
-  assert.equal(config.driver, "openCodeGo");
-  assert.equal(config.model, "opencode-go/deepseek-v4-flash");
+  assert.equal(config.deploymentTarget, "desktop");
+  assert.deepEqual(config.inference, {
+    provider: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+  });
+});
+
+void test("OpenCode keeps its provider and model without changing location", () => {
+  const config = relayAgentConfig(cloud.config, {
+    agentId: "chief",
+    enabled: true,
+    deploymentTarget: "phone",
+    driver: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+  });
+
+  assert.equal(config.deploymentTarget, "phone");
+  assert.deepEqual(config.inference, {
+    provider: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+  });
 });
