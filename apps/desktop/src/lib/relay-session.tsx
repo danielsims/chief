@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
 
 import type {
   CreateWorkspaceCommand,
@@ -221,9 +220,6 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           });
         void cellsStarted.catch((error: unknown) => {
           console.error("[Relay] Desktop cells could not start:", error);
-          // The relay session is still healthy. Cell startup has its own
-          // diagnostics and retry lifecycle; promoting it to the connection
-          // error screen would lock the user out of navigation and settings.
         });
       } catch (error) {
         if (generation !== connectionGeneration.current) return;
@@ -397,29 +393,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       if (!state.client) throw new Error("The relay is not connected.");
       const snapshot = await state.client.createWorkspace(command);
       const workspace = state.client.forWorkspace(snapshot.id);
-      const configuredAgents = await Promise.all(
-        snapshot.agents.map(async (agent) => {
-          const [current, pubkey] = await Promise.all([
-            workspace.loadAgentConfig(agent.id),
-            invoke<string>("relay_agent_public_key", {
-              relayUrl: RELAY_URL,
-              workspaceId: snapshot.id,
-              agentId: agent.id,
-            }),
-          ]);
-          const config = {
-            ...current.config,
-            driver: command.inferenceProvider,
-            model: command.inferenceModel,
-          };
-          await Promise.all([
-            workspace.registerAgentKey(agent.id, pubkey),
-            workspace.saveAgentConfig(agent.id, config),
-          ]);
-          return { agentId: agent.id, config };
-        }),
-      );
-      await ensureDesktopCells(snapshot, workspace, configuredAgents);
+      await ensureDesktopCells(snapshot, workspace);
       await connect();
     },
     [connect, state.client],
