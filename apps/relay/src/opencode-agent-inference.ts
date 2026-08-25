@@ -26,6 +26,7 @@ const completionSchema = z.object({
                 }),
               }),
             )
+            .nullable()
             .optional(),
         }),
       }),
