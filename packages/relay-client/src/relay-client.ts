@@ -37,6 +37,8 @@ import {
   renewAgentJobResultSchema,
   socketTicketSchema,
   upsertAgentActivityResultSchema,
+  workspaceSecretListResultSchema,
+  workspaceSecretResultSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
@@ -61,6 +63,38 @@ export class RelayClient extends RelayClientBase {
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
+  }
+
+  async setWorkspaceSecret(name: string, value: string) {
+    return await this.fetchJson(
+      this.workspaceUrl("secrets"),
+      workspaceSecretResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, value }),
+      },
+    );
+  }
+
+  async listWorkspaceSecrets() {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("secrets"),
+        workspaceSecretListResultSchema,
+        true,
+      )
+    ).secrets;
+  }
+
+  async deleteWorkspaceSecret(name: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(`secrets?name=${encodeURIComponent(name)}`),
+      workspaceSecretResultSchema,
+      true,
+      { method: "DELETE" },
+    );
   }
 
   async listChannelMembers(conversationId: string): Promise<ChannelMember[]> {

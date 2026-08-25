@@ -29,6 +29,7 @@ import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
+import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import {
   activeManagedWorkspace,
   authorizeConversation,
@@ -64,6 +65,7 @@ const workspaceInviteClaimRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/claim$/u;
 const orgJoinRoute = /^\/v1\/workspaces\/([^/]+)\/organization-membership$/u;
 const workspaceLogoRoute = /^\/v1\/workspaces\/([^/]+)\/logo$/u;
+const workspaceSecretsRoute = /^\/v1\/workspaces\/([^/]+)\/secrets$/u;
 const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
 const publicWorkspaceImageRoute = /^\/v1\/assets\/workspaces\/([^/]+)$/u;
 
@@ -403,6 +405,10 @@ async function routeWorkspaceRequest(
       ),
     );
   }
+  const secrets = workspaceSecretsRoute.exec(url.pathname);
+  if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
+    return routeWorkspaceSecrets(env, request, requestId, secrets[1]);
+  }
   return routeWorkspaceDataRequest(env, request, requestId, url);
 }
 
@@ -495,6 +501,5 @@ const conversationStub = (
   env.CONVERSATIONS.get(
     env.CONVERSATIONS.idFromName(`${workspaceId}:${conversationId}`),
   );
-
 const parseWorkspaceId = (value: string | undefined) =>
   workspaceIdSchema.parse(decodeURIComponent(value ?? ""));

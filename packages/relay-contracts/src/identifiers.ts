@@ -10,6 +10,14 @@ export const workspaceIdSchema = routedIdentifier.brand<"WorkspaceId">();
 export const conversationIdSchema = routedIdentifier.brand<"ConversationId">();
 export const messageIdSchema = identifier.brand<"MessageId">();
 export const agentIdSchema = routedIdentifier.brand<"AgentId">();
+/** Workspace-scoped secret name: lowercase start, letters/digits/._- max 120. */
+export const secretNameSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-z][a-z0-9._-]{0,119}$/u,
+    "Secret names must start lowercase and use only letters, digits, dots, underscores, or dashes.",
+  );
 export const userIdSchema = identifier.brand<"UserId">();
 export const commandIdSchema = z.uuid().brand<"CommandId">();
 export const eventIdSchema = z.uuid().brand<"EventId">();

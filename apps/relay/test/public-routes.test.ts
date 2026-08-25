@@ -66,5 +66,6 @@ function relayEnv(): Env {
     CLOUDFLARE_EMAIL_API_TOKEN: "test-email-token",
     EMAIL_FROM_ADDRESS: "test@example.test",
     EMAIL_FROM_NAME: "Chief Test",
+    RELAY_SECRET_KEY: "test-relay-secret-master-key-0123456789abcdef",
   };
 }
