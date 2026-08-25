@@ -3,7 +3,7 @@ import type { JsonObject } from "@chief/relay-contracts";
 
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
 import type { ChannelStore } from "./channels/store.js";
-import type { PluginLocalToolService } from "./tools/local/toolkits/plugins/context.js";
+import type { PluginLocalToolService } from "./tools/toolkits/plugins/context.js";
 import {
   booleanQuery,
   ChannelApiFailure,

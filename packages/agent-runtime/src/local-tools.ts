@@ -2,8 +2,8 @@ import { parseJsonObject } from "@chief/relay-contracts";
 
 import type { LocalToolContext } from "./local-tool-context.js";
 import type { SessionManager } from "./manager.js";
-import { workspaceToolRouter } from "./tools/local/index.js";
-import { jsonResponse } from "./tools/local/response.js";
+import { workspaceToolRouter } from "./tools/index.js";
+import { jsonResponse } from "./tools/response.js";
 
 export { localToolsOpenApi } from "./local-tools-openapi.js";
 

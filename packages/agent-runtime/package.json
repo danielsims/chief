@@ -14,6 +14,7 @@
     "./capabilities": "./src/capabilities/index.ts",
     "./integration-setup-recipes": "./src/integration-setup-recipes.ts",
     "./integration-requests": "./src/integration-requests.ts",
+    "./local-tools": "./src/tools/model.ts",
     "./recurring-work": "./src/recurring-work.ts"
   },
   "scripts": {
@@ -33,6 +34,7 @@
   "dependencies": {
     "@agentclientprotocol/codex-acp": "1.6.2",
     "@anthropic-ai/claude-agent-sdk": "^0.1.5",
+    "@chief/agent-computer": "workspace:*",
     "@chief/browser": "workspace:*",
     "@chief/channel-api": "workspace:*",
     "@chief/email": "workspace:*",

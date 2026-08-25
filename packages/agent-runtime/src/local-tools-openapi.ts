@@ -1,9 +1,9 @@
-import { workspaceToolRouter } from "./tools/local/index.js";
+import { workspaceToolRouter } from "./tools/index.js";
 
 export type {
   LocalToolOpenApiOperation,
   LocalToolOpenApiPath,
-} from "./tools/local/router.js";
+} from "./tools/router.js";
 
 export function localToolsOpenApi(origin: string) {
   return {

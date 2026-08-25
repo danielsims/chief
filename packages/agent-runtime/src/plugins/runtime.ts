@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { PluginAuthorizationAction } from "@chief/plugin-api";
 
-import type { PluginLocalToolService } from "../tools/local/toolkits/plugins/context.js";
+import type { PluginLocalToolService } from "../tools/toolkits/plugins/context.js";
 import type {
   ClientMessage,
   ExecutorCapability,

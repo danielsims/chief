@@ -27,7 +27,7 @@ void test("a cell exposes only its permission-filtered tools over loopback MCP",
     const tools = await client.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name),
-      ["relay_channels_list"],
+      ["channels_list"],
     );
     const unauthorized = await fetch(endpoint.spec.url ?? "", {
       method: "POST",
