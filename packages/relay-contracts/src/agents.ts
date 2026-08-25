@@ -16,6 +16,7 @@ export const agentConfigSchema = z
   .object({
     enabled: z.boolean(),
     providerAssigned: z.boolean().default(true),
+    deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
     driver: z.string().trim().min(1).max(64),
     model: z.string().trim().min(1).max(128),
     approvals: z.enum(["auto", "ask"]),
@@ -62,8 +63,9 @@ export const agentConfigSchema = z
 export const defaultAgentConfig = agentConfigSchema.parse({
   enabled: true,
   providerAssigned: false,
-  driver: "openCodeGo",
-  model: "deepseek-v4-flash-free",
+  deploymentTarget: "cloud",
+  driver: "remote",
+  model: "auto",
   approvals: "auto",
   capabilities: [],
   integrations: [],
@@ -79,6 +81,30 @@ export const defaultAgentConfig = agentConfigSchema.parse({
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+export const agentRuntimeDescriptorSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+    address: z.url(),
+    deploymentTarget: z.enum(["phone", "desktop", "cloud"]),
+    status: z.enum(["ready", "waiting", "disabled"]),
+    computer: z.enum(["cloudflare-worker", "local-celld"]),
+  })
+  .strict();
+
+export type AgentRuntimeDescriptor = z.infer<
+  typeof agentRuntimeDescriptorSchema
+>;
+
+export const invokeAgentSchema = z
+  .object({
+    instruction: z.string().trim().min(1).max(20_000),
+    conversationId: conversationIdSchema.optional(),
+    threadRootId: messageIdSchema.optional(),
+    idempotencyKey: z.string().trim().min(8).max(256),
+  })
+  .strict();
 
 export const agentConfigResultSchema = z
   .object({
@@ -142,7 +168,7 @@ export const agentJobListSchema = z
  * file format or Durable Object SQLite so a cell can move between runtimes. */
 export const agentCellSnapshotSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     cellId: z.string().trim().min(3).max(260),
     workspaceId: workspaceIdSchema,
     agentId: agentIdSchema,
@@ -153,6 +179,16 @@ export const agentCellSnapshotSchema = z
           .object({
             key: z.string().trim().min(1).max(320),
             value: jsonValueSchema,
+          })
+          .strict(),
+      )
+      .max(1_000),
+    files: z
+      .array(
+        z
+          .object({
+            path: z.string().startsWith("/workspace/").max(1_024),
+            contentBase64: z.string().max(12_000_000),
           })
           .strict(),
       )

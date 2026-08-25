@@ -91,6 +91,7 @@ describe("workspace agent capability policy", () => {
     const config = effectiveAgentConfigFor("ads", {
       enabled: true,
       providerAssigned: true,
+      deploymentTarget: "cloud",
       driver: "codex",
       model: "gpt-5.6-luna",
       approvals: "auto",
@@ -128,6 +129,7 @@ describe("workspace agent capability policy", () => {
     const config = effectiveAgentConfigFor("setup", {
       enabled: true,
       providerAssigned: true,
+      deploymentTarget: "cloud",
       driver: "codex",
       model: "gpt-5.6-luna",
       approvals: "auto",

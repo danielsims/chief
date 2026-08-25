@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   AgentConfigResult,
   AgentLease,
+  AgentRuntimeDescriptor,
   AppendMessageCommand,
   AppendMessageResult,
   ChannelMember,
@@ -19,6 +20,7 @@ import type {
 import {
   agentConfigResultSchema,
   agentLeaseSchema,
+  agentRuntimeDescriptorSchema,
   appendMessageResultSchema,
   channelMembershipsResultSchema,
   channelMembersResultSchema,
@@ -108,6 +110,13 @@ export class RelayClient extends RelayClientBase {
     return await this.fetchJson(
       this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
       agentConfigResultSchema,
+    );
+  }
+
+  async loadAgentRuntime(agentId: string): Promise<AgentRuntimeDescriptor> {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`),
+      agentRuntimeDescriptorSchema,
     );
   }
 

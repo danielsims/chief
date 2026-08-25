@@ -32,6 +32,8 @@ export interface ProspectRecord {
   source: string;
   sourceUrl?: string;
   summary: string;
+  evidence?: string;
+  outreachAngle?: string;
   relevance: "high" | "medium" | "low";
   status: "new" | "researching" | "contacted" | "dismissed";
   foundAt: number;

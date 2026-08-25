@@ -2,33 +2,21 @@ import { z } from "zod";
 
 import type { AuthenticatedIdentity, Principal } from "@chief/relay-contracts";
 import {
-  agentConfigSchema,
   agentIdSchema,
   hexPubkeySchema,
-  isJsonObject,
   registerAgentKeyCommandSchema,
   updateWorkspaceMemberRoleCommandSchema,
   updateWorkspaceMemberRoleResultSchema,
   workspaceIdSchema,
   workspaceMemberListSchema,
-  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedIdentity } from "./internal-context";
-import type {
-  AgentConfigRow,
-  MemberRow,
-  WorkspaceRow,
-} from "./workspace-channel-store";
+import type { MemberRow, WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordMetrics } from "./metrics";
-import { effectiveAgentConfigFor } from "./workspace-agent-config";
-import {
-  firstRow,
-  parseChannelId,
-  WorkspaceChannelStore,
-} from "./workspace-channel-store";
+import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
   agent_id: string;
@@ -278,155 +266,6 @@ export class WorkspaceAccessService {
       }),
     );
   }
-
-  agentConfigGet(request: Request) {
-    const context = readTrustedContext(request);
-    this.requireAgentConfigAccess(context.principal, false);
-    const rawAgentId = new URL(request.url).searchParams.get("agentId");
-    if (!rawAgentId) {
-      throw new HttpError(400, "missing_agent", "An agentId is required.");
-    }
-    const agentId = agentIdSchema.parse(rawAgentId);
-    const row = firstRow<AgentConfigRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
-        agentId,
-      ),
-    );
-    if (!row) {
-      return json({
-        agentId,
-        config: this.channels.agentConfiguration(agentId),
-        updatedAt: null,
-      });
-    }
-    return json({
-      agentId: agentIdSchema.parse(row.agent_id),
-      config: effectiveAgentConfigFor(
-        agentId,
-        agentConfigSchema.parse(JSON.parse(row.config_json)),
-      ),
-      updatedAt: row.updated_at,
-    });
-  }
-
-  async agentConfigSet(request: Request) {
-    const context = readTrustedContext(request);
-    this.requireAgentConfigAccess(context.principal, true);
-    const input = await parseJson(request);
-    if (!isJsonObject(input))
-      throw new HttpError(400, "invalid_request", "Expected a JSON object.");
-    const agentId = agentIdSchema.parse(input.agentId);
-    const parsedConfig = agentConfigSchema.parse(input.config);
-    const config = JSON.stringify(parsedConfig);
-    const updatedAt = new Date().toISOString();
-    this.storage.sql.exec(
-      `INSERT INTO agent_configs (agent_id, config_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(agent_id) DO UPDATE SET config_json = excluded.config_json,
-         updated_at = excluded.updated_at`,
-      agentId,
-      config,
-      updatedAt,
-    );
-    return json({ agentId, config: parsedConfig, updatedAt });
-  }
-
-  authorizeConversation(request: Request) {
-    const context = readTrustedContext(request);
-    this.channels.requirePrincipalMember(context.principal);
-    const permission = request.headers.get("x-chief-required-permission");
-    if (!isConversationPermission(permission)) {
-      throw new HttpError(
-        400,
-        "missing_required_permission",
-        "The internal conversation permission is required.",
-      );
-    }
-    this.channels.requireAgentCapability(context.principal, permission);
-    const conversationId = parseChannelId(
-      new URL(request.url).searchParams.get("conversationId"),
-    );
-    this.channels.requireChannelVisible(conversationId, context.principal);
-    return json({ ok: true });
-  }
-
-  authorizeAgentRuntime(request: Request) {
-    const context = readTrustedContext(request);
-    this.channels.requirePrincipalMember(context.principal);
-    if (context.principal.kind !== "agent") {
-      throw new HttpError(
-        403,
-        "agent_required",
-        "An agent identity is required for agent runtime access.",
-      );
-    }
-    if (!this.channels.agentConfiguration(context.principal.agentId).enabled) {
-      throw new HttpError(
-        403,
-        "agent_disabled",
-        "This agent is disabled by workspace policy.",
-      );
-    }
-    return json({ ok: true });
-  }
-
-  /** Returns only the durable workspace facts a hosted agent cell needs.
-   * The request must already carry the agent's trusted workspace principal. */
-  agentHostingContext(request: Request) {
-    const context = readTrustedContext(request);
-    this.channels.requirePrincipalMember(context.principal);
-    if (context.principal.kind !== "agent") {
-      throw new HttpError(
-        403,
-        "agent_required",
-        "An agent identity is required for hosted cell access.",
-      );
-    }
-    const agentId = context.principal.agentId;
-    const workspace = this.channels.requireWorkspace(context.workspaceId);
-    if (!workspace.snapshot_json) {
-      return json({ runtime: null, managed: false });
-    }
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
-    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
-    if (!agent) {
-      throw new HttpError(
-        404,
-        "agent_not_found",
-        "The hosted agent is not part of this workspace.",
-      );
-    }
-    return json({
-      managed: true,
-      runtime: snapshot.runtime,
-      workspace: {
-        id: snapshot.id,
-        name: snapshot.name,
-        website: snapshot.website,
-        selectedApps: snapshot.selectedApps,
-      },
-      agent,
-      config: this.channels.agentConfiguration(agentId),
-    });
-  }
-
-  private requireAgentConfigAccess(principal: Principal, write: boolean) {
-    const member = this.channels.requirePrincipalMember(principal);
-    if (
-      principal.kind !== "user" ||
-      (member.role !== "owner" && member.role !== "admin")
-    ) {
-      throw new HttpError(
-        403,
-        write ? "agent_config_write_denied" : "agent_config_read_denied",
-        "Only a workspace owner or admin can manage agent configuration.",
-      );
-    }
-  }
-
   private humanOwnerCount() {
     const row = firstRow<{ count: number }>(
       this.storage.sql.exec(
@@ -436,16 +275,6 @@ export class WorkspaceAccessService {
     );
     return Number(row?.count ?? 0);
   }
-}
-
-function isConversationPermission(
-  value: string | null,
-): value is "messages.read" | "messages.send" | "messages.manage" {
-  return (
-    value === "messages.read" ||
-    value === "messages.send" ||
-    value === "messages.manage"
-  );
 }
 
 function identityId(identity: AuthenticatedIdentity) {

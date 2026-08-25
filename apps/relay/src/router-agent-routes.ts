@@ -1,10 +1,12 @@
 import {
   agentIdSchema,
+  invokeAgentSchema,
   jobIdSchema,
   updateWorkspaceMemberRoleResultSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { getAgentArtifact } from "./agent-artifacts";
 import { routeAgentJobAdministration } from "./agent-job-administration-router";
 import { AuthorizationError } from "./auth";
 import { relayError } from "./http";
@@ -17,6 +19,7 @@ import {
   routeAgentMailboxTicket,
 } from "./workspace-agent-authority";
 import { authorizeWorkspace } from "./workspace-authority";
+import { authorizeConversation } from "./workspace-authorization";
 
 const agentJobsRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete|renew)$/u;
@@ -31,6 +34,8 @@ const agentConfigRoute =
 const agentResourceRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)$/u;
 const agentCellSnapshotRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/cell-snapshot$/u;
+const agentArtifactRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/artifacts\/([0-9a-f-]+)$/u;
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
 const workspaceMemberRoleRoute =
   /^\/v1\/workspaces\/([^/]+)\/members\/(user|agent|service)\/([^/]+)\/role$/u;
@@ -111,12 +116,27 @@ export async function routeAgentRequest(
     });
   }
 
+  const artifact = agentArtifactRoute.exec(url.pathname);
+  if (artifact && request.method === "GET") {
+    const workspaceId = parseWorkspaceId(artifact[1]);
+    const agentId = parseAgentId(artifact[2]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return getAgentArtifact(env, workspaceId, agentId, artifact[3] ?? "");
+  }
+
   const agentConfig = agentConfigRoute.exec(url.pathname);
   const agentResource = agentResourceRoute.exec(url.pathname);
   const agentRoute = agentConfig ?? agentResource;
   if (agentRoute) {
     if (
-      (agentResource && request.method !== "GET") ||
+      (agentResource &&
+        request.method !== "GET" &&
+        request.method !== "POST") ||
       (agentConfig && request.method !== "GET" && request.method !== "POST")
     ) {
       return relayError(
@@ -134,8 +154,57 @@ export async function routeAgentRequest(
       requestId,
       workspaceId,
     });
-    const operation =
-      agentConfig && request.method === "POST"
+    if (agentResource && request.method === "POST") {
+      const input = invokeAgentSchema.parse(await authenticated.request.json());
+      const conversationId = input.conversationId ?? agentId;
+      await authorizeConversation(env, {
+        principal,
+        requestId,
+        workspaceId,
+        conversationId,
+        permission: "messages.send",
+      });
+      const occurredAt = new Date().toISOString();
+      const commandId = await deterministicUuid(
+        `${workspaceId}:${agentId}:${input.idempotencyKey}`,
+      );
+      const response = await env.AGENTS.get(
+        env.AGENTS.idFromName(`${workspaceId}:${agentId}`),
+      ).fetch(
+        withTrustedContext(
+          new Request("https://agent.internal/enqueue", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              commandId,
+              protocolVersion: 1,
+              occurredAt,
+              payload: {
+                id: commandId,
+                agentId,
+                kind: "agent.invoke",
+                payload: {
+                  conversationId,
+                  ...(input.threadRootId
+                    ? { threadRootId: input.threadRootId }
+                    : undefined),
+                  instruction: input.instruction,
+                },
+                availableAt: occurredAt,
+              },
+            }),
+          }),
+          { principal, requestId, workspaceId },
+        ),
+      );
+      return new Response(response.body, {
+        status: response.ok ? 202 : response.status,
+        headers: response.headers,
+      });
+    }
+    const operation = agentResource
+      ? "agent-runtime-get"
+      : request.method === "POST"
         ? "agent-config-set"
         : "agent-config-get";
     const target = new URL(request.url);
@@ -303,4 +372,14 @@ function parseWorkspaceId(value: string | undefined) {
 
 function parseAgentId(value: string | undefined) {
   return agentIdSchema.parse(decodeURIComponent(value ?? ""));
+}
+
+async function deterministicUuid(value: string) {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+  ).slice(0, 16);
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }

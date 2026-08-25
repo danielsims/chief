@@ -196,7 +196,7 @@ describe("AgentObject", () => {
     });
   });
 
-  it("round-trips versioned logical cell state without copying runtime databases", async () => {
+  it("round-trips logical state and computer files as one portable cell", async () => {
     const stub = agentStub();
     const first = await ownerRequest(
       stub,
@@ -212,7 +212,7 @@ describe("AgentObject", () => {
       `snapshot?agentId=${agentId}`,
       "PUT",
       {
-        version: 1,
+        version: 2,
         cellId: `${workspaceId}:${agentId}`,
         workspaceId,
         agentId,
@@ -221,6 +221,12 @@ describe("AgentObject", () => {
           {
             key: "conversation:general:messages",
             value: [{ role: "assistant", content: "Portable state" }],
+          },
+        ],
+        files: [
+          {
+            path: "/workspace/README.md",
+            contentBase64: btoa("# Portable agent\n"),
           },
         ],
       },
@@ -232,21 +238,32 @@ describe("AgentObject", () => {
     );
 
     expect(initial).toEqual({
-      version: 1,
+      version: 2,
       cellId: `${workspaceId}:${agentId}`,
       workspaceId,
       agentId,
       exportedAt: expect.any(String),
       records: [],
+      files: [],
     });
     expect(imported.status).toBe(200);
-    expect(await imported.json()).toEqual({ ok: true, imported: 1 });
+    expect(await imported.json()).toEqual({
+      ok: true,
+      importedRecords: 1,
+      importedFiles: 1,
+    });
     expect(await exported.json()).toMatchObject({
-      version: 1,
+      version: 2,
       records: [
         {
           key: "conversation:general:messages",
           value: [{ role: "assistant", content: "Portable state" }],
+        },
+      ],
+      files: [
+        {
+          path: "/workspace/README.md",
+          contentBase64: btoa("# Portable agent\n"),
         },
       ],
     });

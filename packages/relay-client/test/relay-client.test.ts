@@ -143,6 +143,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const config = {
     enabled: true,
     providerAssigned: true,
+    deploymentTarget: "cloud" as const,
     driver: "codex",
     model: "auto",
     approvals: "auto" as const,

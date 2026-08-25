@@ -131,6 +131,7 @@ async function assignAgentProvider(ctx: Awaited<ReturnType<typeof setup>>) {
     agentId,
     config: {
       enabled: true,
+      deploymentTarget: "phone",
       driver: "openCodeGo",
       model: "deepseek-v4-flash",
       approvals: "auto",

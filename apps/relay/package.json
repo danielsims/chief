@@ -9,16 +9,22 @@
     "dev": "wrangler dev",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint apps/relay",
-    "test": "vitest run",
+    "test": "vitest run --exclude test/cloudflare-agent-inference.test.ts",
+    "test:live-ai": "vitest run test/cloudflare-agent-inference.test.ts",
     "types": "wrangler types --strict-vars false",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@chief/agent-computer": "workspace:*",
+    "@chief/agent-runtime": "workspace:*",
     "@chief/auth": "workspace:*",
     "@chief/email": "workspace:*",
     "@chief/relay-contracts": "workspace:*",
+    "@cloudflare/computer": "0.2.1",
+    "@cloudflare/puppeteer": "1.1.0",
     "@noble/curves": "^2.3.0",
     "@noble/hashes": "^2.3.0",
+    "@platformatic/vfs": "0.4.0",
     "jose": "^6.2.3",
     "zod": "catalog:"
   },

@@ -28,12 +28,12 @@ export function workspaceOnboardingInstruction(input: {
   return `CHIEF_DELEGATION_REQUIRED
 
 Open Mission Control for ${input.name}. Website: ${website}. Selected apps: ${apps}.
-Use relay tools to carry out the complete kickoff once. This is real work, not a description of what you might do. Every relay_message_post call below must include its stated idempotencyKey so retrying this durable turn cannot duplicate a visible message.
+Use workspace tools to carry out the complete kickoff once. This is real work, not a description of what you might do. Every channels_messages_post call below must include its stated idempotencyKey so retrying this durable turn cannot duplicate a visible message.
 
-1. First call relay_message_post in mission-control with idempotencyKey onboarding-chief-opening and this exact opening:
+1. First call channels_messages_post with channelId mission-control, idempotencyKey onboarding-chief-opening, and this exact content:
 ${OPENING_MESSAGE}
-2. Invite the delegated agent IDs to mission-control with exactly one relay_channels_members_add call using kind agent and principalIds ${JSON.stringify(delegatedAgentIds)}. Never split this into separate membership calls.
-3. Post each top-level kickoff message below in mission-control using relay_message_post:
+2. Invite the delegated agent IDs to mission-control with exactly one channels_members_add call whose members are ${JSON.stringify(delegatedAgentIds.map((id) => ({ type: "agent", id })))}. Never split this into separate membership calls.
+3. Post each top-level kickoff message below in mission-control using channels_messages_post:
 - idempotencyKey onboarding-marketer-thread: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a useful working profile from our first-party evidence. Ask one focused question here only if a missing preference materially changes it."
 - idempotencyKey onboarding-prospector-thread: "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals from the best available evidence. Ask one focused question here only if it materially changes qualification."
 - idempotencyKey onboarding-engineer-thread: "Hey @Engineer, get oriented and prepare the Engineering workspace. Don't change code or deploy anything yet."${setupKickoff}

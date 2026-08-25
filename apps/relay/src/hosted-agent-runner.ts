@@ -1,16 +1,19 @@
 import type {
+  AgentBrowser,
+  AgentComputer,
+  AgentInference,
+  AgentInferenceMessage,
+} from "@chief/agent-computer";
+import type {
   AgentJob,
   AgentJobCompletionResult,
   AgentPrincipal,
   ConversationMessage,
-  JsonObject,
 } from "@chief/relay-contracts";
 import {
   conversationIdSchema,
-  isJsonObject,
   isJsonString,
   messageIdSchema,
-  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import {
@@ -23,7 +26,7 @@ import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job
 
 interface HostingContext {
   managed: boolean;
-  runtime: "phone" | "mac" | "cloud" | null;
+  runtime: "phone" | "desktop" | "cloud" | null;
   workspace?: {
     id: string;
     name: string;
@@ -31,15 +34,7 @@ interface HostingContext {
     selectedApps: string[];
   };
   agent?: { id: string; name: string; role: string };
-  config?: { enabled: boolean };
-}
-
-interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content?: string | null;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-  name?: string;
+  config?: { enabled: boolean; toolPermissions: string[] };
 }
 
 export async function loadAgentHostingContext(
@@ -68,11 +63,16 @@ export async function loadAgentHostingContext(
 }
 
 export async function runHostedAgentJob(
+  computer: AgentComputer,
+  browser: AgentBrowser,
+  inference: AgentInference,
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   context: HostingContext,
 ): Promise<AgentJobCompletionResult> {
+  const browserEnabled =
+    context.config?.toolPermissions.includes("browser.use") ?? false;
   const conversationId = conversationIdSchema.parse(
     stringPayload(job, "conversationId") ?? "mission-control",
   );
@@ -86,8 +86,8 @@ export async function runHostedAgentJob(
     principal,
     conversationId,
   ).catch(() => [] satisfies ConversationMessage[]);
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(job, context) },
+  const messages: AgentInferenceMessage[] = [
+    { role: "system", content: systemPrompt(job, context, browserEnabled) },
     ...history.slice(-30).map(historyMessage),
     {
       role: "user",
@@ -99,46 +99,45 @@ export async function runHostedAgentJob(
 
   let finalText = "";
   for (let round = 0; round < 12; round += 1) {
-    const response = await env.AI.run(env.HOSTED_CELL_MODEL, {
+    const response = await inference.complete({
       messages,
-      tools: hostedAgentToolDefinitions,
-      tool_choice: "auto",
-      parallel_tool_calls: false,
-      max_tokens: 1_500,
+      tools: hostedAgentToolDefinitions(browserEnabled),
+      maxTokens: 1_500,
       temperature: 0.3,
     });
-    const assistant = firstAssistantMessage(parseJsonObject(response));
     messages.push({
       role: "assistant",
-      content: assistant.content,
-      ...(assistant.toolCalls.length > 0
-        ? { tool_calls: assistant.toolCalls }
+      content: response.content,
+      ...(response.toolCalls.length > 0
+        ? { toolCalls: response.toolCalls }
         : undefined),
     });
-    if (assistant.toolCalls.length === 0) {
-      finalText = assistant.content?.trim() ?? "";
+    if (response.toolCalls.length === 0) {
+      finalText = response.content?.trim() ?? "";
       break;
     }
-    for (const call of assistant.toolCalls) {
+    for (const call of response.toolCalls) {
       try {
         const output = await executeHostedAgentTool(
+          computer,
+          browserEnabled ? browser : undefined,
           env,
           job,
           principal,
-          call.function.name,
-          call.function.arguments,
+          call.name,
+          call.arguments,
         );
         messages.push({
           role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
+          toolCallId: call.id,
+          name: call.name,
           content: JSON.stringify(output).slice(0, 20_000),
         });
       } catch (error) {
         messages.push({
           role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
+          toolCallId: call.id,
+          name: call.name,
           content: JSON.stringify({
             ok: false,
             error:
@@ -164,21 +163,25 @@ export async function runHostedAgentJob(
   };
 }
 
-function systemPrompt(job: AgentJob, context: HostingContext) {
+function systemPrompt(
+  job: AgentJob,
+  context: HostingContext,
+  browserEnabled: boolean,
+) {
   const agentName = context.agent?.name ?? job.agentId;
   const workspace = context.workspace;
   const website = workspace?.website.trim();
   const selectedApps = workspace?.selectedApps.join(", ");
   return `You are ${agentName}, a durable Chief workspace agent running in a Cloudflare cell.
-You are the same logical agent as the celld-backed phone and desktop cell: preserve continuity, be concise, and never claim a tool succeeded unless its result says so.
+Preserve the agent's continuity across deployment targets. Be concise and never claim a tool succeeded unless its result says so.
 Workspace: ${workspace?.name ?? job.workspaceId}. Website: ${nonEmptyOr(website, "not supplied")}. Selected apps: ${nonEmptyOr(selectedApps, "none")}.
-Use relay tools whenever the instruction asks for an action. Execute required calls now; do not replace them with prose. Tool calls are durable and permission checked.
-The canonical plugin tools are plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Use plugins_list and plugins_recommend to place real cards in chat. Cloudflare can execute the durable agent and publish cards; provider OAuth and secrets deliberately require a compatible signed celld phone or desktop, so report a signed_cell_required tool result plainly instead of claiming the provider connected.
-If a capability is not exposed as a tool, say so plainly. Do not invent browser access, plugin authorization, files, research, messages, or sources.
+Use relay and computer tools whenever the instruction asks for an action. Execute required calls now; do not replace them with prose. The durable computer provides files, bounded shell commands, Git, and authenticated artifacts.${browserEnabled ? " The browser tools provide a real remote browser for public web pages." : " Browser access is not granted to this agent."}
+Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. Installation and authorization are not available to this deployment, so never claim a provider is connected.
+If a capability is not exposed as a tool, say so plainly. Do not invent plugin authorization, research, messages, or sources.
 Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
 }
 
-function historyMessage(message: ConversationMessage): ChatMessage {
+function historyMessage(message: ConversationMessage): AgentInferenceMessage {
   return {
     role: message.author.kind === "agent" ? "assistant" : "user",
     content: `${message.author.id}: ${message.body}`,
@@ -193,49 +196,4 @@ function stringPayload(job: AgentJob, key: string) {
 function nonEmptyOr(value: string | undefined, fallback: string) {
   if (value === undefined || value.length === 0) return fallback;
   return value;
-}
-
-interface ToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string | JsonObject };
-}
-
-function firstAssistantMessage(raw: JsonObject | undefined): {
-  content: string | null;
-  toolCalls: ToolCall[];
-} {
-  const choices = Array.isArray(raw?.choices) ? raw.choices : [];
-  const choice = choices[0];
-  const message =
-    isJsonObject(choice) && isJsonObject(choice.message)
-      ? choice.message
-      : undefined;
-  const content = isJsonString(message?.content) ? message.content : null;
-  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
-  const toolCalls = calls.flatMap((entry) => {
-    if (!isJsonObject(entry)) return [];
-    const call = entry;
-    const fnValue = call.function;
-    if (!isJsonObject(fnValue)) return [];
-    const fn = fnValue;
-    if (
-      !isJsonString(call.id) ||
-      !isJsonString(fn.name) ||
-      (!isJsonString(fn.arguments) && !isJsonObject(fn.arguments))
-    ) {
-      return [];
-    }
-    return [
-      {
-        id: call.id,
-        type: "function" as const,
-        function: {
-          name: fn.name,
-          arguments: fn.arguments,
-        },
-      },
-    ];
-  });
-  return { content, toolCalls };
 }
