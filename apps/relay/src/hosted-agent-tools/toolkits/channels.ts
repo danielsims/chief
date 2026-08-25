@@ -3,6 +3,7 @@ import type {
   AgentPrincipal,
   JsonObject,
 } from "@chief/relay-contracts";
+import { OnboardingMessagePacer } from "@chief/agent-runtime/onboarding-message-pacing";
 import {
   channelCreateCommandSchema,
   channelMemberAddCommandSchema,
@@ -13,8 +14,15 @@ import {
 import { publishAgentMessage } from "../../agent-message-publisher";
 import { HttpError } from "../../http";
 import { withTrustedContext } from "../../internal-context";
-import { memberReferences, optionalString, requiredString } from "../input";
+import {
+  agentIds,
+  memberReferences,
+  optionalString,
+  requiredString,
+} from "../input";
 import { defineHostedAgentTool } from "../tool";
+
+const onboardingMessagePacer = new OnboardingMessagePacer();
 
 async function deterministicId(value: string) {
   const digest = new Uint8Array(
@@ -153,12 +161,18 @@ export const hostedChannelTools = [
         optionalString(input, "idempotencyKey") ??
         `${job.id}:${conversationId}`;
       const threadRootId = optionalString(input, "threadRootId");
+      const content = requiredString(input, "content");
+      await onboardingMessagePacer.beforePost(job.workspaceId, {
+        content,
+        idempotencyKey,
+      });
       await publishAgentMessage(
         env,
         job,
         {
           conversationId,
-          body: requiredString(input, "content"),
+          body: content,
+          mentions: agentIds(input, "mentions"),
           ...(threadRootId ? { threadRootId } : undefined),
         },
         await deterministicUuid(

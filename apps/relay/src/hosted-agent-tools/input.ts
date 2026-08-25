@@ -1,5 +1,9 @@
 import type { JsonObject } from "@chief/relay-contracts";
-import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+import {
+  agentIdSchema,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 export function requiredString(input: JsonObject, key: string) {
   const value = input[key];
@@ -26,6 +30,13 @@ export function stringArray(input: JsonObject, key: string) {
     throw new Error(`${key} must contain strings.`);
   }
   return value;
+}
+
+export function agentIds(input: JsonObject, key: string) {
+  return agentIdSchema
+    .array()
+    .max(20)
+    .parse(input[key] ?? []);
 }
 
 export function memberReferences(input: JsonObject) {

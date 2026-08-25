@@ -1,10 +1,15 @@
 import type {
+  AgentId,
   AgentJob,
   AgentPrincipal,
   JsonObject,
 } from "@chief/relay-contracts";
-import { appendMessageCommandSchema } from "@chief/relay-contracts";
+import {
+  appendMessageCommandSchema,
+  appendMessageResultSchema,
+} from "@chief/relay-contracts";
 
+import { dispatchPersistedMessage } from "./conversation-agent-dispatch";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 
@@ -17,6 +22,7 @@ export async function publishAgentMessage(
     conversationId: string;
     threadRootId?: string;
     body: string;
+    mentions?: AgentId[];
     components?: {
       id: string;
       kind: string;
@@ -75,6 +81,7 @@ export async function publishAgentMessage(
         ? { threadRootId: message.threadRootId }
         : undefined),
       body: message.body,
+      mentions: message.mentions ?? [],
       components: message.components ?? [],
     },
   });
@@ -103,6 +110,21 @@ export async function publishAgentMessage(
       502,
       "job_message_failed",
       "The agent's message could not be delivered.",
+    );
+  }
+  const result = appendMessageResultSchema.parse(await response.json());
+  const dispatch = await dispatchPersistedMessage(env, {
+    message: result.message,
+    principal: agent,
+    requestId: commandId,
+    workspaceId: job.workspaceId,
+    conversationId: message.conversationId,
+  });
+  if (!dispatch.ok) {
+    throw new HttpError(
+      502,
+      "job_dispatch_failed",
+      "The addressed agents could not be queued.",
     );
   }
 }
