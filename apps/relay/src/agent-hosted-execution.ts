@@ -160,7 +160,8 @@ export class AgentHostedExecution {
         workspaceId: lease.job.workspaceId,
         agentId: lease.job.agentId,
         jobId: lease.job.id,
-        error: message,
+        cause: message,
+        message: `Hosted cell execution failed: ${message.slice(0, 1_000)}`,
         retryAt,
       });
       const conversationId = isJsonString(lease.job.payload.conversationId)
@@ -294,18 +295,18 @@ export class AgentHostedExecution {
 
 function hostedErrorMessage(error: string) {
   // Surface the real cause so an operator can act, rather than a blanket
-  // "could not complete" that hides everything. Keep the wording human-facing
-  // but append the concrete reason when we can classify it.
+  // "could not complete" that hides everything. Always append the concrete
+  // reason so the activity panel shows what actually failed.
   if (error.startsWith("OpenCode inference failed")) {
-    return `OpenCode could not complete this run. Chief will retry automatically.`;
+    return `OpenCode could not complete this run: ${error.slice(0, 600)}. Chief will retry automatically.`;
   }
   if (error.includes("OpenCode Go is not configured")) {
     return `Hosted OpenCode inference is not configured. Chief will retry after it is restored.`;
   }
   if (error.startsWith("Chief's workspace setup could not be finalized")) {
-    return `Chief's workspace setup could not be finalized. ${error}`;
+    return error.slice(0, 1_000);
   }
-  return `Chief could not complete this run. It will retry automatically. (${error.slice(0, 600)})`;
+  return `Chief could not complete this run: ${error.slice(0, 600)}. Chief will retry automatically.`;
 }
 
 function secretRefForProvider(provider: string) {
