@@ -62,7 +62,10 @@ interface RelaySessionValue {
   refresh: () => Promise<void>;
   returnToPreviousWorkspace: () => Promise<void>;
   switchWorkspace: (workspaceId: string) => Promise<void>;
-  createWorkspace: (command: CreateWorkspaceCommand) => Promise<void>;
+  createWorkspace: (
+    command: CreateWorkspaceCommand,
+    apiKey?: string,
+  ) => Promise<WorkspaceSnapshot>;
   previewWorkspaceInvite: (
     workspaceId: string,
     secret: string,
@@ -389,12 +392,29 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   }, [connect, connectRelay, recoveryWorkspace, state.client, switchWorkspace]);
 
   const createWorkspace = useCallback(
-    async (command: CreateWorkspaceCommand) => {
+    async (command: CreateWorkspaceCommand, apiKey?: string) => {
       if (!state.client) throw new Error("The relay is not connected.");
       const snapshot = await state.client.createWorkspace(command);
       const workspace = state.client.forWorkspace(snapshot.id);
+      const apiKeyValue = apiKey?.trim();
+      if (apiKeyValue) {
+        // Best-effort: an API-key storage failure must never block entering
+        // the workspace. The hosted cell falls back to the workspace's own
+        // secret later; if none was stored it still works.
+        try {
+          await workspace.setWorkspaceSecret("opencode", apiKeyValue);
+        } catch (error) {
+          console.error("[Workspace] Failed to store API key:", error);
+        }
+      }
       await ensureDesktopCells(snapshot, workspace);
-      await connect();
+      // Reconnect the session to the new workspace, but never block the caller
+      // while it settles. The app reconnects on mount anyway; a slow or failed
+      // reconnect must not strand the user on the create screen.
+      void connect().catch((error) =>
+        console.error("[Workspace] Reconnect after create failed:", error),
+      );
+      return snapshot;
     },
     [connect, state.client],
   );

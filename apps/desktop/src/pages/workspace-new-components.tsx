@@ -28,6 +28,7 @@ export function CreateForm({
   runtime,
   provider,
   model,
+  apiKey,
   selectedApps,
   working,
   connected,
@@ -37,6 +38,7 @@ export function CreateForm({
   onRuntimeChange,
   onProviderChange,
   onModelChange,
+  onApiKeyChange,
   onSelectedAppsChange,
   onStepChange,
   onBackToHome,
@@ -47,6 +49,7 @@ export function CreateForm({
   runtime: "cloud" | "desktop";
   provider: "claude" | "codex" | "opencode" | null;
   model: string;
+  apiKey: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
   connected: boolean;
@@ -56,6 +59,7 @@ export function CreateForm({
   onRuntimeChange: (value: "cloud" | "desktop") => void;
   onProviderChange: (value: "claude" | "codex" | "opencode") => void;
   onModelChange: (value: string) => void;
+  onApiKeyChange: (value: string) => void;
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
   onBackToHome: () => void;
@@ -235,6 +239,31 @@ export function CreateForm({
                       </SelectContent>
                     </Select>
                   </Field>
+                  {runtime === "cloud" ? (
+                    <div className="mt-4">
+                      <Field
+                        label="OpenCode API key"
+                        optional
+                        htmlFor="cloud-api-key"
+                      >
+                        <Input
+                          id="cloud-api-key"
+                          type="password"
+                          autoComplete="off"
+                          value={apiKey}
+                          onChange={(event) =>
+                            onApiKeyChange(event.target.value)
+                          }
+                          placeholder="sk-…"
+                          disabled={working}
+                        />
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          Stored encrypted and used only by this workspace’s
+                          hosted agents. Skip to use Chief’s shared key.
+                        </p>
+                      </Field>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
