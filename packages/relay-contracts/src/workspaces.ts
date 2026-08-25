@@ -4,6 +4,7 @@ import {
   commandIdSchema,
   conversationIdSchema,
   isoDateTimeSchema,
+  secretNameSchema,
   workspaceIdSchema,
 } from "./identifiers";
 import {
@@ -56,6 +57,26 @@ export const workspaceListResultSchema = z
 
 export const workspaceSwitchResultSchema = z
   .object({ workspaceId: workspaceIdSchema, isActive: z.literal(true) })
+  .strict();
+
+export const workspaceSecretResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    name: secretNameSchema,
+    value: z.string().optional(),
+    deleted: z.boolean().optional(),
+  })
+  .strict();
+
+export const workspaceSecretListEntrySchema = z
+  .object({ name: secretNameSchema, updatedAt: isoDateTimeSchema })
+  .strict();
+
+export const workspaceSecretListResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    secrets: z.array(workspaceSecretListEntrySchema),
+  })
   .strict();
 
 export const organizationWorkspaceJoinResultSchema = z

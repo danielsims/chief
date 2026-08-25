@@ -34,6 +34,7 @@ import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
+import { WorkspaceSecretService } from "./workspace-secret-service";
 
 const MAX_REPLAY_EVENTS_PER_CONNECTION = 1_000;
 const SOCKET_MESSAGE_LIMIT_PER_MINUTE = 30;
@@ -154,6 +155,19 @@ export class WorkspaceObject extends DurableObject<Env> {
     if (operation === "snapshot") return lifecycle.snapshot(context);
     if (operation === "deletion-plan") return lifecycle.deletionPlan(context);
     if (operation === "delete-owned") return lifecycle.deleteOwned(context);
+
+    if (
+      operation === "secret-set" ||
+      operation === "secret-get" ||
+      operation === "secret-list" ||
+      operation === "secret-delete"
+    ) {
+      const secrets = new WorkspaceSecretService(this.ctx.storage, this.env);
+      if (operation === "secret-set") return secrets.set(request);
+      if (operation === "secret-get") return secrets.get(request);
+      if (operation === "secret-list") return secrets.list(request);
+      return secrets.delete(request);
+    }
 
     const logs = new WorkspaceLogService(this.ctx.storage, this.env);
     if (operation === "record-logs") return logs.record(request);

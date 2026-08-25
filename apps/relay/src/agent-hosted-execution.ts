@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  AgentConfig,
   agentJobCompletionResultSchema,
   AgentPrincipal,
   JsonObject,
@@ -18,6 +19,7 @@ import {
   loadAgentHostingContext,
   runHostedAgentJob,
 } from "./hosted-agent-runner";
+import { withTrustedContext } from "./internal-context";
 import { createOpenCodeAgentInference } from "./opencode-agent-inference";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
@@ -25,6 +27,10 @@ type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 const hostedLeaseSchema = z.object({
   job: agentJobSchema,
   leaseToken: z.string(),
+});
+
+const secretValueSchema = z.object({
+  value: z.string().optional(),
 });
 
 export class AgentHostedExecution {
@@ -36,6 +42,53 @@ export class AgentHostedExecution {
     private readonly queue: AgentJobQueue,
     private readonly broadcast: (event: JsonObject) => void,
   ) {}
+
+  /** Resolves the provider API key for a hosted run. Prefers the workspace's
+   * own secret (inference.secretRef); falls back to the relay default so
+   * workspaces that never supplied a key keep working. The secret is read
+   * from the workspace DO under the acting agent's identity. */
+  private async resolveInferenceApiKey(
+    job: AgentJob,
+    principal: AgentPrincipal,
+    config: AgentConfig,
+  ): Promise<string> {
+    // Resolution order: the agent's explicit inference.secretRef, then a
+    // workspace secret named after the provider ("opencode"), then the relay
+    // default key. A workspace that entered its own key is always preferred so
+    // per-workspace isolation actually holds.
+    const candidates = [
+      config.inference.secretRef,
+      secretRefForProvider(config.inference.provider),
+    ].filter((name): name is string => Boolean(name));
+    for (const name of candidates) {
+      const workspace = this.env.WORKSPACES.get(
+        this.env.WORKSPACES.idFromName(job.workspaceId),
+      );
+      const target = new URL(`https://workspace.internal/secrets`);
+      target.searchParams.set("name", name);
+      const response = await workspace.fetch(
+        withTrustedContext(
+          new Request(target, {
+            method: "GET",
+            headers: { "x-chief-internal-operation": "secret-get" },
+          }),
+          {
+            principal,
+            requestId: crypto.randomUUID(),
+            workspaceId: job.workspaceId,
+          },
+        ),
+      );
+      if (response.ok) {
+        const document = secretValueSchema.parse(await response.json());
+        if (document.value) return document.value;
+      }
+    }
+    if (this.env.OPENCODE_API_KEY) return this.env.OPENCODE_API_KEY;
+    throw new Error(
+      "No inference credential is configured for this workspace's hosted agents.",
+    );
+  }
 
   async runDueJob() {
     const now = new Date().toISOString();
@@ -75,10 +128,15 @@ export class AgentHostedExecution {
     if (claim.status === 204) return;
     const lease = await parseLease(claim);
     try {
+      const apiKey = await this.resolveInferenceApiKey(
+        lease.job,
+        principal,
+        hosting.config,
+      );
       const result = await runHostedAgentJob(
         this.computer,
         this.browser,
-        createOpenCodeAgentInference(this.env.OPENCODE_API_KEY),
+        createOpenCodeAgentInference(apiKey),
         this.env,
         lease.job,
         principal,
@@ -235,13 +293,26 @@ export class AgentHostedExecution {
 }
 
 function hostedErrorMessage(error: string) {
+  // Surface the real cause so an operator can act, rather than a blanket
+  // "could not complete" that hides everything. Keep the wording human-facing
+  // but append the concrete reason when we can classify it.
   if (error.startsWith("OpenCode inference failed")) {
-    return "OpenCode could not complete this run. Chief will retry automatically.";
+    return `OpenCode could not complete this run. Chief will retry automatically.`;
   }
   if (error.includes("OpenCode Go is not configured")) {
-    return "Hosted OpenCode inference is not configured. Chief will retry after it is restored.";
+    return `Hosted OpenCode inference is not configured. Chief will retry after it is restored.`;
   }
-  return "Chief could not complete this run. It will retry automatically.";
+  if (error.startsWith("Chief's workspace setup could not be finalized")) {
+    return `Chief's workspace setup could not be finalized. ${error}`;
+  }
+  return `Chief could not complete this run. It will retry automatically. (${error.slice(0, 600)})`;
+}
+
+function secretRefForProvider(provider: string) {
+  // The provider literal in the config maps to a canonical workspace secret
+  // name. Only "opencode" has a hosted integration today.
+  if (provider === "opencode") return "opencode";
+  return undefined;
 }
 
 function claimRequest() {

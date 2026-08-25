@@ -8,6 +8,7 @@ import {
   isoDateTimeSchema,
   jobIdSchema,
   messageIdSchema,
+  secretNameSchema,
   workspaceIdSchema,
 } from "./identifiers";
 import { jsonObjectSchema, jsonValueSchema } from "./json";
@@ -20,6 +21,8 @@ export const agentConfigSchema = z
       .object({
         provider: z.literal("opencode"),
         model: z.literal("opencode-go/deepseek-v4-flash"),
+        /** Workspace-scoped secret name holding the provider API key. */
+        secretRef: secretNameSchema.optional(),
       })
       .strict(),
     approvals: z.enum(["auto", "ask"]),

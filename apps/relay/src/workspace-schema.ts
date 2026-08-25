@@ -30,6 +30,11 @@ export function initializeWorkspaceSchema(
       pubkey TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS secrets (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS channels (
       conversation_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,

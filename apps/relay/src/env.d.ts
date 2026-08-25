@@ -5,4 +5,6 @@ interface Env {
   CLOUDFLARE_EMAIL_API_TOKEN: string;
   EMAIL_FROM_ADDRESS: string;
   EMAIL_FROM_NAME: string;
+  /** Master key for workspace-scoped encrypted secrets. Required. */
+  RELAY_SECRET_KEY: string;
 }
