@@ -153,6 +153,7 @@ export const hostedChannelTools = [
     "channels.list",
     async ({ env, job, principal }) =>
       await workspaceOperation(env, job, principal, "channels-list"),
+    { effect: "read_only" },
   ),
   defineHostedAgentTool(
     "channels.members.list",
@@ -160,11 +161,13 @@ export const hostedChannelTools = [
       await workspaceOperation(env, job, principal, "channels-members-list", {
         conversationId: requiredString(input, "channelId"),
       }),
+    { effect: "read_only" },
   ),
   defineHostedAgentTool(
     "channels.messages.list",
     async ({ env, job, principal }, input) =>
       await listMessages(env, job, principal, input),
+    { effect: "read_only" },
   ),
   defineHostedAgentTool(
     "channels.messages.post",
@@ -194,6 +197,7 @@ export const hostedChannelTools = [
       );
       return { ok: true, conversationId, threadRootId: threadRootId ?? null };
     },
+    { effect: "idempotent" },
   ),
   defineHostedAgentTool(
     "channels.create",
@@ -214,6 +218,7 @@ export const hostedChannelTools = [
         }),
       });
     },
+    { effect: "idempotent" },
   ),
   defineHostedAgentTool(
     "channels.members.add",
@@ -237,5 +242,6 @@ export const hostedChannelTools = [
         },
       );
     },
+    { effect: "idempotent" },
   ),
 ];

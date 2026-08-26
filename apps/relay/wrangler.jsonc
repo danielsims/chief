@@ -81,10 +81,15 @@
   "vars": {
     "RELAY_DEPLOYMENT": "chief-cloud",
     "HOSTED_CELL_ENABLED": "true",
+    "HOSTED_AGENT_COMPACTION_RATIO": "0.75",
+    "HOSTED_AGENT_TRACE_CONTENT": "true",
     "ACCOUNT_IDENTITY_MODE": "chief-account",
     "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
   },
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
 }

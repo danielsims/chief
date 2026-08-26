@@ -1,4 +1,5 @@
 import type { AgentBrowser, AgentComputer } from "@chief/agent-computer";
+import type { DurableTool } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
 import {
   localAgentToolDefinitions,
@@ -21,6 +22,14 @@ export function hostedAgentToolDefinitions(browserEnabled: boolean) {
   return localAgentToolDefinitions(
     availableTools(browserEnabled).map((tool) => tool.definition),
   );
+}
+
+export function hostedDurableTools(browserEnabled: boolean): DurableTool[] {
+  return availableTools(browserEnabled).map((tool) => {
+    const definition = localAgentToolDefinitions([tool.definition])[0];
+    if (!definition) throw new Error("Hosted tool definition is missing.");
+    return { definition, effect: tool.effect };
+  });
 }
 
 export async function executeHostedAgentTool<Input>(

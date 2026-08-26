@@ -23,7 +23,7 @@ const DEFAULT_PROJECT_LEASE_TTL_MS = 15 * 60_000;
  * implements it during local conformance runs. Full repository contents never
  * live here — only small durable coordination state.
  */
-type CellKVRecord =
+export type CellKVRecord =
   | { kind: "events"; value: AgentEvent[] }
   | { kind: "state"; value: Record<string, CellStateValue> }
   | { kind: "alarms"; value: AgentAlarm[] }

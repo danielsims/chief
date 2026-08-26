@@ -47,7 +47,7 @@ export class AgentObject extends DurableObject<Env> {
       initializeAgentJobs(state.storage);
       initializeSocketTickets(state.storage);
       if (env.HOSTED_CELL_ENABLED === "true") {
-        await this.queue.scheduleNextAlarm();
+        await this.hosted.scheduleNextAlarm();
       }
     });
   }

@@ -12,6 +12,8 @@ interface __BaseEnv_Env {
   BROWSER: BrowserRun;
   RELAY_DEPLOYMENT: string;
   HOSTED_CELL_ENABLED: string;
+  HOSTED_AGENT_COMPACTION_RATIO: string;
+  HOSTED_AGENT_TRACE_CONTENT: string;
   ACCOUNT_IDENTITY_MODE: string;
   AUTH_BASE_URL: string;
   AUTH_UI_ORIGIN: string;
@@ -48,6 +50,8 @@ declare namespace NodeJS {
       Cloudflare.Env,
       | "RELAY_DEPLOYMENT"
       | "HOSTED_CELL_ENABLED"
+      | "HOSTED_AGENT_COMPACTION_RATIO"
+      | "HOSTED_AGENT_TRACE_CONTENT"
       | "ACCOUNT_IDENTITY_MODE"
       | "AUTH_BASE_URL"
       | "AUTH_UI_ORIGIN"

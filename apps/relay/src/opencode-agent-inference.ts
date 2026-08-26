@@ -42,6 +42,12 @@ const errorSchema = z.object({
 });
 
 export class OpenCodeAgentInference implements AgentInference {
+  readonly model = {
+    id: OPEN_CODE_GO_MODEL,
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 384_000,
+    limitSource: "model_catalog",
+  } as const;
   private readonly request: HttpRequest;
 
   constructor(
@@ -89,6 +95,10 @@ export class OpenCodeAgentInference implements AgentInference {
         arguments: call.function.arguments,
       })),
     };
+  }
+
+  estimateTokens(input: AgentInferenceRequest) {
+    return Math.max(0, Math.round(JSON.stringify(input).length / 4));
   }
 }
 

@@ -1,4 +1,8 @@
-import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  AgentPrincipal,
+  JsonObject,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import {
   agentJobCompletionResultSchema,
   agentJobSchema,
@@ -173,7 +177,7 @@ export class AgentJobQueue {
         this.env,
         job,
         result.publishedMessage,
-        crypto.randomUUID(),
+        job.id,
         actorPubkey(context.principal),
       );
     }
@@ -234,6 +238,61 @@ export class AgentJobQueue {
     );
     await this.scheduleNextAlarm();
     return json({ leaseExpiresAt });
+  }
+
+  maintainHostedLease(
+    jobId: string,
+    currentToken: string,
+    principal: AgentPrincipal,
+    leaseSeconds: number,
+  ) {
+    const row = firstAgentRow<{
+      job_json: string;
+      status: string;
+      lease_token: string | null;
+      lease_expires_at: string | null;
+    }>(
+      this.storage.sql.exec(
+        `SELECT job_json, status, lease_token, lease_expires_at FROM jobs
+         WHERE job_id = ?`,
+        jobId,
+      ),
+    );
+    if (!row || row.status === "completed" || row.status === "failed") {
+      return undefined;
+    }
+    const previous = agentJobSchema.parse(JSON.parse(row.job_json));
+    requireAgentOwnsJob(principal, previous.agentId);
+    const now = new Date();
+    const leaseActive =
+      row.status === "leased" &&
+      row.lease_token !== null &&
+      row.lease_expires_at !== null &&
+      Date.parse(row.lease_expires_at) > now.getTime();
+    if (leaseActive && row.lease_token !== currentToken) return undefined;
+    const leaseToken = leaseActive
+      ? (row.lease_token ?? currentToken)
+      : crypto.randomUUID();
+    const leaseExpiresAt = new Date(
+      now.getTime() + leaseSeconds * 1_000,
+    ).toISOString();
+    const job = agentJobSchema.parse({
+      ...previous,
+      status: "leased",
+      attempt: leaseActive ? previous.attempt : previous.attempt + 1,
+      leaseExpiresAt,
+      updatedAt: now.toISOString(),
+    });
+    this.storage.sql.exec(
+      `UPDATE jobs SET job_json = ?, status = 'leased', lease_token = ?,
+       lease_expires_at = ?, updated_at = ? WHERE job_id = ?`,
+      JSON.stringify(job),
+      leaseToken,
+      leaseExpiresAt,
+      job.updatedAt,
+      job.id,
+    );
+    return { job, leaseToken };
   }
 
   list(context: TrustedContext) {

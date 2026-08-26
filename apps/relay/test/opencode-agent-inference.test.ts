@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { runPortableAgentTurn } from "@chief/agent-runtime/portable-agent-runner";
+import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
+import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 
 import { OpenCodeAgentInference } from "../src/opencode-agent-inference";
 
@@ -73,17 +74,22 @@ describe("OpenCodeAgentInference", () => {
     async () => {
       if (!liveApiKey) throw new Error("OpenCode Go is not configured.");
       const inference = new OpenCodeAgentInference(liveApiKey);
-      const reply = await runPortableAgentTurn({
-        inference,
-        messages: [
-          {
-            role: "user",
-            content:
-              "Call read_file for /workspace/brief.md, then reply with only its content.",
-          },
-        ],
-        tools: [
-          {
+      const runner = new DurableTurnRunner(
+        new MemoryCellPersistence(),
+        "live-test",
+      );
+      await runner.create({
+        jobId: "live-test",
+        leaseToken: "live-test",
+        conversationId: "test",
+        instruction:
+          "Call read_file for /workspace/brief.md, then reply with only its content.",
+        systemPrompt: "Complete the requested tool-backed task.",
+        browserEnabled: false,
+      });
+      const tools = [
+        {
+          definition: {
             name: "read_file",
             description: "Read a text file.",
             parameters: {
@@ -92,14 +98,26 @@ describe("OpenCodeAgentInference", () => {
               required: ["path"],
             },
           },
-        ],
-        execute: () => Promise.resolve({ content: "chief-runtime-ready" }),
-        maxRounds: 3,
-        maxTokens: 300,
-        temperature: 0,
-      });
+          effect: "read_only" as const,
+        },
+      ];
+      for (let step = 0; step < 4; step += 1) {
+        const result = await runner.advance({
+          inference,
+          tools,
+          scheduleRecovery: () => Promise.resolve(),
+          executor: {
+            execute: () => Promise.resolve({ content: "chief-runtime-ready" }),
+          },
+        });
+        if (result.kind === "terminal") break;
+      }
+      const turn = await runner.active();
 
-      expect(reply).toContain("chief-runtime-ready");
+      expect(turn?.phase).toMatchObject({
+        kind: "completed",
+        result: expect.stringContaining("chief-runtime-ready"),
+      });
     },
   );
 });
