@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Chief
+    folder: Chief
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /otel-lgtm/grafana/dashboards/chief

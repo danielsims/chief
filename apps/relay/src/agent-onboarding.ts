@@ -178,6 +178,9 @@ async function enqueueKickoff(
         kind: entry.kind,
         payload: {
           ...entry.payload,
+          workflowId: isJsonString(job.payload.workflowId)
+            ? job.payload.workflowId
+            : job.id,
           conversationId,
           kickoffThreadRootId: threadRootId,
           instruction: `${entry.payload.instruction} The exact Mission Control threadRootId is ${JSON.stringify(threadRootId)}.`,
@@ -192,7 +195,12 @@ async function enqueueKickoff(
       withTrustedContext(
         new Request("https://agent.internal/enqueue", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "x-chief-workflow-id": isJsonString(job.payload.workflowId)
+              ? job.payload.workflowId
+              : job.id,
+          },
           body: JSON.stringify(command),
         }),
         {

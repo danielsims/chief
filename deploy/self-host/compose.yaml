@@ -18,6 +18,9 @@ x-relay-environment: &relay-environment
   EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Chief}
   MINIFLARE_CACHE_DIR: /run/chief/miniflare
   RELAY_DEPLOYMENT: self-hosted
+  RELAY_OTLP_ENDPOINT: ${RELAY_OTLP_ENDPOINT:-}
+  RELAY_TELEMETRY_INCLUDE_CONTENT: ${RELAY_TELEMETRY_INCLUDE_CONTENT:-false}
+  RELAY_TELEMETRY_MODE: ${RELAY_TELEMETRY_MODE:-errors}
   XDG_CONFIG_HOME: /run/chief/config
 
 x-relay-secrets: &relay-secrets
@@ -38,6 +41,22 @@ x-service-logging: &service-logging
     max-size: 10m
 
 services:
+  observability:
+    image: grafana/otel-lgtm:0.31.0
+    profiles: ["observability"]
+    ports:
+      - "${CHIEF_OBSERVABILITY_PORT:-3000}:3000"
+      - "${CHIEF_OTLP_HTTP_PORT:-14318}:4318"
+    volumes:
+      - observability-data:/data
+      - ./grafana/chief-agent-observability.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/chief-agent-observability.yaml:ro
+      - ./grafana/chief-agent-observability.json:/otel-lgtm/grafana/dashboards/chief/chief-agent-observability.json:ro
+    networks:
+      - edge
+    restart: unless-stopped
+    <<: *service-security
+    logging: *service-logging
+
   relay-migrate:
     build:
       context: ../..
@@ -166,6 +185,7 @@ networks:
   edge:
 
 volumes:
+  observability-data:
   relay-data:
   gateway-data:
   gateway-config:

@@ -32,6 +32,7 @@
     "self-host:init": "sh deploy/self-host/scripts/init.sh",
     "self-host:logs": "docker compose --env-file deploy/self-host/.env --file deploy/self-host/compose.yaml logs --follow --tail 200",
     "self-host:up": "docker compose --env-file deploy/self-host/.env --file deploy/self-host/compose.yaml up --detach --build --remove-orphans",
+    "self-host:up:observability": "RELAY_TELEMETRY_MODE=full RELAY_OTLP_ENDPOINT=http://observability:4318 docker compose --env-file deploy/self-host/.env --file deploy/self-host/compose.yaml --profile observability up --detach --build --remove-orphans",
     "self-host:up:tunnel": "docker compose --env-file deploy/self-host/.env --file deploy/self-host/compose.yaml --profile tunnel up --detach --build --remove-orphans",
     "test": "turbo run test",
     "test:agent-pressure": "pnpm --filter @chief/agent-runtime test:pressure",
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@chief/oxlint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
+    "effect": "4.0.0-beta.107",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "oxlint": "catalog:",

@@ -437,7 +437,10 @@ async function enqueueOnboarding(
   const operation = repairTerminal ? "ensure" : "enqueue";
   const request = new Request(`https://agent.internal/${operation}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-chief-workflow-id": jobId,
+    },
     body: JSON.stringify({
       commandId: entry.command.commandId,
       protocolVersion: 1,
@@ -447,6 +450,7 @@ async function enqueueOnboarding(
         agentId: "chief",
         kind: "workspace.onboarding",
         payload: {
+          workflowId: jobId,
           name: entry.command.name,
           website: entry.command.website,
           runtime: entry.command.runtime,

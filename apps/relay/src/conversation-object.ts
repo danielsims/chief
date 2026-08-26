@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 
 import type {
   JsonObject,
@@ -7,6 +8,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
+  appendMessageResultSchema,
   deleteMessageResultSchema,
   editMessagePayloadSchema,
   editMessageResultSchema,
@@ -14,19 +16,23 @@ import {
   principalSchema,
   reactToMessagePayloadSchema,
   socketTicketSchema,
-  upsertAgentActivityPayloadSchema,
-  upsertAgentActivityResultSchema,
 } from "@chief/relay-contracts";
 
-import { recordRelayActivity } from "./activity-diagnostics";
+import { upsertConversationActivity } from "./conversation-activity";
+import { publishConversationWorkspaceEvent } from "./conversation-live";
 import { authorFor, reactorPubkey } from "./conversation-principals";
+import {
+  conversationWorkflowId,
+  parseConversationPageInteger,
+} from "./conversation-request";
 import { SqlConversationStore } from "./conversation-store";
+import { attempt, runResponse, sync, telemetryIncludesContent } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
   readTrustedSocketTicket,
   requiredTrustedConversationId,
-  withTrustedContext,
+  trustedTelemetryAttributes,
 } from "./internal-context";
 import { recordMetrics } from "./metrics";
 import { validatePluginComponentPlacement } from "./plugin-component-policy";
@@ -49,92 +55,167 @@ export class ConversationObject extends DurableObject<Env> {
   }
 
   async fetch(request: Request) {
-    try {
+    const ctx = this.ctx;
+    const env = this.env;
+    const workflowId = await conversationWorkflowId(request);
+    const connectWebSocket = this.connectWebSocket.bind(this);
+    const listEvents = this.listEvents.bind(this);
+    const listReplies = this.replies.bind(this);
+    const listReactions = this.reactions.bind(this);
+    const listMessages = this.listMessages.bind(this);
+    const createSocketTicket = this.createSocketTicket.bind(this);
+    const react = this.react.bind(this);
+    const upsertActivity = (
+      activityRequest: Request,
+      activityContext: ReturnType<typeof readTrustedContext>,
+      messageId: string,
+    ) =>
+      upsertConversationActivity({
+        request: activityRequest,
+        context: activityContext,
+        messageId,
+        store: this.store,
+        broadcast: this.broadcast.bind(this),
+        publishWorkspaceEvent: (event, eventContext) =>
+          publishConversationWorkspaceEvent(
+            this.ctx,
+            this.env,
+            event,
+            eventContext.principal,
+            eventContext.workspaceId,
+            requiredTrustedConversationId(eventContext),
+            eventContext.requestId,
+          ),
+      });
+    const editMessage = this.edit.bind(this);
+    const deleteMessage = this.deleteMessage.bind(this);
+    const append = this.append.bind(this);
+    const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
-        readTrustedContext(request);
-        await this.ctx.storage.deleteAll();
+        yield* sync("conversation.identity", () => readTrustedContext(request));
+        yield* attempt("conversation.delete_all", () =>
+          ctx.storage.deleteAll(),
+        );
         return new Response(null, { status: 204 });
       }
       if (request.headers.get("upgrade") === "websocket") {
-        return await this.connectWebSocket(request);
-      }
-      const context = readTrustedContext(request);
-      if (!context.conversationId) {
-        throw new HttpError(
-          400,
-          "missing_conversation",
-          "Conversation context is required.",
+        return yield* attempt("conversation.websocket.connect", () =>
+          connectWebSocket(request),
         );
       }
+      const context = yield* sync("conversation.context", () => {
+        const value = readTrustedContext(request);
+        if (!value.conversationId) {
+          throw new HttpError(
+            400,
+            "missing_conversation",
+            "Conversation context is required.",
+          );
+        }
+        return value;
+      });
       if (request.method === "GET") {
         const pathname = new URL(request.url).pathname;
-        if (pathname.endsWith("/events")) return this.listEvents(request);
+        if (pathname.endsWith("/events")) {
+          return yield* sync("conversation.events.list", () =>
+            listEvents(request),
+          );
+        }
         const replies = repliesRoute.exec(pathname);
         if (replies) {
-          return this.replies(request, replies[1] ?? "");
+          return yield* sync("conversation.replies.list", () =>
+            listReplies(request, replies[1] ?? ""),
+          );
         }
         const reactions = reactionsRoute.exec(pathname);
-        if (reactions) return this.reactions(reactions[1] ?? "");
-        return this.listMessages(request);
+        if (reactions) {
+          return yield* sync("conversation.reactions.list", () =>
+            listReactions(reactions[1] ?? ""),
+          );
+        }
+        return yield* sync("conversation.messages.list", () =>
+          listMessages(request),
+        );
       }
       if (request.method === "POST" || request.method === "DELETE") {
         const pathname = new URL(request.url).pathname;
         if (pathname.endsWith("/socket-tickets")) {
-          return await this.createSocketTicket(context.principal);
+          return yield* attempt("conversation.socket_ticket.create", () =>
+            createSocketTicket(context.principal),
+          );
         }
         const reactions = reactionsRoute.exec(pathname);
         if (reactions) {
-          return await this.react(
-            request,
-            context,
-            reactions[1] ?? "",
-            request.method === "POST",
+          return yield* attempt("conversation.reaction.write", () =>
+            react(
+              request,
+              context,
+              reactions[1] ?? "",
+              request.method === "POST",
+            ),
           );
         }
         if (request.method === "POST") {
           const activity = activityRoute.exec(pathname);
           if (activity) {
-            return await this.upsertActivity(
-              request,
-              context,
-              activity[1] ?? "",
+            return yield* attempt("conversation.activity.upsert", () =>
+              upsertActivity(request, context, activity[1] ?? ""),
             );
           }
           const edit = editRoute.exec(pathname);
           if (edit) {
-            return await this.edit(request, context, edit[1] ?? "");
+            return yield* attempt("conversation.message.edit", () =>
+              editMessage(request, context, edit[1] ?? ""),
+            );
           }
         }
         if (request.method === "DELETE") {
           const deleteMatch = deleteRoute.exec(pathname);
           if (deleteMatch) {
-            return this.deleteMessage(request, context, deleteMatch[1] ?? "");
+            return yield* sync("conversation.message.delete", () =>
+              deleteMessage(request, context, deleteMatch[1] ?? ""),
+            );
           }
         }
-        return await this.append(
-          request,
-          context.principal,
-          context.workspaceId,
-          context.conversationId,
+        const response = yield* attempt("conversation.message.append", () =>
+          append(
+            request,
+            context.principal,
+            context.workspaceId,
+            requiredTrustedConversationId(context),
+          ),
         );
+        const result = yield* attempt("conversation.message.decode", () =>
+          response.clone().json(),
+        );
+        const message = yield* sync(
+          "conversation.message.validate",
+          () => appendMessageResultSchema.parse(result).message,
+        );
+        const attributes = {
+          "chief.workspace.id": message.workspaceId,
+          "chief.workflow.id": message.id,
+          "gen_ai.conversation.id": message.conversationId,
+          "messaging.message.id": message.id,
+          "messaging.operation.name": "publish",
+          ...(telemetryIncludesContent(env)
+            ? { "messaging.message.body": message.body }
+            : undefined),
+        };
+        yield* Effect.annotateCurrentSpan(attributes);
+        yield* Effect.logInfo({
+          event: "relay.message.received",
+          ...attributes,
+        });
+        return response;
       }
       return relayError(405, "method_not_allowed", "Method not allowed.");
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return relayError(
-          error.status,
-          error.code,
-          error.message,
-          undefined,
-          error.details,
-        );
-      }
-      return relayError(
-        400,
-        "invalid_request",
-        "The relay request is invalid.",
-      );
-    }
+    });
+    return runResponse(program, this.env, {
+      operation: "conversation.fetch",
+      attributes: trustedTelemetryAttributes(request),
+      workflowId,
+    });
   }
 
   private async append(
@@ -166,7 +247,9 @@ export class ConversationObject extends DurableObject<Env> {
     });
     if (!result.duplicate) {
       this.broadcast(result.event);
-      this.publishWorkspaceEvent(
+      publishConversationWorkspaceEvent(
+        this.ctx,
+        this.env,
         result.event,
         principal,
         workspaceId,
@@ -180,16 +263,34 @@ export class ConversationObject extends DurableObject<Env> {
 
   private listMessages(request: Request) {
     const url = new URL(request.url);
-    const after = parseInteger(url.searchParams.get("after"), 0, 0);
-    const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
+    const after = parseConversationPageInteger(
+      url.searchParams.get("after"),
+      0,
+      0,
+    );
+    const limit = parseConversationPageInteger(
+      url.searchParams.get("limit"),
+      50,
+      1,
+      200,
+    );
     const query = url.searchParams.get("q")?.trim();
     return json(this.store.list(after, limit, query));
   }
 
   private replies(request: Request, rootId: string) {
     const url = new URL(request.url);
-    const after = parseInteger(url.searchParams.get("after"), 0, 0);
-    const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
+    const after = parseConversationPageInteger(
+      url.searchParams.get("after"),
+      0,
+      0,
+    );
+    const limit = parseConversationPageInteger(
+      url.searchParams.get("limit"),
+      50,
+      1,
+      200,
+    );
     return json(
       this.store.replies(messageIdSchema.parse(rootId), after, limit),
     );
@@ -240,7 +341,9 @@ export class ConversationObject extends DurableObject<Env> {
     });
     if (changed && event) {
       this.broadcast(event);
-      this.publishWorkspaceEvent(
+      publishConversationWorkspaceEvent(
+        this.ctx,
+        this.env,
         event,
         context.principal,
         context.workspaceId,
@@ -253,8 +356,17 @@ export class ConversationObject extends DurableObject<Env> {
 
   private listEvents(request: Request) {
     const url = new URL(request.url);
-    const after = parseInteger(url.searchParams.get("after"), 0, 0);
-    const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
+    const after = parseConversationPageInteger(
+      url.searchParams.get("after"),
+      0,
+      0,
+    );
+    const limit = parseConversationPageInteger(
+      url.searchParams.get("limit"),
+      50,
+      1,
+      200,
+    );
     return json(this.store.listEvents(after, limit));
   }
 
@@ -281,7 +393,9 @@ export class ConversationObject extends DurableObject<Env> {
     });
     if (event) {
       this.broadcast(event);
-      this.publishWorkspaceEvent(
+      publishConversationWorkspaceEvent(
+        this.ctx,
+        this.env,
         event,
         context.principal,
         context.workspaceId,
@@ -290,64 +404,6 @@ export class ConversationObject extends DurableObject<Env> {
       );
     }
     return json(editMessageResultSchema.parse({ message }));
-  }
-
-  private async upsertActivity(
-    request: Request,
-    context: ReturnType<typeof readTrustedContext>,
-    messageId: string,
-  ) {
-    if (context.principal.kind !== "agent") {
-      throw new HttpError(
-        403,
-        "agent_principal_required",
-        "Only an agent cell may publish agent activity.",
-      );
-    }
-    const payload = upsertAgentActivityPayloadSchema.parse(
-      await parseJson(request),
-    );
-    if (
-      payload.messageId !== messageId ||
-      payload.conversationId !== requiredTrustedConversationId(context)
-    ) {
-      throw new HttpError(
-        409,
-        "activity_scope_mismatch",
-        "The activity does not match the routed conversation.",
-      );
-    }
-    const result = this.store.upsertActivity({
-      ...payload,
-      actor: context.principal,
-      workspaceId: context.workspaceId,
-      correlationId: context.requestId,
-    });
-    const diagnostic = {
-      workspaceId: context.workspaceId,
-      conversationId: requiredTrustedConversationId(context),
-      threadRootId: payload.threadRootId,
-      agentId: context.principal.agentId,
-      requestId: context.requestId,
-      messageId: payload.messageId,
-      component: payload.component,
-    };
-    recordRelayActivity("persisted", diagnostic, result);
-    this.broadcast(result.event);
-    this.publishWorkspaceEvent(
-      result.event,
-      context.principal,
-      context.workspaceId,
-      requiredTrustedConversationId(context),
-      context.requestId,
-    );
-    recordRelayActivity("broadcast", diagnostic, result);
-    return json(
-      upsertAgentActivityResultSchema.parse({
-        created: result.created,
-        message: result.message,
-      }),
-    );
   }
 
   private deleteMessage(
@@ -365,7 +421,9 @@ export class ConversationObject extends DurableObject<Env> {
     });
     if (event) {
       this.broadcast(event);
-      this.publishWorkspaceEvent(
+      publishConversationWorkspaceEvent(
+        this.ctx,
+        this.env,
         event,
         context.principal,
         context.workspaceId,
@@ -435,63 +493,7 @@ export class ConversationObject extends DurableObject<Env> {
     }
   }
 
-  private publishWorkspaceEvent(
-    event: JsonObject,
-    principal: Principal,
-    workspaceId: WorkspaceId,
-    conversationId: string,
-    requestId: string,
-  ) {
-    const workspace = this.env.WORKSPACES.get(
-      this.env.WORKSPACES.idFromName(workspaceId),
-    );
-    this.ctx.waitUntil(
-      workspace
-        .fetch(
-          withTrustedContext(
-            new Request("https://workspace.internal/live-events", {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-chief-internal-operation": "live-event-publish",
-              },
-              body: JSON.stringify(event),
-            }),
-            {
-              principal,
-              requestId,
-              workspaceId,
-              conversationId,
-            },
-          ),
-        )
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error("Workspace live event publication failed.");
-          }
-        }),
-    );
-  }
-
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     if (message === "ping") socket.send("pong");
   }
-}
-
-function parseInteger(
-  value: string | null,
-  fallback: number,
-  minimum: number,
-  maximum = Number.MAX_SAFE_INTEGER,
-) {
-  if (value === null) return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new HttpError(
-      400,
-      "invalid_pagination",
-      "Pagination values are invalid.",
-    );
-  }
-  return parsed;
 }
