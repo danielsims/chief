@@ -11,7 +11,6 @@ import type {
 import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
-import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import type { ConversationProfileSelection } from "./conversation-profile";
@@ -45,7 +44,6 @@ const MessageBlocksContent = memo(
     channelReferences,
     onOpenChannel,
     onOpenTask,
-    pluginActionContext,
   }: {
     message: ChiefUIMessage;
     filter: (message: ChiefUIMessage) => ContentBlock[];
@@ -58,7 +56,6 @@ const MessageBlocksContent = memo(
     channelReferences?: readonly ChannelReferenceTarget[];
     onOpenChannel?: (channelId: string) => void;
     onOpenTask?: (taskId: string) => void;
-    pluginActionContext?: RelayPluginActionContext;
   }) {
     const blocks = useMemo(() => filter(message), [filter, message]);
     return (
@@ -73,7 +70,6 @@ const MessageBlocksContent = memo(
         channelReferences={channelReferences}
         onOpenChannel={onOpenChannel}
         onOpenTask={onOpenTask}
-        pluginActionContext={pluginActionContext}
       />
     );
   },
@@ -88,7 +84,6 @@ const MessageBlocksContent = memo(
     if (prev.tasks !== next.tasks) return false;
     if (prev.taskOwners !== next.taskOwners) return false;
     if (prev.onOpenTask !== next.onOpenTask) return false;
-    if (prev.pluginActionContext !== next.pluginActionContext) return false;
     return true;
   },
 );

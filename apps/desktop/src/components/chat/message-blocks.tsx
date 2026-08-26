@@ -11,7 +11,6 @@ import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
@@ -266,7 +265,6 @@ export function Blocks({
   onOpenChannel,
   onOpenTask,
   toolAttachment,
-  pluginActionContext,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
@@ -278,7 +276,6 @@ export function Blocks({
   channelReferences?: readonly ChannelReferenceTarget[];
   onOpenChannel?: (channelId: string) => void;
   onOpenTask?: (taskId: string) => void;
-  pluginActionContext?: RelayPluginActionContext;
   /**
    * A generic hook for tools that carry a rich inline UI (Chief's embedded
    * browser, etc.). A tool block can render a live attachment at its exact
@@ -307,26 +304,10 @@ export function Blocks({
       {blocks.map((block, index) => {
         if (block.type === "data-plugin-recommendations") {
           const data = block.data;
-          const embeddedContext =
-            data.workspaceId &&
-            data.conversationId &&
-            data.agentId &&
-            data.recommendationId
-              ? {
-                  workspaceId: data.workspaceId,
-                  conversationId: data.conversationId,
-                  ...(data.threadRootId
-                    ? { threadRootId: data.threadRootId }
-                    : undefined),
-                  agentId: data.agentId,
-                  recommendationId: data.recommendationId,
-                }
-              : undefined;
           return (
             <PluginRecommendationCards
               key={index}
               plugins={data.plugins}
-              actionContext={embeddedContext ?? pluginActionContext}
               authorizations={data.authorizations}
             />
           );
@@ -389,7 +370,6 @@ export function Blocks({
                   key={block.id}
                   block={block}
                   result={results.get(block.id)}
-                  actionContext={pluginActionContext}
                 />
               );
             }

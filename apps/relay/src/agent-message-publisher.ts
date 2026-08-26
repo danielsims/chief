@@ -33,6 +33,7 @@ export async function publishAgentMessage(
   commandId: string,
   actorPubkey?: string,
 ) {
+  const body = normalizeAgentMessageBody(message.body);
   const agent: AgentPrincipal = {
     kind: "agent",
     agentId: job.agentId,
@@ -80,7 +81,7 @@ export async function publishAgentMessage(
       ...(message.threadRootId
         ? { threadRootId: message.threadRootId }
         : undefined),
-      body: message.body,
+      body,
       mentions: message.mentions ?? [],
       components: message.components ?? [],
     },
@@ -135,4 +136,8 @@ export async function publishAgentMessage(
       "The addressed agents could not be queued.",
     );
   }
+}
+
+export function normalizeAgentMessageBody(body: string) {
+  return body.replaceAll(/\s*—\s*/gu, ", ");
 }

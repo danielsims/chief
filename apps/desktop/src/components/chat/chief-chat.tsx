@@ -201,7 +201,6 @@ export function ChiefChat({
     activeThreadSummary,
     controlsForMessage,
     imageParts,
-    pluginActionContextFor,
     respondingAgentFor,
     threadBlocks,
     visibleConversationBlocks,
@@ -351,7 +350,6 @@ export function ChiefChat({
                           channelReferences={channelReferences}
                           onOpenChannel={onOpenChannel}
                           onOpenTask={onOpenChild}
-                          pluginActionContext={pluginActionContextFor(message)}
                         />
                       </ChiefMessage>
                     );
@@ -489,7 +487,6 @@ export function ChiefChat({
             profileOpen,
           }}
           respondingAgentFor={respondingAgentFor}
-          pluginActionContextFor={pluginActionContextFor}
           threadBlocks={threadBlocks}
           timeline={timelineState}
         />

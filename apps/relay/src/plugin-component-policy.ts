@@ -4,7 +4,6 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
-  pluginActionPayloadSchema,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
@@ -25,11 +24,9 @@ export function validatePluginComponentPlacement(
     const parsed =
       component.kind === "plugin.recommendation"
         ? pluginRecommendationPayloadSchema.parse(component.payload)
-        : component.kind === "plugin.action"
-          ? pluginActionPayloadSchema.parse(component.payload)
-          : component.kind === "plugin.authorization"
-            ? pluginAuthorizationPayloadSchema.parse(component.payload)
-            : undefined;
+        : component.kind === "plugin.authorization"
+          ? pluginAuthorizationPayloadSchema.parse(component.payload)
+          : undefined;
     if (!parsed) continue;
     if (
       parsed.workspaceId !== workspaceId ||
@@ -53,13 +50,6 @@ export function validatePluginComponentPlacement(
         403,
         "plugin_component_author_mismatch",
         "Only the owning agent may publish this plugin recommendation.",
-      );
-    }
-    if (component.kind === "plugin.action" && principal.kind !== "user") {
-      throw new HttpError(
-        403,
-        "plugin_action_requires_user",
-        "Plugin actions must be approved by a workspace user.",
       );
     }
   }

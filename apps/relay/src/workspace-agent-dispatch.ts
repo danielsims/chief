@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   agentIdSchema,
   conversationMessageSchema,
-  pluginActionPayloadSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError, json, parseJson } from "./http";
@@ -89,7 +88,7 @@ export async function dispatchWorkspaceMessage(
               ? { threadRootId: message.threadRootId }
               : undefined),
             mentions: message.mentions,
-            instruction: dispatchedInstruction(message, agentId),
+            instruction: dispatchedInstruction(message),
           },
           availableAt: now,
         },
@@ -126,24 +125,8 @@ export async function dispatchWorkspaceMessage(
 
 function dispatchedInstruction(
   message: z.infer<typeof conversationMessageSchema>,
-  agentId: string,
 ) {
-  const action = message.components.flatMap((component) => {
-    if (component.kind !== "plugin.action") return [];
-    const parsed = pluginActionPayloadSchema.safeParse(component.payload);
-    return parsed.success && parsed.data.targetAgentId === agentId
-      ? [parsed.data]
-      : [];
-  })[0];
-  if (!action) return message.body;
-  const placement = `conversationId ${action.conversationId}${action.threadRootId ? ` and threadRootId ${action.threadRootId}` : ""}`;
-  if (action.action === "uninstall") {
-    return `The user explicitly approved disconnecting ${action.pluginName}. Call plugins_uninstall with pluginId ${action.pluginId}, then call plugins_recommend in ${placement} with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. Do not claim success without the tool results.`;
-  }
-  if (action.action === "authorize") {
-    return `The user explicitly approved authorizing ${action.pluginName}. Call plugins_authorize with pluginId ${action.pluginId}, ${placement}, and idempotencyKey ${message.id}-plugin-authorization. If it connects immediately, call plugins_recommend in the same placement with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. The durable authorization card is the only acceptable sign-in handoff.`;
-  }
-  return `The user explicitly approved installing and authorizing ${action.pluginName}. Call plugins_install with pluginId ${action.pluginId} and trusted true. Then call plugins_authorize with the same pluginId, ${placement}, and idempotencyKey ${message.id}-plugin-authorization. If it connects immediately, call plugins_recommend in the same placement with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. Do not claim success without the tool results.`;
+  return message.body;
 }
 
 function eligibleAgentIds(

@@ -29,8 +29,10 @@ export async function executeHostedAgentPluginTool(
     };
   }
   if (name === "plugins.recommend") {
-    const conversationId = requiredString(input, "channelId");
-    const threadRootId = optionalString(input, "threadRootId");
+    const { conversationId, threadRootId } = hostedPluginPlacement(
+      job.payload,
+      input,
+    );
     const idempotencyKey = requiredString(input, "idempotencyKey");
     const pluginIds = Array.isArray(input.pluginIds)
       ? [...new Set(input.pluginIds.map(String).filter(Boolean))].slice(0, 8)
@@ -80,6 +82,20 @@ export async function executeHostedAgentPluginTool(
     return { ok: true, conversationId, pluginIds };
   }
   throw new Error(`Unsupported plugin tool operation: ${name}`);
+}
+
+export function hostedPluginPlacement(
+  jobPayload: JsonObject,
+  input: JsonObject,
+) {
+  const conversationId =
+    optionalString(jobPayload, "conversationId") ??
+    requiredString(input, "channelId");
+  const threadRootId = optionalString(jobPayload, "threadRootId");
+  return {
+    conversationId,
+    ...(threadRootId ? { threadRootId } : undefined),
+  };
 }
 
 interface HostedPlugin {
