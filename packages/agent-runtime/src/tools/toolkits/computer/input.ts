@@ -6,7 +6,12 @@ import { boundedText } from "../../input.js";
 
 export const computerPathSchema = boundedText(2_000).transform(
   (source, context) => {
-    const path = source.startsWith("/") ? source : `/workspace/${source}`;
+    const path =
+      source === "/"
+        ? "/workspace"
+        : source.startsWith("/")
+          ? source
+          : `/workspace/${source}`;
     if (
       (path === "/workspace" || path.startsWith("/workspace/")) &&
       !path.split("/").includes("..")

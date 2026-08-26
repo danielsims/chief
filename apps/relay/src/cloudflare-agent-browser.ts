@@ -56,14 +56,17 @@ export class CloudflareAgentBrowser implements AgentBrowser {
   }
 
   async close() {
-    await this.browser?.close();
-    this.browser = undefined;
-    this.page = undefined;
+    try {
+      await this.browser?.close();
+    } finally {
+      this.browser = undefined;
+      this.page = undefined;
+    }
   }
 
   private async currentPage() {
     if (!this.browser?.isConnected()) {
-      this.browser = await puppeteer.launch(this.binding);
+      this.browser = await launchBrowser(this.binding);
       this.page = undefined;
     }
     this.page ??= await this.browser.newPage();
@@ -90,6 +93,25 @@ export class CloudflareAgentBrowser implements AgentBrowser {
 }
 
 async function browserSnapshot(
+  page: Awaited<
+    ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>
+  >,
+) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readBrowserSnapshot(page);
+    } catch (error) {
+      if (attempt >= 2 || !isTransientBrowserNavigationError(error)) {
+        throw error;
+      }
+      await page
+        .waitForSelector("body", { timeout: 10_000 })
+        .catch(() => undefined);
+    }
+  }
+}
+
+async function readBrowserSnapshot(
   page: Awaited<
     ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>
   >,
@@ -128,6 +150,56 @@ async function browserSnapshot(
     text: result.text.slice(0, 40_000),
     controls: result.controls,
   };
+}
+
+async function launchBrowser(binding: BrowserWorker) {
+  let rateLimit: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const limits = await puppeteer.limits(binding).catch(() => undefined);
+    const waitMs = browserAcquisitionWait(limits);
+    if (waitMs > 0) await wait(waitMs);
+    try {
+      return await puppeteer.launch(binding);
+    } catch (error) {
+      if (!isBrowserAcquisitionRateLimit(error)) throw error;
+      rateLimit = error;
+      if (attempt < 3) {
+        await wait(
+          Math.max(limits?.timeUntilNextAllowedBrowserAcquisition ?? 0, 1_000),
+        );
+      }
+    }
+  }
+  throw rateLimit;
+}
+
+function browserAcquisitionWait(
+  limits: Awaited<ReturnType<typeof puppeteer.limits>> | undefined,
+) {
+  if (!limits) return 0;
+  if (limits.activeSessions.length >= limits.maxConcurrentSessions)
+    return 5_000;
+  if (limits.allowedBrowserAcquisitions > 0) return 0;
+  return Math.max(limits.timeUntilNextAllowedBrowserAcquisition, 1_000);
+}
+
+function isBrowserAcquisitionRateLimit(error: unknown) {
+  return (
+    error instanceof Error && /(?:code:\s*429|rate limit)/iu.test(error.message)
+  );
+}
+
+export function isTransientBrowserNavigationError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /(?:execution context was destroyed|cannot find context with specified id)/iu.test(
+      error.message,
+    )
+  );
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function normalizeRef(value: string | undefined) {
