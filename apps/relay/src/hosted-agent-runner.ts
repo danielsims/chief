@@ -106,10 +106,11 @@ export function hostedTurnResult(job: AgentJob, finalText: string) {
   const threadRootId = rawThreadRootId
     ? messageIdSchema.parse(rawThreadRootId)
     : undefined;
+  const publishesToThread = !job.kind.startsWith("workspace.kickoff.");
   return {
     publishedMessage: {
       conversationId,
-      ...(threadRootId ? { threadRootId } : undefined),
+      ...(publishesToThread && threadRootId ? { threadRootId } : undefined),
       body: finalText.slice(0, 4_000),
       components: [],
     },

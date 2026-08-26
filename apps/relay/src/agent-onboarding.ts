@@ -179,7 +179,7 @@ async function enqueueKickoff(
         payload: {
           ...entry.payload,
           conversationId,
-          threadRootId,
+          kickoffThreadRootId: threadRootId,
           instruction: `${entry.payload.instruction} The exact Mission Control threadRootId is ${JSON.stringify(threadRootId)}.`,
         },
         availableAt: new Date(startedAt + index * 1_400).toISOString(),

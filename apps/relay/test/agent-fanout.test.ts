@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { agentIdSchema, agentJobSchema } from "@chief/relay-contracts";
 
 import { publishAgentMessage } from "../src/agent-message-publisher";
+import { hostedTurnResult } from "../src/hosted-agent-runner";
 import { channelIdForKey } from "../src/hosted-agent-tools/toolkits/channels";
 import { withTrustedContext } from "../src/internal-context";
 import { workspaceOnboardingInstruction } from "../src/workspace-onboarding-job";
@@ -13,6 +14,37 @@ import {
 import { hexKey } from "./helpers";
 
 describe("agent fan-out integrity", () => {
+  it("publishes kickoff results at the top level of the work channel", () => {
+    const now = new Date().toISOString();
+    const result = hostedTurnResult(
+      agentJobSchema.parse({
+        id: crypto.randomUUID(),
+        workspaceId: crypto.randomUUID(),
+        agentId: agentIdSchema.parse("engineer"),
+        kind: "workspace.kickoff.engineering",
+        payload: {
+          conversationId: "engineering",
+          threadRootId: crypto.randomUUID(),
+        },
+        status: "leased",
+        attempt: 1,
+        availableAt: now,
+        leaseExpiresAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      "Engineering is ready.",
+    );
+
+    expect(result).toEqual({
+      publishedMessage: {
+        conversationId: "engineering",
+        body: "Engineering is ready.",
+        components: [],
+      },
+    });
+  });
+
   it("derives a stable channel id from an operationKey", async () => {
     const first = await channelIdForKey("marketing-channel");
     const second = await channelIdForKey("marketing-channel");
