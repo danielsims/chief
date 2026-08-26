@@ -56,19 +56,6 @@ export const pluginRecommendationPayloadSchema = z
   })
   .strict();
 
-export const pluginActionPayloadSchema = z
-  .object({
-    workspaceId: workspaceIdSchema,
-    conversationId: conversationIdSchema,
-    threadRootId: messageIdSchema.optional(),
-    targetAgentId: agentIdSchema,
-    recommendationId: z.string().trim().min(1).max(128),
-    pluginId: z.string().trim().min(1).max(128),
-    pluginName: z.string().trim().min(1).max(256),
-    action: z.enum(["install", "authorize", "uninstall"]),
-  })
-  .strict();
-
 export const channelMemberAddedPayloadSchema = z
   .object({
     type: z.literal("member-added"),
@@ -139,13 +126,11 @@ export const messageComponentSchema = z
     const schema =
       component.kind === "plugin.recommendation"
         ? pluginRecommendationPayloadSchema
-        : component.kind === "plugin.action"
-          ? pluginActionPayloadSchema
-          : component.kind === "plugin.authorization"
-            ? pluginAuthorizationPayloadSchema
-            : component.kind === "channel-action"
-              ? channelMemberAddedPayloadSchema
-              : undefined;
+        : component.kind === "plugin.authorization"
+          ? pluginAuthorizationPayloadSchema
+          : component.kind === "channel-action"
+            ? channelMemberAddedPayloadSchema
+            : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {
@@ -404,7 +389,6 @@ export type MessageComponent = z.infer<typeof messageComponentSchema>;
 export type PluginRecommendationPayload = z.infer<
   typeof pluginRecommendationPayloadSchema
 >;
-export type PluginActionPayload = z.infer<typeof pluginActionPayloadSchema>;
 export type PluginAuthorizationPayload = z.infer<
   typeof pluginAuthorizationPayloadSchema
 >;

@@ -17,14 +17,6 @@ export interface PluginState {
   warning?: string;
 }
 
-export interface RelayPluginActionContext {
-  workspaceId: string;
-  conversationId: string;
-  threadRootId?: string;
-  agentId: string;
-  recommendationId: string;
-}
-
 export interface PluginOAuthClientInput {
   serverName: string;
   clientId: string;
@@ -273,58 +265,6 @@ export function usePlugins() {
     [capability, client, cloudOrganizationId, waitForPlugin],
   );
 
-  const requestAgentAction = useCallback(
-    (
-      plugin: AgentPluginSummary,
-      action: "install" | "authorize" | "uninstall",
-      context: RelayPluginActionContext,
-    ) => {
-      if (
-        !cloudOrganizationId ||
-        !capability ||
-        context.workspaceId !== cloudOrganizationId
-      ) {
-        throw new Error("Workspace authorization is not ready.");
-      }
-      const messageId = crypto.randomUUID();
-      const verb = action === "uninstall" ? "disconnect" : "connect";
-      client.send({
-        type: "sendMessage",
-        workspaceId: cloudOrganizationId,
-        chatId: context.conversationId,
-        messageId,
-        text: `Approved: ${verb} ${plugin.name}.`,
-        ...(context.threadRootId
-          ? { threadRootId: context.threadRootId }
-          : undefined),
-        mentions: [context.agentId],
-        components: [
-          {
-            id: crypto.randomUUID(),
-            kind: "plugin.action",
-            version: 1,
-            payload: {
-              workspaceId: context.workspaceId,
-              conversationId: context.conversationId,
-              ...(context.threadRootId
-                ? { threadRootId: context.threadRootId }
-                : undefined),
-              targetAgentId: context.agentId,
-              recommendationId: context.recommendationId,
-              pluginId: plugin.id,
-              pluginName: plugin.name,
-              action,
-            },
-          },
-        ],
-        senderName: "You",
-        executorCapability: capability,
-      });
-      return { messageId, verb };
-    },
-    [capability, client, cloudOrganizationId],
-  );
-
   return {
     ...state,
     loading: !state,
@@ -333,7 +273,6 @@ export function usePlugins() {
     install,
     authorize,
     uninstall,
-    requestAgentAction,
   };
 }
 
