@@ -297,6 +297,7 @@ export function ChiefChat({
                       return (
                         <ChannelMembershipMessage
                           action={message.metadata.channelAction}
+                          currentUserId={currentUser?.id}
                           timestamp={message.metadata.createdAt}
                           userImage={userAuthor.image}
                         />

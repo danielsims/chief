@@ -290,18 +290,24 @@ function ChiefMessage({
 
 function ChannelMembershipMessage({
   action,
+  currentUserId,
   userImage,
   timestamp,
 }: {
   action: NonNullable<ChiefMessageMetadata["channelAction"]>;
+  currentUserId?: string;
   userImage?: string;
   timestamp?: number;
 }) {
-  const targetNames = channelMembershipTargetNames(action, (agentId) => {
-    return isWorkspaceAgentId(agentId)
-      ? WORKSPACE_AGENT_IDENTITIES[agentId].name
-      : agentId;
-  });
+  const targetNames = channelMembershipTargetNames(
+    action,
+    (agentId) => {
+      return isWorkspaceAgentId(agentId)
+        ? WORKSPACE_AGENT_IDENTITIES[agentId].name
+        : agentId;
+    },
+    currentUserId,
+  );
   const actorIsAgent = action.actorType === "agent";
   return (
     <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">

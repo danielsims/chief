@@ -56,11 +56,14 @@ export function channelActionFromEvent(
 export function channelMembershipTargetNames(
   action: NonNullable<ChiefMessageMetadata["channelAction"]>,
   agentName: (agentId: string) => string,
+  currentUserId?: string,
 ) {
-  return [
-    ...((action.userIds ?? []).includes("workspace-owner") ? ["you"] : []),
-    ...action.agentIds.map(agentName),
-  ];
+  const users = (action.userIds ?? []).map((userId) =>
+    userId === "workspace-owner" || userId === currentUserId
+      ? "you"
+      : "a workspace member",
+  );
+  return [...new Set([...users, ...action.agentIds.map(agentName)])];
 }
 
 export function formatMembershipTargets(names: readonly string[]) {
