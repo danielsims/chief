@@ -16,7 +16,8 @@ export async function validateSpecialistKickoff(
   agent: AgentPrincipal,
 ) {
   const conversationId = job.payload.conversationId;
-  const threadRootId = job.payload.threadRootId;
+  const threadRootId =
+    job.payload.kickoffThreadRootId ?? job.payload.threadRootId;
   if (!isJsonString(conversationId) || !isJsonString(threadRootId)) {
     throw new HttpError(
       409,
