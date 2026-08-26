@@ -3,7 +3,10 @@ import test from "node:test";
 
 import type { ChannelEvent } from "@chief/agent-runtime/types";
 
-import { newSnapshotNotificationMessages } from "../src/lib/channel-read-state-storage";
+import {
+  newSnapshotNotificationMessages,
+  workspaceNotificationStartedAt,
+} from "../src/lib/channel-read-state-storage";
 import {
   notificationSoundIsOutsideBurst,
   parseNotificationSoundPreferences,
@@ -107,4 +110,9 @@ void test("recovers notifications for messages missed during channel subscriptio
     ).map((entry) => entry.id),
     ["recovered"],
   );
+});
+
+void test("workspace onboarding messages remain eligible when the observer mounts later", () => {
+  assert.equal(workspaceNotificationStartedAt(200, "100"), 100);
+  assert.equal(workspaceNotificationStartedAt(200, null), 200);
 });

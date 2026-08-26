@@ -97,6 +97,15 @@ export function newSnapshotNotificationMessages(
   );
 }
 
+export function workspaceNotificationStartedAt(
+  mountedAt: number,
+  onboardingOpenedAt: string | null,
+) {
+  if (onboardingOpenedAt === null) return mountedAt;
+  const parsed = Number(onboardingOpenedAt);
+  return Number.isFinite(parsed) ? Math.min(mountedAt, parsed) : mountedAt;
+}
+
 export function latestChannelMessageTimestamp(
   messages: Iterable<ObservedChannelMessage>,
   predicate: (message: ObservedChannelMessage) => boolean,
