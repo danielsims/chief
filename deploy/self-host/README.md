@@ -25,6 +25,20 @@ The default is an HTTP loopback environment at `http://localhost:8080`. Edit
 `.env` before starting when native devices or external clients need a stable
 HTTPS origin.
 
+The `computer` service is a separate container in the same stack. It gives each
+workspace agent an isolated persistent root with shell, Git, files, Chromium,
+and a live browser viewport. Run it by itself with:
+
+```bash
+docker compose --file deploy/self-host/compose.yaml up --build computer
+```
+
+For a Cloudflare-hosted relay, expose port 8788 through a private or named
+tunnel, set `CHIEF_COMPUTER_PUBLIC_URL` to that HTTPS URL, and configure the
+relay's `COMPUTER_BASE_URL` and `COMPUTER_AUTH_SECRET` secrets. The relay sends
+only short-lived agent-scoped leases; the long-lived shared key never reaches
+an agent or browser client.
+
 ## Authentication
 
 Every relay owns its Better Auth database, issuer, signing secret, provider

@@ -208,6 +208,23 @@ export const agentActivityComponentSchema = z.discriminatedUnion("kind", [
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      id: z.string().trim().min(1).max(128),
+      kind: z.literal("browser"),
+      version: z.literal(1),
+      payload: z
+        .object({
+          browserRunId: z.string().trim().min(1).max(128),
+          status: z.enum(["active", "closed"]),
+          url: z.string().max(2_048).optional(),
+          streamUrl: z.url().max(4_096).optional(),
+          expiresAt: isoDateTimeSchema.optional(),
+          ...activityCorrelationSchema,
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export const messageReactionSchema = z

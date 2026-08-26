@@ -10,6 +10,8 @@ x-relay-environment: &relay-environment
   CHIEF_LOG_LEVEL: ${CHIEF_LOG_LEVEL:-info}
   CHIEF_STATE_DIR: /var/lib/chief
   CLOUDFLARE_CF_FETCH_ENABLED: "false"
+  COMPUTER_AUTH_SECRET_FILE: /run/secrets/computer_auth_secret
+  COMPUTER_BASE_URL: http://computer:8080
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
   CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
@@ -26,6 +28,7 @@ x-relay-environment: &relay-environment
 x-relay-secrets: &relay-secrets
   - better_auth_secret
   - bootstrap_token_sha256
+  - computer_auth_secret
   - google_client_secret
 
 x-service-security: &service-security
@@ -54,6 +57,49 @@ services:
     networks:
       - edge
     restart: unless-stopped
+    <<: *service-security
+    logging: *service-logging
+
+  computer:
+    build:
+      context: ../..
+      dockerfile: apps/executor/Dockerfile
+    image: ${CHIEF_COMPUTER_IMAGE:-chief-computer:local}
+    environment:
+      COMPUTER_AUTH_SECRET_FILE: /run/secrets/computer_auth_secret
+      COMPUTER_BROWSER_ENCRYPTION_KEY_FILE: /run/secrets/computer_browser_encryption_key
+      COMPUTER_BROWSER_STREAM_SECRET_FILE: /run/secrets/computer_browser_stream_secret
+      COMPUTER_PUBLIC_URL: ${CHIEF_COMPUTER_PUBLIC_URL:-http://localhost:8788}
+      EXECUTOR_AUTH_AUDIENCE: chief-computer
+      EXECUTOR_AUTH_ISSUER: https://chief-relay.internal
+      XDG_CACHE_HOME: /computers/.cache
+    ports:
+      - "127.0.0.1:${CHIEF_COMPUTER_PORT:-8788}:8080"
+    secrets:
+      - computer_auth_secret
+      - computer_browser_encryption_key
+      - computer_browser_stream_secret
+    volumes:
+      - computer-data:/computers
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    networks:
+      - edge
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 6
     <<: *service-security
     logging: *service-logging
 
@@ -185,6 +231,7 @@ networks:
   edge:
 
 volumes:
+  computer-data:
   observability-data:
   relay-data:
   gateway-data:
@@ -199,3 +246,9 @@ secrets:
     file: ./secrets/google_client_secret
   cloudflare_tunnel_token:
     file: ./secrets/cloudflare_tunnel_token
+  computer_auth_secret:
+    file: ./secrets/computer_auth_secret
+  computer_browser_encryption_key:
+    file: ./secrets/computer_browser_encryption_key
+  computer_browser_stream_secret:
+    file: ./secrets/computer_browser_stream_secret

@@ -22,6 +22,11 @@ export interface AgentBrowserTarget {
   labels?: string[];
 }
 
+export interface AgentBrowserStream {
+  streamUrl: string;
+  expiresAt: string;
+}
+
 export interface AgentBrowser {
   open(
     url: string,
@@ -35,6 +40,7 @@ export interface AgentBrowser {
     values: readonly string[],
   ): Promise<AgentBrowserSnapshot>;
   screenshot(): Promise<Uint8Array>;
+  stream?(): Promise<AgentBrowserStream>;
   close(): Promise<void>;
 }
 

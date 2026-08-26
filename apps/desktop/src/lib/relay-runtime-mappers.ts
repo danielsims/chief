@@ -4,6 +4,7 @@ import type {
   ChiefUIMessage,
   ContentBlock,
   PluginAuthorizationAction,
+  ServerMessage,
 } from "@chief/agent-runtime/types";
 import type {
   ConversationMessage,
@@ -24,7 +25,44 @@ const activityComponentKinds = new Set([
   "thinking",
   "tool",
   "error",
+  "browser",
 ]);
+
+export function browserRuntimeEvent(
+  message: ConversationMessage,
+): ServerMessage | undefined {
+  const component = message.components.find(
+    (candidate) => candidate.kind === "browser" && candidate.version === 1,
+  );
+  if (!component || message.author.kind !== "agent") return undefined;
+  const browserRunId = component.payload.browserRunId;
+  const status = component.payload.status;
+  if (!isJsonString(browserRunId)) return undefined;
+  if (status === "closed") {
+    return {
+      type: "browserClosed",
+      browserRunId,
+      workspaceId: message.workspaceId,
+      conversationId: message.conversationId,
+    };
+  }
+  const url = component.payload.url;
+  const streamUrl = component.payload.streamUrl;
+  if (status !== "active" || !isJsonString(url) || !isJsonString(streamUrl)) {
+    return undefined;
+  }
+  const event = {
+    type: "browserNavigate",
+    browserRunId,
+    workspaceId: message.workspaceId,
+    conversationId: message.conversationId,
+    url,
+    streamUrl,
+  } as const;
+  return message.threadRootId
+    ? { ...event, threadRootId: message.threadRootId }
+    : event;
+}
 
 export function isAgentActivityProjection(message: ConversationMessage) {
   return (

@@ -4,13 +4,16 @@ import type { AgentPrincipal, JsonObject } from "@chief/relay-contracts";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 import { agentJobSchema, isJsonString } from "@chief/relay-contracts";
 
+import type {
+  AgentExecutionEnvironment,
+  AgentExecutionEnvironmentFactory,
+} from "./agent-execution-environment";
 import type { AgentJobQueue } from "./agent-job-queue";
-import type { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
-import type { CloudflareAgentComputer } from "./cloudflare-agent-computer";
 import { publishAgentErrorActivity } from "./agent-activity";
 import { recordCompletedTurn } from "./agent-cell-projection";
 import { agentCellPersistence } from "./agent-cell-storage";
 import { hostedActivityObserver } from "./agent-hosted-activity";
+import { executeObservedHostedAgentTool } from "./agent-hosted-tool-execution";
 import { firstAgentRow } from "./agent-job-store";
 import { hostedPrincipal } from "./agent-object-values";
 import {
@@ -36,10 +39,7 @@ import {
   loadAgentHostingContext,
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
-import {
-  executeHostedAgentTool,
-  hostedDurableTools,
-} from "./hosted-agent-tools";
+import { hostedDurableTools } from "./hosted-agent-tools";
 import { createOpenCodeAgentInference } from "./opencode-agent-inference";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
@@ -50,8 +50,7 @@ export class AgentRuntime {
   constructor(
     private readonly storage: DurableObjectStorage,
     private readonly env: Env,
-    private readonly computer: CloudflareAgentComputer,
-    private readonly browser: CloudflareAgentBrowser,
+    private readonly executionFor: AgentExecutionEnvironmentFactory,
     private readonly queue: AgentJobQueue,
     private readonly broadcast: (event: JsonObject) => void,
   ) {
@@ -200,7 +199,7 @@ export class AgentRuntime {
   }
 
   private continueTurn(jobId: string) {
-    const { browser, computer, env, queue, storage, turns } = this;
+    const { env, executionFor, queue, storage, turns } = this;
     const deferTurn = this.deferTurn.bind(this);
     const failTurn = this.failTurn.bind(this);
     const loadJob = this.loadJob.bind(this);
@@ -233,8 +232,9 @@ export class AgentRuntime {
       yield* Effect.annotateCurrentSpan(
         agentTelemetryAttributes(maintained.job),
       );
+      const execution = executionFor(maintained.job);
       if (current.phase.kind !== "runnable") {
-        return yield* settleTurn(maintained.job, principal);
+        return yield* settleTurn(maintained.job, principal, execution);
       }
       const hosting = yield* attempt("agent.context.load", () =>
         loadAgentHostingContext(env, maintained.job, principal),
@@ -243,6 +243,7 @@ export class AgentRuntime {
         return yield* failTurn(
           maintained.job,
           principal,
+          execution,
           "The hosted agent configuration is unavailable.",
         );
       }
@@ -283,20 +284,16 @@ export class AgentRuntime {
                 await storage.setAlarm(wakeAt),
               executor: {
                 execute: async (call) =>
-                  await traceToolExecution(
-                    turnTracer,
-                    traceContext,
-                    call,
-                    async () =>
-                      await executeHostedAgentTool(
-                        computer,
-                        browserEnabled ? browser : undefined,
-                        env,
-                        maintained.job,
-                        principal,
-                        call.name,
-                        call.arguments,
-                      ),
+                  await traceToolExecution(turnTracer, traceContext, call, () =>
+                    executeObservedHostedAgentTool(
+                      execution,
+                      browserEnabled,
+                      env,
+                      maintained.job,
+                      principal,
+                      call.name,
+                      call.arguments,
+                    ),
                   ),
               },
             }),
@@ -308,7 +305,7 @@ export class AgentRuntime {
           );
         }
         if (result.kind === "terminal") {
-          return yield* settleTurn(maintained.job, principal);
+          return yield* settleTurn(maintained.job, principal, execution);
         }
         return yield* scheduleNextAlarm();
       });
@@ -318,6 +315,7 @@ export class AgentRuntime {
             deferTurn(
               maintained.job,
               principal,
+              execution,
               workspaceName,
               new Error(failure.message),
             ),
@@ -331,8 +329,12 @@ export class AgentRuntime {
     );
   }
 
-  private settleTurn(job: AgentJob, principal: AgentPrincipal) {
-    const { browser, env, queue, storage, turns } = this;
+  private settleTurn(
+    job: AgentJob,
+    principal: AgentPrincipal,
+    execution: AgentExecutionEnvironment,
+  ) {
+    const { env, queue, storage, turns } = this;
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     return Effect.gen(function* () {
       const turn = yield* attempt("agent.turn.active", () => turns.active());
@@ -363,14 +365,19 @@ export class AgentRuntime {
       }
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* Effect.ignore(
-        attempt("agent.browser.close", () => browser.close()),
+        attempt("agent.browser.close", () => execution.browser.close()),
       );
       yield* scheduleNextAlarm();
     }).pipe(Effect.withSpan("agent.turn.settle"));
   }
 
-  private failTurn(job: AgentJob, principal: AgentPrincipal, message: string) {
-    const { browser, queue, turns } = this;
+  private failTurn(
+    job: AgentJob,
+    principal: AgentPrincipal,
+    execution: AgentExecutionEnvironment,
+    message: string,
+  ) {
+    const { queue, turns } = this;
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     return Effect.gen(function* () {
       const turn = yield* attempt("agent.turn.active", () => turns.active());
@@ -381,7 +388,7 @@ export class AgentRuntime {
       });
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* Effect.ignore(
-        attempt("agent.browser.close", () => browser.close()),
+        attempt("agent.browser.close", () => execution.browser.close()),
       );
       yield* scheduleNextAlarm();
     });
@@ -390,15 +397,16 @@ export class AgentRuntime {
   private deferTurn(
     job: AgentJob,
     principal: AgentPrincipal,
+    execution: AgentExecutionEnvironment,
     workspaceName: string,
     error: Error,
   ) {
-    const { browser, env, storage, turns } = this;
+    const { env, storage, turns } = this;
     return Effect.gen(function* () {
       const wakeAt = Date.now() + agentRetryDelay(job.attempt);
       yield* attempt("agent.turn.defer", () => turns.deferUntil(wakeAt));
       yield* Effect.ignore(
-        attempt("agent.browser.close", () => browser.close()),
+        attempt("agent.browser.close", () => execution.browser.close()),
       );
       yield* Effect.logError("Agent turn interrupted", {
         workspaceId: job.workspaceId,

@@ -15,6 +15,7 @@ import {
   exportComputerFiles,
   importComputerFiles,
 } from "./agent-computer-snapshot";
+import { createAgentExecutionEnvironmentFactory } from "./agent-execution-environment";
 import { AgentJobQueue } from "./agent-job-queue";
 import { initializeAgentJobs } from "./agent-job-store";
 import {
@@ -24,7 +25,6 @@ import {
 import { parseStoredJson } from "./agent-object-values";
 import { AgentRuntime } from "./agent-runtime";
 import { agentTelemetryAttributes } from "./agent-tracing";
-import { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
 import { CloudflareAgentComputer } from "./cloudflare-agent-computer";
 import { attempt, runEffect, runResponse, sync } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
@@ -51,8 +51,7 @@ export class AgentObject extends DurableObject<Env> {
     this.runtime = new AgentRuntime(
       state.storage,
       env,
-      this.computer,
-      new CloudflareAgentBrowser(env.BROWSER),
+      createAgentExecutionEnvironmentFactory(env, this.workspace),
       this.queue,
       broadcast,
     );

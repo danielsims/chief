@@ -31,6 +31,12 @@ if [ ! -s "$secrets_dir/bootstrap_token_sha256" ]; then
     | awk '{print $1}' > "$secrets_dir/bootstrap_token_sha256"
 fi
 
+for generated_secret in computer_auth_secret computer_browser_encryption_key computer_browser_stream_secret; do
+  if [ ! -s "$secrets_dir/$generated_secret" ]; then
+    openssl rand -base64 48 | tr -d '\n' > "$secrets_dir/$generated_secret"
+  fi
+done
+
 for optional_secret in google_client_secret cloudflare_tunnel_token; do
   if [ ! -f "$secrets_dir/$optional_secret" ]; then
     : > "$secrets_dir/$optional_secret"
