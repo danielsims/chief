@@ -1,9 +1,4 @@
-import type {
-  AgentBrowser,
-  AgentComputer,
-  AgentInference,
-  AgentInferenceMessage,
-} from "@chief/agent-computer";
+import type { AgentInferenceMessage } from "@chief/agent-computer";
 import type {
   AgentConfig,
   AgentJob,
@@ -12,7 +7,6 @@ import type {
   ConversationMessage,
 } from "@chief/relay-contracts";
 import { getAgent } from "@chief/agent-runtime/agents";
-import { runPortableAgentTurn } from "@chief/agent-runtime/portable-agent-runner";
 import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
 import {
   conversationIdSchema,
@@ -20,15 +14,11 @@ import {
   messageIdSchema,
 } from "@chief/relay-contracts";
 
-import {
-  executeHostedAgentTool,
-  hostedAgentToolDefinitions,
-  recentConversationMessages,
-} from "./hosted-agent-tools";
+import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
-interface HostingContext {
+export interface HostingContext {
   managed: boolean;
   runtime: "phone" | "desktop" | "cloud" | null;
   workspace?: {
@@ -66,15 +56,12 @@ export async function loadAgentHostingContext(
   return context;
 }
 
-export async function runHostedAgentJob(
-  computer: AgentComputer,
-  browser: AgentBrowser,
-  inference: AgentInference,
+export async function prepareHostedAgentTurn(
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   context: HostingContext,
-): Promise<AgentJobCompletionResult> {
+) {
   const browserEnabled =
     context.config?.toolPermissions.includes("browser.use") ?? false;
   const conversationId = conversationIdSchema.parse(
@@ -91,41 +78,34 @@ export async function runHostedAgentJob(
     conversationId,
   ).catch(() => [] satisfies ConversationMessage[]);
   const messageId = stringPayload(job, "messageId");
-  const messages: AgentInferenceMessage[] = [
-    {
-      role: "system",
-      content: systemPrompt(job, context, browserEnabled),
-    },
-    ...history
+  const instruction =
+    stringPayload(job, "instruction") ??
+    "Respond helpfully to the latest message.";
+  return {
+    jobId: job.id,
+    conversationId,
+    ...(threadRootId ? { threadRootId } : undefined),
+    instruction,
+    systemPrompt: `${systemPrompt(job, context, browserEnabled)}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while durable tasks remain open.`,
+    browserEnabled,
+    history: history
       .filter((message) => message.id !== messageId)
       .slice(-30)
       .map((message) => historyMessage(message, job.agentId)),
-    {
-      role: "user",
-      content:
-        stringPayload(job, "instruction") ??
-        "Respond helpfully to the latest message.",
-    },
-  ];
+  };
+}
 
-  const finalText = await runPortableAgentTurn({
-    inference,
-    messages,
-    tools: hostedAgentToolDefinitions(browserEnabled),
-    execute: async (call) =>
-      await executeHostedAgentTool(
-        computer,
-        browserEnabled ? browser : undefined,
-        env,
-        job,
-        principal,
-        call.name,
-        call.arguments,
-      ),
-  });
+export function hostedTurnResult(job: AgentJob, finalText: string) {
   if (job.kind === "workspace.onboarding") {
     return { openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE };
   }
+  const conversationId = conversationIdSchema.parse(
+    stringPayload(job, "conversationId") ?? "mission-control",
+  );
+  const rawThreadRootId = stringPayload(job, "threadRootId");
+  const threadRootId = rawThreadRootId
+    ? messageIdSchema.parse(rawThreadRootId)
+    : undefined;
   return {
     publishedMessage: {
       conversationId,
@@ -133,7 +113,7 @@ export async function runHostedAgentJob(
       body: finalText.slice(0, 4_000),
       components: [],
     },
-  };
+  } satisfies AgentJobCompletionResult;
 }
 
 function systemPrompt(

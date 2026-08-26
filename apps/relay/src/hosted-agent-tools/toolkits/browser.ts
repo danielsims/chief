@@ -11,8 +11,6 @@ function browserRequired<T>(browser: T | undefined): T {
   return browser;
 }
 
-const browserOptions = { requiresBrowser: true };
-
 export const hostedBrowserTools = [
   defineHostedAgentTool(
     "browser.open",
@@ -20,18 +18,18 @@ export const hostedBrowserTools = [
       await browserRequired(browser).open(requiredString(input, "url"), {
         fresh: input.fresh === true,
       }),
-    browserOptions,
+    { requiresBrowser: true, effect: "non_replayable" },
   ),
   defineHostedAgentTool(
     "browser.snapshot",
     async ({ browser }) => await browserRequired(browser).snapshot(),
-    browserOptions,
+    { requiresBrowser: true, effect: "read_only" },
   ),
   defineHostedAgentTool(
     "browser.click",
     async ({ browser }, input) =>
       await browserRequired(browser).click(browserTarget(input)),
-    browserOptions,
+    { requiresBrowser: true, effect: "non_replayable" },
   ),
   defineHostedAgentTool(
     "browser.fill",
@@ -40,7 +38,7 @@ export const hostedBrowserTools = [
         browserTarget(input),
         stringValue(input, "value"),
       ),
-    browserOptions,
+    { requiresBrowser: true, effect: "non_replayable" },
   ),
   defineHostedAgentTool(
     "browser.select",
@@ -49,7 +47,7 @@ export const hostedBrowserTools = [
         browserTarget(input),
         stringArray(input, "values"),
       ),
-    browserOptions,
+    { requiresBrowser: true, effect: "non_replayable" },
   ),
   defineHostedAgentTool(
     "browser.close",
@@ -57,6 +55,6 @@ export const hostedBrowserTools = [
       await browserRequired(browser).close();
       return { closed: true };
     },
-    browserOptions,
+    { requiresBrowser: true, effect: "idempotent" },
   ),
 ];

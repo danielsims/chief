@@ -1,7 +1,7 @@
 /** Durable agent cell contract types. The application depends on this
  * contract, never on Cloudflare, cellD, or desktop-specific APIs. */
 
-import type { JsonValue } from "@chief/relay-contracts";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 
 import type { AgentEvent as SessionAgentEvent } from "../types.js";
 
@@ -40,7 +40,7 @@ export interface AgentCellStatus {
 
 /** A small durable key-value scope owned by one cell. */
 export type CellStateValue =
-  string | number | boolean | null | SessionAgentEvent[];
+  string | number | boolean | null | JsonObject | SessionAgentEvent[];
 
 /** A scheduled alarm for a cell. */
 export interface AgentAlarm {

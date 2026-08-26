@@ -1,19 +1,20 @@
-import type { AgentPrincipal } from "@chief/relay-contracts";
+import type {
+  AgentActivityComponent,
+  AgentPrincipal,
+} from "@chief/relay-contracts";
 import { upsertAgentActivityPayloadSchema } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 
-export async function publishAgentErrorActivity(
+export async function publishAgentActivity(
   env: Env,
   input: {
     principal: AgentPrincipal;
     conversationId: string;
     threadRootId?: string;
     seed: string;
-    code: string;
-    title: string;
-    message: string;
+    component: Omit<AgentActivityComponent, "id">;
   },
 ) {
   const messageId = await deterministicUuid(`${input.seed}:message`);
@@ -22,15 +23,8 @@ export async function publishAgentErrorActivity(
     conversationId: input.conversationId,
     ...(input.threadRootId ? { threadRootId: input.threadRootId } : undefined),
     component: {
+      ...input.component,
       id: await deterministicUuid(`${input.seed}:component`),
-      kind: "error",
-      version: 1,
-      payload: {
-        code: input.code,
-        title: input.title,
-        message: input.message,
-        retryable: "false",
-      },
     },
   });
   const response = await env.CONVERSATIONS.get(
@@ -59,9 +53,44 @@ export async function publishAgentErrorActivity(
     throw new HttpError(
       502,
       "agent_activity_failed",
-      "The addressed agent could not report its error.",
+      "The addressed agent could not report its activity.",
     );
   }
+}
+
+export async function publishAgentErrorActivity(
+  env: Env,
+  input: {
+    principal: AgentPrincipal;
+    conversationId: string;
+    threadRootId?: string;
+    seed: string;
+    code: string;
+    title: string;
+    message: string;
+    jobId?: string;
+    retryable?: boolean;
+  },
+) {
+  await publishAgentActivity(env, {
+    principal: input.principal,
+    conversationId: input.conversationId,
+    ...(input.threadRootId ? { threadRootId: input.threadRootId } : undefined),
+    seed: input.seed,
+    component: {
+      kind: "error",
+      version: 1,
+      payload: {
+        code: input.code,
+        title: input.title,
+        message: input.message,
+        retryable: input.retryable ? "true" : "false",
+        ...(input.jobId
+          ? { jobId: input.jobId, runId: input.jobId }
+          : undefined),
+      },
+    },
+  });
 }
 
 async function deterministicUuid(value: string) {

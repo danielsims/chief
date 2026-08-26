@@ -7,6 +7,9 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./cells": "./src/cells/types.ts",
+    "./cells/cloudflare": "./src/cells/cloudflare.ts",
+    "./cells/memory": "./src/cells/memory-persistence.ts",
+    "./durable-turn": "./src/durable-turn/index.ts",
     "./artifact-types": "./src/artifact-types.ts",
     "./agents": "./src/agents.ts",
     "./agent-roster": "./src/agent-roster.ts",
@@ -16,7 +19,6 @@
     "./integration-setup-recipes": "./src/integration-setup-recipes.ts",
     "./integration-requests": "./src/integration-requests.ts",
     "./local-tools": "./src/tools/model.ts",
-    "./portable-agent-runner": "./src/portable-agent-runner.ts",
     "./onboarding-message-pacing": "./src/onboarding-message-pacing.ts",
     "./recurring-work": "./src/recurring-work.ts"
   },

@@ -1,3 +1,4 @@
+import type { ToolEffect } from "@chief/agent-runtime/durable-turn";
 import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import {
   localAgentToolName,
@@ -10,6 +11,7 @@ import type { HostedAgentToolContext } from "./context";
 export interface HostedAgentTool {
   definition: ReturnType<typeof localAgentToolsByOperation>[number];
   requiresBrowser: boolean;
+  effect: ToolEffect;
   execute: (
     context: HostedAgentToolContext,
     input: JsonObject,
@@ -22,13 +24,14 @@ export function defineHostedAgentTool(
     context: HostedAgentToolContext,
     input: JsonObject,
   ) => Promise<object>,
-  options: { requiresBrowser?: boolean } = {},
+  options: { effect: ToolEffect; requiresBrowser?: boolean },
 ): HostedAgentTool {
   const definition = localAgentToolsByOperation([operationId])[0];
   if (!definition) throw new Error(`Unknown hosted agent tool: ${operationId}`);
   return {
     definition,
     requiresBrowser: options.requiresBrowser ?? false,
+    effect: options.effect,
     execute: async (context, input) =>
       jsonValueSchema.parse(await execute(context, input)),
   };

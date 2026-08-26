@@ -26,54 +26,79 @@ function boundedExecution(value: {
 }
 
 export const hostedComputerTools = [
-  defineHostedAgentTool("computer.read", async ({ computer }, input) => ({
-    path: requiredString(input, "path"),
-    content: boundedOutput(
-      await computer.readText(requiredString(input, "path")),
-    ),
-  })),
-  defineHostedAgentTool("computer.list", async ({ computer }, input) => ({
-    path: requiredString(input, "path"),
-    entries: (await computer.list(requiredString(input, "path"))).slice(0, 500),
-  })),
-  defineHostedAgentTool("computer.write", async ({ computer }, input) => {
-    const path = requiredString(input, "path");
-    const content = stringValue(input, "content");
-    await computer.writeText(path, content);
-    return {
-      ok: true,
-      path,
-      bytesWritten: new TextEncoder().encode(content).length,
-    };
-  }),
-  defineHostedAgentTool("computer.edit", async ({ computer }, input) => {
-    const path = requiredString(input, "path");
-    return {
-      ok: true,
-      path,
-      ...(await computer.editText(
-        path,
-        requiredString(input, "oldText"),
-        stringValue(input, "newText"),
-        input.replaceAll === true,
-      )),
-    };
-  }),
-  defineHostedAgentTool("computer.execute", async ({ computer }, input) =>
-    boundedExecution(
-      await computer.execute(
-        requiredString(input, "command"),
-        optionalString(input, "cwd"),
+  defineHostedAgentTool(
+    "computer.read",
+    async ({ computer }, input) => ({
+      path: requiredString(input, "path"),
+      content: boundedOutput(
+        await computer.readText(requiredString(input, "path")),
       ),
-    ),
+    }),
+    { effect: "read_only" },
   ),
-  defineHostedAgentTool("computer.git", async ({ computer }, input) =>
-    boundedExecution(
-      await computer.git(
-        stringArray(input, "argv"),
-        optionalString(input, "cwd"),
+  defineHostedAgentTool(
+    "computer.list",
+    async ({ computer }, input) => ({
+      path: requiredString(input, "path"),
+      entries: (await computer.list(requiredString(input, "path"))).slice(
+        0,
+        500,
       ),
-    ),
+    }),
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "computer.write",
+    async ({ computer }, input) => {
+      const path = requiredString(input, "path");
+      const content = stringValue(input, "content");
+      await computer.writeText(path, content);
+      return {
+        ok: true,
+        path,
+        bytesWritten: new TextEncoder().encode(content).length,
+      };
+    },
+    { effect: "idempotent" },
+  ),
+  defineHostedAgentTool(
+    "computer.edit",
+    async ({ computer }, input) => {
+      const path = requiredString(input, "path");
+      return {
+        ok: true,
+        path,
+        ...(await computer.editText(
+          path,
+          requiredString(input, "oldText"),
+          stringValue(input, "newText"),
+          input.replaceAll === true,
+        )),
+      };
+    },
+    { effect: "non_replayable" },
+  ),
+  defineHostedAgentTool(
+    "computer.execute",
+    async ({ computer }, input) =>
+      boundedExecution(
+        await computer.execute(
+          requiredString(input, "command"),
+          optionalString(input, "cwd"),
+        ),
+      ),
+    { effect: "non_replayable" },
+  ),
+  defineHostedAgentTool(
+    "computer.git",
+    async ({ computer }, input) =>
+      boundedExecution(
+        await computer.git(
+          stringArray(input, "argv"),
+          optionalString(input, "cwd"),
+        ),
+      ),
+    { effect: "non_replayable" },
   ),
   defineHostedAgentTool(
     "computer.artifacts.publish",
@@ -85,5 +110,6 @@ export const hostedComputerTools = [
         name: requiredString(input, "name"),
         contentType: requiredString(input, "contentType"),
       }),
+    { effect: "non_replayable" },
   ),
 ];

@@ -39,7 +39,16 @@ export interface AgentBrowser {
 }
 
 export interface AgentInference {
+  readonly model?: AgentInferenceModel;
+  estimateTokens?(input: AgentInferenceRequest): number;
   complete(input: AgentInferenceRequest): Promise<AgentInferenceResult>;
+}
+
+export interface AgentInferenceModel {
+  id: string;
+  contextWindowTokens: number;
+  maxOutputTokens?: number;
+  limitSource: "provider" | "model_catalog" | "adapter_fallback";
 }
 
 export interface AgentInferenceRequest {
