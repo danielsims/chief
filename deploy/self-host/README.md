@@ -65,6 +65,18 @@ pnpm self-host:down
 pnpm self-host:config
 ```
 
+For full local Effect traces and logs, start the relay with the optional
+observability profile and open `http://localhost:3000`:
+
+```bash
+pnpm self-host:up:observability
+```
+
+This sends OTLP data directly from the relay container to the bundled local
+collector. Grafana opens with the provisioned **Chief Agent Observability**
+dashboard, where agent and conversation filters lead to the underlying trace
+waterfalls. Trace payload content remains disabled by default.
+
 `down` preserves all data. To intentionally destroy the local relay, stop the
 stack and remove its named volumes explicitly with Docker Compose's `--volumes`
 flag. This is not exposed as a convenience script because it deletes auth,

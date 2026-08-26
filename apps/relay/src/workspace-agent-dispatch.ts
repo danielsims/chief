@@ -13,6 +13,7 @@ const dispatchMessageSchema = z
   .object({
     message: conversationMessageSchema,
     replyAgentId: agentIdSchema.optional(),
+    workflowId: z.string().trim().min(1).max(128).optional(),
   })
   .strict();
 
@@ -30,9 +31,11 @@ export async function dispatchWorkspaceMessage(
     return json({ agentIds: [] });
   }
 
-  const { message, replyAgentId } = dispatchMessageSchema.parse(
-    await parseJson(request),
-  );
+  const {
+    message,
+    replyAgentId,
+    workflowId = message.id,
+  } = dispatchMessageSchema.parse(await parseJson(request));
   const authorMatchesPrincipal =
     (context.principal.kind === "user" &&
       message.author.kind === "user" &&
@@ -84,6 +87,7 @@ export async function dispatchWorkspaceMessage(
           payload: {
             conversationId: message.conversationId,
             messageId: message.id,
+            workflowId,
             ...(message.threadRootId
               ? { threadRootId: message.threadRootId }
               : undefined),
@@ -100,7 +104,10 @@ export async function dispatchWorkspaceMessage(
         withTrustedContext(
           new Request("https://agent.internal/enqueue", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              "x-chief-workflow-id": workflowId,
+            },
             body: JSON.stringify(command),
           }),
           {

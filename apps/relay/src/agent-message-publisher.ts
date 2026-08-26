@@ -7,6 +7,7 @@ import type {
 import {
   appendMessageCommandSchema,
   appendMessageResultSchema,
+  isJsonString,
 } from "@chief/relay-contracts";
 
 import { dispatchPersistedMessage } from "./conversation-agent-dispatch";
@@ -95,7 +96,12 @@ export async function publishAgentMessage(
     withTrustedContext(
       new Request("https://conversation.internal/messages", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-chief-workflow-id": isJsonString(job.payload.workflowId)
+            ? job.payload.workflowId
+            : job.id,
+        },
         body: JSON.stringify(command),
       }),
       {
@@ -128,6 +134,9 @@ export async function publishAgentMessage(
     requestId: commandId,
     workspaceId: job.workspaceId,
     conversationId: message.conversationId,
+    workflowId: isJsonString(job.payload.workflowId)
+      ? job.payload.workflowId
+      : job.id,
   });
   if (!dispatch.ok) {
     throw new HttpError(

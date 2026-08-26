@@ -43,6 +43,32 @@ VITE_AUTH_BASE_URL=https://chief-relay.danielsims-browser-ui.workers.dev \
 pnpm --filter @chief/desktop dev
 ```
 
+## Effect observability
+
+`RELAY_TELEMETRY_MODE` controls Effect telemetry independently of relay
+placement:
+
+- `off` exports nothing.
+- `errors` writes only structured failures to the runtime console. This is the
+  default.
+- `full` exports Effect traces and logs over OTLP/HTTP to
+  `RELAY_OTLP_ENDPOINT`.
+
+Prompt bodies, tool arguments, and tool results remain excluded unless
+`RELAY_TELEMETRY_INCLUDE_CONTENT=true` is also set. Use
+`RELAY_OTLP_AUTHORIZATION` when the collector requires an Authorization header.
+
+The self-hosted Docker stack can start a local Grafana, Tempo, Loki, and OTEL
+Collector at `http://localhost:3000`:
+
+```bash
+pnpm self-host:up:observability
+```
+
+A Cloudflare-deployed relay uses the same `full` mode, but its OTLP endpoint
+must be publicly reachable. Cloudflare Workers Observability is disabled; the
+Effect exporter is the only detailed telemetry path.
+
 An installed debug iOS build can be launched from Xcode or `devicectl` with a
 `CHIEF_RELAY_URL` process environment variable. This keeps local relay routing
 explicit and prevents a development build from silently shipping with a local

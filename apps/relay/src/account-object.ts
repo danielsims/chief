@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 
 import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 import {
@@ -10,6 +11,7 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { attempt, runResponse, sync } from "./effect";
 import { json, parseJson, relayError } from "./http";
 import {
   readTrustedAccountIdentity,
@@ -53,9 +55,17 @@ export class AccountObject extends DurableObject<Env> {
     });
   }
 
-  async fetch(request: Request) {
-    try {
-      const identity = readTrustedAccountIdentity(request);
+  fetch(request: Request) {
+    const create = this.create.bind(this);
+    const active = this.active.bind(this);
+    const list = this.list.bind(this);
+    const switchWorkspace = this.switchWorkspace.bind(this);
+    const join = this.join.bind(this);
+    const remove = this.remove.bind(this);
+    const program = Effect.gen(function* () {
+      const identity = yield* sync("account.identity", () =>
+        readTrustedAccountIdentity(request),
+      );
       if (identity.kind !== "user") {
         return relayError(403, "user_required", "A user identity is required.");
       }
@@ -64,27 +74,34 @@ export class AccountObject extends DurableObject<Env> {
         return relayError(405, "method_not_allowed", "Method not allowed.");
       }
       if (operation === "create-workspace") {
-        return await this.create(request, identity);
+        return yield* attempt("account.workspace.create", () =>
+          create(request, identity),
+        );
       }
-      if (operation === "active-workspace") return this.active(identity);
-      if (operation === "list-workspaces") return await this.list(identity);
+      if (operation === "active-workspace") {
+        return yield* sync("account.workspace.active", () => active(identity));
+      }
+      if (operation === "list-workspaces") {
+        return yield* attempt("account.workspace.list", () => list(identity));
+      }
       if (operation === "switch-workspace") {
-        return await this.switchWorkspace(request, identity);
+        return yield* attempt("account.workspace.switch", () =>
+          switchWorkspace(request, identity),
+        );
       }
       if (operation === "join-workspace") {
-        return await this.join(request, identity);
+        return yield* attempt("account.workspace.join", () =>
+          join(request, identity),
+        );
       }
       if (operation === "remove-workspace") {
-        return await this.remove(request);
+        return yield* attempt("account.workspace.remove", () =>
+          remove(request),
+        );
       }
       return relayError(404, "not_found", "Account operation not found.");
-    } catch {
-      return relayError(
-        400,
-        "invalid_request",
-        "The account request is invalid.",
-      );
-    }
+    });
+    return runResponse(program, this.env, { operation: "account.fetch" });
   }
 
   private async create(

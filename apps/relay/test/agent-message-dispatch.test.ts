@@ -61,6 +61,7 @@ describe("workspace agent message dispatch", () => {
         payload: {
           conversationId,
           messageId: message.id,
+          workflowId: message.id,
           instruction: message.body,
         },
       },
@@ -96,6 +97,7 @@ describe("workspace agent message dispatch", () => {
     await registerAgent(ctx, agentId, hexKey(String(agentId)));
     await assignAgentProvider(ctx);
     const now = new Date().toISOString();
+    const workflowId = crypto.randomUUID();
     await publishAgentMessage(
       ctx.env,
       agentJobSchema.parse({
@@ -104,7 +106,7 @@ describe("workspace agent message dispatch", () => {
         agentId: chiefId,
         agentPubkey: chiefPubkey,
         kind: "conversation.message",
-        payload: {},
+        payload: { workflowId },
         status: "leased",
         attempt: 1,
         availableAt: now,
@@ -146,6 +148,7 @@ describe("workspace agent message dispatch", () => {
         kind: "conversation.message",
         payload: {
           conversationId: "mission-control",
+          workflowId,
           mentions: [agentId],
           instruction: "Hey @Coordinator, take this.",
         },

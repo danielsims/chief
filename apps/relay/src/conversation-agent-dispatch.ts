@@ -38,6 +38,7 @@ export function dispatchPersistedMessage(
     requestId: string;
     workspaceId: Parameters<typeof withTrustedContext>[1]["workspaceId"];
     conversationId: string;
+    workflowId?: string;
   },
 ) {
   return env.WORKSPACES.get(env.WORKSPACES.idFromName(input.workspaceId)).fetch(
@@ -47,8 +48,12 @@ export function dispatchPersistedMessage(
         headers: {
           "content-type": "application/json",
           "x-chief-internal-operation": "agent-message-dispatch",
+          "x-chief-workflow-id": input.workflowId ?? input.message.id,
         },
-        body: JSON.stringify({ message: input.message }),
+        body: JSON.stringify({
+          message: input.message,
+          workflowId: input.workflowId ?? input.message.id,
+        }),
       }),
       input,
     ),

@@ -1,15 +1,20 @@
 import { Workspace } from "@cloudflare/computer";
 import { createGitClient } from "@cloudflare/computer/git";
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
+import { z } from "zod";
 
 import type { JsonObject, JsonValue } from "@chief/relay-contracts";
-import { agentCellSnapshotSchema, agentIdSchema } from "@chief/relay-contracts";
+import {
+  agentCellSnapshotSchema,
+  agentIdSchema,
+  agentJobSchema,
+} from "@chief/relay-contracts";
 
 import {
   exportComputerFiles,
   importComputerFiles,
 } from "./agent-computer-snapshot";
-import { AgentHostedExecution } from "./agent-hosted-execution";
 import { AgentJobQueue } from "./agent-job-queue";
 import { initializeAgentJobs } from "./agent-job-store";
 import {
@@ -17,17 +22,25 @@ import {
   createAgentMailboxSocketTicket,
 } from "./agent-mailbox";
 import { parseStoredJson } from "./agent-object-values";
+import { AgentRuntime } from "./agent-runtime";
+import { agentTelemetryAttributes } from "./agent-tracing";
 import { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
 import { CloudflareAgentComputer } from "./cloudflare-agent-computer";
+import { attempt, runEffect, runResponse, sync } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
-import { readTrustedContext } from "./internal-context";
+import {
+  readTrustedContext,
+  trustedTelemetryAttributes,
+} from "./internal-context";
 import { initializeSocketTickets } from "./socket-ticket-store";
+
+const enqueuedAgentJobSchema = z.object({ job: agentJobSchema });
 
 export class AgentObject extends DurableObject<Env> {
   private readonly workspace: Workspace;
   private readonly computer: CloudflareAgentComputer;
   private readonly queue: AgentJobQueue;
-  private readonly hosted: AgentHostedExecution;
+  private readonly runtime: AgentRuntime;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -35,7 +48,7 @@ export class AgentObject extends DurableObject<Env> {
     this.computer = new CloudflareAgentComputer(this.workspace);
     const broadcast = (event: JsonObject) => this.broadcast(event);
     this.queue = new AgentJobQueue(state.storage, env, broadcast);
-    this.hosted = new AgentHostedExecution(
+    this.runtime = new AgentRuntime(
       state.storage,
       env,
       this.computer,
@@ -47,7 +60,7 @@ export class AgentObject extends DurableObject<Env> {
       initializeAgentJobs(state.storage);
       initializeSocketTickets(state.storage);
       if (env.HOSTED_CELL_ENABLED === "true") {
-        await this.hosted.scheduleNextAlarm();
+        await runEffect(this.runtime.scheduleNextAlarm(), env);
       }
     });
   }
@@ -60,73 +73,117 @@ export class AgentObject extends DurableObject<Env> {
     return this.computer.git(argv, cwd);
   }
 
-  async fetch(request: Request) {
-    try {
+  fetch(request: Request) {
+    const ctx = this.ctx;
+    const route = this.route.bind(this);
+    const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
-        readTrustedContext(request);
-        await this.ctx.storage.deleteAll();
+        yield* sync("agent.identity", () => readTrustedContext(request));
+        yield* attempt("agent.delete_all", () => ctx.storage.deleteAll());
         return new Response(null, { status: 204 });
       }
       if (request.headers.get("upgrade") === "websocket") {
-        return await connectAgentMailboxWebSocket(this.ctx, request);
+        return yield* attempt("agent.websocket.connect", () =>
+          connectAgentMailboxWebSocket(ctx, request),
+        );
       }
-      return await this.route(request, readTrustedContext(request));
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return relayError(error.status, error.code, error.message);
-      }
-      return relayError(
-        400,
-        "invalid_request",
-        "The agent request is invalid.",
+      const context = yield* sync("agent.context", () =>
+        readTrustedContext(request),
       );
-    }
+      return yield* route(request, context);
+    });
+    return runResponse(program, this.env, {
+      operation: "agent.fetch",
+      attributes: trustedTelemetryAttributes(request),
+      workflowId: request.headers.get("x-chief-workflow-id") ?? undefined,
+    });
   }
 
   async alarm() {
-    await this.hosted.runDueJob();
+    const workflowId = await this.runtime
+      .currentWorkflowId()
+      .catch(() => undefined);
+    return runEffect(this.runtime.runDueJob(), this.env, workflowId);
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     if (message === "ping") socket.send("pong");
   }
 
-  private async route(
+  private route(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
   ) {
-    const path = new URL(request.url).pathname;
-    if (request.method === "POST" && path.endsWith("/enqueue")) {
-      return this.queue.enqueue(request, context.workspaceId);
-    }
-    if (request.method === "POST" && path.endsWith("/ensure")) {
-      return this.queue.enqueue(request, context.workspaceId, true);
-    }
-    if (request.method === "POST" && path.endsWith("/claim")) {
-      return this.queue.claim(request, context);
-    }
-    if (request.method === "POST" && path.endsWith("/complete")) {
-      return this.queue.complete(request, context);
-    }
-    if (request.method === "POST" && path.endsWith("/renew")) {
-      return this.queue.renew(request, context);
-    }
-    if (request.method === "GET" && path.endsWith("/jobs")) {
-      return this.queue.list(context);
-    }
-    if (request.method === "POST" && path.endsWith("/retry")) {
-      return this.queue.retry(request, context);
-    }
-    if (request.method === "POST" && path.endsWith("/socket-tickets")) {
-      return createAgentMailboxSocketTicket(this.ctx.storage, request, context);
-    }
-    if (
-      (request.method === "GET" || request.method === "PUT") &&
-      path.endsWith("/snapshot")
-    ) {
-      return this.cellSnapshot(request, context);
-    }
-    return relayError(404, "not_found", "Agent operation not found.");
+    const ctx = this.ctx;
+    const queue = this.queue;
+    const cellSnapshot = this.cellSnapshot.bind(this);
+    return Effect.gen(function* () {
+      const path = new URL(request.url).pathname;
+      if (
+        request.method === "POST" &&
+        (path.endsWith("/enqueue") || path.endsWith("/ensure"))
+      ) {
+        const repairTerminal = path.endsWith("/ensure");
+        const response = yield* attempt(
+          repairTerminal ? "agent.job.ensure" : "agent.job.enqueue",
+          () => queue.enqueue(request, context.workspaceId, repairTerminal),
+        );
+        const result = yield* attempt("agent.job.enqueue.decode", () =>
+          response.clone().json(),
+        );
+        const job = yield* sync(
+          "agent.job.enqueue.validate",
+          () => enqueuedAgentJobSchema.parse(result).job,
+        );
+        yield* Effect.annotateCurrentSpan(agentTelemetryAttributes(job));
+        yield* Effect.logInfo({
+          event: "agent.job.enqueued",
+          ...agentTelemetryAttributes(job),
+        });
+        return response;
+      }
+      if (request.method === "POST" && path.endsWith("/claim")) {
+        return yield* attempt("agent.job.claim", () =>
+          queue.claim(request, context),
+        );
+      }
+      if (request.method === "POST" && path.endsWith("/complete")) {
+        return yield* attempt("agent.job.complete", () =>
+          queue.complete(request, context),
+        );
+      }
+      if (request.method === "POST" && path.endsWith("/renew")) {
+        return yield* attempt("agent.job.renew", () =>
+          queue.renew(request, context),
+        );
+      }
+      if (request.method === "GET" && path.endsWith("/jobs")) {
+        return yield* attempt("agent.job.list", () => queue.list(context));
+      }
+      if (request.method === "POST" && path.endsWith("/retry")) {
+        return yield* attempt("agent.job.retry", () =>
+          queue.retry(request, context),
+        );
+      }
+      if (request.method === "POST" && path.endsWith("/socket-tickets")) {
+        return yield* attempt("agent.socket_ticket.create", () =>
+          createAgentMailboxSocketTicket(ctx.storage, request, context),
+        );
+      }
+      if (
+        (request.method === "GET" || request.method === "PUT") &&
+        path.endsWith("/snapshot")
+      ) {
+        return yield* attempt("agent.snapshot", () =>
+          cellSnapshot(request, context),
+        );
+      }
+      return relayError(404, "not_found", "Agent operation not found.");
+    }).pipe(
+      Effect.withSpan("agent.operation", {
+        attributes: { "url.path": new URL(request.url).pathname },
+      }),
+    );
   }
 
   private async cellSnapshot(

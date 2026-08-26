@@ -68,6 +68,31 @@ export function readTrustedContext(request: Request) {
   };
 }
 
+export function trustedTelemetryAttributes(request: Request) {
+  const workspace = workspaceIdSchema.safeParse(
+    request.headers.get(workspaceHeader),
+  );
+  const principal = safelyParsePrincipal(request.headers.get(principalHeader));
+  return {
+    "chief.workspace.id": workspace.success ? workspace.data : undefined,
+    "gen_ai.conversation.id":
+      request.headers.get(conversationHeader) ?? undefined,
+    "gen_ai.agent.name":
+      principal?.success && principal.data.kind === "agent"
+        ? principal.data.agentId
+        : undefined,
+  };
+}
+
+function safelyParsePrincipal(value: string | null) {
+  if (!value) return undefined;
+  try {
+    return principalSchema.safeParse(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
+}
+
 export function requiredTrustedConversationId(
   context: ReturnType<typeof readTrustedContext>,
 ) {

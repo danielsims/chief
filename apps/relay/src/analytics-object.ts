@@ -1,8 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 import { z } from "zod";
 
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
+import { attempt, runResponse, sync } from "./effect";
 import { json, relayError } from "./http";
 import { readTrustedIdentity } from "./internal-context";
 
@@ -30,19 +32,20 @@ export class AnalyticsObject extends DurableObject<Env> {
     });
   }
 
-  async fetch(request: Request) {
-    try {
+  fetch(request: Request) {
+    const record = this.record.bind(this);
+    const aggregate = this.aggregate.bind(this);
+    const program = Effect.gen(function* () {
       const operation = request.headers.get("x-chief-internal-operation");
-      if (operation === "record") return await this.record(request);
-      if (operation === "aggregate") return this.aggregate(request);
+      if (operation === "record") {
+        return yield* attempt("analytics.record", () => record(request));
+      }
+      if (operation === "aggregate") {
+        return yield* sync("analytics.aggregate", () => aggregate(request));
+      }
       return relayError(404, "not_found", "Analytics operation not found.");
-    } catch {
-      return relayError(
-        400,
-        "invalid_request",
-        "The metrics request is invalid.",
-      );
-    }
+    });
+    return runResponse(program, this.env, { operation: "analytics.fetch" });
   }
 
   /** Increment per-day counters for a set of dimensions. */

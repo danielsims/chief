@@ -7,4 +7,8 @@ interface Env {
   EMAIL_FROM_NAME: string;
   /** Master key for workspace-scoped encrypted secrets. Required. */
   RELAY_SECRET_KEY: string;
+  /** Publicly reachable OTLP/HTTP base URL when full telemetry is enabled. */
+  RELAY_OTLP_ENDPOINT?: string;
+  /** Optional Authorization header sent to the OTLP endpoint. */
+  RELAY_OTLP_AUTHORIZATION?: string;
 }
