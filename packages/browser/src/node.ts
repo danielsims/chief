@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -133,6 +134,13 @@ export class AgentBrowserSession {
     timeout: number,
   ): Promise<BrowserBoundaryValue> {
     await mkdir(this.downloadPath, { recursive: true });
+    const runtimePath = join(this.downloadPath, "runtime");
+    const socketPath =
+      process.env.AGENT_BROWSER_SOCKET_DIR ?? join(tmpdir(), "chief-browser");
+    await Promise.all([
+      mkdir(runtimePath, { recursive: true }),
+      mkdir(socketPath, { recursive: true }),
+    ]);
     await writeFile(this.configPath, '{"headed":false}\n', {
       flag: "wx",
     }).catch((error: NodeJS.ErrnoException) => {
@@ -146,6 +154,9 @@ export class AgentBrowserSession {
           encoding: "utf8",
           env: {
             ...process.env,
+            HOME: this.downloadPath,
+            AGENT_BROWSER_SOCKET_DIR: socketPath,
+            XDG_RUNTIME_DIR: runtimePath,
             ...(this.options.encryptionKey
               ? {
                   AGENT_BROWSER_ENCRYPTION_KEY: this.options.encryptionKey,
@@ -175,7 +186,14 @@ export class AgentBrowserSession {
     viewport?: { width: number; height: number },
     timeout = 60_000,
   ): Promise<AgentBrowserStream> {
-    await this.command(["open", url], timeout);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await this.command(["open", url], timeout);
+      const currentUrl = await this.getUrl();
+      if (url === "about:blank" || currentUrl !== "about:blank") break;
+      if (attempt === 1) {
+        throw new Error("agent-browser remained on a blank page after open.");
+      }
+    }
     if (viewport) await this.setViewport(viewport.width, viewport.height);
     return this.stream();
   }

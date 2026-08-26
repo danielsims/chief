@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  AgentBrowser,
   AgentInferenceResult,
   AgentInferenceToolCall,
 } from "@chief/agent-computer";
@@ -13,7 +14,7 @@ import type {
   AgentPrincipal,
   JsonValue,
 } from "@chief/relay-contracts";
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import { publishAgentActivity } from "./agent-activity";
 
@@ -102,6 +103,48 @@ export function hostedActivityObserver(
         },
       }),
   };
+}
+
+export async function publishHostedBrowserActivity(
+  env: Env,
+  job: AgentJob,
+  principal: AgentPrincipal,
+  browser: AgentBrowser,
+  toolName: string,
+  result: JsonValue,
+) {
+  if (toolName !== "browser.open" && toolName !== "browser.close") return;
+  const conversationId = isJsonString(job.payload.conversationId)
+    ? job.payload.conversationId
+    : "mission-control";
+  const threadRootId = isJsonString(job.payload.threadRootId)
+    ? job.payload.threadRootId
+    : undefined;
+  const closed = toolName === "browser.close";
+  const stream = closed ? undefined : await browser.stream?.();
+  if (!closed && !stream) return;
+  const url =
+    isJsonObject(result) && isJsonString(result.url) ? result.url : undefined;
+  await publishAgentActivity(env, {
+    principal,
+    conversationId,
+    ...(threadRootId ? { threadRootId } : undefined),
+    seed: `${job.id}:browser`,
+    component: {
+      kind: "browser",
+      version: 1,
+      payload: {
+        browserRunId: job.id,
+        status: closed ? "closed" : "active",
+        ...(url ? { url } : undefined),
+        ...(stream
+          ? { streamUrl: stream.streamUrl, expiresAt: stream.expiresAt }
+          : undefined),
+        runId: job.id,
+        jobId: job.id,
+      },
+    },
+  });
 }
 
 export function hostedInferenceActivitySeed(

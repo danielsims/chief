@@ -9,6 +9,7 @@ import {
 
 import {
   agentRunEvent,
+  browserRuntimeEvent,
   isAgentActivityProjection,
   toChannelEvents,
   toChiefMessage,
@@ -33,6 +34,35 @@ const snapshot = workspaceSnapshotSchema.parse({
   ],
   projects: [],
   createdAt: "2026-08-22T00:00:00.000Z",
+});
+
+void test("hosted browser activity opens the existing browser UI stream", () => {
+  const activity = message([
+    {
+      id: "browser-1",
+      kind: "browser",
+      version: 1,
+      payload: {
+        browserRunId: "job-1",
+        status: "active",
+        url: "https://example.com/",
+        streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
+        expiresAt: "2026-08-22T01:00:00.000Z",
+        runId: "job-1",
+        jobId: "job-1",
+      },
+    },
+  ]);
+
+  assert.equal(isAgentActivityProjection(activity), true);
+  assert.deepEqual(browserRuntimeEvent(activity), {
+    type: "browserNavigate",
+    browserRunId: "job-1",
+    workspaceId: "workspace-a",
+    conversationId: "marketing",
+    url: "https://example.com/",
+    streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
+  });
 });
 
 function message(components: MessageComponent[], body = "") {

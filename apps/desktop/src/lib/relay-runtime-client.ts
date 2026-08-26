@@ -33,6 +33,7 @@ import {
 import {
   agentForDirect,
   agentRunEvent,
+  browserRuntimeEvent,
   directAgentId,
   isAgentActivityProjection,
   toChannelEvents,
@@ -359,9 +360,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
     saveWorkspaceCursor(this.snapshot.id, event.sequence);
     const message = event.payload.message;
     const runEvent = agentRunEvent(message);
+    const browserEvent = browserRuntimeEvent(message);
     const isActivity = isAgentActivityProjection(message);
     if (isActivity) recordDesktopActivityReceipt(this.snapshot.id, event);
     this.rememberMessage(message);
+    if (browserEvent) this.emit(browserEvent);
     if (
       !isActivity &&
       this.snapshot.conversations.some(
