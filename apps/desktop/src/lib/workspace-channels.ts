@@ -166,7 +166,11 @@ export function channelForText(value: string): WorkspaceChannelId {
 }
 
 export function workspaceChannel(channelId: string | null) {
-  return WORKSPACE_CHANNELS.find((channel) => channel.id === channelId) ?? null;
+  return (
+    WORKSPACE_CHANNELS.find(
+      (channel) => channel.id === channelId || channel.relayId === channelId,
+    ) ?? null
+  );
 }
 
 export function channelChatId(
