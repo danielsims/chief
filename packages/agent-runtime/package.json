@@ -14,6 +14,7 @@
     "./agents": "./src/agents.ts",
     "./agent-roster": "./src/agent-roster.ts",
     "./agent-tool-permissions": "./src/agent-tool-permissions.ts",
+    "./channel-message-mentions": "./src/channel-message-mentions.ts",
     "./prompts": "./src/prompts/index.ts",
     "./capabilities": "./src/capabilities/index.ts",
     "./integration-setup-recipes": "./src/integration-setup-recipes.ts",

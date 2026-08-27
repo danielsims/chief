@@ -10,7 +10,9 @@ const setInputSchema = z.object({
   tasks: z
     .object({
       text: z.string().min(1).max(500),
-      status: z.enum(["pending", "in_progress", "completed"]).optional(),
+      status: z
+        .enum(["pending", "in_progress", "waiting", "completed"])
+        .optional(),
     })
     .array()
     .max(100),
@@ -19,7 +21,7 @@ const addInputSchema = z.object({ text: z.string().min(1).max(500) });
 const updateInputSchema = z.object({
   id: z.number().int().positive(),
   text: z.string().min(1).max(500).optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  status: z.enum(["pending", "in_progress", "waiting", "completed"]).optional(),
   evidenceCallId: z.string().min(1).optional(),
 });
 const listInputSchema = z.object({});
@@ -42,7 +44,9 @@ export const durableTodoTools: readonly AgentInferenceTool[] = [
               text: { type: "string" },
               status: {
                 type: "string",
-                enum: ["pending", "in_progress", "completed"],
+                enum: ["pending", "in_progress", "waiting", "completed"],
+                description:
+                  "Use waiting only when progress now depends on a user or external event.",
               },
             },
           },
@@ -62,7 +66,7 @@ export const durableTodoTools: readonly AgentInferenceTool[] = [
   {
     name: "todo_update",
     description:
-      "Update one durable task. When completing tool-backed work, cite its completed tool call id as evidenceCallId.",
+      "Update one durable task. Use waiting when the next action belongs to a user or external event; waiting work does not keep this turn running. When completing tool-backed work, cite its completed tool call id as evidenceCallId.",
     parameters: {
       type: "object",
       required: ["id"],
@@ -71,7 +75,7 @@ export const durableTodoTools: readonly AgentInferenceTool[] = [
         text: { type: "string" },
         status: {
           type: "string",
-          enum: ["pending", "in_progress", "completed"],
+          enum: ["pending", "in_progress", "waiting", "completed"],
         },
         evidenceCallId: { type: "string" },
       },
@@ -160,16 +164,20 @@ export function executeTodo(
 }
 
 export function hasOpenTasks(plan: DurablePlan) {
-  return plan.tasks.some((task) => task.status !== "completed");
+  return plan.tasks.some(
+    (task) => task.status === "pending" || task.status === "in_progress",
+  );
 }
 
 export function completionReminder(plan: DurablePlan) {
-  const open = plan.tasks.filter((task) => task.status !== "completed");
+  const open = plan.tasks.filter(
+    (task) => task.status === "pending" || task.status === "in_progress",
+  );
   return `You attempted to finish with open durable tasks:\n${open
     .map((task) => `- #${task.id} [${task.status}] ${task.text}`)
     .join(
       "\n",
-    )}\nContinue the work and update the plan as evidence is produced.`;
+    )}\nContinue the work, or mark a task waiting if its next action genuinely belongs to the user or an external event.`;
 }
 
 function result(plan: DurablePlan) {

@@ -7,6 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { ZodError } from "zod";
 
 import type { JsonValue } from "@chief/relay-contracts";
 import {
@@ -26,7 +27,7 @@ import {
   requireCapability,
 } from "./auth";
 import { routeBrowserRequest } from "./browser-handler";
-import { PathBoundaryError, resolveLeasePath } from "./paths";
+import { executionRoot, PathBoundaryError, resolveLeasePath } from "./paths";
 import { runProcess } from "./process";
 
 export function createExecutorHandler(
@@ -61,6 +62,7 @@ export function createExecutorHandler(
         return json(
           await runProcess(input, {
             cwd,
+            workspaceRoot: executionRoot(config.EXECUTOR_ROOT, lease),
             maxOutputBytes: config.EXECUTOR_MAX_OUTPUT_BYTES,
           }),
         );
@@ -147,6 +149,14 @@ export function createExecutorHandler(
       if (caught instanceof PathBoundaryError) {
         return error(400, "invalid_path", caught.message, requestId);
       }
+      if (caught instanceof ZodError) {
+        return error(
+          400,
+          "invalid_request",
+          "Executor request is invalid.",
+          requestId,
+        );
+      }
       console.error(
         JSON.stringify({
           event: "computer.request.failed",
@@ -157,9 +167,9 @@ export function createExecutorHandler(
         }),
       );
       return error(
-        400,
-        "invalid_request",
-        "Executor request is invalid.",
+        500,
+        "operation_failed",
+        "Executor operation failed. Retry the request.",
         requestId,
       );
     }

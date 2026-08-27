@@ -11,38 +11,65 @@ import type { ExecutorConfig } from "./config";
 import { executionRoot } from "./paths";
 
 export class BrowserRegistry {
-  private readonly sessions = new Map<string, AgentBrowserSession>();
+  private readonly sessions = new Map<
+    string,
+    { generation: number; session: AgentBrowserSession }
+  >();
 
   constructor(private readonly config: ExecutorConfig) {}
 
   session(lease: Pick<ExecutionLease, "agentId" | "workspaceId">) {
     const key = `${lease.workspaceId}:${lease.agentId}`;
     const existing = this.sessions.get(key);
-    if (existing) return existing;
+    if (existing) return existing.session;
+    return this.replaceSession(lease, 0);
+  }
+
+  private replaceSession(
+    lease: Pick<ExecutionLease, "agentId" | "workspaceId">,
+    generation?: number,
+  ) {
+    const key = `${lease.workspaceId}:${lease.agentId}`;
+    const nextGeneration =
+      generation ?? (this.sessions.get(key)?.generation ?? 0) + 1;
     const directory = path.join(
       executionRoot(this.config.EXECUTOR_ROOT, lease),
       "browser",
     );
+    const restoreKey = `${lease.workspaceId}-${lease.agentId}`;
     const session = new AgentBrowserSession({
-      sessionId: `${lease.workspaceId}-${lease.agentId}`,
+      sessionId: `${restoreKey}-${nextGeneration}`,
       downloadPath: directory,
       encryptionKey: this.config.COMPUTER_BROWSER_ENCRYPTION_KEY,
       executablePath: this.config.CHROMIUM_EXECUTABLE_PATH,
-      restore: true,
+      restore: restoreKey,
       colorScheme: "dark",
     });
-    this.sessions.set(key, session);
+    this.sessions.set(key, { generation: nextGeneration, session });
     return session;
   }
 
   async open(lease: ExecutionLease, url: string, fresh: boolean) {
     assertBrowserUrlAllowed(url, lease);
-    const session = this.session(lease);
+    let session = this.session(lease);
     if (fresh) {
       await session.close().catch(() => undefined);
       await session.clearSavedState().catch(() => undefined);
     }
-    await session.open(url, { width: 1280, height: 800 });
+    try {
+      await session.open(url, { width: 1280, height: 800 });
+    } catch (firstFailure) {
+      void session.close().catch(() => undefined);
+      session = this.replaceSession(lease);
+      try {
+        await session.open(url, { width: 1280, height: 800 });
+      } catch (retryFailure) {
+        throw new AggregateError(
+          [firstFailure, retryFailure],
+          "The browser could not open the page after restarting its session.",
+        );
+      }
+    }
     return await this.snapshot(lease);
   }
 
@@ -158,7 +185,7 @@ function assertBrowserUrlAllowed(raw: string, lease: ExecutionLease) {
     throw new Error("The browser only opens HTTP and HTTPS addresses.");
   }
   const hostname = url.hostname.toLowerCase().replace(/\.$/u, "");
-  if (privateHostname(hostname)) {
+  if (!loopbackHostname(hostname) && privateHostname(hostname)) {
     throw new Error("The browser cannot open private network addresses.");
   }
   if (!lease.capabilities.includes("network:egress")) {
@@ -177,13 +204,19 @@ function assertBrowserUrlAllowed(raw: string, lease: ExecutionLease) {
 
 function privateHostname(hostname: string) {
   return (
-    hostname === "localhost" ||
     hostname.endsWith(".local") ||
-    hostname === "::1" ||
-    /^(?:0|10|127|169\.254|192\.168)\./u.test(hostname) ||
+    /^(?:0|10|169\.254|192\.168)\./u.test(hostname) ||
     /^172\.(?:1[6-9]|2\d|3[01])\./u.test(hostname) ||
     hostname.startsWith("fc") ||
     hostname.startsWith("fd") ||
     hostname.startsWith("fe80:")
+  );
+}
+
+function loopbackHostname(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname.startsWith("127.")
   );
 }

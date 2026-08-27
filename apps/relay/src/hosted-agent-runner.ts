@@ -18,6 +18,10 @@ import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
+export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
+export const HOSTED_TOOL_SELECTION_GUIDANCE =
+  "The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use it for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
+
 export interface HostingContext {
   managed: boolean;
   runtime: "phone" | "desktop" | "cloud" | null;
@@ -76,22 +80,48 @@ export async function prepareHostedAgentTurn(
     job,
     principal,
     conversationId,
+    threadRootId,
   ).catch(() => [] satisfies ConversationMessage[]);
   const messageId = stringPayload(job, "messageId");
   const instruction =
     stringPayload(job, "instruction") ??
     "Respond helpfully to the latest message.";
+  const completion = hostedCompletionContract(instruction, browserEnabled);
   return {
     jobId: job.id,
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
-    systemPrompt: `${systemPrompt(job, context, browserEnabled)}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while durable tasks remain open.`,
+    systemPrompt: `${systemPrompt(job, context, browserEnabled)}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
-    history: history
-      .filter((message) => message.id !== messageId)
-      .slice(-30)
-      .map((message) => historyMessage(message, job.agentId)),
+    completion,
+    history: boundedHostedHistory(history, messageId).map((message) =>
+      historyMessage(message, job.agentId),
+    ),
+  };
+}
+
+export function boundedHostedHistory(
+  messages: ConversationMessage[],
+  triggeringMessageId?: string,
+) {
+  return messages
+    .filter((message) => message.id !== triggeringMessageId)
+    .slice(-HOSTED_HISTORY_MESSAGE_LIMIT);
+}
+
+function hostedCompletionContract(
+  instruction: string,
+  browserEnabled: boolean,
+) {
+  const normalized = instruction.toLowerCase();
+  const asksForVisibleBrowser =
+    browserEnabled &&
+    normalized.includes("browser") &&
+    /\b(open|show|display|navigate|visit|load|bring up)\b/u.test(normalized);
+  return {
+    requiredToolNames: asksForVisibleBrowser ? ["browser_open"] : [],
+    browserMustRemainOpen: asksForVisibleBrowser,
   };
 }
 
@@ -159,11 +189,11 @@ function workspaceContextBlock(
     `Workspace: ${workspace?.name ?? job.workspaceId}.`,
     `Website: ${nonEmptyOr(website, "not supplied")}.`,
     `Selected apps: ${nonEmptyOr(selectedApps, "none")}.`,
-    `The durable computer provides files, shell commands, Git, and artifacts. Use it when the request needs work, not for ordinary chat.`,
+    HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
       ? "The browser tools provide a real remote browser for public web pages."
       : "Do not imply that you inspected a live web page.",
-    "Use plugins_list to inspect the real catalog and plugins_recommend to place plugin cards in chat. A recommendation is not an installed or authorized connection.",
+    "A plugin recommendation is not an installed or authorized connection. Do not claim setup is complete until the connection state confirms it.",
   ];
   return lines.join("\n");
 }

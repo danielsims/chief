@@ -14,11 +14,14 @@ import type {
   AgentPrincipal,
   JsonValue,
 } from "@chief/relay-contracts";
+import { agentToolName } from "@chief/agent-runtime/local-tools";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import { publishAgentActivity } from "./agent-activity";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
+const browserOpenToolName = agentToolName("browser.open");
+const browserCloseToolName = agentToolName("browser.close");
 
 export function hostedActivityObserver(
   env: Env,
@@ -45,28 +48,19 @@ export function hostedActivityObserver(
     });
 
   return {
-    inferenceStarted: (turn) =>
-      publish(hostedInferenceActivitySeed(turn), {
+    inferenceCompleted: (turn, result: AgentInferenceResult) => {
+      const text = result.content?.trim();
+      if (!text) return;
+      return publish(hostedInferenceActivitySeed(turn), {
         kind: "thinking",
         version: 1,
         payload: {
-          text: `${job.agentId} is working through the next step.`,
-          status: "working",
-          ...correlation,
-        },
-      }),
-    inferenceCompleted: (turn, result: AgentInferenceResult) =>
-      publish(hostedInferenceActivitySeed(turn), {
-        kind: "thinking",
-        version: 1,
-        payload: {
-          text: result.content?.trim()
-            ? result.content.slice(0, 100_000)
-            : `Prepared ${result.toolCalls.length} tool call${result.toolCalls.length === 1 ? "" : "s"}.`,
+          text: text.slice(0, 100_000),
           status: "completed",
           ...correlation,
         },
-      }),
+      });
+    },
     toolStarted: (_turn, call) =>
       publish(`tool:${call.id}`, {
         kind: "tool",
@@ -113,14 +107,15 @@ export async function publishHostedBrowserActivity(
   toolName: string,
   result: JsonValue,
 ) {
-  if (toolName !== "browser.open" && toolName !== "browser.close") return;
+  if (toolName !== browserOpenToolName && toolName !== browserCloseToolName)
+    return;
   const conversationId = isJsonString(job.payload.conversationId)
     ? job.payload.conversationId
     : "mission-control";
   const threadRootId = isJsonString(job.payload.threadRootId)
     ? job.payload.threadRootId
     : undefined;
-  const closed = toolName === "browser.close";
+  const closed = toolName === browserCloseToolName;
   const stream = closed ? undefined : await browser.stream?.();
   if (!closed && !stream) return;
   const url =

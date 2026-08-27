@@ -14,19 +14,23 @@ import type {
   DurableTurn,
   DurableTurnObserver,
 } from "./types.js";
+import { finishTurn, repeatedCompletedTool } from "./completion.js";
 import {
+  boundedEvidenceValue,
   compactTurn,
   inferenceMessages,
   shouldCompact,
   validateCompactionRatio,
 } from "./context.js";
+import { durableTodoTools, executeTodo, isTodoTool } from "./plan.js";
 import {
-  completionReminder,
-  durableTodoTools,
-  executeTodo,
-  hasOpenTasks,
-  isTodoTool,
-} from "./plan.js";
+  effectFor,
+  isBareSpeakerLabel,
+  notify,
+  persistTurn,
+  retainedToolReceipts,
+  shouldPauseAfterToolFailure,
+} from "./runner-support.js";
 import { durableToolCallSchema, durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
@@ -61,6 +65,11 @@ export class DurableTurnRunner {
       instruction: input.instruction,
       systemPrompt: input.systemPrompt,
       browserEnabled: input.browserEnabled,
+      completion: {
+        requiredToolNames: [...(input.completion?.requiredToolNames ?? [])],
+        browserMustRemainOpen: input.completion?.browserMustRemainOpen ?? false,
+        rejectedFinishes: 0,
+      },
       phase: { kind: "runnable", next: { kind: "infer" } },
       settled: false,
       revision: 0,
@@ -101,6 +110,13 @@ export class DurableTurnRunner {
   async markSettled() {
     const turn = await this.requireActive();
     await this.save(this.updated(turn, { settled: true, claim: null }));
+  }
+
+  async cancelActive() {
+    const turn = await this.active();
+    if (!turn) return undefined;
+    await this.save(this.updated(turn, { settled: true, claim: null }));
+    return turn;
   }
 
   async nextWakeAt(now = Date.now()) {
@@ -198,6 +214,7 @@ export class DurableTurnRunner {
     await notify(() => observer?.inferenceStarted?.(turn, request));
     const response = await inference.complete(request);
     await notify(() => observer?.inferenceCompleted?.(turn, response));
+    if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
     const next = this.commitInference(turn, response, tools);
     await this.save(next);
     return next.phase.kind === "runnable"
@@ -223,19 +240,34 @@ export class DurableTurnRunner {
     ];
     if (toolCalls.length === 0) {
       const result = response.content?.trim();
-      if (!result) throw new Error("The agent returned an empty response.");
-      if (hasOpenTasks(turn.plan)) {
+      if (!result || isBareSpeakerLabel(result)) {
+        throw new Error("The agent returned an empty response.");
+      }
+      const finish = finishTurn(turn, result);
+      if (finish.kind === "retry") {
         return this.updated(turn, {
-          messages: [
-            ...messages,
-            { role: "system", content: completionReminder(turn.plan) },
-          ],
+          messages: [...messages, { role: "system", content: finish.message }],
+          ...(finish.rejectedFinishes === undefined
+            ? undefined
+            : {
+                completion: {
+                  ...turn.completion,
+                  rejectedFinishes: finish.rejectedFinishes,
+                },
+              }),
+          claim: null,
+        });
+      }
+      if (finish.kind === "failed") {
+        return this.updated(turn, {
+          messages,
+          phase: { kind: "failed", error: finish.error },
           claim: null,
         });
       }
       return this.updated(turn, {
         messages,
-        phase: { kind: "completed", result },
+        phase: { kind: "completed", result: finish.result },
         claim: null,
       });
     }
@@ -300,7 +332,8 @@ export class DurableTurnRunner {
       await notify(() =>
         observer?.toolFailed?.(started, receipt.call, failure),
       );
-      if (receipt.effect === "non_replayable") {
+      if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
+      if (shouldPauseAfterToolFailure(receipt.effect, failure)) {
         const paused = this.updated(started, {
           phase: {
             kind: "needs_attention",
@@ -317,9 +350,12 @@ export class DurableTurnRunner {
         error: failure.message,
       } satisfies JsonValue;
     }
+    if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
     const committed = this.commitTool(started, receipt.call, result);
     await this.save(committed);
-    return { kind: "advanced", turn: committed };
+    return committed.phase.kind === "runnable"
+      ? { kind: "advanced", turn: committed }
+      : { kind: "terminal", turn: committed };
   }
 
   private commitTool(
@@ -327,23 +363,46 @@ export class DurableTurnRunner {
     call: AgentInferenceToolCall,
     result: JsonValue,
   ) {
+    const durableResult = boundedEvidenceValue(result);
     const tools = turn.tools.map((candidate) =>
       candidate.call.id === call.id
-        ? { ...candidate, state: "completed" as const, result }
+        ? { ...candidate, state: "completed" as const, result: durableResult }
         : candidate,
     );
     const next = tools.find((candidate) => candidate.state === "prepared");
+    const repeated = repeatedCompletedTool(tools);
+    const messages = [
+      ...turn.messages,
+      {
+        role: "tool" as const,
+        toolCallId: call.id,
+        name: call.name,
+        content: JSON.stringify(durableResult),
+      },
+    ];
+    if (repeated >= 3) {
+      return this.updated(turn, {
+        tools,
+        messages,
+        phase: {
+          kind: "failed",
+          error: `Agent stopped after repeating ${call.name} with the same arguments and result three times without progress.`,
+        },
+        claim: null,
+      });
+    }
     return this.updated(turn, {
       tools,
-      messages: [
-        ...turn.messages,
-        {
-          role: "tool",
-          toolCallId: call.id,
-          name: call.name,
-          content: JSON.stringify(result).slice(0, 20_000),
-        },
-      ],
+      messages:
+        repeated === 2
+          ? [
+              ...messages,
+              {
+                role: "system",
+                content: `${call.name} returned the same result twice for identical arguments. Choose a different action, report a genuine blocker, or complete the task; do not repeat this call unchanged.`,
+              },
+            ]
+          : messages,
       phase: {
         kind: "runnable",
         next: next ? { kind: "tool", callId: next.call.id } : { kind: "infer" },
@@ -361,6 +420,7 @@ export class DurableTurnRunner {
     const compacted = this.updated(turn, {
       checkpoint,
       messages: turn.messages.slice(-10),
+      tools: retainedToolReceipts(turn),
       phase: { kind: "runnable", next: { kind: "infer" } },
       claim: null,
     });
@@ -397,17 +457,17 @@ export class DurableTurnRunner {
     return turn;
   }
 
+  private async isCurrent(jobId: string) {
+    return (await this.active())?.jobId === jobId;
+  }
+
   private async load() {
     const value = await this.persistence.readState(this.cellId, STATE_KEY);
     return value === undefined ? undefined : durableTurnSchema.parse(value);
   }
 
   private async save(turn: DurableTurn) {
-    await this.persistence.writeState(
-      this.cellId,
-      STATE_KEY,
-      durableTurnSchema.parse(turn),
-    );
+    await persistTurn(this.persistence, this.cellId, turn);
   }
 
   private updated(turn: DurableTurn, patch: Partial<DurableTurn>): DurableTurn {
@@ -418,24 +478,4 @@ export class DurableTurnRunner {
       updatedAt: new Date().toISOString(),
     });
   }
-}
-
-async function notify(notification: () => Promise<void> | void | undefined) {
-  try {
-    await notification();
-  } catch {
-    // Observability is a projection of durable work, never a prerequisite.
-  }
-}
-
-function effectFor(
-  call: AgentInferenceToolCall,
-  tools: readonly DurableTool[],
-) {
-  if (isTodoTool(call.name)) return "idempotent" as const;
-  const tool = tools.find(
-    (candidate) => candidate.definition.name === call.name,
-  );
-  if (!tool) throw new Error(`Unknown durable tool: ${call.name}`);
-  return tool.effect;
 }

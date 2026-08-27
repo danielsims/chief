@@ -9,6 +9,7 @@ import {
   agentCellSnapshotSchema,
   agentIdSchema,
   agentJobSchema,
+  enqueueAgentJobCommandSchema,
 } from "@chief/relay-contracts";
 
 import {
@@ -115,6 +116,7 @@ export class AgentObject extends DurableObject<Env> {
   ) {
     const ctx = this.ctx;
     const queue = this.queue;
+    const runtime = this.runtime;
     const cellSnapshot = this.cellSnapshot.bind(this);
     return Effect.gen(function* () {
       const path = new URL(request.url).pathname;
@@ -123,6 +125,25 @@ export class AgentObject extends DurableObject<Env> {
         (path.endsWith("/enqueue") || path.endsWith("/ensure"))
       ) {
         const repairTerminal = path.endsWith("/ensure");
+        if (!repairTerminal && context.principal.kind === "user") {
+          const body = yield* attempt("agent.job.enqueue.read", () =>
+            request.clone().json(),
+          );
+          const command = yield* sync("agent.job.enqueue.parse", () =>
+            enqueueAgentJobCommandSchema.parse(body),
+          );
+          if (command.payload.kind === "conversation.message") {
+            const conversationId = command.payload.payload.conversationId;
+            if (typeof conversationId === "string") {
+              yield* attempt("agent.turn.supersede", () =>
+                runtime.supersedeConversation(
+                  conversationId,
+                  command.payload.id,
+                ),
+              );
+            }
+          }
+        }
         const response = yield* attempt(
           repairTerminal ? "agent.job.ensure" : "agent.job.enqueue",
           () => queue.enqueue(request, context.workspaceId, repairTerminal),

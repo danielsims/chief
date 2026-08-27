@@ -18,7 +18,7 @@ export const hostedBrowserTools = [
       await browserRequired(browser).open(requiredString(input, "url"), {
         fresh: input.fresh === true,
       }),
-    { requiresBrowser: true, effect: "non_replayable" },
+    { requiresBrowser: true, effect: "idempotent" },
   ),
   defineHostedAgentTool(
     "browser.snapshot",
