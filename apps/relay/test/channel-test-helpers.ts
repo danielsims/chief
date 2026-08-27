@@ -44,6 +44,7 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     EMAIL_FROM_ADDRESS: "test@example.test",
     EMAIL_FROM_NAME: "Chief Test",
     RELAY_SECRET_KEY: "test-relay-secret-master-key-0123456789abcdef",
+    RELAY_ID: "relay_test",
   };
   const identity = {
     kind: "user" as const,

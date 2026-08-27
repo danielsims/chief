@@ -88,6 +88,7 @@ export function useRuntimeChat(
   });
   const initializedChatKeyRef = useRef<string | null>(null);
   const loadedHistoryKeyRef = useRef<string | null>(null);
+  const liveMessageIdsRef = useRef(new Set<string>());
   const [messagesChatKey, setMessagesChatKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -105,6 +106,7 @@ export function useRuntimeChat(
       initializedChatKeyRef.current = chatKey;
       setMessagesChatKey(chatKey);
       loadedHistoryKeyRef.current = null;
+      liveMessageIdsRef.current.clear();
       setControls(emptyChatControls);
       pendingStreamRef.current = "";
       // Restore the last-known transcript so returning to a channel is instant
@@ -174,12 +176,24 @@ export function useRuntimeChat(
       ) {
         pendingStreamRef.current = replayStreamingText(msg.events);
         const incoming = deduplicateDocumentParts(msg.messages);
-        cacheTranscript(cloudOrganizationId, chatId, incoming);
         if (loadedHistoryKeyRef.current === chatKey) {
-          setMessages((current) => mergeRuntimeHistory(current, incoming));
+          setMessages((current) => {
+            const merged = mergeRuntimeHistory(current, incoming);
+            cacheTranscript(cloudOrganizationId, chatId, merged);
+            return merged;
+          });
         } else {
           loadedHistoryKeyRef.current = chatKey;
-          setMessages(incoming);
+          setMessages((current) => {
+            const live = current.filter(
+              (message) =>
+                liveMessageIdsRef.current.has(message.id) ||
+                message.id.startsWith("stream:"),
+            );
+            const merged = mergeRuntimeHistory(incoming, live);
+            cacheTranscript(cloudOrganizationId, chatId, merged);
+            return merged;
+          });
         }
         setControls(replayChatControls(msg.events, msg.running));
         setChatReady(true);
@@ -190,6 +204,7 @@ export function useRuntimeChat(
         msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
+        liveMessageIdsRef.current.add(msg.message.id);
         if (import.meta.env.DEV) {
           const text = msg.message.parts
             .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -238,14 +253,20 @@ export function useRuntimeChat(
             ],
             msg.message,
           );
-          setMessages((current) =>
-            completed.reduce(
+          setMessages((current) => {
+            const merged = completed.reduce(
               (next, message) => mergeRuntimeMessage(next, message),
               current,
-            ),
-          );
+            );
+            cacheTranscript(cloudOrganizationId, chatId, merged);
+            return merged;
+          });
         } else {
-          setMessages((current) => mergeRuntimeMessage(current, msg.message));
+          setMessages((current) => {
+            const merged = mergeRuntimeMessage(current, msg.message);
+            cacheTranscript(cloudOrganizationId, chatId, merged);
+            return merged;
+          });
         }
         return;
       }
@@ -256,15 +277,21 @@ export function useRuntimeChat(
       if (msg.event.type === "result" && pendingStreamRef.current.trim()) {
         const completedText = pendingStreamRef.current;
         pendingStreamRef.current = "";
-        setMessages((current) => [
-          ...current,
-          {
-            id: `stream:${chatId}`,
-            role: "assistant",
-            metadata: { createdAt: Date.now() },
-            parts: [{ type: "text", text: completedText, state: "streaming" }],
-          },
-        ]);
+        setMessages((current) => {
+          const merged = [
+            ...current,
+            {
+              id: `stream:${chatId}`,
+              role: "assistant",
+              metadata: { createdAt: Date.now() },
+              parts: [
+                { type: "text", text: completedText, state: "streaming" },
+              ],
+            } satisfies ChiefUIMessage,
+          ];
+          cacheTranscript(cloudOrganizationId, chatId, merged);
+          return merged;
+        });
       }
       setControls((current) => reduceChatControls(current, msg.event));
     });

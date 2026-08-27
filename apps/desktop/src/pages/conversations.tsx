@@ -52,7 +52,7 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
-import { isWorkspaceAgentId, requestedDriver } from "./conversation-routing";
+import * as routing from "./conversation-routing";
 
 const DEFAULT_WORKSPACE_CHANNEL =
   WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
@@ -189,7 +189,7 @@ export function ConversationsPage() {
   const activeProfileAgentId =
     profileParam === "agent" && requestedDirectMessage
       ? requestedDirectMessage.id
-      : isWorkspaceAgentId(profileParam)
+      : routing.isWorkspaceAgentId(profileParam)
         ? profileParam
         : null;
   const activeProfileAgent = activeProfileAgentId
@@ -239,19 +239,16 @@ export function ConversationsPage() {
           description: channel.description,
         }))
     : [];
-  const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+  const isNew = routing.isNewConversation(
+    activeChatId,
+    Boolean(activeConversationChannel),
+    localChats.loading,
+    Boolean(activeEntry),
+  );
   const activeView =
     !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
-  const channelReferences = useMemo(
-    () =>
-      workspaceChannels.channels
-        .filter((channel) => channel.visibility !== "direct")
-        .map((channel) => ({
-          id: channel.id,
-          name: channel.name,
-          slug: channel.slug,
-        })),
-    [workspaceChannels.channels],
+  const channelReferences = routing.channelReferences(
+    workspaceChannels.channels,
   );
   const openReferencedChannel = useCallback(
     (channelId: string) => {
@@ -412,7 +409,9 @@ export function ConversationsPage() {
                 activeChild={activeChild}
                 initialDriver={
                   activeEntry?.driver ??
-                  (isNew ? requestedDriver(params.get("driver")) : undefined)
+                  (isNew
+                    ? routing.requestedDriver(params.get("driver"))
+                    : undefined)
                 }
                 initialModel={
                   activeEntry?.model ??

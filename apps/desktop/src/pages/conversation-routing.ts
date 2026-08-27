@@ -1,4 +1,4 @@
-import type { DriverType } from "@chief/agent-runtime/types";
+import type { DriverType, WorkspaceChannel } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
@@ -20,4 +20,23 @@ export function isWorkspaceAgentId(
   value: string | null,
 ): value is WorkspaceAgentId {
   return value !== null && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
+}
+
+export function isNewConversation(
+  activeChatId: string | null,
+  isChannel: boolean,
+  chatsLoading: boolean,
+  hasChatEntry: boolean,
+) {
+  return Boolean(activeChatId && !isChannel && !chatsLoading && !hasChatEntry);
+}
+
+export function channelReferences(channels: readonly WorkspaceChannel[]) {
+  return channels
+    .filter((channel) => channel.visibility !== "direct")
+    .map((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      slug: channel.slug,
+    }));
 }

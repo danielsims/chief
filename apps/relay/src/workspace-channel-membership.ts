@@ -130,13 +130,16 @@ export class WorkspaceChannelMembership {
   async channelsMembersAdd(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
+    allowVisibleMemberInvite = false,
   ) {
     const command = channelMemberAddCommandSchema.parse(
       await parseJson(request),
     );
     const conversationId = command.payload.conversationId;
     this.store.requireChannel(conversationId);
-    this.store.requireChannelManager(conversationId, context.principal);
+    if (!allowVisibleMemberInvite) {
+      this.store.requireChannelManager(conversationId, context.principal);
+    }
     const receipt = firstRow<ChannelMembershipBatchRow>(
       this.store.storage.sql.exec(
         "SELECT * FROM channel_membership_batches WHERE command_id = ?",

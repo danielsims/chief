@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type {
   ActionItem,
+  BrowserRunRecord,
   ChiefUIMessage,
   SessionRecord,
 } from "@chief/agent-runtime/types";
@@ -12,6 +13,47 @@ import {
   withActionTimelineEntries,
   withSpecialistTimelineEntries,
 } from "../src/components/chat/conversation-timeline-entries.js";
+
+void test("a browser remains at its durable activity position when a reply arrives", () => {
+  const activity = {
+    id: "browser-activity",
+    role: "assistant",
+    parts: [
+      {
+        type: "dynamic-tool",
+        toolCallId: "browser-open",
+        toolName: "browser open",
+        input: {},
+        state: "output-available",
+        output: { url: "https://example.com" },
+      },
+    ],
+    metadata: { createdAt: 200 },
+  } satisfies ChiefUIMessage;
+  const reply = {
+    id: "reply",
+    role: "assistant",
+    parts: [{ type: "text", text: "The browser is ready." }],
+    metadata: { createdAt: 300 },
+  } satisfies ChiefUIMessage;
+  const run = {
+    id: "run",
+    workspaceId: "workspace",
+    conversationId: "chief",
+    url: "https://example.com",
+    status: "active",
+    createdAt: 200,
+    updatedAt: 200,
+  } satisfies BrowserRunRecord;
+  const anchors = new Map([[run.id, activity.id]]);
+
+  assert.deepEqual(
+    conversationTimelineEntries([activity, reply], [run], anchors, null).map(
+      (entry) => (entry.type === "message" ? entry.message.id : entry.type),
+    ),
+    ["browser", "reply"],
+  );
+});
 
 void test("channel threads contain authored replies before specialist projection", () => {
   const messages = [

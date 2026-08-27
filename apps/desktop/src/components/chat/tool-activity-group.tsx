@@ -3,7 +3,6 @@ import { ChevronDown } from "lucide-react";
 import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
-import { Shimmer } from "../ui/shimmer";
 import { toolPresentation, toolSummary } from "./message-blocks";
 
 export function ToolActivityGroup({
@@ -65,16 +64,9 @@ export function ToolActivityGroup({
             if (!thought) return null;
             return (
               <div key={`thought:${index}`} className="min-w-0">
-                <div className="min-w-0">
-                  {active ? (
-                    <Shimmer className="text-xs font-medium">Thinking</Shimmer>
-                  ) : (
-                    <span className="text-xs font-medium">Thinking</span>
-                  )}
-                  <p className="text-muted-foreground mt-1 max-h-28 overflow-y-auto text-[12px] leading-4 font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
-                    {thought}
-                  </p>
-                </div>
+                <p className="text-muted-foreground max-h-40 overflow-y-auto text-[12px] leading-4 font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
+                  {thought}
+                </p>
               </div>
             );
           }

@@ -86,6 +86,16 @@ export class WorkspaceChannelStore {
     return member?.role ?? null;
   }
 
+  workspaceAgentIds() {
+    return this.storage.sql
+      .exec<MemberRow>(
+        `SELECT principal_kind, principal_id, role FROM members
+         WHERE principal_kind = 'agent' ORDER BY principal_id ASC`,
+      )
+      .toArray()
+      .map((row) => row.principal_id);
+  }
+
   requireWorkspace(expectedWorkspaceId: string) {
     const workspace = firstRow<WorkspaceRow>(
       this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),

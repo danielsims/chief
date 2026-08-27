@@ -78,6 +78,10 @@ export interface ConversationStore {
     messages: ConversationMessage[];
     nextSequence: number | null;
   };
+  recent(limit: number): {
+    messages: ConversationMessage[];
+    nextSequence: number | null;
+  };
   replies(
     rootId: string,
     after: number,
@@ -86,6 +90,10 @@ export interface ConversationStore {
     messages: ConversationMessage[];
     nextSequence: number | null;
   };
+  history(
+    threadRootId: string | undefined,
+    limit: number,
+  ): ConversationMessage[];
   react(input: ReactInput): {
     changed: boolean;
     result: z.infer<typeof reactToMessageResultSchema>;
@@ -250,6 +258,19 @@ export class SqlConversationStore implements ConversationStore {
     });
   }
 
+  recent(limit: number) {
+    const rows = [
+      ...this.storage.sql.exec<MessageRow>(
+        "SELECT * FROM messages ORDER BY sequence DESC LIMIT ?",
+        limit,
+      ),
+    ];
+    return messagePageSchema.parse({
+      messages: rows.reverse().map(toMessage),
+      nextSequence: null,
+    });
+  }
+
   replies(rootId: string, after: number, limit: number) {
     const rows = [
       ...this.storage.sql.exec<MessageRow>(
@@ -268,6 +289,26 @@ export class SqlConversationStore implements ConversationStore {
       messages,
       nextSequence: hasMore ? messages.at(-1)?.sequence : null,
     });
+  }
+
+  history(threadRootId: string | undefined, limit: number) {
+    const rows = [
+      ...this.storage.sql.exec<MessageRow>(
+        threadRootId
+          ? `SELECT * FROM messages
+             WHERE deleted = 0
+               AND trim(body) <> ''
+               AND (message_id = ? OR thread_root_id = ?)
+             ORDER BY sequence DESC LIMIT ?`
+          : `SELECT * FROM messages
+             WHERE deleted = 0
+               AND trim(body) <> ''
+               AND thread_root_id IS NULL
+             ORDER BY sequence DESC LIMIT ?`,
+        ...(threadRootId ? [threadRootId, threadRootId, limit] : [limit]),
+      ),
+    ];
+    return rows.reverse().map(toMessage);
   }
 
   react(input: ReactInput) {
