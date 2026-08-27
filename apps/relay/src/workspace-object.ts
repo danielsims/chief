@@ -61,10 +61,13 @@ export class WorkspaceObject extends DurableObject<Env> {
           connectWebSocket(request),
         );
       }
-      if (request.method !== "POST") {
+      const operation = request.headers.get("x-chief-internal-operation");
+      const readsSecret =
+        request.method === "GET" &&
+        (operation === "secret-get" || operation === "secret-list");
+      if (request.method !== "POST" && !readsSecret) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
       }
-      const operation = request.headers.get("x-chief-internal-operation");
       const response = yield* routeOperation(request, operation);
       return (
         response ??
@@ -197,6 +200,34 @@ export class WorkspaceObject extends DurableObject<Env> {
           lifecycle.completeOnboarding(request),
         );
       }
+
+      if (
+        operation === "secret-set" ||
+        operation === "secret-get" ||
+        operation === "secret-list" ||
+        operation === "secret-delete"
+      ) {
+        const secrets = new WorkspaceSecretService(ctx.storage, env);
+        if (operation === "secret-set") {
+          return yield* attempt("workspace.secret.set", () =>
+            secrets.set(request),
+          );
+        }
+        if (operation === "secret-get") {
+          return yield* attempt("workspace.secret.get", () =>
+            secrets.get(request),
+          );
+        }
+        if (operation === "secret-list") {
+          return yield* attempt("workspace.secret.list", () =>
+            secrets.list(request),
+          );
+        }
+        return yield* attempt("workspace.secret.delete", () =>
+          secrets.delete(request),
+        );
+      }
+
       const context = readTrustedIdentity(request);
       if (operation === "authorize") {
         return yield* attempt("workspace.authorize", () =>
@@ -226,33 +257,6 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "delete-owned") {
         return yield* attempt("workspace.delete", () =>
           lifecycle.deleteOwned(context),
-        );
-      }
-
-      if (
-        operation === "secret-set" ||
-        operation === "secret-get" ||
-        operation === "secret-list" ||
-        operation === "secret-delete"
-      ) {
-        const secrets = new WorkspaceSecretService(ctx.storage, env);
-        if (operation === "secret-set") {
-          return yield* attempt("workspace.secret.set", () =>
-            secrets.set(request),
-          );
-        }
-        if (operation === "secret-get") {
-          return yield* attempt("workspace.secret.get", () =>
-            secrets.get(request),
-          );
-        }
-        if (operation === "secret-list") {
-          return yield* attempt("workspace.secret.list", () =>
-            secrets.list(request),
-          );
-        }
-        return yield* attempt("workspace.secret.delete", () =>
-          secrets.delete(request),
         );
       }
 

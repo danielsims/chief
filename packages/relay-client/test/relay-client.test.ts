@@ -13,6 +13,7 @@ import { RelayClient } from "../src/relay-client";
 const relayDiscovery = {
   protocol: "chief-relay",
   protocolVersion: 1,
+  relayId: "relay_test",
   deployment: "chief-cloud",
   apiBaseUrl: "https://relay.test/v1",
   websocketUrl: "wss://relay.test/v1/connect",
@@ -76,7 +77,7 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     },
   });
 
-  await client.listMessages("general");
+  await client.listMessages("general", { limit: 200, recent: true });
   const subscription = await client.subscribeConversation({
     conversationId: "general",
     onEvent: () => undefined,
@@ -87,6 +88,8 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     requests[0]?.url ?? "",
     /\/v1\/workspaces\/workspace-a\/conversations\/general\/messages/u,
   );
+  assert.match(requests[0]?.url ?? "", /[?&]limit=200(?:&|$)/u);
+  assert.match(requests[0]?.url ?? "", /[?&]recent=true(?:&|$)/u);
   assert.equal(requests[0]?.authorization, "Nostr signed-request");
   assert.equal(
     requests[0].deviceAuthorization,

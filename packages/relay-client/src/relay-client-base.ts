@@ -5,6 +5,7 @@ import type {
   ChannelRecord,
   CreateWorkspaceCommand,
   JsonValue,
+  OnboardingTelemetryEvent,
   Prospect,
   RelayDiscovery,
   RelayProject,
@@ -31,6 +32,8 @@ import {
   conversationIdSchema,
   imageAssetDeleteResultSchema,
   isJsonString,
+  onboardingTelemetryEventSchema,
+  onboardingTelemetryReceiptSchema,
   organizationWorkspaceJoinResultSchema,
   parseJsonValue,
   prospectSaveSchema,
@@ -119,6 +122,18 @@ export class RelayClientBase {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(command),
+      },
+    );
+  }
+  async recordOnboardingEvent(event: OnboardingTelemetryEvent) {
+    return await this.fetchJson(
+      new URL("/v1/onboarding/events", this.relayUrl),
+      onboardingTelemetryReceiptSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(onboardingTelemetryEventSchema.parse(event)),
       },
     );
   }

@@ -56,6 +56,7 @@ export function browserRuntimeEvent(
     browserRunId,
     workspaceId: message.workspaceId,
     conversationId: message.conversationId,
+    anchorMessageId: message.id,
     url,
     streamUrl,
   } as const;

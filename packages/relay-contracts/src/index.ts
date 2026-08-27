@@ -11,6 +11,7 @@ export * from "./identifiers";
 export * from "./identity";
 export * from "./json";
 export * from "./messages";
+export * from "./onboarding";
 export * from "./projects";
 export * from "./workspaces";
 export * from "./workspace-data";

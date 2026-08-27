@@ -262,10 +262,11 @@ export class RelayClient extends RelayClientBase {
 
   async listMessages(
     conversationId: string,
-    input: { after?: number; limit?: number } = {},
+    input: { after?: number; limit?: number; recent?: boolean } = {},
   ) {
     const url = this.conversationUrl(conversationId, "messages");
     appendPageQuery(url, input);
+    if (input.recent) url.searchParams.set("recent", "true");
     return this.fetchJson(url, messagePageSchema);
   }
 

@@ -1,4 +1,5 @@
 export const pendingCreateRelayKey = "chief.pending-workspace-create-relay.v1";
+export const pendingCreateDraftKey = "chief.pending-workspace-create-draft.v1";
 
 export function isExplicitWorkspaceEntry(search: string) {
   const query = new URLSearchParams(search);

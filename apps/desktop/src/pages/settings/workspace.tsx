@@ -28,6 +28,7 @@ import {
   parseOrganizationMetadata,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
+import { workspaceRoleForUser } from "../../lib/auth/organization-role";
 import { RELAY_URL } from "../../lib/config";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 import {
@@ -73,6 +74,7 @@ function DeleteWorkspaceCard({
   workspaceId: string;
   workspaceName: string;
 }) {
+  const { user } = useAuth();
   const { client, switchWorkspace, workspaces } = useRelaySession();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -84,10 +86,11 @@ function DeleteWorkspaceCard({
     setError(null);
     try {
       if (!client) throw new Error("Chief is not connected to the relay.");
+      if (!user) throw new Error("Sign in before deleting a workspace.");
       await client.deleteWorkspace(workspaceId);
 
       const remainingOnRelay = await client.listWorkspaces();
-      rememberRelayWorkspaces(RELAY_URL, remainingOnRelay);
+      rememberRelayWorkspaces(RELAY_URL, user.id, remainingOnRelay);
       const [nextOnRelay] = remainingOnRelay;
       if (nextOnRelay) {
         // Relay workspaces are not BetterAuth organizations; switch through the
@@ -100,7 +103,8 @@ function DeleteWorkspaceCard({
       const fallback = workspaces.find(
         (workspace) =>
           workspace.id !== workspaceId &&
-          relayForWorkspace(workspace.id) !== new URL(RELAY_URL).origin,
+          relayForWorkspace(user.id, workspace.id, RELAY_URL) !==
+            new URL(RELAY_URL).origin,
       );
       if (fallback) {
         await switchWorkspace(fallback.id);
@@ -177,7 +181,8 @@ function DeleteWorkspaceCard({
 
 export function WorkspaceSettings() {
   const { client, snapshot } = useRelaySession();
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, user } = useAuth();
+  const userId = user?.id;
 
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [name, setName] = useState("");
@@ -187,6 +192,10 @@ export function WorkspaceSettings() {
   const [processingLogo, setProcessingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletionPermission, setDeletionPermission] = useState<{
+    workspaceId: string;
+    allowed: boolean;
+  } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">(
     "idle",
   );
@@ -214,6 +223,35 @@ export function WorkspaceSettings() {
       cancelled = true;
     };
   }, [cloudOrganizationId]);
+
+  useEffect(() => {
+    if (!client || !snapshot || !userId) return;
+    let cancelled = false;
+    const workspaceId = snapshot.id;
+    void client
+      .listWorkspaceMembers()
+      .then((members) => {
+        if (!cancelled) {
+          setDeletionPermission({
+            workspaceId,
+            allowed: workspaceRoleForUser(members, userId) === "owner",
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          "[Workspace] Could not resolve deletion permission:",
+          error,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, snapshot, userId]);
+
+  const canDeleteWorkspace =
+    deletionPermission?.workspaceId === snapshot?.id &&
+    deletionPermission?.allowed === true;
 
   const handleSave = async () => {
     if (!org) return;
@@ -419,13 +457,11 @@ export function WorkspaceSettings() {
         </Suspense>
       ) : null}
 
-      {snapshot ? (
+      {snapshot && canDeleteWorkspace ? (
         <DeleteWorkspaceCard
           workspaceId={snapshot.id}
           workspaceName={snapshot.name}
         />
-      ) : org ? (
-        <DeleteWorkspaceCard workspaceId={org.id} workspaceName={org.name} />
       ) : null}
     </>
   );

@@ -9,6 +9,7 @@ import {
 } from "better-auth/plugins";
 
 import type { ChiefAuthOptions } from "./options";
+import { relayCookiePrefix } from "./cookie-prefix";
 import { trustedOrigins } from "./origins";
 
 const oauthScopes = ["openid", "profile", "email", "offline_access"] as const;
@@ -27,7 +28,7 @@ export function createChiefAuth(
           ...options.google,
           // When a browser sign-in is genuinely required, make the selected
           // Google identity explicit. A still-live Google browser session must
-          // never silently choose between multiple Chief accounts.
+          // never silently choose between multiple Google accounts.
           prompt: "select_account" as const,
         },
       }
@@ -48,8 +49,8 @@ export function createChiefAuth(
     socialProviders: google,
     trustedOrigins: trustedOrigins(options),
     advanced: {
-      cookiePrefix: "chief_relay",
-      useSecureCookies: true,
+      cookiePrefix: relayCookiePrefix(options.baseURL),
+      useSecureCookies: new URL(options.baseURL).protocol === "https:",
     },
     plugins: [
       bearer(),

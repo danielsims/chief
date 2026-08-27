@@ -270,7 +270,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private async openChat(chatId: string, conversationId: string) {
     this.conversationIdsByChat.set(chatId, conversationId);
-    const page = await this.relay.listMessages(conversationId, { limit: 200 });
+    const page = await this.relay.listMessages(conversationId, {
+      limit: 200,
+      recent: true,
+    });
     const agentId = directAgentId(conversationId, this.snapshot);
     for (const message of page.messages) this.rememberMessage(message);
     this.emit({
@@ -295,7 +298,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
 
   private async openChannelEvents(conversationId: string) {
-    const page = await this.relay.listMessages(conversationId, { limit: 200 });
+    const page = await this.relay.listMessages(conversationId, {
+      limit: 200,
+      recent: true,
+    });
     for (const message of page.messages) this.rememberMessage(message);
     const currentPubkey = await this.devicePubkey;
     this.emit({

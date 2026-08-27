@@ -1,5 +1,4 @@
-import type { useAuth } from "../lib/auth/auth-context";
-import { UserAvatar } from "../components/user-avatar";
+import { ArrowLeft } from "lucide-react";
 
 export function WorkspaceProgress({ step }: { step: number }) {
   return (
@@ -17,44 +16,27 @@ export function WorkspaceProgress({ step }: { step: number }) {
   );
 }
 
-export function AccountIndicator({
-  user,
-  onSignOut,
-  disabled,
-}: {
-  user: ReturnType<typeof useAuth>["user"];
-  onSignOut: () => void;
-  disabled: boolean;
-}) {
-  if (!user) return null;
-  return (
-    <div className="fixed top-10 left-4 z-50 flex items-center gap-2">
-      <UserAvatar image={user.image} name={user.name} className="size-7" />
-      <span className="text-muted-foreground max-w-44 truncate text-[13px]">
-        {user.name}
-      </span>
-      <span className="text-muted-foreground/40 text-[13px]">·</span>
-      <button
-        type="button"
-        onClick={onSignOut}
-        disabled={disabled}
-        className="text-muted-foreground hover:text-foreground text-[13px] transition-colors disabled:opacity-50"
-      >
-        Sign out
-      </button>
-    </div>
-  );
-}
-
 export function WorkspaceHome({
+  onBack,
   onCreate,
   onJoin,
 }: {
+  onBack?: () => void;
   onCreate: () => void;
   onJoin: () => void;
 }) {
   return (
     <>
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-muted-foreground hover:text-foreground mb-8 flex w-fit items-center gap-1.5 text-[13px] transition-colors"
+        >
+          <ArrowLeft size={14} />
+          Back
+        </button>
+      ) : null}
       <div>
         <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
           Set up your workspace

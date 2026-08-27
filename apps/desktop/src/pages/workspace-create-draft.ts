@@ -1,22 +1,25 @@
 import {
+  commandIdSchema,
   isJsonNumber,
   isJsonObject,
   isJsonString,
 } from "@chief/relay-contracts";
 
 export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
+export type WorkspaceHosting = "chief-cloud" | "self-hosted";
 
-const createDraftVersion = 3;
+const createDraftVersion = 5;
 
 export interface CreateWorkspaceDraft {
   version: typeof createDraftVersion;
+  commandId: string;
   step: number;
   name: string;
   website: string;
-  runtime: "cloud" | "desktop";
   provider: WorkspaceInferenceProvider;
-  model: string;
   selectedApps: string[];
+  hosting: WorkspaceHosting;
+  relayUrl: string;
 }
 
 export function createWorkspaceDraftKey(relayUrl: string, userId?: string) {
@@ -26,24 +29,29 @@ export function createWorkspaceDraftKey(relayUrl: string, userId?: string) {
 export function readCreateWorkspaceDraft(
   key: string,
 ): CreateWorkspaceDraft | null {
+  return parseCreateWorkspaceDraft(window.localStorage.getItem(key));
+}
+
+export function parseCreateWorkspaceDraft(
+  serialized: string | null,
+): CreateWorkspaceDraft | null {
   try {
-    const value: unknown = JSON.parse(
-      window.localStorage.getItem(key) ?? "null",
-    );
+    const value: unknown = JSON.parse(serialized ?? "null");
     if (!isJsonObject(value)) return null;
     const step = value.step;
     if (
       value.version !== createDraftVersion ||
+      !commandIdSchema.safeParse(value.commandId).success ||
       !isJsonNumber(step) ||
       !Number.isInteger(step) ||
       step < 0 ||
       step > 3 ||
       !isJsonString(value.name) ||
       !isJsonString(value.website) ||
-      (value.runtime !== "cloud" && value.runtime !== "desktop") ||
-      !isJsonString(value.model) ||
       !Array.isArray(value.selectedApps) ||
       !value.selectedApps.every((app) => isJsonString(app)) ||
+      (value.hosting !== "chief-cloud" && value.hosting !== "self-hosted") ||
+      !isJsonString(value.relayUrl) ||
       (value.provider !== undefined &&
         value.provider !== null &&
         value.provider !== "claude" &&
@@ -54,22 +62,31 @@ export function readCreateWorkspaceDraft(
     }
     return {
       version: createDraftVersion,
+      commandId: commandIdSchema.parse(value.commandId),
       step,
       name: value.name,
       website: value.website,
-      runtime: value.runtime,
       provider:
         value.provider === "claude" ||
         value.provider === "codex" ||
         value.provider === "opencode"
           ? value.provider
           : null,
-      model: value.model,
       selectedApps: value.selectedApps,
+      hosting: value.hosting,
+      relayUrl: normalizedRelayUrl(value.relayUrl),
     };
   } catch {
     return null;
   }
+}
+
+function normalizedRelayUrl(value: string) {
+  const url = new URL(value);
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/u, "");
 }
 
 export function workspaceDraft(

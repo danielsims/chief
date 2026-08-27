@@ -219,6 +219,7 @@ void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
     protocol: "chief-relay",
     protocolVersion: 1,
+    relayId: "relay_test",
     deployment: "cloudflare-byoc",
     apiBaseUrl: "https://relay.example.com/v1",
     websocketUrl: "wss://relay.example.com/v1/connect",
@@ -228,6 +229,7 @@ void test("relay discovery is portable across hosting providers", () => {
       scheme: "NIP-98",
       signingAlgorithm: "secp256k1-schnorr",
       accountIssuer: "https://relay.example.com/api/auth",
+      methods: ["email-password", "google"],
     },
   });
 
@@ -236,6 +238,10 @@ void test("relay discovery is portable across hosting providers", () => {
     discovery.authentication.accountIssuer,
     "https://relay.example.com/api/auth",
   );
+  assert.deepEqual(discovery.authentication.methods, [
+    "email-password",
+    "google",
+  ]);
 });
 
 void test("OpenAPI documents idempotent message append", () => {

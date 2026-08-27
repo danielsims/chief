@@ -1,23 +1,11 @@
 import type { ReactNode } from "react";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  CreateWorkspaceCommand,
-  WorkspaceInvite,
-  WorkspaceInviteClaimResult,
-  WorkspaceSnapshot,
-  WorkspaceSummary,
-} from "@chief/relay-contracts";
+import type { CreateWorkspaceCommand } from "@chief/relay-contracts";
 import { RelayClient } from "@chief/relay-client";
 
+import type { RelaySessionValue } from "./relay-session-value";
+import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
 import {
   CHIEF_CLOUD_AUTH_BASE_URL,
@@ -33,15 +21,20 @@ import {
 import {
   knownRelayConnections,
   knownWorkspaceSummaries,
-  relayForWorkspace,
   rememberRelayWorkspaces,
   resolveRelayConnection,
+  workspaceForRelayIdentities,
 } from "./relay-connection";
 import {
   activeRelayWorkspace,
   connectBoundRelayDevice,
   relaySessionTransport,
 } from "./relay-session-api";
+import { RelaySessionContext } from "./relay-session-context";
+import {
+  initialRelaySessionState,
+  visibleRelaySessionState,
+} from "./relay-session-state";
 import { setRelayWorkspaceOverride } from "./relay-workspace-override";
 import {
   clearWorkspaceSwitch,
@@ -52,49 +45,14 @@ import {
   rememberWorkspaceSwitch,
 } from "./workspace-switch-state";
 
-interface RelaySessionValue {
-  client: RelayClient | null;
-  snapshot: WorkspaceSnapshot | null;
-  workspaces: WorkspaceSummary[];
-  loading: boolean;
-  error: string | null;
-  recoveryWorkspace: WorkspaceSummary | null;
-  refresh: () => Promise<void>;
-  returnToPreviousWorkspace: () => Promise<void>;
-  switchWorkspace: (workspaceId: string) => Promise<void>;
-  createWorkspace: (
-    command: CreateWorkspaceCommand,
-    apiKey?: string,
-  ) => Promise<WorkspaceSnapshot>;
-  previewWorkspaceInvite: (
-    workspaceId: string,
-    secret: string,
-  ) => Promise<WorkspaceInvite>;
-  claimWorkspaceInvite: (
-    workspaceId: string,
-    secret: string,
-  ) => Promise<WorkspaceInviteClaimResult>;
-}
-
-const RelaySessionContext = createContext<RelaySessionValue | null>(null);
-
 export function RelaySessionProvider({ children }: { children: ReactNode }) {
-  const { connectRelay, invalidateSession, sessionToken } = useAuth();
+  const { connectRelay, invalidateSession, sessionToken, user } = useAuth();
+  const accountId = user?.id ?? null;
   const connectionGeneration = useRef(0);
   const connectionPromise = useRef<Promise<void> | null>(null);
-  const [state, setState] = useState<{
-    client: RelayClient | null;
-    snapshot: WorkspaceSnapshot | null;
-    workspaces: WorkspaceSummary[];
-    loading: boolean;
-    error: string | null;
-  }>({
-    client: null,
-    snapshot: null,
-    workspaces: knownWorkspaceSummaries(),
-    loading: Boolean(sessionToken),
-    error: null,
-  });
+  const [state, setState] = useState(() =>
+    initialRelaySessionState(accountId, sessionToken),
+  );
 
   const connect = useCallback(() => {
     if (connectionPromise.current) return connectionPromise.current;
@@ -105,6 +63,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         relaySessionTransport.resetDeviceAuthorization();
         setRelayWorkspaceOverride(null);
         setState({
+          accountId: null,
           client: null,
           snapshot: null,
           workspaces: [],
@@ -113,11 +72,19 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         });
         return;
       }
-      setState((current) => ({
-        ...current,
-        loading: !current.client,
-        error: null,
-      }));
+      if (!accountId) return;
+      setState((current) =>
+        current.accountId === accountId
+          ? { ...current, loading: !current.client }
+          : {
+              accountId,
+              client: null,
+              snapshot: null,
+              workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
+              loading: true,
+              error: null,
+            },
+      );
       const watchdog = window.setTimeout(() => {
         if (generation !== connectionGeneration.current) return;
         connectionGeneration.current += 1;
@@ -157,7 +124,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           clearPendingOrganizationInvitation();
           snapshot = await activeRelayWorkspace();
         }
-        const pendingWorkspace = pendingWorkspaceSwitch();
+        const pendingWorkspace = pendingWorkspaceSwitch(accountId);
         if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
           await accountClient.switchWorkspace(pendingWorkspace.workspaceId);
           snapshot = await activeRelayWorkspace();
@@ -175,16 +142,17 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         const cellsStarted = snapshot
           ? ensureDesktopCells(snapshot, client)
           : Promise.resolve();
-        const directoryWorkspaces = knownWorkspaceSummaries().map(
-          (summary) => ({
-            ...summary,
-            isActive: summary.id === snapshot?.id,
-          }),
-        );
+        const directoryWorkspaces = knownWorkspaceSummaries(
+          RELAY_URL,
+          accountId,
+        ).map((summary) => ({
+          ...summary,
+          isActive: summary.id === snapshot?.id,
+        }));
         if (generation !== connectionGeneration.current) return;
         setRelayWorkspaceOverride(snapshot?.id ?? null);
         if (snapshot) {
-          rememberConnectedWorkspace({
+          rememberConnectedWorkspace(accountId, {
             workspaceId: snapshot.id,
             relayUrl: new URL(RELAY_URL).origin,
           });
@@ -193,9 +161,10 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           // Keep the previous workspace available until the target relay has
           // completed the entire connection. A partial switch must still have
           // a reliable Back path.
-          clearWorkspaceSwitch();
+          clearWorkspaceSwitch(accountId);
         }
         setState({
+          accountId,
           client,
           snapshot,
           workspaces: directoryWorkspaces,
@@ -208,14 +177,17 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         void accountClient
           .listWorkspaces()
           .then((workspaces) => {
-            rememberRelayWorkspaces(RELAY_URL, workspaces);
+            rememberRelayWorkspaces(RELAY_URL, accountId, workspaces);
             if (generation !== connectionGeneration.current) return;
             setState((current) => ({
               ...current,
-              workspaces: knownWorkspaceSummaries().map((summary) => ({
-                ...summary,
-                isActive: summary.id === current.snapshot?.id,
-              })),
+              accountId,
+              workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
+                (summary) => ({
+                  ...summary,
+                  isActive: summary.id === current.snapshot?.id,
+                }),
+              ),
             }));
           })
           .catch((error: unknown) => {
@@ -228,8 +200,9 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         if (generation !== connectionGeneration.current) return;
         setState((current) => ({
           ...current,
+          accountId,
           client: accountClient ?? current.client,
-          workspaces: knownWorkspaceSummaries(),
+          workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
           loading: false,
           error: error instanceof Error ? error.message : String(error),
         }));
@@ -243,12 +216,14 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         connectionPromise.current = null;
     });
     return attempt;
-  }, [invalidateSession, sessionToken]);
+  }, [accountId, invalidateSession, sessionToken]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void connect(), 0);
     return () => {
       window.clearTimeout(timer);
+      connectionGeneration.current += 1;
+      connectionPromise.current = null;
       setRelayWorkspaceOverride(null);
     };
   }, [connect]);
@@ -266,9 +241,16 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   }, [connect]);
 
   const switchWorkspace = useCallback(
-    async (workspaceId: string) => {
+    async (
+      workspaceId: string,
+      target?: { relayUrl: string; accountId: string },
+    ) => {
       if (state.client?.workspaceId === workspaceId) return;
-      const workspaceRelay = relayForWorkspace(workspaceId);
+      if (!accountId) throw new Error("Sign in before switching workspaces.");
+      const workspaceLocation = target
+        ? { relayUrl: target.relayUrl, accountId: target.accountId }
+        : workspaceForRelayIdentities(workspaceId, connectedRelayIdentities());
+      const workspaceRelay = workspaceLocation?.relayUrl ?? null;
       if (workspaceRelay && workspaceRelay !== new URL(RELAY_URL).origin) {
         const connection = resolveRelayConnection(
           workspaceRelay,
@@ -283,7 +265,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         if (!connection) {
           throw new Error("This workspace's relay is no longer available.");
         }
-        rememberWorkspaceSwitch({
+        rememberWorkspaceSwitch(accountId, {
           target: { workspaceId, relayUrl: workspaceRelay },
           ...(state.snapshot?.id
             ? {
@@ -300,7 +282,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       if (!state.client) {
         throw new Error("This relay is not connected.");
       }
-      rememberWorkspaceSwitch({
+      rememberWorkspaceSwitch(accountId, {
         target: {
           workspaceId,
           relayUrl: new URL(RELAY_URL).origin,
@@ -318,6 +300,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       setRelayWorkspaceOverride(null);
       setState((current) => ({
         ...current,
+        accountId,
         client: null,
         snapshot: null,
         loading: true,
@@ -331,16 +314,21 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       }
       await connect();
     },
-    [connect, connectRelay, state.client, state.snapshot],
+    [accountId, connect, connectRelay, state.client, state.snapshot],
   );
 
   const recoveryWorkspace = useMemo(() => {
-    return findRecoveryWorkspace(state.workspaces, new URL(RELAY_URL).origin);
-  }, [state.workspaces]);
+    return findRecoveryWorkspace(
+      accountId,
+      state.workspaces,
+      new URL(RELAY_URL).origin,
+    );
+  }, [accountId, state.workspaces]);
 
   const returnToPreviousWorkspace = useCallback(async () => {
-    const pending = pendingWorkspaceSwitch();
-    const previous = previousWorkspaceSwitch();
+    if (!accountId) return;
+    const pending = pendingWorkspaceSwitch(accountId);
+    const previous = previousWorkspaceSwitch(accountId);
     if (
       previous &&
       (pending || previous.relayUrl !== new URL(RELAY_URL).origin)
@@ -353,7 +341,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           );
         }
         await state.client.switchWorkspace(previous.workspaceId);
-        clearWorkspaceSwitch();
+        clearWorkspaceSwitch(accountId);
         await connect();
         return;
       }
@@ -368,7 +356,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         },
       );
       if (connection) {
-        rememberWorkspaceSwitch({ target: previous });
+        rememberWorkspaceSwitch(accountId, { target: previous });
         await connectRelay(connection);
         return;
       }
@@ -377,7 +365,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       await switchWorkspace(recoveryWorkspace.id);
       return;
     }
-    clearWorkspaceSwitch();
+    clearWorkspaceSwitch(accountId);
     const chiefCloud = {
       version: 1 as const,
       relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
@@ -389,7 +377,14 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     window.location.assign("/");
-  }, [connect, connectRelay, recoveryWorkspace, state.client, switchWorkspace]);
+  }, [
+    accountId,
+    connect,
+    connectRelay,
+    recoveryWorkspace,
+    state.client,
+    switchWorkspace,
+  ]);
 
   const createWorkspace = useCallback(
     async (command: CreateWorkspaceCommand, apiKey?: string) => {
@@ -398,14 +393,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       const workspace = state.client.forWorkspace(snapshot.id);
       const apiKeyValue = apiKey?.trim();
       if (apiKeyValue) {
-        // Best-effort: an API-key storage failure must never block entering
-        // the workspace. The hosted cell falls back to the workspace's own
-        // secret later; if none was stored it still works.
-        try {
-          await workspace.setWorkspaceSecret("opencode", apiKeyValue);
-        } catch (error) {
-          console.error("[Workspace] Failed to store API key:", error);
-        }
+        await workspace.setWorkspaceSecret("opencode", apiKeyValue);
       }
       await ensureDesktopCells(snapshot, workspace);
       // Reconnect the session to the new workspace, but never block the caller
@@ -440,9 +428,14 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
     [connect, state.client],
   );
 
+  const visibleState = useMemo(
+    () => visibleRelaySessionState(state, accountId, sessionToken),
+    [accountId, sessionToken, state],
+  );
+
   const value = useMemo<RelaySessionValue>(
     () => ({
-      ...state,
+      ...visibleState,
       recoveryWorkspace,
       refresh: connect,
       returnToPreviousWorkspace,
@@ -458,7 +451,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       previewWorkspaceInvite,
       recoveryWorkspace,
       returnToPreviousWorkspace,
-      state,
+      visibleState,
       switchWorkspace,
     ],
   );
@@ -469,10 +462,4 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useRelaySession() {
-  const value = useContext(RelaySessionContext);
-  if (!value) {
-    throw new Error("useRelaySession must be used inside RelaySessionProvider");
-  }
-  return value;
-}
+export { useRelaySession } from "./relay-session-context";

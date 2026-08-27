@@ -1,0 +1,53 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { isJsonString } from "@chief/relay-contracts";
+
+import { RelayClient } from "../src/relay-client";
+
+void test("records privacy-safe onboarding events at the account relay boundary", async () => {
+  let request: { path: string; body: unknown } | null = null;
+  const client = new RelayClient({
+    relayUrl: "https://relay.test",
+    getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    fetch: (input, init) => {
+      const url = new URL(
+        isJsonString(input)
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      request = {
+        path: url.pathname,
+        body: isJsonString(init?.body) ? JSON.parse(init.body) : null,
+      };
+      return Promise.resolve(
+        new Response(JSON.stringify({ accepted: true }), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    },
+  });
+
+  await client.recordOnboardingEvent({
+    sessionId: "21545a96-d835-4de6-858f-8a28eaada32f",
+    stage: "apps",
+    event: "advanced",
+    hosting: "self-hosted",
+    provider: "opencode",
+    selectedAppCount: 2,
+  });
+
+  assert.deepEqual(request, {
+    path: "/v1/onboarding/events",
+    body: {
+      sessionId: "21545a96-d835-4de6-858f-8a28eaada32f",
+      stage: "apps",
+      event: "advanced",
+      hosting: "self-hosted",
+      provider: "opencode",
+      selectedAppCount: 2,
+    },
+  });
+});
