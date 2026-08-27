@@ -4,6 +4,7 @@ import type {
   AgentInferenceResult,
   AgentInferenceToolCall,
 } from "@chief/agent-computer";
+import type { DurableTurnStateSize } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob, JsonValue } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
@@ -36,6 +37,33 @@ export function agentTelemetryAttributes(job: AgentJob) {
     ...(isJsonString(job.payload.messageId)
       ? { "messaging.message.id": job.payload.messageId }
       : undefined),
+  };
+}
+
+export function durableTurnStateAttributes(size: DurableTurnStateSize) {
+  return {
+    "chief.turn.state.bytes": size.totalBytes,
+    "chief.turn.state.structural.bytes": size.structuralBytes,
+    "chief.turn.state.instruction.bytes": size.instructionBytes,
+    "chief.turn.state.system_prompt.bytes": size.systemPromptBytes,
+    "chief.turn.state.messages.bytes": size.messagesBytes,
+    "chief.turn.state.messages.content.bytes": size.messageContentBytes,
+    "chief.turn.state.messages.tool_calls.bytes": size.messageToolCallsBytes,
+    "chief.turn.state.plan.bytes": size.planBytes,
+    "chief.turn.state.tools.bytes": size.toolsBytes,
+    "chief.turn.state.tools.arguments.bytes": size.toolArgumentsBytes,
+    "chief.turn.state.tools.results.bytes": size.toolResultsBytes,
+    "chief.turn.state.checkpoint.bytes": size.checkpointBytes,
+    "chief.turn.state.checkpoint.memory.bytes": size.checkpointMemoryBytes,
+    "chief.turn.state.checkpoint.evidence.bytes": size.checkpointEvidenceBytes,
+    "chief.turn.state.metadata.bytes": size.metadataBytes,
+    "chief.turn.state.messages.count": size.messageCount,
+    "chief.turn.state.tools.count": size.toolReceiptCount,
+    "chief.turn.state.checkpoint.evidence.count": size.checkpointEvidenceCount,
+    "chief.turn.state.largest_message.bytes": size.largestMessageBytes,
+    "chief.turn.state.largest_message.role": size.largestMessageRole,
+    "chief.turn.state.largest_tool_result.bytes": size.largestToolResultBytes,
+    "chief.turn.state.largest_tool_result.name": size.largestToolResultName,
   };
 }
 

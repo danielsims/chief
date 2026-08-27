@@ -79,7 +79,11 @@
     },
   ],
   "vars": {
+    "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",
     "RELAY_DEPLOYMENT": "chief-cloud",
+    // Full OTLP exporters use interval fibers and outbound I/O. Keep them out
+    // of production Durable Objects so idle objects can hibernate after 10s.
+    // The self-host observability profile enables full telemetry explicitly.
     "RELAY_TELEMETRY_MODE": "errors",
     "RELAY_TELEMETRY_INCLUDE_CONTENT": "false",
     "HOSTED_CELL_ENABLED": "true",

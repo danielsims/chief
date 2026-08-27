@@ -1,0 +1,340 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Agent execution duration segmented by relay, workspace, and time window.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to use this dashboard",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# Chief agent duration\nTrack p95 and total traced agent execution time by relay and workspace. Use minute, hour, and day windows to isolate spikes before comparing changes."
+      }
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | quantile_over_time(span:duration, .95) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "queryType": "traceql",
+          "refId": "A",
+          "serviceMapUseNativeHistograms": false
+        }
+      ],
+      "title": "p95 agent duration by workspace",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 9,
+      "interval": "1m",
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "queryType": "traceql",
+          "refId": "A",
+          "serviceMapUseNativeHistograms": false,
+          "step": "60s"
+        }
+      ],
+      "timeFrom": "1h",
+      "title": "Execution time by minute",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 10,
+      "interval": "1h",
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "queryType": "traceql",
+          "refId": "A",
+          "serviceMapUseNativeHistograms": false,
+          "step": "3600s"
+        }
+      ],
+      "timeFrom": "24h",
+      "title": "Execution time by hour",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 11,
+      "interval": "1d",
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "queryType": "traceql",
+          "refId": "A",
+          "serviceMapUseNativeHistograms": false,
+          "step": "86400s"
+        }
+      ],
+      "timeFrom": "30d",
+      "title": "Execution time by day",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": [
+    "chief",
+    "agents",
+    "effect",
+    "tempo"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "Relay",
+        "name": "relay",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "Workspace",
+        "name": "workspace",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "Workflow",
+        "name": "workflow",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "Agent",
+        "multi": true,
+        "name": "agent",
+        "options": [],
+        "query": "chief,setup,brand,prospector,engineer",
+        "refresh": 0,
+        "regex": "",
+        "sort": 1,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "Channel / conversation",
+        "name": "conversation",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Chief Agent Duration",
+  "uid": "chief-agent-duration",
+  "version": 1,
+  "weekStart": ""
+}

@@ -18,7 +18,7 @@
       },
       "id": 1,
       "options": {
-        "content": "# Chief agent observability\nFilter by relay, workspace, workflow, agent, or channel. Execution-time charts use traced agent duration for local iteration; Cloudflare Durable Object analytics remains the source of truth for production billing. Select a trace ID to open Tempo's complete waterfall.",
+        "content": "# Chief agent observability\nInspect agent workflows, model calls, tools, failures, and durable turn storage. Filter by relay, workspace, workflow, agent, or channel, then open a trace for the complete Tempo waterfall.",
         "mode": "markdown"
       },
       "title": "How to use this dashboard",
@@ -304,204 +304,16 @@
       ],
       "title": "Durable turn storage breakdown",
       "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 51
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
-          },
-          "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | quantile_over_time(span:duration, .95) by (resource.chief.relay.id, span.chief.workspace.name)",
-          "queryType": "traceql",
-          "refId": "A",
-          "serviceMapUseNativeHistograms": false
-        }
-      ],
-      "title": "p95 agent duration by workspace",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 60
-      },
-      "id": 9,
-      "interval": "1m",
-      "options": {
-        "legend": {
-          "calcs": ["sum", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
-          },
-          "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
-          "queryType": "traceql",
-          "refId": "A",
-          "serviceMapUseNativeHistograms": false,
-          "step": "60s"
-        }
-      ],
-      "timeFrom": "1h",
-      "title": "Execution time by minute",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 69
-      },
-      "id": 10,
-      "interval": "1h",
-      "options": {
-        "legend": {
-          "calcs": ["sum", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
-          },
-          "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
-          "queryType": "traceql",
-          "refId": "A",
-          "serviceMapUseNativeHistograms": false,
-          "step": "3600s"
-        }
-      ],
-      "timeFrom": "24h",
-      "title": "Execution time by hour",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 78
-      },
-      "id": 11,
-      "interval": "1d",
-      "options": {
-        "legend": {
-          "calcs": ["sum", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "tempo",
-            "uid": "tempo"
-          },
-          "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
-          "queryType": "traceql",
-          "refId": "A",
-          "serviceMapUseNativeHistograms": false,
-          "step": "86400s"
-        }
-      ],
-      "timeFrom": "30d",
-      "title": "Execution time by day",
-      "type": "timeseries"
     }
   ],
   "refresh": "10s",
   "schemaVersion": 41,
-  "tags": ["chief", "agents", "effect", "tempo"],
+  "tags": [
+    "chief",
+    "agents",
+    "effect",
+    "tempo"
+  ],
   "templating": {
     "list": [
       {
@@ -599,6 +411,6 @@
   "timezone": "browser",
   "title": "Chief Agent Observability",
   "uid": "chief-agent-observability",
-  "version": 12,
+  "version": 1,
   "weekStart": ""
 }

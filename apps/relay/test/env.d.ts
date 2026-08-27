@@ -8,6 +8,7 @@ declare module "cloudflare:workers" {
     ARTIFACTS: R2Bucket;
     RELAY_DEPLOYMENT:
       "chief-cloud" | "cloudflare-byoc" | "self-hosted" | "local";
+    RELAY_ID: string;
     RELAY_PUBLIC_URL?: string;
     BOOTSTRAP_TOKEN_SHA256: string;
     OPENCODE_API_KEY?: string;
