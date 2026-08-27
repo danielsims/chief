@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { userIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 
-import { withTrustedIdentity } from "../src/internal-context";
+import {
+  withTrustedContext,
+  withTrustedIdentity,
+} from "../src/internal-context";
 import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-authority-test");
@@ -30,6 +33,19 @@ describe("WorkspaceObject", () => {
     const outsider = await stub.fetch(
       trustedRequest("authorize", outsiderId, { method: "POST" }),
     );
+    const secret = await stub.fetch(
+      trustedPrincipalRequest("secret-set", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "opencode", value: "test-key" }),
+      }),
+    );
+    const storedSecret = await stub.fetch(
+      trustedPrincipalRequest("secret-get", {
+        method: "GET",
+        url: "https://workspace.internal/secrets?name=opencode",
+      }),
+    );
 
     expect(claim.status).toBe(201);
     expect(await claim.json()).toMatchObject({
@@ -38,6 +54,7 @@ describe("WorkspaceObject", () => {
         kind: "user",
         userId: ownerId,
         pubkey: hexKey(ownerId),
+        workspaceId,
         role: "owner",
       },
     });
@@ -47,10 +64,19 @@ describe("WorkspaceObject", () => {
         kind: "user",
         userId: ownerId,
         pubkey: hexKey(ownerId),
+        workspaceId,
         role: "owner",
       },
     });
     expect(outsider.status).toBe(403);
+    expect(secret.status).toBe(200);
+    expect(await secret.json()).toEqual({ workspaceId, name: "opencode" });
+    expect(storedSecret.status).toBe(200);
+    expect(await storedSecret.json()).toEqual({
+      workspaceId,
+      name: "opencode",
+      value: "test-key",
+    });
   });
 
   it("does not allow the deployment bootstrap token to claim twice", async () => {
@@ -221,6 +247,29 @@ describe("WorkspaceObject", () => {
 function workspaceStub() {
   const { WORKSPACES: workspaces } = relayTestEnv();
   return workspaces.get(workspaces.idFromName(workspaceId));
+}
+
+function trustedPrincipalRequest(
+  operation: "secret-set" | "secret-get",
+  init: RequestInit & { url?: string },
+) {
+  const headers = new Headers(init.headers);
+  headers.set("x-chief-internal-operation", operation);
+  const { url = "https://workspace.internal", ...requestInit } = init;
+  return withTrustedContext(
+    new Request(url, { ...requestInit, headers }),
+    {
+      principal: {
+        kind: "user",
+        userId: ownerId,
+        pubkey: hexKey(ownerId),
+        workspaceId,
+        role: "owner",
+      },
+      requestId: crypto.randomUUID(),
+      workspaceId,
+    },
+  );
 }
 
 function trustedRequest(

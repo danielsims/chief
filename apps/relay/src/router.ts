@@ -30,6 +30,8 @@ import {
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
+import { routeOnboardingTelemetry } from "./router-onboarding";
+import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
@@ -206,6 +208,8 @@ function routeWorkspaceRequest(
         requireAccountBinding(env, bound),
       );
     const url = new URL(request.url);
+    const onboarding = yield* routeOnboardingTelemetry(env, request, requestId);
+    if (onboarding) return onboarding;
     if (
       url.pathname === "/v1/me/avatar" &&
       (request.method === "POST" || request.method === "DELETE")
@@ -218,20 +222,12 @@ function routeWorkspaceRequest(
         }
         return authenticated.identity;
       });
-      const key = `profiles/${user.userId}`;
-      return request.method === "DELETE"
-        ? yield* attempt("relay.profile_image.delete", () =>
-            deleteImageAsset(env, key),
-          )
-        : yield* attempt("relay.profile_image.upload", () =>
-            uploadImageAsset(
-              env,
-              authenticated.request,
-              publicOrigin(request, url, env),
-              key,
-              `/v1/assets/profiles/${encodeURIComponent(user.userId)}`,
-            ),
-          );
+      return yield* routeProfileImage(
+        env,
+        request,
+        authenticated.request,
+        user.userId,
+      );
     }
     const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
     if (invitePreview && request.method === "POST") {
@@ -257,7 +253,7 @@ function routeWorkspaceRequest(
         createWorkspaceCommandSchema.parse(body),
       );
       return yield* attempt("relay.workspace.create", () =>
-        createManagedWorkspace(env, authenticated.identity, command),
+        createManagedWorkspace(env, authenticated.identity, command, context),
       );
     }
     if (url.pathname === "/v1/me/workspace" && request.method === "GET") {

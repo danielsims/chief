@@ -47,6 +47,7 @@ export async function createManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
   command: CreateWorkspaceCommand,
+  context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
@@ -95,7 +96,21 @@ export async function createManagedWorkspace(
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  await enqueueOnboarding(env, identity, { ...entry, command }, false);
+  const onboarding = enqueueOnboarding(
+    env,
+    identity,
+    { ...entry, command },
+    false,
+  );
+  if (context) {
+    context.waitUntil(
+      onboarding.catch((error: unknown) => {
+        console.error("[Workspace] Initial onboarding enqueue failed:", error);
+      }),
+    );
+  } else {
+    await onboarding;
+  }
   return response;
 }
 

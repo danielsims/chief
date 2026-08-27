@@ -5,6 +5,7 @@ export function relayDiscovery(request: Request, url: URL, env: Env) {
   return relayDiscoverySchema.parse({
     protocol: "chief-relay",
     protocolVersion: 1,
+    relayId: env.RELAY_ID,
     deployment: env.RELAY_DEPLOYMENT,
     apiBaseUrl: `${origin}/v1`,
     websocketUrl: `${origin.replace(/^http/u, "ws")}/v1/connect`,
@@ -21,6 +22,12 @@ export function relayDiscovery(request: Request, url: URL, env: Env) {
       scheme: "NIP-98",
       signingAlgorithm: "secp256k1-schnorr",
       accountIssuer: `${env.AUTH_BASE_URL.replace(/\/$/u, "")}/api/auth`,
+      methods: [
+        "email-password",
+        ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+          ? (["google"] as const)
+          : []),
+      ],
     },
   });
 }

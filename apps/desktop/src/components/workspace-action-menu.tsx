@@ -13,15 +13,17 @@ export function nextWorkspaceMenuId(
 }
 
 export function WorkspaceActionsPopover({
-  primaryLabel,
-  primaryDisabled = false,
-  onPrimaryAction,
+  showOpenWorkspace,
+  actionsDisabled = false,
+  onOpenWorkspace,
+  onWorkspaceSettings,
   workspaceName,
   relayUrl,
 }: {
-  primaryLabel: "Open workspace" | "Workspace settings";
-  primaryDisabled?: boolean;
-  onPrimaryAction: () => void;
+  showOpenWorkspace: boolean;
+  actionsDisabled?: boolean;
+  onOpenWorkspace: () => void;
+  onWorkspaceSettings: () => void;
   workspaceName: string;
   relayUrl: string;
 }) {
@@ -38,19 +40,17 @@ export function WorkspaceActionsPopover({
         <p className="truncate text-[13px] font-semibold">{workspaceName}</p>
       </div>
       <div className="bg-border/60 my-1 h-px" />
-      <button
-        type="button"
-        disabled={primaryDisabled}
-        onClick={onPrimaryAction}
-        className="hover:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors disabled:opacity-50"
-      >
-        {primaryLabel === "Workspace settings" ? (
-          <Settings className="text-muted-foreground size-4 shrink-0" />
-        ) : (
+      {showOpenWorkspace ? (
+        <button
+          type="button"
+          disabled={actionsDisabled}
+          onClick={onOpenWorkspace}
+          className="hover:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors disabled:opacity-50"
+        >
           <ArrowRight className="text-muted-foreground size-4 shrink-0" />
-        )}
-        {primaryLabel}
-      </button>
+          Open workspace
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => {
@@ -72,6 +72,15 @@ export function WorkspaceActionsPopover({
           <Copy className="text-muted-foreground size-4 shrink-0" />
         )}
         {copied ? "Copied relay URL" : "Copy relay URL"}
+      </button>
+      <button
+        type="button"
+        disabled={actionsDisabled}
+        onClick={onWorkspaceSettings}
+        className="hover:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors disabled:opacity-50"
+      >
+        <Settings className="text-muted-foreground size-4 shrink-0" />
+        Workspace settings
       </button>
     </PopoverContent>
   );

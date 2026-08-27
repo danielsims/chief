@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:agent-api": "pnpm --dir ../../packages/agent-runtime generate:local-tools-openapi ../../apps/web/generated/local-tools-openapi.json",
-    "prebuild": "pnpm generate:agent-api",
+    "prebuild": "node scripts/prepare-agent-api.mjs",
     "predev": "pnpm generate:agent-api",
     "pretypecheck": "pnpm generate:agent-api",
     "dev": "next dev --port 3000",
@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "1.6.16",
     "@chief/channel-api": "workspace:*",
     "@chief/ui": "workspace:*",
     "@t3-oss/env-nextjs": "^0.13.8",

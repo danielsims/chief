@@ -75,6 +75,7 @@ describe("relay-local authentication", () => {
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.origin).toBe("https://app.test");
+    // A device with no browser session must sign in first.
     expect(location.pathname).toBe("/sign-in");
     expect(location.searchParams.get("client_id")).toBe("chief-desktop");
     expect(location.searchParams.get("state")).toBe("pkce-state");

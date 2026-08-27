@@ -1,0 +1,5856 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chief Local Workspace Tools",
+    "version": "1.0.0",
+    "description": "Private runtime-local capabilities composed for Chief workspace agents."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4318"
+    }
+  ],
+  "security": [
+    {
+      "localWorkspaceCapability": []
+    }
+  ],
+  "paths": {
+    "/local-tools/action": {
+      "post": {
+        "operationId": "action.raise",
+        "summary": "Create an action that genuinely requires the user",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Use only for work the user must personally decide or perform. Recording an action never completes the current task.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "sourceId": {
+                    "type": "string"
+                  },
+                  "dedupeKey": {
+                    "type": "string"
+                  },
+                  "threadRootId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 20
+                      }
+                    ]
+                  },
+                  "request": {
+                    "type": "object",
+                    "properties": {
+                      "steps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            "url": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 8
+                      },
+                      "questions": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "question": {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            "header": {
+                              "type": "string"
+                            },
+                            "multiSelect": {
+                              "type": "boolean",
+                              "default": false
+                            },
+                            "allowFreeform": {
+                              "type": "boolean",
+                              "default": false
+                            },
+                            "options": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "allOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "minLength": 1
+                                      }
+                                    ]
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "allowsFreeText": {
+                                    "type": "boolean",
+                                    "enum": [
+                                      true
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "label"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 8,
+                              "default": []
+                            }
+                          },
+                          "required": [
+                            "question"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 6
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            "label": {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text",
+                                "secret",
+                                "multiline"
+                              ],
+                              "default": "text"
+                            },
+                            "save": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "envKey": {
+                                      "allOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      ]
+                                    },
+                                    "file": {
+                                      "not": {}
+                                    }
+                                  },
+                                  "required": [
+                                    "envKey"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "file": {
+                                      "allOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      ]
+                                    },
+                                    "envKey": {
+                                      "not": {}
+                                    }
+                                  },
+                                  "required": [
+                                    "file"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "save"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 8,
+                        "default": []
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "title",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/analytics/datasets": {
+      "get": {
+        "operationId": "analytics.listDatasets",
+        "summary": "List saved analytics datasets",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "analytics.saveDataset",
+        "summary": "Save a normalized analytics dataset",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Stores a bounded reusable analytics projection from a connected source.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "sourceId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "key": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "metrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "label": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "format": {
+                          "type": "string",
+                          "enum": [
+                            "number",
+                            "currency",
+                            "percent",
+                            "duration"
+                          ]
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 40
+                  },
+                  "dimensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "label": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20
+                  },
+                  "periods": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "label": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "startDate": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "endDate": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "allOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "value"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 40
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "startDate",
+                        "endDate",
+                        "values"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 24
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "dimensions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "dimension": {
+                                "allOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                ]
+                              },
+                              "value": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "dimension",
+                              "value"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 20
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "allOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "value"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 40
+                        }
+                      },
+                      "required": [
+                        "dimensions",
+                        "values"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 1000
+                  },
+                  "series": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "label": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "metric": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "x": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "x",
+                              "value"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 5000
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "metric",
+                        "points"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 12
+                  },
+                  "charts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "line"
+                          ]
+                        },
+                        "title": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "subtitle": {
+                          "type": "string"
+                        },
+                        "xLabel": {
+                          "type": "string"
+                        },
+                        "yLabel": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "series": {
+                          "type": "array",
+                          "items": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "minItems": 1,
+                          "maxItems": 4
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "title",
+                        "yLabel",
+                        "series"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 8
+                  },
+                  "provenance": {
+                    "type": "object",
+                    "properties": {
+                      "operation": {
+                        "type": "string"
+                      },
+                      "query": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "value"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 40
+                      },
+                      "notes": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "provider",
+                  "sourceId",
+                  "key",
+                  "title",
+                  "metrics",
+                  "dimensions",
+                  "periods"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/recurring-work": {
+      "get": {
+        "operationId": "recurringWork.list",
+        "summary": "List recurring agent work and approval state",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "recurringWork.propose",
+        "summary": "Create recurring agent work under workspace policy",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Creates a reviewable draft by default. Immediate activation requires explicit workspace authority.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "playbookId": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "instructions": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "cron": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "timezone": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "onceAt": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "approvalSummary": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "proposedToolPatterns": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "maxItems": 30
+                  },
+                  "activate": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "agentId",
+                  "title",
+                  "instructions",
+                  "cron",
+                  "timezone",
+                  "approvalSummary",
+                  "proposedToolPatterns"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/open": {
+      "post": {
+        "operationId": "browser.open",
+        "summary": "Open or navigate Chief's embedded browser",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Opens an HTTP or HTTPS page in the visible agent browser. A server started on this computer is reachable at localhost on its chosen port; port 8080 is reserved for the computer control API. The browser continues its current session by default; use fresh=true only when the task requires a clean session.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "fresh": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/snapshot": {
+      "post": {
+        "operationId": "browser.snapshot",
+        "summary": "Inspect Chief's visible embedded browser page",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Returns the current URL, title, readable text, and visible semantic controls. Re-inspect after navigation or a material page change.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/close": {
+      "post": {
+        "operationId": "browser.close",
+        "summary": "Close Chief's embedded browser",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Ends the current embedded browser run after its work is genuinely finished. Never close a browser after handing it to the user for sign-in, consent, MFA, or another human action.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/present": {
+      "post": {
+        "operationId": "browser.present",
+        "summary": "Change the embedded browser presentation",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Keeps the browser inline by default. Use picture-in-picture only when the user asks to snap or minimize the live browser, or when an explicit handoff calls for it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "inline",
+                          "picture-in-picture"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/click": {
+      "post": {
+        "operationId": "browser.click",
+        "summary": "Click an agent-browser ref or visible control",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Clicks the first matching current agent-browser snapshot ref or semantic label and returns the refreshed page snapshot. Prefer the exact @ref from the latest snapshot, including for radio-style option cards.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string"
+                      },
+                      "labels": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 8
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/fill": {
+      "post": {
+        "operationId": "browser.fill",
+        "summary": "Fill a visible browser field by label",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Fills a non-secret visible field in Chief's embedded browser. Never request or fill passwords, passkeys, MFA codes, or account credentials; the user handles authentication directly.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string"
+                      },
+                      "labels": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 8
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/select": {
+      "post": {
+        "operationId": "browser.select",
+        "summary": "Choose an option in a visible browser select field",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Selects one or more values from a native select control using a current agent-browser ref or semantic label. Prefer this over keyboard navigation for select fields.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string"
+                      },
+                      "labels": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 8
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 8
+                      }
+                    },
+                    "required": [
+                      "values"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/browser/press": {
+      "post": {
+        "operationId": "browser.press",
+        "summary": "Press a key in the visible browser",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Presses a key such as Enter or Escape in the shared agent-browser session. Do not traverse controls with repeated Tab or arrow presses when the current snapshot exposes a clickable @ref.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "conversationId": {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      "browserRunId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "conversationId"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/campaigns": {
+      "get": {
+        "operationId": "campaigns.list",
+        "summary": "List saved paid campaigns",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "campaigns.save",
+        "summary": "Create or update a paid campaign plan",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "objective": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "in_review",
+                      "live",
+                      "paused",
+                      "completed"
+                    ],
+                    "default": "draft"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "budget": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "spend": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "revenue": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "provider"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels": {
+      "get": {
+        "operationId": "channels.list",
+        "summary": "List workspace channels",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "channels.create",
+        "summary": "Create a standard or feature channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Use a stable operationKey for retries. The calling agent is added automatically; additional agents are validated before the channel is written.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "topic": {
+                    "type": "string"
+                  },
+                  "visibility": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "private"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "standard",
+                      "feature"
+                    ]
+                  },
+                  "operationKey": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{5,79}$",
+                    "maxLength": 80
+                  },
+                  "agentIds": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "maxItems": 20
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "agent"
+                          ]
+                        },
+                        "id": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20
+                  },
+                  "workstream": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "planned",
+                          "active",
+                          "review",
+                          "complete",
+                          "cancelled"
+                        ]
+                      },
+                      "repository": {
+                        "type": "string"
+                      },
+                      "baseBranch": {
+                        "type": "string"
+                      },
+                      "branch": {
+                        "type": "string"
+                      },
+                      "pullRequestUrls": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "format": "uri"
+                            }
+                          ]
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "name",
+                  "operationKey"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}": {
+      "get": {
+        "operationId": "channels.get",
+        "summary": "Get channel details",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "channels.update",
+        "summary": "Update metadata or feature-work state",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "topic": {
+                    "type": "string"
+                  },
+                  "workstream": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "planned",
+                          "active",
+                          "review",
+                          "complete",
+                          "cancelled"
+                        ]
+                      },
+                      "repository": {
+                        "type": "string"
+                      },
+                      "baseBranch": {
+                        "type": "string"
+                      },
+                      "branch": {
+                        "type": "string"
+                      },
+                      "pullRequestUrls": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            {
+                              "allOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "format": "uri"
+                            }
+                          ]
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/archive": {
+      "post": {
+        "operationId": "channels.archive",
+        "summary": "Archive a channel without losing history",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/unarchive": {
+      "post": {
+        "operationId": "channels.unarchive",
+        "summary": "Restore an archived channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/join": {
+      "post": {
+        "operationId": "channels.join",
+        "summary": "Join an active public channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/leave": {
+      "post": {
+        "operationId": "channels.leave",
+        "summary": "Leave a channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/members": {
+      "get": {
+        "operationId": "channels.members.list",
+        "summary": "List channel members",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "channels.members.add",
+        "summary": "Add validated agents to a channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "agent"
+                          ]
+                        },
+                        "id": {
+                          "allOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "members"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/members/{memberId}": {
+      "delete": {
+        "operationId": "channels.members.remove",
+        "summary": "Remove a member from a channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/activity": {
+      "get": {
+        "operationId": "channels.activity.list",
+        "summary": "Read the channel management audit trail",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/channels/{channelId}/deletion-request": {
+      "post": {
+        "operationId": "channels.deletion.request",
+        "summary": "Ask the workspace owner to permanently delete a channel",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 20
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/messages": {
+      "get": {
+        "operationId": "channels.messages.list",
+        "summary": "List channel roots with recent thread replies",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "channels.messages.post",
+        "summary": "Publish a message or thread reply",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Publishes deliberate user-facing content into a shared channel. Include each addressed agent ID in mentions because visible @text alone does not wake an agent. Ordinary agent working output is private and does not appear in the channel.",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "threadRootId": {
+                    "type": "string"
+                  },
+                  "mentions": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "maxItems": 20
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/messages/{messageId}": {
+      "get": {
+        "operationId": "channels.messages.get",
+        "summary": "Get a message with its immediate thread context",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "channels.messages.update",
+        "summary": "Edit the caller's message",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "channels.messages.delete",
+        "summary": "Tombstone the caller's message",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/messages/{messageId}/replies": {
+      "get": {
+        "operationId": "channels.messages.replies",
+        "summary": "Read a complete thread before acting on its root",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/channels/{channelId}/messages/{messageId}/reactions": {
+      "get": {
+        "operationId": "channels.reactions.list",
+        "summary": "List reactions",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "channels.reactions.add",
+        "summary": "Add an idempotent reaction",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "emoji": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "emoji"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/messages/{messageId}/reactions/{emoji}": {
+      "delete": {
+        "operationId": "channels.reactions.remove",
+        "summary": "Remove the caller's reaction",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/messages/search": {
+      "get": {
+        "operationId": "channels.messages.search",
+        "summary": "Search visible roots and thread replies",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "allOf": [
+                {
+                  "allOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ]
+                },
+                {
+                  "type": "string",
+                  "minLength": 2
+                }
+              ]
+            }
+          },
+          {
+            "name": "channelId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/content": {
+      "get": {
+        "operationId": "content.list",
+        "summary": "List drafts and scheduled content",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "content.save",
+        "summary": "Create or update content",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Saves a complete platform-ready body and creates a linked editable workspace document.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "body": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 100
+                      }
+                    ]
+                  },
+                  "platform": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "approved",
+                      "scheduled",
+                      "published"
+                    ]
+                  },
+                  "scheduledFor": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "title",
+                  "body",
+                  "platform"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/read": {
+      "post": {
+        "operationId": "computer.read",
+        "summary": "Read a UTF-8 file from the agent computer",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/list": {
+      "post": {
+        "operationId": "computer.list",
+        "summary": "List files in the agent computer",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/write": {
+      "post": {
+        "operationId": "computer.write",
+        "summary": "Write a complete UTF-8 file in the agent computer",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 1000000
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/edit": {
+      "post": {
+        "operationId": "computer.edit",
+        "summary": "Replace exact text in an agent computer file",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "oldText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200000
+                  },
+                  "newText": {
+                    "type": "string",
+                    "maxLength": 200000
+                  },
+                  "replaceAll": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "path",
+                  "oldText",
+                  "newText"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/execute": {
+      "post": {
+        "operationId": "computer.execute",
+        "summary": "Run a bounded command on the agent computer",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Runs in the agent's persistent /workspace through the active AgentComputer adapter. To show a locally served page, bind it to localhost on a port other than the reserved control port 8080, then open that URL with browser.open.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "cwd": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/git": {
+      "post": {
+        "operationId": "computer.git",
+        "summary": "Run Git against the agent computer repository",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "argv": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 128
+                  },
+                  "cwd": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "argv"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/computer/artifacts": {
+      "post": {
+        "operationId": "computer.artifacts.publish",
+        "summary": "Publish an agent computer file as a Chief artifact",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "name": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "contentType": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "path",
+                  "name",
+                  "contentType"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/files": {
+      "get": {
+        "operationId": "files.list",
+        "summary": "List editable workspace files",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Returns file ids, workspace-relative paths, types and current revision ids without loading every file body."
+      }
+    },
+    "/local-tools/files/read": {
+      "post": {
+        "operationId": "files.read",
+        "summary": "Read an editable workspace file",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "fileId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/files/write": {
+      "post": {
+        "operationId": "files.write",
+        "summary": "Create or revise a workspace document",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Saves an editable, versioned workspace document. Pass expectedVersionId when revising so newer edits are never overwritten.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "document",
+                      "email"
+                    ],
+                    "default": "document"
+                  },
+                  "expectedVersionId": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "sourceSessionId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/google-analytics/authorize": {
+      "post": {
+        "operationId": "googleAnalytics.authorize",
+        "summary": "Start Google Analytics authorization",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/google-analytics/complete": {
+      "post": {
+        "operationId": "googleAnalytics.complete",
+        "summary": "Complete and verify Google Analytics authorization",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/google-analytics/select": {
+      "post": {
+        "operationId": "googleAnalytics.select",
+        "summary": "Select and verify a Google Analytics property",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "propertyId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId",
+                  "propertyId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/google-oauth/provision-client": {
+      "post": {
+        "operationId": "googleOAuth.provisionClient",
+        "summary": "Begin user-owned Google OAuth client setup",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/google-oauth/capture-client": {
+      "post": {
+        "operationId": "googleOAuth.captureClient",
+        "summary": "Securely capture and store a Google OAuth client",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/handoff/open": {
+      "post": {
+        "operationId": "integration.openHandoff",
+        "summary": "Open a secure local connection handoff",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Opens an Executor connection or OAuth-client handoff in Chief's embedded browser with local authentication added by the trusted host. Use only in a user-started integration setup run.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "url": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/credential/capture": {
+      "post": {
+        "operationId": "integration.captureGeneratedCredential",
+        "summary": "Securely capture a generated provider credential",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Call only while the provider is displaying a newly generated credential in Chief's embedded browser. Chief captures it inside the trusted host and stores it in the prepared Executor connection without returning the value.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/integrations/provider/open": {
+      "post": {
+        "operationId": "integration.openProviderPage",
+        "summary": "Open an integration provider page with automatic resume",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Opens a page belonging to the active integration. If provider authentication is required, Chief resumes this same setup agent automatically when the human reaches the requested page.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "attemptId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "url": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "sessionId",
+                  "attemptId",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/channels/{channelId}/plugins/recommend": {
+      "post": {
+        "operationId": "plugins.recommend",
+        "summary": "Recommend plugins in a conversation",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Resolves real catalog plugins and publishes durable, actionable plugin cards in the specified channel, thread, or direct message. This does not install or authorize a plugin.",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "pluginIds": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 8
+                  },
+                  "services": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 8
+                  },
+                  "threadRootId": {
+                    "type": "string"
+                  },
+                  "idempotencyKey": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "idempotencyKey"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/plugins": {
+      "get": {
+        "operationId": "plugins.list",
+        "summary": "List available and installed plugins",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": ""
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 8
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/plugins/{pluginId}/install": {
+      "post": {
+        "operationId": "plugins.install",
+        "summary": "Install a plugin",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "pluginId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "trusted": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/plugins/{pluginId}/authorize": {
+      "post": {
+        "operationId": "plugins.authorize",
+        "summary": "Request user authorization for a plugin",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "pluginId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/plugins/{pluginId}": {
+      "delete": {
+        "operationId": "plugins.uninstall",
+        "summary": "Uninstall a plugin",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "pluginId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/projects": {
+      "get": {
+        "operationId": "projects.list",
+        "summary": "List the workspace's Git projects",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.requestAccess."
+      }
+    },
+    "/local-tools/projects/inspect": {
+      "post": {
+        "operationId": "projects.inspect",
+        "summary": "Inspect a project's branches, status, and recent commits",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts": {
+      "post": {
+        "operationId": "projects.createCheckout",
+        "summary": "Create an isolated Git checkout for this agent",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Creates a dedicated branch in a Chief-owned worktree. Make all repository edits there rather than changing the user's attached checkout.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "baseRef": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts/status": {
+      "post": {
+        "operationId": "projects.checkoutStatus",
+        "summary": "Inspect an isolated checkout's changes",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checkoutId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "checkoutId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts/commit": {
+      "post": {
+        "operationId": "projects.commit",
+        "summary": "Commit this agent's checkout changes",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Stages and commits changes only inside the caller's isolated checkout. The commit is attributed to the agent via Chief and is not pushed or merged.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checkoutId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "message": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "checkoutId",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts/release": {
+      "post": {
+        "operationId": "projects.releaseCheckout",
+        "summary": "Release a clean isolated checkout",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Removes the worktree only after all changes are committed. It does not delete the branch or its commits.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checkoutId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "checkoutId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/diff": {
+      "post": {
+        "operationId": "projects.diff",
+        "summary": "Compare two branches with a bounded diff",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Returns merge status, commit list, and a bounded combined diff between a base and compare ref. Inspect this before publishing work.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "baseRef": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "compareRef": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "baseRef",
+                  "compareRef"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts/publish": {
+      "post": {
+        "operationId": "projects.publish",
+        "summary": "Publish one owned branch through the trusted credential flow",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Pushes the caller's branch to its Git remote with an explicit refspec. Publishing to the default branch is disabled unless an operator explicitly authorizes it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checkoutId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "targetBranch": {
+                    "type": "string"
+                  },
+                  "correlationId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "checkoutId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/checkouts/discard": {
+      "post": {
+        "operationId": "projects.discardCheckout",
+        "summary": "Discard uncommitted checkout changes after confirmation",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Permanently removes uncommitted and untracked changes inside the caller's isolated checkout. Requires explicit confirmation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checkoutId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "confirmed": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                },
+                "required": [
+                  "checkoutId",
+                  "confirmed"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/pull-requests": {
+      "post": {
+        "operationId": "projects.pullRequest.create",
+        "summary": "Create a provider pull request when the provider supports it",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Creates a pull request from headBranch to baseBranch. Returns a typed unsupported response for repositories without pull request support.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "headBranch": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "baseBranch": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "title",
+                  "headBranch",
+                  "baseBranch"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/pull-requests/status": {
+      "post": {
+        "operationId": "projects.pullRequest.status",
+        "summary": "Read checks and review state for a provider pull request",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Returns a typed unsupported response for repositories without pull request support.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "ref": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/projects/access-request": {
+      "post": {
+        "operationId": "projects.requestAccess",
+        "summary": "Request all required project scopes in one approval",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Request every scope needed for the intended work at once using capabilities, for example {\"projectId\":\"project-id\",\"capabilities\":[\"view\",\"checkout\",\"commit\"]}. Valid scopes are view, checkout, commit, publish, review, and administer. Scopes are cumulative, so approval is stored as the highest requested scope and includes every scope below it. The request stays pending until a workspace operator approves or denies it; nothing is granted automatically. After approval, retry the blocked operation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "capabilities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "view",
+                        "checkout",
+                        "commit",
+                        "publish",
+                        "review",
+                        "administer"
+                      ]
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "capabilities"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/prospects": {
+      "get": {
+        "operationId": "prospects.list",
+        "summary": "List saved prospects",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "prospects.save",
+        "summary": "Save a researched prospect",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Stores evidence-backed research. sourceUrl must link directly to the supporting public source.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "company": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "sourceUrl": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "summary": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "evidence": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "outreachAngle": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "relevance": {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ],
+                    "default": "medium"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "new",
+                      "researching",
+                      "contacted",
+                      "dismissed"
+                    ],
+                    "default": "new"
+                  },
+                  "foundAt": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "source",
+                  "sourceUrl",
+                  "summary",
+                  "evidence",
+                  "outreachAngle"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/trends": {
+      "get": {
+        "operationId": "trends.list",
+        "summary": "List saved research trends",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "trends.save",
+        "summary": "Save a researched trend",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "source": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "sourceUrl": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "signal": {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ],
+                    "default": "medium"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "new",
+                      "watching",
+                      "acted",
+                      "dismissed"
+                    ],
+                    "default": "new"
+                  },
+                  "foundAt": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "title",
+                  "source",
+                  "summary"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/scheduled-work": {
+      "get": {
+        "operationId": "scheduledWork.list",
+        "summary": "List scheduled work",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "scheduledWork.create",
+        "summary": "Propose or create scheduled work",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "operationKey": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{4,99}$",
+                    "maxLength": 100
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "instructions": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "trigger": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "cron"
+                            ]
+                          },
+                          "expression": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "timezone": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "expression",
+                          "timezone"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "once"
+                            ]
+                          },
+                          "at": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "webhook"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "channel_mention"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "memberId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "channel_message"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "contains": {
+                            "type": "string"
+                          },
+                          "authorTypes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "user",
+                                "agent"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "reaction_added"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "emoji": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "approvalSummary": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "proposedToolPatterns": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "maxItems": 100
+                  },
+                  "activate": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "operationKey",
+                  "agentId",
+                  "title",
+                  "instructions",
+                  "trigger",
+                  "approvalSummary",
+                  "proposedToolPatterns"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}": {
+      "get": {
+        "operationId": "scheduledWork.get",
+        "summary": "Get scheduled work",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "scheduledWork.update",
+        "summary": "Update scheduled work",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "trigger": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "cron"
+                            ]
+                          },
+                          "expression": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "timezone": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "expression",
+                          "timezone"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "once"
+                            ]
+                          },
+                          "at": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "webhook"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "channel_mention"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "memberId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "channel_message"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "contains": {
+                            "type": "string"
+                          },
+                          "authorTypes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "user",
+                                "agent"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "reaction_added"
+                            ]
+                          },
+                          "channelId": {
+                            "allOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            ]
+                          },
+                          "emoji": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "channelId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "proposedToolPatterns": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "maxItems": 100
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "scheduledWork.delete",
+        "summary": "Request permanent removal",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/pause": {
+      "post": {
+        "operationId": "scheduledWork.pause",
+        "summary": "Pause new runs",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/resume": {
+      "post": {
+        "operationId": "scheduledWork.resume",
+        "summary": "Resume approved work",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/runs": {
+      "get": {
+        "operationId": "scheduledWork.runs.list",
+        "summary": "List runs",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "scheduledWork.run",
+        "summary": "Queue an approved run",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "idempotencyKey": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}": {
+      "get": {
+        "operationId": "scheduledWork.runs.get",
+        "summary": "Get a run",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}/cancel": {
+      "post": {
+        "operationId": "scheduledWork.runs.cancel",
+        "summary": "Cancel an active run",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}/retry": {
+      "post": {
+        "operationId": "scheduledWork.runs.retry",
+        "summary": "Retry a finished run",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/webhook": {
+      "get": {
+        "operationId": "scheduledWork.webhook.get",
+        "summary": "Inspect local webhook readiness",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/scheduled-work/{scheduledWorkId}/webhook/rotate": {
+      "post": {
+        "operationId": "scheduledWork.webhook.rotate",
+        "summary": "Rotate the local webhook secret",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "parameters": [
+          {
+            "name": "scheduledWorkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/local-tools/setup/list": {
+      "post": {
+        "operationId": "setup.list",
+        "summary": "List integration setup tasks",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/setup/start": {
+      "post": {
+        "operationId": "setup.start",
+        "summary": "Start an integration setup task",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "domain": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "domain"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/specialists/delegate": {
+      "post": {
+        "operationId": "specialists.delegate",
+        "summary": "Delegate bounded work to a private specialist",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Creates or reuses an inspectable child session and returns promptly while longer work continues.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "conversationId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "delegationId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "agentId": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "title": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "task": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "channelId": {
+                    "type": "string"
+                  },
+                  "threadRootId": {
+                    "type": "string"
+                  },
+                  "setupDomain": {
+                    "type": "string"
+                  },
+                  "setupAttemptId": {
+                    "type": "string"
+                  },
+                  "waitSeconds": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 90
+                  }
+                },
+                "required": [
+                  "conversationId",
+                  "delegationId",
+                  "agentId",
+                  "title",
+                  "task"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/local-tools/brand-profile": {
+      "get": {
+        "operationId": "brandProfile.status",
+        "summary": "Check whether the workspace has a brand profile",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        }
+      },
+      "post": {
+        "operationId": "brandProfile.save",
+        "summary": "Save the workspace brand profile",
+        "responses": {
+          "200": {
+            "description": "Tool operation result"
+          }
+        },
+        "description": "Stores researched or user-supplied context for future agent sessions.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "markdown": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 100
+                      }
+                    ]
+                  },
+                  "sourceUrls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "maxItems": 50,
+                    "default": []
+                  }
+                },
+                "required": [
+                  "markdown"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "localWorkspaceCapability": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

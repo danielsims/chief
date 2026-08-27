@@ -1,3 +1,4 @@
+import type { WorkspaceMember } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 export type OrganizationRole = "owner" | "admin" | "member";
@@ -30,4 +31,16 @@ export function canManageChannels(role: OrganizationRole | null): boolean {
 
 export function canDeleteChannels(role: OrganizationRole | null): boolean {
   return role === "owner";
+}
+
+export function workspaceRoleForUser(
+  members: readonly WorkspaceMember[],
+  userId: string | null | undefined,
+): OrganizationRole | null {
+  if (!userId) return null;
+  return (
+    members.find(
+      (member) => member.kind === "user" && member.principalId === userId,
+    )?.role ?? null
+  );
 }

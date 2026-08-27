@@ -1,54 +1,76 @@
-import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Radar } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 
+import type { StoredRelayConnection } from "../lib/relay-connection";
+import { fetchWithTimeout } from "../lib/fetch-with-timeout";
 import { parseOrganizationInvitationUrl } from "../lib/organization-invitation";
-import { WorkspaceAction } from "./workspace-new-chrome";
+import { validateRelayConnection } from "../lib/relay-connection";
 
 const selfHostingGuideUrl =
   "https://github.com/danielsims/chief/blob/main/deploy/self-host/README.md";
 
+export type LocalRelayDiscovery =
+  | { status: "checking" }
+  | { status: "found"; connection: StoredRelayConnection }
+  | { status: "unavailable" };
+
+let localRelayDiscovery: Promise<LocalRelayDiscovery> | undefined;
+
+export function preloadLocalRelayDiscovery() {
+  localRelayDiscovery ??= validateRelayConnection(
+    "http://localhost:8080",
+    (input, init) =>
+      fetchWithTimeout(isTauri() ? tauriFetch : fetch, input, init, 1_500),
+  )
+    .then((connection) => ({ status: "found", connection }) as const)
+    .catch(() => ({ status: "unavailable" }) as const);
+  return localRelayDiscovery;
+}
+
 export function WorkspaceHostingChoice({
   relayUrl,
+  localRelay,
   working,
   error,
   onRelayUrlChange,
   onBack,
-  onChiefHosted,
   onSelfHosted,
 }: {
   relayUrl: string;
+  localRelay: LocalRelayDiscovery;
   working: boolean;
   error: string | null;
   onRelayUrlChange: (value: string) => void;
   onBack: () => void;
-  onChiefHosted: () => void;
   onSelfHosted: () => void;
 }) {
-  const [selfHosted, setSelfHosted] = useState(false);
-  if (selfHosted) {
-    return (
-      <section>
-        <button
-          type="button"
-          onClick={() => setSelfHosted(false)}
-          disabled={working}
-          className="text-muted-foreground hover:text-foreground mb-8 flex items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
-        >
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-          Connect your relay
-        </h1>
-        <p className="text-muted-foreground mt-2 text-sm leading-6">
-          Deploy Chief on infrastructure you control, then connect this app to
-          its public address.
-        </p>
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={working}
+        className="text-muted-foreground hover:text-foreground mb-8 flex items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+      <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
+        Connect your relay
+      </h1>
+      <p className="text-muted-foreground mt-2 text-sm leading-6">
+        {localRelay.status === "found"
+          ? "A Chief relay is already running on this Mac."
+          : "Deploy Chief on infrastructure you control, then connect this app to its public address."}
+      </p>
 
+      {localRelay.status !== "unavailable" ? (
+        <LocalRelaySignal state={localRelay.status} />
+      ) : (
         <ol className="mt-8 space-y-4">
           <SelfHostingStep number="1">
             Install Docker, Node 24 and pnpm on your server, then clone Chief.
@@ -62,88 +84,52 @@ export function WorkspaceHostingChoice({
             HTTPS address below.
           </SelfHostingStep>
         </ol>
+      )}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (isTauri()) void openUrl(selfHostingGuideUrl);
-            else
-              window.open(selfHostingGuideUrl, "_blank", "noopener,noreferrer");
-          }}
-          className="text-muted-foreground hover:text-foreground mt-5 inline-flex items-center gap-1.5 text-[13px] underline-offset-4 transition-colors hover:underline"
-        >
-          Read the self-hosting guide
-          <ArrowUpRight size={13} />
-        </button>
-
-        <div className="mt-8 border-t pt-6">
-          <label htmlFor="create-relay-url" className="text-[13px] font-medium">
-            Relay address
-          </label>
-          <Input
-            id="create-relay-url"
-            value={relayUrl}
-            onChange={(event) => onRelayUrlChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && relayUrl.trim()) onSelfHosted();
-            }}
-            placeholder="https://relay.example.com"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            className="mt-2"
-            disabled={working}
-            autoFocus
-          />
-          <div className="mt-4 flex justify-end">
-            <Button
-              type="button"
-              onClick={onSelfHosted}
-              disabled={working || !relayUrl.trim()}
-              loading={working}
-            >
-              Connect relay
-            </Button>
-          </div>
-        </div>
-        {error ? (
-          <p className="bg-destructive/5 text-destructive mt-4 rounded-lg px-3 py-2 text-xs leading-5">
-            {error}
-          </p>
-        ) : null}
-      </section>
-    );
-  }
-
-  return (
-    <section>
       <button
         type="button"
-        onClick={onBack}
-        disabled={working}
-        className="text-muted-foreground hover:text-foreground mb-8 flex items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
+        onClick={() => {
+          if (isTauri()) void openUrl(selfHostingGuideUrl);
+          else
+            window.open(selfHostingGuideUrl, "_blank", "noopener,noreferrer");
+        }}
+        className="text-muted-foreground hover:text-foreground mt-5 inline-flex items-center gap-1.5 text-[13px] underline-offset-4 transition-colors hover:underline"
       >
-        <ArrowLeft size={14} /> Back
+        {localRelay.status === "found"
+          ? "Self-hosting guide"
+          : "Read the self-hosting guide"}
+        <ArrowUpRight size={13} />
       </button>
-      <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-        Where should Chief run?
-      </h1>
-      <p className="text-muted-foreground mt-2 text-sm leading-6">
-        Choose managed hosting or connect infrastructure you control.
-      </p>
-      <div className="mt-8 space-y-2">
-        <WorkspaceAction
-          title="Chief hosted"
-          description="Ready to use. Chief manages the relay and updates"
-          onClick={onChiefHosted}
+
+      <div className="mt-8 border-t pt-6">
+        <label htmlFor="create-relay-url" className="text-[13px] font-medium">
+          Relay address
+        </label>
+        <Input
+          id="create-relay-url"
+          value={relayUrl}
+          onChange={(event) => onRelayUrlChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && relayUrl.trim()) onSelfHosted();
+          }}
+          placeholder="https://relay.example.com"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          className="mt-2"
           disabled={working}
+          autoFocus
         />
-        <WorkspaceAction
-          title="Self-host"
-          description="Deploy Chief on your own server and connect it here"
-          onClick={() => setSelfHosted(true)}
-          disabled={working}
-        />
+        <div className="mt-4 flex justify-end">
+          <Button
+            type="button"
+            onClick={onSelfHosted}
+            disabled={working || !relayUrl.trim()}
+            loading={working}
+          >
+            Connect relay
+          </Button>
+        </div>
       </div>
       {error ? (
         <p className="bg-destructive/5 text-destructive mt-4 rounded-lg px-3 py-2 text-xs leading-5">
@@ -151,6 +137,27 @@ export function WorkspaceHostingChoice({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function LocalRelaySignal({ state }: { state: "checking" | "found" }) {
+  return (
+    <div className="mt-8 flex items-center gap-4 rounded-xl border px-4 py-4">
+      <span className="bg-muted relative flex size-10 shrink-0 items-center justify-center rounded-full">
+        <span className="border-foreground/20 absolute inset-1 animate-ping rounded-full border" />
+        <Radar className="relative size-5" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">
+          {state === "found" ? "Local relay found" : "Looking on this Mac…"}
+        </span>
+        <span className="text-muted-foreground mt-0.5 block text-xs">
+          {state === "found"
+            ? "localhost:8080 is ready"
+            : "Checking localhost:8080"}
+        </span>
+      </span>
+    </div>
   );
 }
 

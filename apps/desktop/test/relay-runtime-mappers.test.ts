@@ -60,6 +60,7 @@ void test("hosted browser activity opens the existing browser UI stream", () => 
     browserRunId: "job-1",
     workspaceId: "workspace-a",
     conversationId: "marketing",
+    anchorMessageId: "activity-1",
     url: "https://example.com/",
     streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
   });

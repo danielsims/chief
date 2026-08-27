@@ -44,7 +44,8 @@ export const RELAY_URL = storedConnection?.relayUrl ?? CHIEF_CLOUD_RELAY_URL;
 export const AUTH_BASE_URL =
   storedConnection?.authBaseUrl ?? CHIEF_CLOUD_AUTH_BASE_URL;
 
-export const USING_CUSTOM_RELAY = storedConnection !== null;
+export const USING_CUSTOM_RELAY =
+  new URL(RELAY_URL).origin !== new URL(CHIEF_CLOUD_RELAY_URL).origin;
 
 export const missingDesktopConfiguration = [
   !AUTH_UI_BASE_URL ? "VITE_AUTH_UI_URL" : null,

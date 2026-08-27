@@ -32,10 +32,6 @@ export function routeWorkspaceSecrets(
         workspaceId,
       }),
     );
-    const forwarded = new Request(
-      authenticated.request.url,
-      authenticated.request,
-    );
     const operation =
       request.method === "GET" && new URL(request.url).searchParams.has("name")
         ? "secret-get"
@@ -54,6 +50,9 @@ export function routeWorkspaceSecrets(
         requestId,
       );
     }
+    const headers = new Headers(authenticated.request.headers);
+    headers.set("x-chief-internal-operation", operation);
+    const forwarded = new Request(authenticated.request, { headers });
     return yield* attempt("relay.workspace_secret.forward", () =>
       env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
         withTrustedContext(forwarded, {

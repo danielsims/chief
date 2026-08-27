@@ -10,12 +10,14 @@ import {
 import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
+import { TooltipProvider } from "@chief/ui/components/tooltip";
 
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
+import { RelayConnectionDialog } from "./components/relay-connection-control";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
@@ -130,21 +132,41 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 
 function RelayUnavailableState() {
   const relay = useRelaySession();
+  const { signOut } = useAuth();
   return (
-    <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <section className="bg-card w-full max-w-md rounded-xl border p-8">
-        <PageTitle>Workspace unavailable</PageTitle>
-        <p className="text-muted-foreground mt-3 text-sm leading-6">
-          Chief can’t connect to the server that runs this workspace. Go back
-          and use another workspace until it’s online again.
-        </p>
-        <div className="mt-6">
-          <Button onClick={() => void relay.returnToPreviousWorkspace()}>
-            Back
-          </Button>
-        </div>
-      </section>
-    </main>
+    <TooltipProvider delayDuration={250}>
+      <div className="bg-background text-foreground flex h-dvh overflow-hidden">
+        <main className="bg-background flex min-w-0 flex-1 items-center justify-center px-6">
+          <section className="bg-card w-full max-w-md rounded-xl border p-8">
+            <PageTitle>Workspace unavailable</PageTitle>
+            <p className="text-muted-foreground mt-3 text-sm leading-6">
+              {relay.error}
+            </p>
+            <p className="text-muted-foreground mt-3 text-xs leading-5">
+              Connect to another relay or go back. Workspaces remain stored on
+              the relay where you created them.
+            </p>
+            <div className="mt-6 flex gap-2">
+              <RelayConnectionDialog>
+                <Button>Change relay</Button>
+              </RelayConnectionDialog>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (relay.recoveryWorkspace) {
+                    void relay.returnToPreviousWorkspace();
+                    return;
+                  }
+                  signOut();
+                }}
+              >
+                {relay.recoveryWorkspace ? "Back" : "Disconnect"}
+              </Button>
+            </div>
+          </section>
+        </main>
+      </div>
+    </TooltipProvider>
   );
 }
 

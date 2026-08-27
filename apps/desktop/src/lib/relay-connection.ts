@@ -15,19 +15,29 @@ export interface StoredRelayConnection {
   authUiUrl: string;
 }
 
+export interface ConnectedWorkspace {
+  relayUrl: string;
+  accountId: string;
+  summary: WorkspaceSummary;
+}
+
 interface StoredRelayDirectory {
-  version: 1;
+  version: 2;
   activeRelayUrl: string | null;
   connections: StoredRelayConnection[];
-  workspaces: Record<string, { relayUrl: string; summary: WorkspaceSummary }>;
+  workspaces: Record<
+    string,
+    { accountId: string; relayUrl: string; summary: WorkspaceSummary }
+  >;
 }
 
 const legacyStorageKey = "chief.relay-connection.v1";
-const storageKey = "chief.relay-directory.v1";
+const legacyDirectoryStorageKey = "chief.relay-directory.v1";
+const storageKey = "chief.relay-directory.v2";
 
 function emptyDirectory(): StoredRelayDirectory {
   return {
-    version: 1,
+    version: 2,
     activeRelayUrl: null,
     connections: [],
     workspaces: {},
@@ -54,12 +64,17 @@ function readDirectory(): StoredRelayDirectory {
                 ([workspaceId, value]) => {
                   try {
                     if (!isJsonObject(value)) return [];
-                    if (!isJsonString(value.relayUrl)) return [];
+                    if (
+                      !isJsonString(value.accountId) ||
+                      !isJsonString(value.relayUrl)
+                    )
+                      return [];
                     const summary = workspaceSummarySchema.parse(value.summary);
                     return [
                       [
                         workspaceId,
                         {
+                          accountId: value.accountId,
                           relayUrl: normalizedRelayOrigin(value.relayUrl),
                           summary,
                         },
@@ -72,7 +87,29 @@ function readDirectory(): StoredRelayDirectory {
               ),
             )
           : {};
-      return { version: 1, activeRelayUrl, connections, workspaces };
+      return { version: 2, activeRelayUrl, connections, workspaces };
+    }
+    const legacyDirectory = globalThis.localStorage.getItem(
+      legacyDirectoryStorageKey,
+    );
+    if (legacyDirectory) {
+      const parsed = parseJsonObject(JSON.parse(legacyDirectory)) ?? {};
+      const connections = Array.isArray(parsed.connections)
+        ? parsed.connections
+            .map(parseStoredRelayConnection)
+            .filter((value): value is StoredRelayConnection => value !== null)
+        : [];
+      const activeRelayUrl = isJsonString(parsed.activeRelayUrl)
+        ? normalizedRelayOrigin(parsed.activeRelayUrl)
+        : null;
+      const migrated = {
+        ...emptyDirectory(),
+        activeRelayUrl,
+        connections,
+      };
+      writeDirectory(migrated);
+      globalThis.localStorage.removeItem(legacyDirectoryStorageKey);
+      return migrated;
     }
     const legacy = globalThis.localStorage.getItem(legacyStorageKey);
     if (legacy) {
@@ -159,13 +196,15 @@ export function resolveRelayConnection(
 
 export function rememberRelayWorkspaces(
   relayUrl: string,
+  accountId: string,
   workspaces: WorkspaceSummary[],
 ) {
   const directory = readDirectory();
   const normalized = normalizedRelayOrigin(relayUrl);
   const retained = Object.fromEntries(
     Object.entries(directory.workspaces).filter(
-      ([, value]) => value.relayUrl !== normalized,
+      ([, value]) =>
+        value.accountId !== accountId || value.relayUrl !== normalized,
     ),
   );
   writeDirectory({
@@ -174,22 +213,87 @@ export function rememberRelayWorkspaces(
       ...retained,
       ...Object.fromEntries(
         workspaces.map((summary) => [
-          summary.id,
-          { relayUrl: normalized, summary },
+          workspaceDirectoryKey(normalized, accountId, summary.id),
+          { accountId, relayUrl: normalized, summary },
         ]),
       ),
     },
   });
 }
 
-export function relayForWorkspace(workspaceId: string) {
-  return readDirectory().workspaces[workspaceId]?.relayUrl ?? null;
+export function forgetRelayWorkspaces(relayUrl: string, accountId: string) {
+  const directory = readDirectory();
+  const normalized = normalizedRelayOrigin(relayUrl);
+  writeDirectory({
+    ...directory,
+    workspaces: Object.fromEntries(
+      Object.entries(directory.workspaces).filter(
+        ([, workspace]) =>
+          workspace.relayUrl !== normalized ||
+          workspace.accountId !== accountId,
+      ),
+    ),
+  });
 }
 
-export function knownWorkspaceSummaries() {
-  return Object.values(readDirectory().workspaces).map(
-    (entry) => entry.summary,
+export function relayForWorkspace(
+  accountId: string,
+  workspaceId: string,
+  relayUrl?: string,
+) {
+  const expectedRelay = relayUrl ? normalizedRelayOrigin(relayUrl) : undefined;
+  const matches = Object.values(readDirectory().workspaces).filter(
+    (entry) =>
+      entry.accountId === accountId &&
+      entry.summary.id === workspaceId &&
+      (!expectedRelay || entry.relayUrl === expectedRelay),
   );
+  return matches.length === 1 ? (matches[0]?.relayUrl ?? null) : null;
+}
+
+export function knownWorkspaceSummaries(
+  relayUrl: string,
+  accountId: string | null,
+) {
+  if (!accountId) return [];
+  const normalized = normalizedRelayOrigin(relayUrl);
+  return Object.values(readDirectory().workspaces)
+    .filter(
+      (entry) => entry.accountId === accountId && entry.relayUrl === normalized,
+    )
+    .map((entry) => entry.summary);
+}
+
+export function knownWorkspacesForRelayIdentities(
+  identities: readonly { relayUrl: string; user: { id: string } }[],
+): ConnectedWorkspace[] {
+  const allowed = new Set(
+    identities.map(
+      (identity) =>
+        `${normalizedRelayOrigin(identity.relayUrl)}:${identity.user.id}`,
+    ),
+  );
+  return Object.values(readDirectory().workspaces).filter((entry) =>
+    allowed.has(`${entry.relayUrl}:${entry.accountId}`),
+  );
+}
+
+export function workspaceForRelayIdentities(
+  workspaceId: string,
+  identities: readonly { relayUrl: string; user: { id: string } }[],
+): ConnectedWorkspace | null {
+  const matches = knownWorkspacesForRelayIdentities(identities).filter(
+    (workspace) => workspace.summary.id === workspaceId,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function workspaceDirectoryKey(
+  relayUrl: string,
+  accountId: string,
+  workspaceId: string,
+) {
+  return `${encodeURIComponent(relayUrl)}:${accountId}:${workspaceId}`;
 }
 
 export function activateKnownRelay(relayUrl: string) {

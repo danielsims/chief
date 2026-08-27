@@ -1,21 +1,13 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
-import { ArrowLeft, Check, Laptop } from "lucide-react";
+import { OpenCode } from "@lobehub/icons";
+import { ArrowLeft, Check, Server } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@chief/ui/components/select";
 
 import { ChiefMark } from "../components/chief-mark";
-import { useProviderModels } from "../lib/runtime";
 import {
   ProviderOption,
   workspaceOnboardingAppLogo,
@@ -25,19 +17,21 @@ import {
 export function CreateForm({
   name,
   website,
-  runtime,
   provider,
-  model,
   apiKey,
   selectedApps,
   working,
   connected,
+  hosting,
+  relayUrl,
+  relayConnected,
+  error,
   step,
   onNameChange,
   onWebsiteChange,
-  onRuntimeChange,
+  onChiefCloud,
+  onSelfHosted,
   onProviderChange,
-  onModelChange,
   onApiKeyChange,
   onSelectedAppsChange,
   onStepChange,
@@ -46,35 +40,27 @@ export function CreateForm({
 }: {
   name: string;
   website: string;
-  runtime: "cloud" | "desktop";
   provider: "claude" | "codex" | "opencode" | null;
-  model: string;
   apiKey: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
   connected: boolean;
+  hosting: "chief-cloud" | "self-hosted";
+  relayUrl: string;
+  relayConnected: boolean;
+  error: string | null;
   step: number;
   onNameChange: (value: string) => void;
   onWebsiteChange: (value: string) => void;
-  onRuntimeChange: (value: "cloud" | "desktop") => void;
+  onChiefCloud: () => void;
+  onSelfHosted: () => void;
   onProviderChange: (value: "claude" | "codex" | "opencode") => void;
-  onModelChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
   onBackToHome: () => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
-  const providerModels = useProviderModels(provider);
-  const models =
-    runtime === "cloud"
-      ? [
-          {
-            value: "opencode-go/deepseek-v4-flash",
-            label: "DeepSeek V4 Flash",
-          },
-        ]
-      : selectableProviderModels(providerModels.models);
   const appListRef = useRef<HTMLDivElement>(null);
   const [canScrollApps, setCanScrollApps] = useState(false);
   const updateAppScrollCue = useCallback(() => {
@@ -104,7 +90,12 @@ export function CreateForm({
     onSubmit(event);
   };
   const canContinue =
-    step === 0 ? Boolean(name.trim()) : step === 2 ? provider !== null : true;
+    step === 0
+      ? Boolean(name.trim())
+      : step === 2
+        ? provider !== null &&
+          (hosting !== "self-hosted" || Boolean(apiKey.trim()))
+        : true;
   const back = () => {
     if (step === 0) onBackToHome();
     else onStepChange(step - 1);
@@ -130,18 +121,18 @@ export function CreateForm({
             : step === 1
               ? "Where should your agents run?"
               : step === 2
-                ? "What harness will your agents use?"
+                ? "What inference provider will your agents use?"
                 : "What apps do you already use?"
         }
         detail={
           step === 0
             ? "Add a website if there’s one your agents should understand."
             : step === 1
-              ? "Each agent gets a stable address and runs where you choose."
+              ? "Each agent stays available on Chief Cloud or infrastructure you control."
               : step === 2
-                ? runtime === "cloud"
-                  ? "Chief Cloud keeps the team available across devices."
-                  : "Choose the local agent app and starting model."
+                ? hosting === "self-hosted"
+                  ? "Inference runs through OpenCode inside your self-hosted relay."
+                  : "Chief Cloud keeps the team available across devices."
                 : "Choose the apps your team already uses."
         }
       />
@@ -177,41 +168,44 @@ export function CreateForm({
               </Field>
             </div>
           ) : step === 1 ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <ProviderOption
-                label="Chief Cloud"
-                selected={runtime === "cloud"}
-                onClick={() => onRuntimeChange("cloud")}
-                icon={<ChiefMark className="size-7" />}
-              />
-              <ProviderOption
-                label="This Mac"
-                selected={runtime === "desktop"}
-                onClick={() => onRuntimeChange("desktop")}
-                icon={<Laptop size={27} />}
-              />
+            <div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ProviderOption
+                  label="Chief Cloud"
+                  selected={hosting === "chief-cloud"}
+                  onClick={onChiefCloud}
+                  icon={<ChiefMark className="size-7" />}
+                />
+                <ProviderOption
+                  label="Self-hosted"
+                  selected={hosting === "self-hosted"}
+                  onClick={onSelfHosted}
+                  icon={<Server size={27} />}
+                />
+              </div>
+              {hosting === "self-hosted" ? (
+                <div className="border-border/70 mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">
+                      {relayConnected ? "Connected relay" : "Selected relay"}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {relayHost(relayUrl)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onSelfHosted}
+                    className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : step === 2 ? (
             <div className="space-y-3">
-              <div
-                className={`grid gap-2 ${runtime === "cloud" ? "sm:grid-cols-1" : "sm:grid-cols-3"}`}
-              >
-                {runtime === "desktop" ? (
-                  <>
-                    <ProviderOption
-                      label="Codex"
-                      selected={provider === "codex"}
-                      onClick={() => onProviderChange("codex")}
-                      icon={<OpenAI size={27} />}
-                    />
-                    <ProviderOption
-                      label="Claude"
-                      selected={provider === "claude"}
-                      onClick={() => onProviderChange("claude")}
-                      icon={<Claude.Color size={27} />}
-                    />
-                  </>
-                ) : null}
+              <div className="grid gap-2">
                 <ProviderOption
                   label="OpenCode"
                   selected={provider === "opencode"}
@@ -221,49 +215,28 @@ export function CreateForm({
               </div>
               {provider ? (
                 <div>
-                  <Field label="Model" htmlFor="agent-model">
-                    <Select value={model} onValueChange={onModelChange}>
-                      <SelectTrigger
-                        id="agent-model"
-                        className="w-full"
-                        aria-label="Agent model"
-                      >
-                        <SelectValue placeholder="Choose model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {models.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {runtime === "cloud" ? (
-                    <div className="mt-4">
-                      <Field
-                        label="OpenCode API key"
-                        optional
-                        htmlFor="cloud-api-key"
-                      >
-                        <Input
-                          id="cloud-api-key"
-                          type="password"
-                          autoComplete="off"
-                          value={apiKey}
-                          onChange={(event) =>
-                            onApiKeyChange(event.target.value)
-                          }
-                          placeholder="sk-…"
-                          disabled={working}
-                        />
-                        <p className="text-muted-foreground mt-1 text-xs">
-                          Stored encrypted and used only by this workspace’s
-                          hosted agents. Skip to use Chief’s shared key.
-                        </p>
-                      </Field>
-                    </div>
-                  ) : null}
+                  <div className="mt-4">
+                    <Field
+                      label="OpenCode API key"
+                      optional={hosting !== "self-hosted"}
+                      htmlFor="cloud-api-key"
+                    >
+                      <Input
+                        id="cloud-api-key"
+                        type="password"
+                        autoComplete="off"
+                        value={apiKey}
+                        onChange={(event) => onApiKeyChange(event.target.value)}
+                        placeholder="sk-…"
+                        disabled={working}
+                      />
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {hosting === "self-hosted"
+                          ? "Required once, encrypted by your relay, and used only by this workspace’s hosted agents."
+                          : "Stored encrypted and used only by this workspace’s hosted agents. Skip to use Chief’s shared key."}
+                      </p>
+                    </Field>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -314,6 +287,12 @@ export function CreateForm({
         </motion.div>
       </AnimatePresence>
 
+      {error ? (
+        <p className="bg-destructive/5 text-destructive rounded-lg px-3 py-2 text-xs leading-5">
+          {error}
+        </p>
+      ) : null}
+
       <div className="flex justify-end pt-1">
         <Button
           type="submit"
@@ -325,6 +304,14 @@ export function CreateForm({
       </div>
     </form>
   );
+}
+
+function relayHost(value: string) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
 }
 
 function ArrivingQuestion({
@@ -474,19 +461,4 @@ function Field({
       {children}
     </div>
   );
-}
-
-export function selectableProviderModels<
-  T extends { value: string; label: string },
->(models: readonly T[]) {
-  const seen = new Set<string>();
-  return models.filter((option) => {
-    const value = option.value.trim().toLowerCase();
-    const label = option.label.trim().toLowerCase();
-    if (!value || value === "auto" || label === "auto" || seen.has(value)) {
-      return false;
-    }
-    seen.add(value);
-    return true;
-  });
 }

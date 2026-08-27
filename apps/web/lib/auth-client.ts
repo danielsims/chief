@@ -1,3 +1,4 @@
+import { oauthProviderClient } from "@better-auth/oauth-provider/client";
 import {
   deviceAuthorizationClient,
   organizationClient,
@@ -6,5 +7,9 @@ import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
-  plugins: [deviceAuthorizationClient(), organizationClient()],
+  plugins: [
+    deviceAuthorizationClient(),
+    oauthProviderClient(),
+    organizationClient(),
+  ],
 });
