@@ -140,12 +140,40 @@ export async function recentConversationMessages(
   job: AgentJob,
   principal: AgentPrincipal,
   conversationId: string,
+  threadRootId?: string,
 ) {
-  const result = await listMessages(env, job, principal, {
-    channelId: conversationId,
-    limit: 40,
-  });
+  const url = new URL("https://conversation.internal/messages");
+  url.searchParams.set("limit", "12");
+  if (threadRootId) url.searchParams.set("threadRootId", threadRootId);
+  const response = await env.CONVERSATIONS.get(
+    env.CONVERSATIONS.idFromName(`${job.workspaceId}:${conversationId}`),
+  ).fetch(
+    withTrustedContext(
+      new Request(url, {
+        headers: { "x-chief-internal-operation": "agent-history" },
+      }),
+      {
+        principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: job.workspaceId,
+        conversationId,
+      },
+    ),
+  );
+  const result = await responseObject(
+    response,
+    "Conversation history could not be read.",
+  );
   return messagePageSchema.parse(result).messages;
+}
+
+export function inheritedThreadRootId(job: AgentJob, input: JsonObject) {
+  const requested = optionalString(input, "threadRootId");
+  if (requested) return requested;
+  const targetConversationId = requiredString(input, "channelId");
+  const sourceConversationId = optionalString(job.payload, "conversationId");
+  if (targetConversationId !== sourceConversationId) return undefined;
+  return optionalString(job.payload, "threadRootId");
 }
 
 export const hostedChannelTools = [
@@ -176,7 +204,7 @@ export const hostedChannelTools = [
       const idempotencyKey =
         optionalString(input, "idempotencyKey") ??
         `${job.id}:${conversationId}`;
-      const threadRootId = optionalString(input, "threadRootId");
+      const threadRootId = inheritedThreadRootId(job, input);
       const content = requiredString(input, "content");
       await onboardingMessagePacer.beforePost(job.workspaceId, {
         content,

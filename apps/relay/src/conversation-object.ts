@@ -63,6 +63,7 @@ export class ConversationObject extends DurableObject<Env> {
     const listReplies = this.replies.bind(this);
     const listReactions = this.reactions.bind(this);
     const listMessages = this.listMessages.bind(this);
+    const agentHistory = this.agentHistory.bind(this);
     const createSocketTicket = this.createSocketTicket.bind(this);
     const react = this.react.bind(this);
     const upsertActivity = (
@@ -115,6 +116,13 @@ export class ConversationObject extends DurableObject<Env> {
         return value;
       });
       if (request.method === "GET") {
+        if (
+          request.headers.get("x-chief-internal-operation") === "agent-history"
+        ) {
+          return yield* sync("conversation.agent_history", () =>
+            agentHistory(request),
+          );
+        }
         const pathname = new URL(request.url).pathname;
         if (pathname.endsWith("/events")) {
           return yield* sync("conversation.events.list", () =>
@@ -275,7 +283,28 @@ export class ConversationObject extends DurableObject<Env> {
       200,
     );
     const query = url.searchParams.get("q")?.trim();
+    if (!query && url.searchParams.get("recent") === "true") {
+      return json(this.store.recent(limit));
+    }
     return json(this.store.list(after, limit, query));
+  }
+
+  private agentHistory(request: Request) {
+    const url = new URL(request.url);
+    const limit = parseConversationPageInteger(
+      url.searchParams.get("limit"),
+      30,
+      1,
+      100,
+    );
+    const rawThreadRootId = url.searchParams.get("threadRootId");
+    const threadRootId = rawThreadRootId
+      ? messageIdSchema.parse(rawThreadRootId)
+      : undefined;
+    return json({
+      messages: this.store.history(threadRootId, limit),
+      nextSequence: null,
+    });
   }
 
   private replies(request: Request, rootId: string) {

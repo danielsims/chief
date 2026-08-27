@@ -1,12 +1,15 @@
 import { z } from "zod";
 
+import { normalizedChannelMentions } from "@chief/agent-runtime/channel-message-mentions";
 import {
   agentIdSchema,
+  channelMemberAddCommandSchema,
   conversationMessageSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 
 const dispatchMessageSchema = z
@@ -62,13 +65,26 @@ export async function dispatchWorkspaceMessage(
     message.conversationId,
     context.principal,
   );
+  const mentions = normalizedChannelMentions({
+    availableAgentIds: store.workspaceAgentIds(),
+    content: message.body,
+    explicitMentions: message.mentions,
+  });
+  await addMentionedAgentsToChannel({
+    context,
+    conversationId: message.conversationId,
+    mentions,
+    messageId: message.id,
+    store,
+  });
   const agentIds = eligibleAgentIds(
     store,
     channel,
-    message.mentions,
+    mentions,
     replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
   );
+  const threadRootId = owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
 
   await Promise.all(
@@ -88,10 +104,8 @@ export async function dispatchWorkspaceMessage(
             conversationId: message.conversationId,
             messageId: message.id,
             workflowId,
-            ...(message.threadRootId
-              ? { threadRootId: message.threadRootId }
-              : undefined),
-            mentions: message.mentions,
+            ...(threadRootId ? { threadRootId } : undefined),
+            mentions,
             instruction: dispatchedInstruction(message),
           },
           availableAt: now,
@@ -128,6 +142,55 @@ export async function dispatchWorkspaceMessage(
   );
 
   return json({ agentIds });
+}
+
+async function addMentionedAgentsToChannel(input: {
+  context: ReturnType<typeof readTrustedContext>;
+  conversationId: string;
+  mentions: readonly string[];
+  messageId: string;
+  store: WorkspaceChannelStore;
+}) {
+  const missing = input.mentions.filter(
+    (agentId) =>
+      input.store.memberRole("agent", agentId) &&
+      !input.store.channelMembership(input.conversationId, "agent", agentId),
+  );
+  if (missing.length === 0) return;
+  const commandId = await deterministicUuid(
+    `${input.context.workspaceId}:${input.messageId}:mention-membership`,
+  );
+  const command = channelMemberAddCommandSchema.parse({
+    commandId,
+    protocolVersion: 1,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      conversationId: input.conversationId,
+      members: missing.map((principalId) => ({
+        kind: "agent" as const,
+        principalId,
+      })),
+    },
+  });
+  await new WorkspaceChannelMembership(input.store).channelsMembersAdd(
+    new Request("https://workspace.internal/channels", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    }),
+    input.context,
+    true,
+  );
+}
+
+function owningThreadRoot(
+  channelKind: "channel" | "direct",
+  message: z.infer<typeof conversationMessageSchema>,
+  mentions: readonly string[],
+) {
+  if (message.threadRootId) return message.threadRootId;
+  if (channelKind === "channel" && mentions.length > 0) return message.id;
+  return undefined;
 }
 
 function dispatchedInstruction(

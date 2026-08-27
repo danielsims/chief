@@ -90,12 +90,18 @@ export function isConversationHydrated(
   surface: "direct" | "channel",
   channelId?: string,
 ) {
-  return (
-    activeCache?.workspaceId === workspaceId &&
-    activeCache.hydratedConversations.has(
+  if (activeCache?.workspaceId !== workspaceId) return false;
+  if (
+    !activeCache.hydratedConversations.has(
       conversationHydrationKey(chatId, surface, channelId),
-    )
-  );
+    ) ||
+    !activeCache.transcripts.has(chatId)
+  ) {
+    return false;
+  }
+  return surface === "direct"
+    ? true
+    : Boolean(channelId && activeCache.channelEvents.has(channelId));
 }
 
 export function cachedTranscript(workspaceId: string, chatId: string) {
@@ -120,13 +126,35 @@ export function cachedChannelEvents(workspaceId: string, channelId: string) {
     : undefined;
 }
 
+/**
+ * Reconciles a relay snapshot with events already observed on the live stream.
+ * Relay snapshots are bounded and can finish after a newer subscription event,
+ * so absence from a snapshot is not evidence that an event was deleted.
+ */
+export function reconcileChannelEvents(
+  current: readonly ChannelEvent[],
+  snapshot: readonly ChannelEvent[],
+) {
+  const eventsById = new Map(current.map((event) => [event.id, event]));
+  for (const event of snapshot) eventsById.set(event.id, event);
+  return [...eventsById.values()].sort(
+    (left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+  );
+}
+
 export function cacheChannelEvents(
   workspaceId: string,
   channelId: string,
   events: ChannelEvent[],
 ) {
   if (activeCache?.workspaceId !== workspaceId) return false;
-  setBounded(activeCache.channelEvents, channelId, events);
+  const current = activeCache.channelEvents.get(channelId) ?? [];
+  setBounded(
+    activeCache.channelEvents,
+    channelId,
+    reconcileChannelEvents(current, events),
+  );
   return true;
 }
 
@@ -139,8 +167,11 @@ export function cacheChannelEvents(
 export function cacheChannelEvent(workspaceId: string, event: ChannelEvent) {
   if (activeCache?.workspaceId !== workspaceId) return false;
   const current = activeCache.channelEvents.get(event.channelId) ?? [];
-  if (current.some((candidate) => candidate.id === event.id)) return true;
-  setBounded(activeCache.channelEvents, event.channelId, [...current, event]);
+  setBounded(
+    activeCache.channelEvents,
+    event.channelId,
+    reconcileChannelEvents(current, [event]),
+  );
   return true;
 }
 

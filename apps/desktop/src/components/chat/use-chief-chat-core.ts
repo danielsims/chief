@@ -199,21 +199,14 @@ export function useChiefChatCore({
   const mentionCandidates = useMemo(
     () =>
       orderMentionCandidatesByMembership(
-        Object.entries(WORKSPACE_AGENT_IDENTITIES)
-          .filter(
-            ([id]) =>
-              id !== "setup" ||
-              directAgent?.id === "setup" ||
-              Boolean(channel?.agentIds.includes("setup")),
-          )
-          .map(([id, identity]) => ({
-            id,
-            ...identity,
-            member:
-              directAgent?.id === id ||
-              addedAgentIds.has(id) ||
-              Boolean(channel?.agentIds.includes(id)),
-          })),
+        Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([id, identity]) => ({
+          id,
+          ...identity,
+          member:
+            directAgent?.id === id ||
+            addedAgentIds.has(id) ||
+            Boolean(channel?.agentIds.includes(id)),
+        })),
       ),
     [addedAgentIds, channel?.agentIds, directAgent?.id],
   );
