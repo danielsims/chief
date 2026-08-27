@@ -6,8 +6,9 @@ export const messagesSparing = definePromptPart({
   summary: "Publish chat messages only for real milestones, not narration.",
   when: always,
   render:
-    () => `- Send chat messages sparingly. The opening confirmation is your first
-  message; after that, only send another message when a human must act, a real
+    () => `- Send chat messages sparingly. Do not post a generic acknowledgement before
+  beginning work; use a reaction when the current conversation supports one.
+  Send a message only when a human must act, a real
   blocker stops you, work is verified complete, or a meaningful phase of a
   longer task has finished. During a long tool-heavy turn, do not leave the
   user with only silent activity telemetry. After a prolonged stretch or a

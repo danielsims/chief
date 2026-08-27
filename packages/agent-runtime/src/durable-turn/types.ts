@@ -50,7 +50,7 @@ const messageSchema = z.object({
 const taskSchema = z.object({
   id: z.number().int().positive(),
   text: z.string().min(1).max(500),
-  status: z.enum(["pending", "in_progress", "completed"]),
+  status: z.enum(["pending", "in_progress", "waiting", "completed"]),
   evidence: z.string().min(1).optional(),
 });
 
@@ -132,6 +132,17 @@ export const durableTurnSchema = z.object({
   instruction: z.string().min(1),
   systemPrompt: z.string().min(1),
   browserEnabled: z.boolean(),
+  completion: z
+    .object({
+      requiredToolNames: z.string().min(1).array().max(32),
+      browserMustRemainOpen: z.boolean(),
+      rejectedFinishes: z.number().int().nonnegative(),
+    })
+    .default({
+      requiredToolNames: [],
+      browserMustRemainOpen: false,
+      rejectedFinishes: 0,
+    }),
   phase: phaseSchema,
   settled: z.boolean(),
   revision: z.number().int().nonnegative(),
@@ -162,6 +173,10 @@ export interface CreateDurableTurn {
   instruction: string;
   systemPrompt: string;
   browserEnabled: boolean;
+  completion?: {
+    requiredToolNames: readonly string[];
+    browserMustRemainOpen: boolean;
+  };
   history?: readonly AgentInferenceMessage[];
 }
 

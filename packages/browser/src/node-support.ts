@@ -148,7 +148,7 @@ export interface AgentBrowserSessionOptions {
   autoConnect?: boolean;
   cdp?: number | string;
   profile?: string;
-  restore?: boolean;
+  restore?: boolean | string;
   colorScheme?: "dark" | "light" | "no-preference";
 }
 

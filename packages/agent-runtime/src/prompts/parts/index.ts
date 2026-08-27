@@ -23,7 +23,6 @@ import { handoffFlag } from "./handoff-flag.js";
 import { handoffLastResort } from "./handoff-last-resort.js";
 import { inputMinimal } from "./input-minimal.js";
 import { integrationPrepare } from "./integration-prepare.js";
-import { investigateFirst } from "./investigate-first.js";
 import { linksNavigation } from "./links-navigation.js";
 import { membershipHumans } from "./membership-humans.js";
 import { messagesSparing } from "./messages-sparing.js";
@@ -31,20 +30,17 @@ import { missionCell } from "./mission-cell.js";
 import { missionControl } from "./mission-control.js";
 import { modeChannels } from "./mode-channels.js";
 import { oauthClaim } from "./oauth-claim.js";
-import { openConfirmation } from "./open-confirmation.js";
 import { pluginsDiscover } from "./plugins-discover.js";
 import { primitivesChannels } from "./primitives-channels.js";
 import { projectsCheckout } from "./projects-checkout.js";
 import { reactionsAgent } from "./reactions-agent.js";
 import { scheduledInput } from "./scheduled-input.js";
 import { scheduledTriggers } from "./scheduled-triggers.js";
-import { setupDrive } from "./setup-drive.js";
 import { toneSales } from "./tone-sales.js";
 import { toneTeammate } from "./tone-teammate.js";
 import { toolsQuiet } from "./tools-quiet.js";
 
 export const promptParts: readonly PromptPart[] = [
-  openConfirmation,
   toneTeammate,
   toneSales,
   messagesSparing,
@@ -65,10 +61,8 @@ export const promptParts: readonly PromptPart[] = [
   projectsCheckout,
   evidenceProbe,
   delegateSpecialist,
-  investigateFirst,
   assumeReversible,
   integrationPrepare,
-  setupDrive,
   actionsStructured,
   inputMinimal,
   oauthClaim,

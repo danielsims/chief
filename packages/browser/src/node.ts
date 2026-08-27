@@ -91,6 +91,10 @@ export class AgentBrowserSession {
       this.options.colorScheme ?? "dark",
     ];
     if (this.options.restore === true) args.push("--restore");
+    const restoreName = parseBrowserText(this.options.restore);
+    if (restoreName) {
+      args.push("--restore", restoreName);
+    }
     if (this.options.executablePath) {
       args.push("--executable-path", this.options.executablePath);
     }

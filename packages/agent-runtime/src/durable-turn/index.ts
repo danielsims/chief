@@ -1,5 +1,7 @@
 export { DurableTurnRunner } from "./runner.js";
+export { RecoverableToolError } from "./tool-errors.js";
 export { durableTodoTools } from "./plan.js";
+export { measureDurableTurnState, serializedBytes } from "./state-size.js";
 export type {
   AdvanceResult,
   CreateDurableTurn,
@@ -9,3 +11,4 @@ export type {
   DurableTurnObserver,
   ToolEffect,
 } from "./types.js";
+export type { DurableTurnStateSize } from "./state-size.js";

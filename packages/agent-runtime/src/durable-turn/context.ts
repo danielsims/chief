@@ -3,11 +3,16 @@ import type {
   AgentInferenceMessage,
   AgentInferenceTool,
 } from "@chief/agent-computer";
+import type { JsonValue } from "@chief/relay-contracts";
 
 import type { DurableTurn } from "./types.js";
+import { serializedBytes } from "./state-size.js";
 import { checkpointMemorySchema } from "./types.js";
 
 const RECENT_MESSAGE_COUNT = 10;
+const MAX_DURABLE_STATE_BYTES = 256_000;
+const MAX_CHECKPOINT_EVIDENCE = 12;
+const MAX_EVIDENCE_CHARS = 6_000;
 
 export interface ContextPolicy {
   compactionRatio: number;
@@ -70,6 +75,9 @@ export function shouldCompact(input: {
   }
   const model = input.inference.model;
   if (!model) return false;
+  if (serializedBytes(input.turn) >= MAX_DURABLE_STATE_BYTES) {
+    return true;
+  }
   const request = {
     messages: inferenceMessages(input.turn),
     tools: input.tools,
@@ -95,13 +103,16 @@ export async function compactTurn(input: {
   if (!model) {
     throw new Error("Compaction requires model context metadata.");
   }
-  const evidence = input.turn.tools
-    .filter((tool) => tool.state === "completed" && tool.result !== undefined)
-    .map((tool) => ({
-      callId: tool.call.id,
-      name: tool.call.name,
-      result: tool.result ?? null,
-    }));
+  const evidence = compactCheckpointEvidence([
+    ...(input.turn.checkpoint?.evidence ?? []),
+    ...input.turn.tools
+      .filter((tool) => tool.state === "completed" && tool.result !== undefined)
+      .map((tool) => ({
+        callId: tool.call.id,
+        name: tool.call.name,
+        result: tool.result ?? null,
+      })),
+  ]);
   const response = await input.inference.complete({
     messages: [
       {
@@ -159,6 +170,9 @@ runtime-verified tool evidence outrank narrative history.
 Exact original instruction:
 ${turn.instruction}
 
+Previous durable checkpoint:
+${JSON.stringify(turn.checkpoint?.memory ?? null)}
+
 Authoritative task plan:
 ${JSON.stringify(turn.plan)}
 
@@ -172,6 +186,28 @@ ${turn.messages
       `[message:${index + 1}] ${message.role}: ${message.content ?? JSON.stringify(message.toolCalls ?? [])}`,
   )
   .join("\n\n")}`;
+}
+
+export function boundedEvidenceValue(value: JsonValue): JsonValue {
+  const serialized = JSON.stringify(value);
+  if (serialized.length <= MAX_EVIDENCE_CHARS) return value;
+  return `[truncated durable evidence, original characters: ${serialized.length}] ${serialized.slice(0, MAX_EVIDENCE_CHARS)}`;
+}
+
+export function compactCheckpointEvidence(
+  evidence: readonly {
+    callId: string;
+    name: string;
+    result: JsonValue;
+  }[],
+) {
+  const byCallId = new Map(
+    evidence.map((item) => [
+      item.callId,
+      { ...item, result: boundedEvidenceValue(item.result) },
+    ]),
+  );
+  return [...byCallId.values()].slice(-MAX_CHECKPOINT_EVIDENCE);
 }
 
 function parseCheckpoint(content: string | null) {

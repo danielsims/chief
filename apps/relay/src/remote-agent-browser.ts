@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { AgentBrowser, AgentBrowserTarget } from "@chief/agent-computer";
+import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import {
   browserSnapshotSchema,
   browserStreamSchema,
@@ -26,25 +27,27 @@ export class RemoteAgentBrowser implements AgentBrowser {
   }
 
   async click(target: AgentBrowserTarget) {
-    return await this.client.json(
-      "/v1/browser/click",
-      browserSnapshotSchema,
-      target,
+    return await this.recoverableInteraction("click", () =>
+      this.client.json("/v1/browser/click", browserSnapshotSchema, target),
     );
   }
 
   async type(target: AgentBrowserTarget, text: string) {
-    return await this.client.json("/v1/browser/fill", browserSnapshotSchema, {
-      target,
-      text,
-    });
+    return await this.recoverableInteraction("fill", () =>
+      this.client.json("/v1/browser/fill", browserSnapshotSchema, {
+        target,
+        text,
+      }),
+    );
   }
 
   async select(target: AgentBrowserTarget, values: readonly string[]) {
-    return await this.client.json("/v1/browser/select", browserSnapshotSchema, {
-      target,
-      values,
-    });
+    return await this.recoverableInteraction("select", () =>
+      this.client.json("/v1/browser/select", browserSnapshotSchema, {
+        target,
+        values,
+      }),
+    );
   }
 
   async screenshot() {
@@ -63,5 +66,19 @@ export class RemoteAgentBrowser implements AgentBrowser {
       "/v1/browser/close",
       z.object({ closed: z.boolean() }),
     );
+  }
+
+  private async recoverableInteraction<T>(
+    action: string,
+    execute: () => Promise<T>,
+  ) {
+    try {
+      return await execute();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error.";
+      throw new RecoverableToolError(
+        `Browser ${action} failed. Inspect the current page before trying another interaction. ${detail}`,
+      );
+    }
   }
 }

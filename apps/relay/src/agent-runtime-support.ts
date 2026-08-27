@@ -10,6 +10,19 @@ import { withTrustedContext } from "./internal-context";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 
+export type TurnFailure = {
+  readonly message: string;
+  readonly cause?: unknown;
+  readonly code?: string;
+  readonly status?: number;
+};
+
+export function internalFailureMessage(failure: TurnFailure) {
+  return failure.cause instanceof Error
+    ? failure.cause.message
+    : failure.message;
+}
+
 const hostedLeaseSchema = z.object({
   job: agentJobSchema,
   leaseToken: z.string(),
@@ -90,6 +103,17 @@ export function resolveInferenceApiKey(
           secretValueSchema.parse(value),
         );
         if (document.value) return document.value;
+      } else if (response.status !== 404) {
+        const detail = yield* attempt("agent.secret.error.decode", () =>
+          response.text(),
+        );
+        return yield* sync("agent.secret.error", () => {
+          throw new Error(
+            `Inference credential lookup failed (${response.status})${
+              detail ? `: ${detail.slice(0, 500)}` : "."
+            }`,
+          );
+        });
       }
     }
     if (env.OPENCODE_API_KEY) return env.OPENCODE_API_KEY;

@@ -240,6 +240,40 @@ export class AgentJobQueue {
     return json({ leaseExpiresAt });
   }
 
+  supersedeConversation(conversationId: string, replacementJobId: string) {
+    const now = new Date().toISOString();
+    const superseded: string[] = [];
+    for (const row of this.storage.sql
+      .exec<{ job_json: string }>(
+        "SELECT job_json FROM jobs WHERE status IN ('pending', 'leased')",
+      )
+      .toArray()) {
+      const previous = agentJobSchema.parse(JSON.parse(row.job_json));
+      if (
+        previous.id === replacementJobId ||
+        previous.kind !== "conversation.message" ||
+        previous.payload.conversationId !== conversationId
+      ) {
+        continue;
+      }
+      const job = agentJobSchema.parse({
+        ...previous,
+        status: "completed",
+        leaseExpiresAt: null,
+        updatedAt: now,
+      });
+      this.storage.sql.exec(
+        `UPDATE jobs SET job_json = ?, status = 'completed', lease_token = NULL,
+         lease_expires_at = NULL, updated_at = ? WHERE job_id = ?`,
+        JSON.stringify(job),
+        now,
+        job.id,
+      );
+      superseded.push(job.id);
+    }
+    return superseded;
+  }
+
   maintainHostedLease(
     jobId: string,
     currentToken: string,

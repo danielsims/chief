@@ -5,6 +5,7 @@ import type { ExecRequest, ExecResult } from "@chief/relay-contracts";
 
 interface RunOptions {
   cwd: string;
+  workspaceRoot: string;
   maxOutputBytes: number;
 }
 
@@ -13,12 +14,14 @@ export async function runProcess(
   options: RunOptions,
 ): Promise<ExecResult> {
   const startedAt = performance.now();
-  const [command, ...arguments_] = input.argv;
+  const [command, ...arguments_] = input.argv.map((value) =>
+    materializeWorkspacePath(value, options.workspaceRoot),
+  );
   if (!command) throw new Error("An executable is required.");
   const child = spawn(command, arguments_, {
     cwd: options.cwd,
     shell: false,
-    env: safeEnvironment(options.cwd),
+    env: safeEnvironment(options.workspaceRoot),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const output = createOutputCollector(options.maxOutputBytes);
@@ -39,11 +42,19 @@ export async function runProcess(
   return {
     exitCode: result.code,
     signal: result.signal,
-    stdout: output.stdout(),
-    stderr: output.stderr(),
+    stdout: virtualizeWorkspacePath(output.stdout(), options.workspaceRoot),
+    stderr: virtualizeWorkspacePath(output.stderr(), options.workspaceRoot),
     truncated: output.truncated(),
     durationMillis: Math.round(performance.now() - startedAt),
   };
+}
+
+function materializeWorkspacePath(value: string, workspaceRoot: string) {
+  return value.replaceAll("/workspace", workspaceRoot);
+}
+
+function virtualizeWorkspacePath(value: string, workspaceRoot: string) {
+  return value.replaceAll(workspaceRoot, "/workspace");
 }
 
 function safeEnvironment(workspaceRoot: string): NodeJS.ProcessEnv {

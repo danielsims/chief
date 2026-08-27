@@ -47,7 +47,8 @@ void test("browser and projects rules appear when licensed", () => {
     deployment: "cloud",
   });
   assert.match(prompt.text, /projectsCreateCheckout/u);
-  assert.match(prompt.text, /localTools\.browserOpen/u);
+  assert.match(prompt.text, /Use the visible browser only/u);
+  assert.match(prompt.text, /owning conversation/u);
 });
 
 void test("the router reports the included parts for diagnostics", () => {

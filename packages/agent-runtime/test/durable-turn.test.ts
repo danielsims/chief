@@ -100,6 +100,71 @@ void test("an interrupted non-replayable tool pauses instead of replaying", asyn
   });
 });
 
+void test("a rejected idempotent tool returns control to the agent", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const inference = fakeInference(() => {
+    modelCalls += 1;
+    return modelCalls === 1
+      ? {
+          content: null,
+          toolCalls: [
+            {
+              id: "browser-1",
+              name: "browser_open",
+              arguments: { url: "https://example.com" },
+            },
+          ],
+        }
+      : {
+          content: "The browser failed, so I used another source.",
+          toolCalls: [],
+        };
+  });
+  const browser: DurableTool = {
+    definition: {
+      name: "browser_open",
+      description: "Open a page.",
+      parameters: { type: "object", properties: {} },
+    },
+    effect: "idempotent",
+  };
+  await runner(persistence).create(baseTurn());
+  await runner(persistence).advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+  const rejected = await runner(persistence).advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: {
+      execute: () => Promise.reject(new Error("browser host timed out")),
+    },
+  });
+
+  assert.equal(rejected.kind, "advanced");
+  assert.deepEqual(rejected.turn.phase, {
+    kind: "runnable",
+    next: { kind: "infer" },
+  });
+  assert.deepEqual(rejected.turn.tools[0]?.result, {
+    ok: false,
+    error: "browser host timed out",
+  });
+
+  const completed = await runner(persistence).advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+  assert.equal(completed.kind, "terminal");
+  assert.equal(completed.turn.phase.kind, "completed");
+});
+
 void test("compaction uses the model context window and configurable ratio", async () => {
   const persistence = new MemoryCellPersistence();
   const turn = await runner(persistence).create(baseTurn());
@@ -127,6 +192,59 @@ void test("compaction uses the model context window and configurable ratio", asy
     }),
     false,
   );
+});
+
+void test("storage pressure compacts and bounds long-running tool evidence", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const inference = fakeInference((request) => {
+    if (request.tools.length === 0) {
+      return {
+        content: JSON.stringify({
+          objective: "Complete the durable task.",
+          completed: [],
+          active: ["Continue gathering evidence"],
+          criticalContext: [],
+          verifiedEvidence: [],
+          artifacts: [],
+          failedApproaches: [],
+          constraints: [],
+          nextAction: "Continue with the next probe.",
+          openQuestions: [],
+        }),
+        toolCalls: [],
+      };
+    }
+    modelCalls += 1;
+    return {
+      content: null,
+      toolCalls: [
+        {
+          id: `large-${modelCalls}`,
+          name: "read_probe",
+          arguments: { query: modelCalls },
+        },
+      ],
+    };
+  });
+  await runner(persistence).create(baseTurn());
+
+  for (let boundary = 0; boundary < 80; boundary += 1) {
+    await runner(persistence).advance({
+      inference,
+      tools: [readTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: {
+        execute: () =>
+          Promise.resolve({ content: "x".repeat(40_000), call: modelCalls }),
+      },
+    });
+  }
+
+  const turn = await runner(persistence).active();
+  assert.ok(turn?.checkpoint);
+  assert.ok(turn.tools.length < 12);
+  assert.ok(JSON.stringify(turn).length < 400_000);
 });
 
 void test("an agent cannot finish while its durable plan still has open work", async () => {
@@ -180,6 +298,116 @@ void test("an agent cannot finish while its durable plan still has open work", a
   assert.ok(task);
   assert.equal(task.status, "completed");
   assert.notEqual(task.evidence, "plan-complete");
+});
+
+void test("a visible browser request cannot finish before the page is open", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const inference = fakeInference(() => {
+    modelCalls += 1;
+    if (modelCalls === 1) {
+      return { content: "On it, opening TikTok now.", toolCalls: [] };
+    }
+    if (modelCalls === 2) {
+      return {
+        content: null,
+        toolCalls: [
+          {
+            id: "browser-1",
+            name: "browser_open",
+            arguments: { url: "https://www.tiktok.com/" },
+          },
+        ],
+      };
+    }
+    return { content: "TikTok is open in the browser.", toolCalls: [] };
+  });
+  await runner(persistence).create({
+    ...baseTurn(),
+    completion: {
+      requiredToolNames: ["browser_open"],
+      browserMustRemainOpen: true,
+    },
+  });
+  const browserTool: DurableTool = {
+    definition: {
+      name: "browser_open",
+      description: "Open the visible browser.",
+      parameters: { type: "object", properties: {} },
+    },
+    effect: "non_replayable",
+  };
+  for (let step = 0; step < 4; step += 1) {
+    await runner(persistence).advance({
+      inference,
+      tools: [browserTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: {
+        execute: () =>
+          Promise.resolve({ url: "https://www.tiktok.com/", title: "TikTok" }),
+      },
+    });
+  }
+  const turn = await runner(persistence).active();
+  assert.equal(modelCalls, 3);
+  assert.deepEqual(turn?.phase, {
+    kind: "completed",
+    result: "TikTok is open in the browser.",
+  });
+});
+
+void test("a bare speaker label is rejected as an empty response", async () => {
+  const persistence = new MemoryCellPersistence();
+  await runner(persistence).create(baseTurn());
+  await assert.rejects(
+    runner(persistence).advance({
+      inference: fakeInference(() => ({
+        content: "engineer: ",
+        toolCalls: [],
+      })),
+      tools: [],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: { execute: () => Promise.resolve(null) },
+    }),
+    /empty response/u,
+  );
+});
+
+void test("a durable turn stops an unchanged tool loop without limiting useful work", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const inference = fakeInference(() => {
+    modelCalls += 1;
+    return {
+      content: null,
+      toolCalls: [
+        {
+          id: `probe-${modelCalls}`,
+          name: "read_probe",
+          arguments: { query: "unchanged" },
+        },
+      ],
+    };
+  });
+  await runner(persistence).create(baseTurn());
+  let terminal;
+  for (let step = 0; step < 6; step += 1) {
+    const result = await runner(persistence).advance({
+      inference,
+      tools: [readTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: { execute: () => Promise.resolve({ value: "same" }) },
+    });
+    if (result.kind === "terminal") terminal = result;
+  }
+  assert.ok(terminal);
+  assert.equal(terminal.kind, "terminal");
+  assert.deepEqual(terminal.turn.phase, {
+    kind: "failed",
+    error:
+      "Agent stopped after repeating read_probe with the same arguments and result three times without progress.",
+  });
+  assert.equal(modelCalls, 3);
 });
 
 void test("a durable turn reports inference and tool lifecycle boundaries", async () => {

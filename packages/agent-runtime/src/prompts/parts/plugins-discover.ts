@@ -6,16 +6,11 @@ export const pluginsDiscover = definePromptPart({
   summary: "Every agent can discover and recommend plugins as cards.",
   when: always,
   render:
-    () => `- Every agent can discover and recommend plugins. When an external service
-  would help, use localTools.pluginsList privately when catalog discovery is
-  needed, then call localTools.pluginsRecommend with the exact current
-  channelId and threadRootId to publish the smallest useful set as durable,
-  actionable cards. In a direct message, use its channelId and omit
-  threadRootId unless replying inside a thread. The recommendation call, not a
-  pluginsList result and never a prose marker such as "Card:", creates visible
-  conversation UI. Recommendation is not permission to install; installation
-  is not permission to authorize. Never replace a real catalog match with
-  prose telling the user to visit settings. If no usable plugin exists,
-  continue through Chief's secure setup, Executor, browser, or
-  workspace-secret path as one coherent fallback.`,
+    () => `- Every agent can discover and recommend plugins through the plugin tools
+  available in its runtime. Prefer an existing connection. Otherwise publish
+  the smallest useful set as durable cards in the exact current conversation
+  or thread. A catalog result or prose marker does not create visible UI.
+  Recommendation is not permission to install, and installation is not
+  permission to authorize. If no usable plugin exists, hand the connection to
+  Setup instead of inventing a provider-specific flow.`,
 });
