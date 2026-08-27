@@ -51,18 +51,23 @@ read_secret BOOTSTRAP_TOKEN_SHA256
 read_secret GOOGLE_CLIENT_SECRET
 read_secret CLOUDFLARE_EMAIL_API_TOKEN
 read_secret COMPUTER_AUTH_SECRET
+read_secret RELAY_SECRET_KEY
 read_secret RELAY_OTLP_AUTHORIZATION
+read_secret RELAY_ID
 
 require_value BETTER_AUTH_SECRET
 require_value BOOTSTRAP_TOKEN_SHA256
 require_value AUTH_BASE_URL
 require_value AUTH_UI_ORIGIN
+require_value RELAY_SECRET_KEY
+require_value RELAY_ID
 
 mkdir -p "$state_dir" "$runtime_dir"
 umask 077
 : > "$runtime_env"
 
 for binding in \
+  RELAY_ID \
   RELAY_DEPLOYMENT \
   RELAY_TELEMETRY_MODE \
   RELAY_TELEMETRY_INCLUDE_CONTENT \
@@ -80,6 +85,7 @@ for binding in \
   CLOUDFLARE_EMAIL_API_TOKEN \
   COMPUTER_BASE_URL \
   COMPUTER_AUTH_SECRET \
+  RELAY_SECRET_KEY \
   EMAIL_FROM_ADDRESS \
   EMAIL_FROM_NAME
 do

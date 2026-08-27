@@ -10,7 +10,7 @@ import {
   Schema,
   Tracer,
 } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import {
   OtlpExporter,
   OtlpLogger,
@@ -68,6 +68,15 @@ const errorConsoleLogger = Logger.make<unknown, void>((options) => {
 });
 
 const errorConsoleLayer = Logger.layer([errorConsoleLogger]);
+
+const otlpHttpClientLayer = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.map(HttpClient.HttpClient, (client) =>
+    HttpClient.transformResponse(client, (response) =>
+      Effect.tap(response, (value) => value.arrayBuffer),
+    ),
+  ),
+).pipe(Layer.provide(FetchHttpClient.layer));
 
 export function attempt<A>(operation: string, run: () => A | PromiseLike<A>) {
   return Effect.tryPromise({
@@ -236,6 +245,7 @@ function runtimeFor(env: Env): RelayRuntime {
     endpoint ?? "",
     env.RELAY_OTLP_AUTHORIZATION ? "authorized" : "anonymous",
     env.RELAY_DEPLOYMENT,
+    env.RELAY_ID,
   ].join("\u0000");
   const existing = runtimes.get(key);
   if (existing) return existing;
@@ -263,6 +273,8 @@ function fullTelemetryRuntime(env: Env, endpoint: string): RelayRuntime {
   const resource = {
     serviceName: "chief-relay",
     attributes: {
+      "chief.relay.id": env.RELAY_ID,
+      "chief.relay.url": env.AUTH_BASE_URL.replace(/\/$/u, ""),
       "deployment.environment": env.RELAY_DEPLOYMENT,
     },
   };
@@ -282,23 +294,30 @@ function fullTelemetryRuntime(env: Env, endpoint: string): RelayRuntime {
     }),
   ).pipe(
     Layer.provide(OtlpSerialization.layerJson),
-    Layer.provide(FetchHttpClient.layer),
-  );
-  const runtime = ManagedRuntime.make(
-    Layer.merge(errorConsoleLayer, telemetry),
+    Layer.provide(otlpHttpClientLayer),
   );
   return {
-    run: (effect) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const flusher = yield* OtlpExporter.Flusher;
-          return yield* effect.pipe(
-            Effect.ensuring(
-              flusher.flush.pipe(Effect.timeoutOption("2 seconds")),
-            ),
-          );
-        }),
-      ),
+    async run(effect) {
+      // OTLP exporters own interval fibers. A Worker cannot leave those fibers
+      // attached to a module-global runtime after its request or alarm ends.
+      const runtime = ManagedRuntime.make(
+        Layer.merge(errorConsoleLayer, telemetry),
+      );
+      try {
+        return await runtime.runPromise(
+          Effect.gen(function* () {
+            const flusher = yield* OtlpExporter.Flusher;
+            return yield* effect.pipe(
+              Effect.ensuring(
+                flusher.flush.pipe(Effect.timeoutOption("2 seconds")),
+              ),
+            );
+          }),
+        );
+      } finally {
+        await runtime.dispose();
+      }
+    },
   };
 }
 

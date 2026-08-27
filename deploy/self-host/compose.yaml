@@ -11,6 +11,8 @@ x-relay-environment: &relay-environment
   CHIEF_STATE_DIR: /var/lib/chief
   CLOUDFLARE_CF_FETCH_ENABLED: "false"
   COMPUTER_AUTH_SECRET_FILE: /run/secrets/computer_auth_secret
+  RELAY_SECRET_KEY_FILE: /run/secrets/relay_secret_key
+  RELAY_ID_FILE: /run/secrets/relay_id
   COMPUTER_BASE_URL: http://computer:8080
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
@@ -29,6 +31,8 @@ x-relay-secrets: &relay-secrets
   - better_auth_secret
   - bootstrap_token_sha256
   - computer_auth_secret
+  - relay_secret_key
+  - relay_id
   - google_client_secret
 
 x-service-security: &service-security
@@ -53,7 +57,8 @@ services:
     volumes:
       - observability-data:/data
       - ./grafana/chief-agent-observability.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/chief-agent-observability.yaml:ro
-      - ./grafana/chief-agent-observability.json:/otel-lgtm/grafana/dashboards/chief/chief-agent-observability.json:ro
+      - ./grafana/dashboards/chief:/otel-lgtm/grafana/dashboards/chief:ro
+      - ./grafana/tempo-config.yaml:/otel-lgtm/tempo-config.yaml:ro
     networks:
       - edge
     restart: unless-stopped
@@ -248,6 +253,10 @@ secrets:
     file: ./secrets/cloudflare_tunnel_token
   computer_auth_secret:
     file: ./secrets/computer_auth_secret
+  relay_secret_key:
+    file: ./secrets/relay_secret_key
+  relay_id:
+    file: ./secrets/relay_id
   computer_browser_encryption_key:
     file: ./secrets/computer_browser_encryption_key
   computer_browser_stream_secret:

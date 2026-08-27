@@ -25,6 +25,11 @@ The default is an HTTP loopback environment at `http://localhost:8080`. Edit
 `.env` before starting when native devices or external clients need a stable
 HTTPS origin.
 
+Initialization also creates a stable public relay identifier in
+`secrets/relay_id`. Keep that file with the relay's persisted data when moving
+or restoring the deployment. Clients and observability use the identifier to
+distinguish relays even when their hostname changes.
+
 The `computer` service is a separate container in the same stack. It gives each
 workspace agent an isolated persistent root with shell, Git, files, Chromium,
 and a live browser viewport. Run it by itself with:
@@ -88,8 +93,18 @@ pnpm self-host:up:observability
 
 This sends OTLP data directly from the relay container to the bundled local
 collector. Grafana opens with the provisioned **Chief Agent Observability**
-dashboard, where agent and conversation filters lead to the underlying trace
-waterfalls. Trace payload content remains disabled by default.
+dashboard, where relay, workspace, agent, and conversation filters lead to the
+underlying trace waterfalls. The dashboard tracks p95 agent duration and total
+traced execution time in one-minute, one-hour, and one-day buckets by workspace.
+Relay filters use the stable relay identifier rather than its current URL.
+This gives local performance changes stable hill-climbing metrics without
+conflating traced execution with Cloudflare's billed Durable Object duration.
+Trace payload content remains disabled by default.
+
+The Cloudflare deployment deliberately uses error-only telemetry. Full OTLP
+exporters own interval fibers and outbound I/O that prevent Durable Objects
+from hibernating promptly, so detailed tracing belongs in this opt-in local
+profile until cloud export is moved outside the object lifecycle.
 
 `down` preserves all data. To intentionally destroy the local relay, stop the
 stack and remove its named volumes explicitly with Docker Compose's `--volumes`
