@@ -72,6 +72,7 @@ export const defaultAgentConfig = agentConfigSchema.parse({
   inference: {
     provider: "opencode",
     model: "opencode-go/deepseek-v4-flash",
+    secretRef: "opencode",
   },
   approvals: "auto",
   capabilities: [],

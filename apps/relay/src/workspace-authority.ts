@@ -2,12 +2,11 @@ import type {
   AuthenticatedIdentity,
   CreateWorkspaceCommand,
   Principal,
-  UserPrincipal,
+  ProvisionWorkspaceCommand,
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
   commandIdSchema,
-  hexPubkeySchema,
   organizationWorkspaceJoinResultSchema,
   parseJsonObject,
   workspaceInviteClaimResultSchema,
@@ -20,14 +19,14 @@ import {
   withTrustedContext,
   withTrustedIdentity,
 } from "./internal-context";
-import { releaseInternalResponse } from "./internal-response";
 import {
   registerWorkspaceOrganization,
   registerWorkspaceOrganizationMember,
+  removeWorkspaceOrganization,
   requireWorkspaceOrganizationMember,
 } from "./organization-tenancy";
 import { recordProductEvents } from "./product-events";
-import { workspaceOnboardingInstruction } from "./workspace-onboarding-job";
+import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 export {
@@ -42,17 +41,19 @@ interface WorkspaceDirectoryEntry {
   website: string;
   command: CreateWorkspaceCommand | null;
   createdAt: string;
+  created: boolean;
 }
 
 export async function createManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
-  command: CreateWorkspaceCommand,
+  provision: ProvisionWorkspaceCommand,
   context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
   }
+  const command = provision.workspace;
   const directory = accountStub(env, identity.userId);
   const directoryResponse = await directory.fetch(
     withTrustedAccountIdentity(identity, {
@@ -66,30 +67,39 @@ export async function createManagedWorkspace(
   );
   if (!directoryResponse.ok) return directoryResponse;
   const entry: WorkspaceDirectoryEntry = await directoryResponse.json();
-  await registerWorkspaceOrganization(env, {
-    identity,
-    name: command.name,
-    website: command.website,
-    workspaceId: entry.workspaceId,
-  });
-  const response = await workspaceStub(env, entry.workspaceId).fetch(
-    withTrustedIdentity(
-      {
-        identity,
-        requestId: command.commandId,
-        workspaceId: entry.workspaceId,
-      },
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-chief-internal-operation": "create-managed",
+  let response: Response;
+  try {
+    await registerWorkspaceOrganization(env, {
+      identity,
+      name: command.name,
+      website: command.website,
+      workspaceId: entry.workspaceId,
+    });
+    response = await workspaceStub(env, entry.workspaceId).fetch(
+      withTrustedIdentity(
+        {
+          identity,
+          requestId: command.commandId,
+          workspaceId: entry.workspaceId,
         },
-        body: JSON.stringify(command),
-      },
-    ),
-  );
-  if (!response.ok) return response;
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "create-managed",
+          },
+          body: JSON.stringify(provision),
+        },
+      ),
+    );
+    if (!response.ok) {
+      if (entry.created) await rollbackProvisioning(env, identity, entry);
+      return response;
+    }
+  } catch (error) {
+    if (entry.created) await rollbackProvisioning(env, identity, entry);
+    throw error;
+  }
   recordProductEvents(env, ["signup", "workspace-created"], {
     kind: "user",
     userId: identity.userId,
@@ -113,6 +123,40 @@ export async function createManagedWorkspace(
     await onboarding;
   }
   return response;
+}
+
+async function rollbackProvisioning(
+  env: Env,
+  identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
+  entry: WorkspaceDirectoryEntry,
+) {
+  const workspace = workspaceStub(env, entry.workspaceId);
+  await Promise.allSettled([
+    accountStub(env, identity.userId).fetch(
+      withTrustedAccountIdentity(identity, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "remove-workspace",
+        },
+        body: JSON.stringify({ workspaceId: entry.workspaceId }),
+      }),
+    ),
+    workspace.fetch(
+      withTrustedIdentity(
+        {
+          identity,
+          requestId: crypto.randomUUID(),
+          workspaceId: entry.workspaceId,
+        },
+        {
+          method: "POST",
+          headers: { "x-chief-internal-operation": "delete-owned" },
+        },
+      ),
+    ),
+    removeWorkspaceOrganization(env, entry.workspaceId),
+  ]);
 }
 export async function activeManagedWorkspace(
   env: Env,
@@ -428,73 +472,4 @@ export async function routeChannelOperation(
     },
   );
   return workspaceStub(env, input.workspaceId).fetch(trusted);
-}
-
-async function enqueueOnboarding(
-  env: Env,
-  identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
-  entry: WorkspaceDirectoryEntry & { command: CreateWorkspaceCommand },
-  repairTerminal: boolean,
-) {
-  const principal: UserPrincipal = {
-    kind: "user",
-    userId: identity.userId,
-    pubkey: hexPubkeySchema.parse(identity.pubkey),
-    workspaceId: entry.workspaceId,
-    role: "owner",
-  };
-  const occurredAt = entry.createdAt;
-  const jobId = crypto.randomUUID();
-  const operation = repairTerminal ? "ensure" : "enqueue";
-  const request = new Request(`https://agent.internal/${operation}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-chief-workflow-id": jobId,
-    },
-    body: JSON.stringify({
-      commandId: entry.command.commandId,
-      protocolVersion: 1,
-      occurredAt,
-      payload: {
-        id: jobId,
-        agentId: "chief",
-        kind: "workspace.onboarding",
-        payload: {
-          workflowId: jobId,
-          name: entry.command.name,
-          website: entry.command.website,
-          runtime: entry.command.runtime,
-          inferenceProvider: entry.command.inferenceProvider,
-          inferenceModel: entry.command.inferenceModel,
-          selectedApps: entry.command.selectedApps,
-          instruction: workspaceOnboardingInstruction({
-            name: entry.command.name,
-            website: entry.command.website,
-            selectedApps: entry.command.selectedApps,
-          }),
-        },
-        availableAt: occurredAt,
-      },
-    }),
-  });
-  const stub = env.AGENTS.get(
-    env.AGENTS.idFromName(`${entry.workspaceId}:chief`),
-  );
-  const response = await stub.fetch(
-    withTrustedContext(request, {
-      principal,
-      requestId: entry.command.commandId,
-      workspaceId: entry.workspaceId,
-    }),
-  );
-  const enqueued = response.ok;
-  await releaseInternalResponse(response);
-  if (!enqueued) {
-    throw new HttpError(
-      502,
-      "agent_enqueue_failed",
-      "Chief's initial workspace setup could not be queued.",
-    );
-  }
 }

@@ -126,6 +126,8 @@ export function runResponse(
         attributes: {
           ...input.attributes,
           "chief.workflow.id": input.workflowId,
+          "chief.lifecycle.layer": "relay",
+          "chief.lifecycle.stage": "operation",
         },
       }),
       Effect.mapError((failure) => parseRelayFailure(failure, input.requestId)),

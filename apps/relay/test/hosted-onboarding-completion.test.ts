@@ -5,6 +5,7 @@ import type { WorkspaceId } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
 } from "@chief/relay-contracts";
 
@@ -50,7 +51,14 @@ describe("hosted Chief onboarding completion", () => {
       inferenceModel: "deepseek-v4-flash",
       selectedApps: [],
     });
-    const created = await createManagedWorkspace(r, identity, command);
+    const created = await createManagedWorkspace(
+      r,
+      identity,
+      provisionWorkspaceCommandSchema.parse({
+        workspace: command,
+        secrets: { opencode: "test-opencode-key" },
+      }),
+    );
     const snapshot = (await created.json()) as {
       id: WorkspaceId;
       name: string;

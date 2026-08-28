@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { z } from "zod";
 
 import type {
@@ -18,6 +19,7 @@ import { agentToolName } from "@chief/agent-runtime/local-tools";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import { publishAgentActivity } from "./agent-activity";
+import { runEffect } from "./effect";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 const browserOpenToolName = agentToolName("browser.open");
@@ -49,6 +51,9 @@ export function hostedActivityObserver(
 
   return {
     inferenceCompleted: (turn, result: AgentInferenceResult) => {
+      // Tool calls are the durable source of truth. Intermediate model prose
+      // often describes intended work and must never look like completion.
+      if (result.toolCalls.length > 0) return;
       const text = result.content?.trim();
       if (!text) return;
       return publish(hostedInferenceActivitySeed(turn), {
@@ -84,8 +89,8 @@ export function hostedActivityObserver(
           ...correlation,
         },
       }),
-    toolFailed: (_turn, call, error) =>
-      publish(`tool:${call.id}`, {
+    toolFailed: async (_turn, call, error) => {
+      await publish(`tool:${call.id}`, {
         kind: "tool",
         version: 1,
         payload: {
@@ -95,7 +100,28 @@ export function hostedActivityObserver(
           error: error.message.slice(0, 100_000),
           ...correlation,
         },
-      }),
+      });
+      // Tool errors are valid durable-turn results, so the enclosing Durable
+      // Object invocation can still complete successfully. Emit a dedicated
+      // error record as well as the UI component so Workers logs and external
+      // OTLP backends can find the failure without misclassifying the turn.
+      await runEffect(
+        Effect.logError("agent.tool.failed", {
+          "chief.workspace.id": job.workspaceId,
+          "chief.job.id": job.id,
+          "chief.workflow.id": isJsonString(job.payload.workflowId)
+            ? job.payload.workflowId
+            : job.id,
+          "gen_ai.agent.name": job.agentId,
+          "gen_ai.conversation.id": conversationId,
+          "gen_ai.tool.name": call.name,
+          "gen_ai.tool.call.id": call.id,
+          error: error.message.slice(0, 10_000),
+        }),
+        env,
+        isJsonString(job.payload.workflowId) ? job.payload.workflowId : job.id,
+      ).catch(() => undefined);
+    },
   };
 }
 

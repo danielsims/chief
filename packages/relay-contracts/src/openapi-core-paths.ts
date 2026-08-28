@@ -25,7 +25,7 @@ import {
 import {
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
-  createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   workspaceSnapshotSchema,
 } from "./workspaces";
 
@@ -60,7 +60,7 @@ export const coreOpenApiPaths = {
         required: true,
         content: {
           "application/json": {
-            schema: jsonSchema(createWorkspaceCommandSchema),
+            schema: jsonSchema(provisionWorkspaceCommandSchema),
           },
         },
       },

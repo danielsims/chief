@@ -102,5 +102,9 @@
       "enabled": true,
       "invocation_logs": false,
     },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
   },
 }

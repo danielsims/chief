@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import {
   appendMessageCommandSchema,
   conversationIdSchema,
-  createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
@@ -132,6 +132,8 @@ export async function routeRelayRequest(
         "chief.workflow.id": trace.workflowId,
         "gen_ai.conversation.id": trace.conversationId,
         "messaging.message.id": trace.messageId,
+        "chief.lifecycle.layer": "relay",
+        "chief.lifecycle.stage": "ingress",
       },
     }),
     Effect.mapError((failure) => parseRelayFailure(failure, requestId)),
@@ -250,7 +252,7 @@ function routeWorkspaceRequest(
         authenticated.request.json(),
       );
       const command = yield* sync("relay.workspace_create.parse", () =>
-        createWorkspaceCommandSchema.parse(body),
+        provisionWorkspaceCommandSchema.parse(body),
       );
       return yield* attempt("relay.workspace.create", () =>
         createManagedWorkspace(env, authenticated.identity, command, context),

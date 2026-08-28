@@ -168,6 +168,17 @@ export const createWorkspaceCommandSchema = z
   })
   .strict();
 
+export const provisionWorkspaceCommandSchema = z
+  .object({
+    workspace: createWorkspaceCommandSchema,
+    secrets: z
+      .object({
+        opencode: z.string().trim().min(1).max(20_000),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const conversationSummarySchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(120),
@@ -209,6 +220,9 @@ export type ClaimWorkspaceCommand = z.infer<typeof claimWorkspaceCommandSchema>;
 export type ClaimedWorkspace = z.infer<typeof claimedWorkspaceSchema>;
 export type CreateWorkspaceCommand = z.infer<
   typeof createWorkspaceCommandSchema
+>;
+export type ProvisionWorkspaceCommand = z.infer<
+  typeof provisionWorkspaceCommandSchema
 >;
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
 export type SwitchWorkspaceCommand = z.infer<

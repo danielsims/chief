@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type {
   AgentJob,
   AgentJobCompletionResult,
@@ -7,6 +9,29 @@ import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import { firstAgentRow } from "./agent-job-store";
 import { safeJsonArray } from "./agent-object-values";
+
+const DURABLE_MEMORY_ENTRY_LIMIT = 8;
+const DURABLE_MEMORY_CHARACTER_LIMIT = 6_000;
+const workMemoryEntrySchema = z.object({
+  user: z.string(),
+  assistant: z.string(),
+  conversationId: z.string().default("unknown"),
+});
+
+export function loadAgentWorkMemory(storage: DurableObjectStorage) {
+  const entries = loadArray(storage, "agent:work-journal")
+    .slice(-DURABLE_MEMORY_ENTRY_LIMIT)
+    .flatMap((value) => {
+      const parsed = workMemoryEntrySchema.safeParse(value);
+      if (!parsed.success) return [];
+      const { assistant, conversationId, user } = parsed.data;
+      if (!user && !assistant) return [];
+      return [
+        `[${conversationId}] Request: ${user.slice(0, 300)}\nOutcome: ${assistant.slice(0, 500)}`,
+      ];
+    });
+  return entries.join("\n\n").slice(-DURABLE_MEMORY_CHARACTER_LIMIT);
+}
 
 export function recordCompletedTurn(
   storage: DurableObjectStorage,

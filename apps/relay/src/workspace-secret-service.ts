@@ -15,9 +15,8 @@ const secretInputSchema = z.object({
 /**
  * Workspace-scoped secret CRUD. Every secret is entered against exactly one
  * workspace and is invisible to every other workspace. Only a workspace owner
- * can write or delete; any workspace member can read a secret by name, which
- * is what the hosted cells and local agents use to resolve inference
- * credentials.
+ * can write or delete. Plaintext reads are reserved for an agent running in
+ * that workspace; users can list configured names without retrieving values.
  */
 export class WorkspaceSecretService {
   private readonly channels: WorkspaceChannelStore;
@@ -41,7 +40,7 @@ export class WorkspaceSecretService {
 
   async get(request: Request) {
     const context = readTrustedContext(request);
-    this.requireMember(context);
+    this.requireAgent(context);
     const name = requestedSecretName(request);
     const value = await this.store.get(context.workspaceId, name);
     if (value === null) {
@@ -71,6 +70,17 @@ export class WorkspaceSecretService {
 
   private requireMember(context: ReturnType<typeof readTrustedContext>) {
     this.channels.requirePrincipalMember(context.principal);
+  }
+
+  private requireAgent(context: ReturnType<typeof readTrustedContext>) {
+    if (context.principal.kind !== "agent") {
+      throw new HttpError(
+        403,
+        "secret_agent_required",
+        "Only an agent running in this workspace can read secret values.",
+      );
+    }
+    this.requireMember(context);
   }
 
   private requireOwner(principal: {

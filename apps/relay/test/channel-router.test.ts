@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentRuntimeDescriptorSchema,
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -146,7 +147,14 @@ async function setupWorkspace() {
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
-  const created = await createManagedWorkspace(relay, owner, command);
+  const created = await createManagedWorkspace(
+    relay,
+    owner,
+    provisionWorkspaceCommandSchema.parse({
+      workspace: command,
+      secrets: { opencode: "test-opencode-key" },
+    }),
+  );
   return workspaceSnapshotSchema.parse(await created.json()).id;
 }
 

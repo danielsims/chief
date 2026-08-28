@@ -5,6 +5,7 @@ import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceIdSchema,
   workspaceSnapshotSchema,
@@ -60,7 +61,14 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
-  const created = await createManagedWorkspace(relay, identity, command);
+  const created = await createManagedWorkspace(
+    relay,
+    identity,
+    provisionWorkspaceCommandSchema.parse({
+      workspace: command,
+      secrets: { opencode: "test-opencode-key" },
+    }),
+  );
   const snapshot = workspaceSnapshotSchema.parse(await created.json());
   const workspaceId = workspaceIdSchema.parse(snapshot.id);
   return {

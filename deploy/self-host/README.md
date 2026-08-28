@@ -92,7 +92,9 @@ pnpm self-host:up:observability
 ```
 
 This sends OTLP data directly from the relay container to the bundled local
-collector. Grafana opens with the provisioned **Chief Agent Observability**
+collector. Its Loki, Tempo, and Grafana data stays in the local
+`observability-data` Docker volume; it is never used as the production
+telemetry store. Grafana opens with the provisioned **Chief Agent Observability**
 dashboard, where relay, workspace, agent, and conversation filters lead to the
 underlying trace waterfalls. The dashboard tracks p95 agent duration and total
 traced execution time in one-minute, one-hour, and one-day buckets by workspace.
@@ -101,10 +103,12 @@ This gives local performance changes stable hill-climbing metrics without
 conflating traced execution with Cloudflare's billed Durable Object duration.
 Trace payload content remains disabled by default.
 
-The Cloudflare deployment deliberately uses error-only telemetry. Full OTLP
-exporters own interval fibers and outbound I/O that prevent Durable Objects
-from hibernating promptly, so detailed tracing belongs in this opt-in local
-profile until cloud export is moved outside the object lifecycle.
+The Cloudflare deployment deliberately uses error-only in-process telemetry.
+Production logs and traces are exported by Cloudflare Observability to a
+separate production Grafana stack, outside the Durable Object lifecycle. This
+keeps local development data physically separate and avoids an OTLP exporter
+holding agent cells awake. See `deploy/observability/README.md` for the shared
+dashboard and production destination setup.
 
 `down` preserves all data. To intentionally destroy the local relay, stop the
 stack and remove its named volumes explicitly with Docker Compose's `--volumes`

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -15,6 +16,14 @@ import {
   switchManagedWorkspace,
 } from "../src/workspace-authority";
 import { hexKey } from "./helpers";
+
+const provision = (
+  workspace: ReturnType<typeof createWorkspaceCommandSchema.parse>,
+) =>
+  provisionWorkspaceCommandSchema.parse({
+    workspace,
+    secrets: { opencode: "test-opencode-key" },
+  });
 
 describe("workspace authorization", () => {
   it("resolves a registered agent key before applying human organization tenancy", async () => {
@@ -29,15 +38,17 @@ describe("workspace authorization", () => {
     const created = await createManagedWorkspace(
       relay,
       owner,
-      createWorkspaceCommandSchema.parse({
-        commandId: crypto.randomUUID(),
-        name: "Agent authorization",
-        website: "https://heychief.sh",
-        runtime: "phone",
-        inferenceProvider: "openCodeGo",
-        inferenceModel: "deepseek-v4-flash",
-        selectedApps: [],
-      }),
+      provision(
+        createWorkspaceCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          name: "Agent authorization",
+          website: "https://heychief.sh",
+          runtime: "phone",
+          inferenceProvider: "openCodeGo",
+          inferenceModel: "deepseek-v4-flash",
+          selectedApps: [],
+        }),
+      ),
     );
     const snapshot = workspaceSnapshotSchema.parse(await created.json());
     const chiefPubkey = hexKey(`chief-${snapshot.id}`);
@@ -96,15 +107,17 @@ describe("workspace authorization", () => {
     const created = await createManagedWorkspace(
       relay,
       owner,
-      createWorkspaceCommandSchema.parse({
-        commandId: crypto.randomUUID(),
-        name: "Human authorization",
-        website: "https://heychief.sh",
-        runtime: "phone",
-        inferenceProvider: "openCodeGo",
-        inferenceModel: "deepseek-v4-flash",
-        selectedApps: [],
-      }),
+      provision(
+        createWorkspaceCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          name: "Human authorization",
+          website: "https://heychief.sh",
+          runtime: "phone",
+          inferenceProvider: "openCodeGo",
+          inferenceModel: "deepseek-v4-flash",
+          selectedApps: [],
+        }),
+      ),
     );
     const snapshot = workspaceSnapshotSchema.parse(await created.json());
     await relay.AUTH_DB.prepare(
@@ -142,15 +155,17 @@ describe("workspace authorization", () => {
     const created = await createManagedWorkspace(
       relay,
       owner,
-      createWorkspaceCommandSchema.parse({
-        commandId: crypto.randomUUID(),
-        name: "Outsider authorization",
-        website: "https://heychief.sh",
-        runtime: "phone",
-        inferenceProvider: "openCodeGo",
-        inferenceModel: "deepseek-v4-flash",
-        selectedApps: [],
-      }),
+      provision(
+        createWorkspaceCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          name: "Outsider authorization",
+          website: "https://heychief.sh",
+          runtime: "phone",
+          inferenceProvider: "openCodeGo",
+          inferenceModel: "deepseek-v4-flash",
+          selectedApps: [],
+        }),
+      ),
     );
     const snapshot = workspaceSnapshotSchema.parse(await created.json());
     const outsiderPubkey = hexKey(`outsider-${snapshot.id}`);

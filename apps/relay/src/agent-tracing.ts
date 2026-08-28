@@ -28,6 +28,8 @@ export function agentWorkflowId(job: AgentJob) {
 export function agentTelemetryAttributes(job: AgentJob) {
   return {
     "chief.workspace.id": job.workspaceId,
+    "chief.lifecycle.layer": "agent",
+    "chief.lifecycle.stage": "queued",
     "chief.workflow.id": agentWorkflowId(job),
     "chief.job.id": job.id,
     "gen_ai.agent.name": job.agentId,
@@ -86,6 +88,8 @@ export function traceAgentRun<T>(
       "chief.workflow.id": context.workflowId,
       "messaging.message.id": context.messageId,
       "chief.turn.revision": revision,
+      "chief.lifecycle.layer": "agent",
+      "chief.lifecycle.stage": "turn",
     },
     ({ children }) => run(children),
   );
@@ -114,6 +118,8 @@ export function tracedInference(
           "chief.job.id": context.jobId,
           "chief.workflow.id": context.workflowId,
           "messaging.message.id": context.messageId,
+          "chief.lifecycle.layer": "agent",
+          "chief.lifecycle.stage": "inference",
           ...(context.includeContent
             ? {
                 "gen_ai.input.messages": traceText(request.messages),
@@ -156,6 +162,8 @@ export function traceToolExecution(
       "chief.job.id": context.jobId,
       "chief.workflow.id": context.workflowId,
       "messaging.message.id": context.messageId,
+      "chief.lifecycle.layer": "agent",
+      "chief.lifecycle.stage": "tool",
       ...(context.includeContent
         ? { "gen_ai.tool.call.arguments": traceText(call.arguments) }
         : undefined),
