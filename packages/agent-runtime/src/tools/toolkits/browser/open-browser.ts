@@ -30,7 +30,7 @@ export const openBrowserDefinition = defineAgentTool({
     operationId: "browser.open",
     summary: "Open or navigate Chief's embedded browser",
     description:
-      "Opens an HTTP or HTTPS page in the visible agent browser. A server started on this computer is reachable at localhost on its chosen port; port 8080 is reserved for the computer control API. The browser continues its current session by default; use fresh=true only when the task requires a clean session.",
+      "Opens an HTTP or HTTPS page in the visible interactive browser. Reserve this for interaction, authentication, screenshots, or user takeover; use web_read for ordinary public research. A server started on this computer is reachable at localhost on its chosen port; port 8080 is reserved for the computer control API. The browser continues its current session by default; use fresh=true only when the task requires a clean session.",
   },
   inputSchema: z.object({
     url: browserUrlSchema,

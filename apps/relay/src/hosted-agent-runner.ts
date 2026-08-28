@@ -14,6 +14,7 @@ import {
   messageIdSchema,
 } from "@chief/relay-contracts";
 
+import { loadAgentWorkMemory } from "./agent-cell-projection";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -21,7 +22,7 @@ import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
-  "The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use it for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
+  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
 
 export interface HostingContext {
   managed: boolean;
@@ -69,7 +70,9 @@ export async function prepareHostedAgentTurn(
   job: AgentJob,
   principal: AgentPrincipal,
   context: HostingContext,
+  storage?: DurableObjectStorage,
 ) {
+  const durableMemory = storage ? loadAgentWorkMemory(storage) : "";
   const browserEnabled =
     context.config?.toolPermissions.includes("browser.use") ?? false;
   const conversationId = conversationIdSchema.parse(
@@ -96,7 +99,7 @@ export async function prepareHostedAgentTurn(
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
-    systemPrompt: `${systemPrompt(job, context, browserEnabled)}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
+    systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
@@ -114,7 +117,7 @@ export function boundedHostedHistory(
     .slice(-HOSTED_HISTORY_MESSAGE_LIMIT);
 }
 
-function hostedCompletionContract(
+export function hostedCompletionContract(
   instruction: string,
   browserEnabled: boolean,
 ) {
@@ -123,10 +126,38 @@ function hostedCompletionContract(
     browserEnabled &&
     normalized.includes("browser") &&
     /\b(open|show|display|navigate|visit|load|bring up)\b/u.test(normalized);
+  const requiredToolNames = [
+    ...(asksForVisibleBrowser ? ["browser_open"] : []),
+    ...(asksToCreateChannel(normalized) ? ["channels_create"] : []),
+    ...(asksToInviteChannelMembers(normalized) ? ["channels_members_add"] : []),
+  ];
   return {
-    requiredToolNames: asksForVisibleBrowser ? ["browser_open"] : [],
+    requiredToolNames: [...new Set(requiredToolNames)],
     browserMustRemainOpen: asksForVisibleBrowser,
   };
+}
+
+function asksToCreateChannel(instruction: string) {
+  return (
+    /\b(create|make|open|start|set up)\b[^.!?\n]{0,40}#[-\w]+/u.test(
+      instruction,
+    ) ||
+    /\b(create|make|open|start|set up)\b[^.!?\n]{0,80}\bchannel\b/u.test(
+      instruction,
+    ) ||
+    /\bchannel\b[^.!?\n]{0,80}\b(create|made|live|set up)\b/u.test(instruction)
+  );
+}
+
+function asksToInviteChannelMembers(instruction: string) {
+  return (
+    (asksToCreateChannel(instruction) &&
+      /\b(invite|add)\b/u.test(instruction)) ||
+    /\b(invite|add)\b[^.!?\n]{0,120}\b(to|into)\b[^.!?\n]{0,60}\b(channel|#[-\w]+)\b/u.test(
+      instruction,
+    ) ||
+    /\bchannel\b[^.!?\n]{0,80}\b(with|invite|add)\b/u.test(instruction)
+  );
 }
 
 export function hostedTurnResult(job: AgentJob, finalText: string) {
@@ -195,8 +226,8 @@ function workspaceContextBlock(
     `Selected apps: ${nonEmptyOr(selectedApps, "none")}.`,
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
-      ? "The browser tools provide a real remote browser for public web pages."
-      : "Do not imply that you inspected a live web page.",
+      ? "The browser tools provide a real remote interactive browser when web_read is insufficient."
+      : "Use web_read for public pages; do not imply that you operated an interactive page.",
     "A plugin recommendation is not an installed or authorized connection. Do not claim setup is complete until the connection state confirms it.",
   ];
   return lines.join("\n");

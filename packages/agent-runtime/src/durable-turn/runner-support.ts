@@ -60,6 +60,17 @@ export function retainedToolReceipts(turn: DurableTurn): DurableTurn["tools"] {
   return turn.tools.filter((_receipt, index) => retained.has(index));
 }
 
+export function prepareToolReceiptForRetry(
+  turn: DurableTurn,
+  callId: string,
+): DurableTurn["tools"] {
+  return turn.tools.map((candidate) =>
+    candidate.call.id === callId
+      ? { ...candidate, state: "prepared" as const }
+      : candidate,
+  );
+}
+
 export function isBareSpeakerLabel(value: string) {
   return /^[\p{L}\p{N}_ -]{1,64}:$/u.test(value);
 }

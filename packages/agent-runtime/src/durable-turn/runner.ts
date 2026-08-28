@@ -28,9 +28,11 @@ import {
   isBareSpeakerLabel,
   notify,
   persistTurn,
+  prepareToolReceiptForRetry,
   retainedToolReceipts,
   shouldPauseAfterToolFailure,
 } from "./runner-support.js";
+import { isDeferredToolError } from "./tool-errors.js";
 import { durableToolCallSchema, durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
@@ -176,6 +178,7 @@ export class DurableTurnRunner {
       input.tools,
       input.executor,
       input.observer,
+      input.scheduleRecovery,
     );
   }
 
@@ -292,6 +295,7 @@ export class DurableTurnRunner {
     tools: readonly DurableTool[],
     executor: DurableToolExecutor,
     observer?: DurableTurnObserver,
+    scheduleRecovery?: (wakeAt: number) => Promise<void>,
   ): Promise<AdvanceResult> {
     if (turn.phase.kind !== "runnable" || turn.phase.next.kind !== "tool") {
       throw new Error("The durable turn is not waiting for a tool.");
@@ -329,6 +333,20 @@ export class DurableTurnRunner {
     } catch (error) {
       const failure =
         error instanceof Error ? error : new Error("Tool execution failed.");
+      if (isDeferredToolError(failure)) {
+        if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
+        const wakeAt = Math.max(Date.now() + 50, failure.retryAt);
+        const deferred = this.updated(started, {
+          tools: prepareToolReceiptForRetry(started, receipt.call.id),
+          claim: {
+            generation: started.claim?.generation ?? started.revision + 1,
+            recoverAfter: wakeAt,
+          },
+        });
+        await this.save(deferred);
+        if (scheduleRecovery) await scheduleRecovery(wakeAt);
+        return { kind: "sleeping", wakeAt };
+      }
       await notify(() =>
         observer?.toolFailed?.(started, receipt.call, failure),
       );
