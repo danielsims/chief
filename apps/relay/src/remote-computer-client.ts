@@ -1,7 +1,8 @@
-import type { z } from "zod";
 import { SignJWT } from "jose";
+import { z } from "zod";
 
 import type { AgentJob } from "@chief/relay-contracts";
+import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import { executionLeaseSchema } from "@chief/relay-contracts";
 
 const COMPUTER_TOKEN_ISSUER = "https://chief-relay.internal";
@@ -67,8 +68,10 @@ export class RemoteComputerClient {
       signal: AbortSignal.timeout(REMOTE_COMPUTER_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(
-        `Computer host ${path} failed (${response.status}): ${(await response.text()).slice(0, 1_000)}`,
+      throw computerRequestFailure(
+        path,
+        response.status,
+        await response.text(),
       );
     }
     return response;
@@ -110,6 +113,41 @@ export class RemoteComputerClient {
       .sign(new TextEncoder().encode(this.secret));
   }
 }
+
+function computerRequestFailure(path: string, status: number, body: string) {
+  const detail = body.slice(0, 1_000);
+  const message = `Computer host ${path} failed (${status}): ${detail}`;
+  const code = computerErrorCode(body);
+  if (code && rejectedBeforeExecution.has(code)) {
+    return new RecoverableToolError(
+      `The computer rejected the request before running it. ${message}`,
+    );
+  }
+  return new Error(message);
+}
+
+function computerErrorCode(value: string): string | undefined {
+  try {
+    const parsed = computerErrorResponseSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data.error.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const computerErrorResponseSchema = z.object({
+  error: z.object({ code: z.string() }),
+});
+
+const rejectedBeforeExecution = new Set([
+  "capability_denied",
+  "file_too_large",
+  "invalid_lease",
+  "invalid_path",
+  "invalid_request",
+  "not_found",
+  "request_too_large",
+]);
 
 export function remoteComputerClient(env: Env, job: AgentJob) {
   const baseUrl = env.COMPUTER_BASE_URL?.trim();
