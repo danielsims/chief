@@ -24,7 +24,6 @@ export function AgentActivityPanel({
   blocks,
   error,
   previousTurns,
-  agentLabel,
   running,
   tasks,
   onClose,
@@ -34,7 +33,6 @@ export function AgentActivityPanel({
   blocks: ContentBlock[];
   error?: ChatRuntimeError;
   previousTurns: readonly ConversationActivityTurn[];
-  agentLabel: string;
   running: boolean;
   tasks: SessionRecord[];
   onClose: () => void;
@@ -79,9 +77,6 @@ export function AgentActivityPanel({
         ) : null}
         {hasActivity ? (
           <div>
-            <p className="text-muted-foreground mb-2 px-1 text-[12px] leading-4 font-normal">
-              {agentLabel} activity
-            </p>
             <ToolActivityGroup blocks={blocks} active={running} />
           </div>
         ) : null}

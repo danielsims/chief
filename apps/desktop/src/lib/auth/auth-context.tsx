@@ -84,7 +84,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((session) => {
         setStoredSessionState(session);
         setSessionHydrated(true);
-        setIsLoading(false);
+        // A persisted OAuth access token may have expired while Chief was
+        // closed. Keep consumers behind the auth loading boundary until the
+        // Better Auth session has been validated or refreshed, otherwise the
+        // relay can race ahead and attempt device binding with the stale token.
+        if (!session) setIsLoading(false);
       })
       .catch((error: unknown) => {
         console.error("[Auth] Could not load the secure OAuth session:", error);
@@ -192,21 +196,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const token = session.token;
 
     let cancelled = false;
-    void validateOrRefreshSession(session).then((result) => {
-      if (cancelled) return;
-      if (!result) {
-        console.warn("[Auth] Stored session rejected by server, signing out");
-        invalidateSession();
-        return;
-      }
+    void validateOrRefreshSession(session)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result) {
+          console.warn("[Auth] Stored session rejected by server, signing out");
+          invalidateSession();
+          return;
+        }
 
-      setStoredSessionState((current) => {
-        if (!current || current.token !== token) return current;
-        const next = result;
-        setStoredSession(next);
-        return next;
+        setStoredSessionState((current) => {
+          if (!current || current.token !== token) return current;
+          const next = result;
+          setStoredSession(next);
+          return next;
+        });
+        setIsLoading(false);
+        setAuthError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("[Auth] Could not validate the OAuth session:", error);
+        setAuthError("Chief could not validate your sign-in. Try again.");
+        setIsLoading(false);
       });
-    });
     return () => {
       cancelled = true;
     };

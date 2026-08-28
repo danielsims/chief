@@ -19,7 +19,7 @@ export interface RelaySessionState {
 export function beginWorkspaceTransition(
   state: RelaySessionState,
 ): RelaySessionState {
-  return { ...state, loading: true, error: null };
+  return { ...state, client: null, loading: true, error: null };
 }
 
 export function workspaceSummaryFromSnapshot(
@@ -32,29 +32,6 @@ export function workspaceSummaryFromSnapshot(
     imageURL: snapshot.imageURL,
     isActive: true,
     onboardingComplete: snapshot.onboardingComplete,
-  };
-}
-
-export function adoptCreatedWorkspace(
-  state: RelaySessionState,
-  accountId: string,
-  client: RelayClient,
-  snapshot: WorkspaceSnapshot,
-): RelaySessionState {
-  const summary = workspaceSummaryFromSnapshot(snapshot);
-  return {
-    accountId,
-    client,
-    snapshot,
-    workspaces: [
-      summary,
-      ...state.workspaces.filter((candidate) => candidate.id !== snapshot.id),
-    ].map((candidate) => ({
-      ...candidate,
-      isActive: candidate.id === snapshot.id,
-    })),
-    loading: false,
-    error: null,
   };
 }
 

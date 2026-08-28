@@ -23,7 +23,7 @@ export interface RelaySessionValue {
   ) => Promise<void>;
   createWorkspace: (
     command: CreateWorkspaceCommand,
-    apiKey?: string,
+    apiKey: string,
   ) => Promise<WorkspaceSnapshot>;
   previewWorkspaceInvite: (
     workspaceId: string,
