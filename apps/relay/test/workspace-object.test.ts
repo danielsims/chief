@@ -71,11 +71,9 @@ describe("WorkspaceObject", () => {
     expect(outsider.status).toBe(403);
     expect(secret.status).toBe(200);
     expect(await secret.json()).toEqual({ workspaceId, name: "opencode" });
-    expect(storedSecret.status).toBe(200);
-    expect(await storedSecret.json()).toEqual({
-      workspaceId,
-      name: "opencode",
-      value: "test-key",
+    expect(storedSecret.status).toBe(403);
+    expect(await storedSecret.json()).toMatchObject({
+      error: { code: "secret_agent_required" },
     });
   });
 
@@ -256,20 +254,17 @@ function trustedPrincipalRequest(
   const headers = new Headers(init.headers);
   headers.set("x-chief-internal-operation", operation);
   const { url = "https://workspace.internal", ...requestInit } = init;
-  return withTrustedContext(
-    new Request(url, { ...requestInit, headers }),
-    {
-      principal: {
-        kind: "user",
-        userId: ownerId,
-        pubkey: hexKey(ownerId),
-        workspaceId,
-        role: "owner",
-      },
-      requestId: crypto.randomUUID(),
+  return withTrustedContext(new Request(url, { ...requestInit, headers }), {
+    principal: {
+      kind: "user",
+      userId: ownerId,
+      pubkey: hexKey(ownerId),
       workspaceId,
+      role: "owner",
     },
-  );
+    requestId: crypto.randomUUID(),
+    workspaceId,
+  });
 }
 
 function trustedRequest(

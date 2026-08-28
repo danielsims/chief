@@ -5,15 +5,17 @@ import { z } from "zod";
 import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 
-import { OpenCodeAgentInference } from "../src/opencode-agent-inference";
+import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
 
 const requestSchema = z.object({
   model: z.literal("deepseek-v4-flash"),
   messages: z.array(z.object({ role: z.string() }).passthrough()),
-  tools: z.array(z.object({ type: z.literal("function") }).passthrough()),
+  tools: z
+    .array(z.object({ type: z.literal("function") }).passthrough())
+    .optional(),
 });
 
-describe("OpenCodeAgentInference", () => {
+describe("AiSdkAgentInference", () => {
   const liveApiKey = z
     .object({ OPENCODE_API_KEY: z.string().optional() })
     .parse(env).OPENCODE_API_KEY;
@@ -33,20 +35,72 @@ describe("OpenCodeAgentInference", () => {
         choices: [{ message: { content: "ready", tool_calls: [] } }],
       });
     };
-    const inference = new OpenCodeAgentInference("test-key", request);
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
 
     const result = await inference.complete({
-      messages: [{ role: "user", content: "Say ready." }],
-      tools: [],
+      messages: [
+        { role: "system", content: "Answer concisely." },
+        { role: "user", content: "Say ready." },
+      ],
+      tools: [
+        {
+          name: "read_status",
+          description: "Read the current status.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
       maxTokens: 120,
       temperature: 0,
     });
 
     expect(requestSchema.parse(requestBody)).toMatchObject({
       model: "deepseek-v4-flash",
+      messages: [{ role: "system" }, { role: "user" }],
     });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal?.aborted).toBe(false);
     expect(result).toEqual({ content: "ready", toolCalls: [] });
+  });
+
+  it("passes every durable system message through AI SDK instructions", async () => {
+    let requestBody: unknown;
+    const request = async function (
+      this: void,
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) {
+      expect(this).toBeUndefined();
+      requestBody = JSON.parse(z.string().parse(init?.body));
+      return Response.json({
+        choices: [{ message: { content: "ready", tool_calls: [] } }],
+      });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+
+    await inference.complete({
+      messages: [
+        { role: "system", content: "Base instructions." },
+        { role: "user", content: "Create the channel." },
+        { role: "system", content: "Finish the required tool call first." },
+      ],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(requestSchema.parse(requestBody).messages).toEqual([
+      expect.objectContaining({ role: "system" }),
+      expect.objectContaining({ role: "system" }),
+      expect.objectContaining({ role: "user" }),
+    ]);
   });
 
   it("accepts a null tool_calls field from the Go API", async () => {
@@ -60,7 +114,11 @@ describe("OpenCodeAgentInference", () => {
         choices: [{ message: { content: "ok", tool_calls: null } }],
       });
     };
-    const inference = new OpenCodeAgentInference("test-key", request);
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
 
     const result = await inference.complete({
       messages: [{ role: "user", content: "Hi." }],
@@ -72,11 +130,35 @@ describe("OpenCodeAgentInference", () => {
     expect(result).toEqual({ content: "ok", toolCalls: [] });
   });
 
+  it("leaves retries to the durable cell boundary", async () => {
+    let attempts = 0;
+    const request = async function (this: void) {
+      expect(this).toBeUndefined();
+      attempts += 1;
+      throw new Error("provider unavailable");
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+
+    await expect(
+      inference.complete({
+        messages: [{ role: "user", content: "Hi." }],
+        tools: [],
+        maxTokens: 120,
+        temperature: 0,
+      }),
+    ).rejects.toThrow("provider unavailable");
+    expect(attempts).toBe(1);
+  });
+
   it.skipIf(!liveApiKey || liveApiKey === "test")(
     "completes a live model-to-tool-to-model round",
     async () => {
       if (!liveApiKey) throw new Error("OpenCode Go is not configured.");
-      const inference = new OpenCodeAgentInference(liveApiKey);
+      const inference = new AiSdkAgentInference(liveApiKey, traceContext());
       const runner = new DurableTurnRunner(
         new MemoryCellPersistence(),
         "live-test",
@@ -124,3 +206,15 @@ describe("OpenCodeAgentInference", () => {
     },
   );
 });
+
+function traceContext() {
+  return {
+    workspaceId: "workspace-test",
+    workspaceName: "Test",
+    agentId: "engineer",
+    conversationId: "engineering",
+    jobId: "job-test",
+    workflowId: "00000000-0000-4000-8000-000000000001",
+    includeContent: false,
+  };
+}

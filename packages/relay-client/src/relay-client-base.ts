@@ -113,7 +113,7 @@ export class RelayClientBase {
       )
     ).workspaces;
   }
-  async createWorkspace(command: CreateWorkspaceCommand) {
+  async createWorkspace(command: CreateWorkspaceCommand, opencode: string) {
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
       workspaceSnapshotSchema,
@@ -121,7 +121,7 @@ export class RelayClientBase {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(command),
+        body: JSON.stringify({ workspace: command, secrets: { opencode } }),
       },
     );
   }

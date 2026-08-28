@@ -70,7 +70,7 @@
           },
           "limit": 250,
           "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.chief.workflow.id =~ \"${workflow:raw}\" && span.chief.workspace.id =~ \"${workspace:raw}\" } | select(span.chief.workflow.id, span.chief.workspace.name, span.chief.workspace.id, span.gen_ai.agent.name, span.gen_ai.conversation.id, span.chief.job.id, span.gen_ai.operation.name, span.gen_ai.tool.name, span.messaging.message.id)",
+          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.chief.workflow.id =~ \"${workflow:raw}\" && span.chief.workspace.id =~ \"${workspace:raw}\" } | select(span.chief.workflow.id, span.chief.workspace.name, span.chief.workspace.id, span.chief.lifecycle.layer, span.chief.lifecycle.stage, span.gen_ai.agent.name, span.gen_ai.conversation.id, span.chief.job.id, span.gen_ai.operation.name, span.gen_ai.tool.name, span.messaging.message.id)",
           "queryType": "traceql",
           "refId": "A",
           "serviceMapUseNativeHistograms": false,
@@ -308,12 +308,7 @@
   ],
   "refresh": "10s",
   "schemaVersion": 41,
-  "tags": [
-    "chief",
-    "agents",
-    "effect",
-    "tempo"
-  ],
+  "tags": ["chief", "agents", "effect", "tempo"],
   "templating": {
     "list": [
       {

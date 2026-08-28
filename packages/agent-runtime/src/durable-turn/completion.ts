@@ -1,3 +1,5 @@
+import { isJsonObject } from "@chief/relay-contracts";
+
 import type { DurableTurn } from "./types.js";
 import { completionReminder, hasOpenTasks, isTodoTool } from "./plan.js";
 
@@ -23,7 +25,9 @@ export function finishTurn(turn: DurableTurn, result: string): FinishTurn {
 export function completionRequirements(turn: DurableTurn) {
   const completed = new Set(
     turn.tools.flatMap((receipt) =>
-      receipt.state === "completed" ? [receipt.call.name] : [],
+      receipt.state === "completed" && receiptSucceeded(receipt.result)
+        ? [receipt.call.name]
+        : [],
     ),
   );
   const missing = turn.completion.requiredToolNames.filter(
@@ -46,13 +50,13 @@ export function repeatedCompletedTool(tools: DurableTurn["tools"]) {
   const latest = completed.at(-1);
   if (!latest) return 0;
   const signature = toolReceiptSignature(latest);
-  let repeated = 0;
-  for (let index = completed.length - 1; index >= 0; index -= 1) {
-    const receipt = completed[index];
-    if (!receipt || toolReceiptSignature(receipt) !== signature) break;
-    repeated += 1;
-  }
-  return repeated;
+  return completed.filter(
+    (receipt) => toolReceiptSignature(receipt) === signature,
+  ).length;
+}
+
+function receiptSucceeded(result: DurableTurn["tools"][number]["result"]) {
+  return !isJsonObject(result) || result.ok !== false;
 }
 
 function missingRequirementsFinish(

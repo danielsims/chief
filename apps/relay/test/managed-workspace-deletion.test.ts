@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { JsonValue } from "@chief/relay-contracts";
 import {
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceListResultSchema,
   workspaceSnapshotSchema,
@@ -20,7 +21,44 @@ import {
 } from "../src/workspace-authority";
 import { hexKey, relayTestEnv } from "./helpers";
 
+const provision = (
+  workspace: ReturnType<typeof createWorkspaceCommandSchema.parse>,
+) =>
+  provisionWorkspaceCommandSchema.parse({
+    workspace,
+    secrets: { opencode: "test-opencode-key" },
+  });
+
 describe("managed workspace deletion", () => {
+  it("removes the directory entry when atomic workspace provisioning fails", async () => {
+    const relay = relayTestEnv();
+    const identity = {
+      kind: "user" as const,
+      userId: userIdSchema.parse("failed-provision-owner"),
+      pubkey: hexKey("failed-provision-owner"),
+    };
+    const workspace = createWorkspaceCommandSchema.parse({
+      commandId: "fca0ea44-e52b-48c6-9ad7-000000000013",
+      name: "Never visible",
+      website: "https://heychief.sh",
+      runtime: "phone",
+      inferenceProvider: "openCodeGo",
+      inferenceModel: "deepseek-v4-flash",
+      selectedApps: [],
+    });
+
+    const response = await createManagedWorkspace(relay, identity, {
+      workspace,
+      secrets: { opencode: "" },
+    });
+    const listed = workspaceListResultSchema.parse(
+      await (await listManagedWorkspaces(relay, identity)).json(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(listed.workspaces).toEqual([]);
+  });
+
   it("removes an owner's workspace from durable storage and their directory", async () => {
     const relay = relayTestEnv();
     const identity = {
@@ -31,15 +69,17 @@ describe("managed workspace deletion", () => {
     const created = await createManagedWorkspace(
       relay,
       identity,
-      createWorkspaceCommandSchema.parse({
-        commandId: "fca0ea44-e52b-48c6-9ad7-000000000021",
-        name: "Disposable",
-        website: "https://heychief.sh",
-        runtime: "phone",
-        inferenceProvider: "openCodeGo",
-        inferenceModel: "deepseek-v4-flash",
-        selectedApps: [],
-      }),
+      provision(
+        createWorkspaceCommandSchema.parse({
+          commandId: "fca0ea44-e52b-48c6-9ad7-000000000021",
+          name: "Disposable",
+          website: "https://heychief.sh",
+          runtime: "phone",
+          inferenceProvider: "openCodeGo",
+          inferenceModel: "deepseek-v4-flash",
+          selectedApps: [],
+        }),
+      ),
     );
     const workspace = workspaceSnapshotSchema.parse(await created.json());
 
@@ -73,15 +113,17 @@ describe("managed workspace deletion", () => {
     const created = await createManagedWorkspace(
       relay,
       owner,
-      createWorkspaceCommandSchema.parse({
-        commandId: crypto.randomUUID(),
-        name: "Protected",
-        website: "https://heychief.sh",
-        runtime: "phone",
-        inferenceProvider: "openCodeGo",
-        inferenceModel: "deepseek-v4-flash",
-        selectedApps: [],
-      }),
+      provision(
+        createWorkspaceCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          name: "Protected",
+          website: "https://heychief.sh",
+          runtime: "phone",
+          inferenceProvider: "openCodeGo",
+          inferenceModel: "deepseek-v4-flash",
+          selectedApps: [],
+        }),
+      ),
     );
     const workspace = workspaceSnapshotSchema.parse(await created.json());
     const principal = await authorizeWorkspace(relay, {

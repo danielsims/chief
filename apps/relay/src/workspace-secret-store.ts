@@ -15,11 +15,19 @@ import { HttpError } from "./http";
  *    relay master key.
  *  - The master key comes from the Worker secret RELAY_SECRET_KEY. A
  *    secret store with no key is unsafe, so construction fails loudly.
+ *
+ * Portable v2 envelope for relay and celld hosts:
+ * `v2.<base64 12-byte IV>.<base64 ciphertext || 16-byte GCM tag>`.
+ * The AES-256 key is PBKDF2-SHA-256(master, UTF8(KEY_SALT), 100000, 32),
+ * where the PBKDF2 input is UTF8(`${KEY_SALT}\\0${master}`).
  */
 const COLLECTION = "workspace_secrets";
-const KEY_SALT = "chief-workspace-secrets/v1";
-const PAYLOAD_VERSION = "v1";
-const KEY_ITERATIONS = 210_000;
+const KEY_SALT = "chief-workspace-secrets/v2";
+const PAYLOAD_VERSION = "v2";
+// Cloudflare Workers rejects PBKDF2 counts above 100,000. The input is a
+// generated 256-bit relay master key, not a human password; this derivation is
+// domain separation for a portable AES key rather than password hardening.
+const KEY_ITERATIONS = 100_000;
 
 const SECRET_NAME = /^[a-z][a-z0-9._-]{0,119}$/u;
 
@@ -27,11 +35,16 @@ async function deriveKey(master: string): Promise<CryptoKey> {
   const salt = new TextEncoder().encode(KEY_SALT);
   const base = new TextEncoder().encode(`${KEY_SALT}\u0000${master}`);
   const rawKey = await crypto.subtle.importKey("raw", base, "PBKDF2", false, [
-    "deriveKey",
+    "deriveBits",
   ]);
-  return await crypto.subtle.deriveKey(
+  const derived = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", iterations: KEY_ITERATIONS, salt },
     rawKey,
+    256,
+  );
+  return await crypto.subtle.importKey(
+    "raw",
+    derived,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
@@ -42,6 +55,12 @@ interface SecretRow extends Record<string, SqlStorageValue> {
   key: string;
   value_json: string;
   updated_at: string;
+}
+
+export interface PreparedWorkspaceSecret {
+  key: string;
+  updatedAt: string;
+  valueJson: string;
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -111,17 +130,32 @@ export class WorkspaceSecretStore {
   }
 
   async set(workspaceId: string, name: string, value: string) {
+    this.writePrepared(await this.prepare(workspaceId, name, value));
+  }
+
+  async prepare(
+    workspaceId: string,
+    name: string,
+    value: string,
+  ): Promise<PreparedWorkspaceSecret> {
     const normalized = validateSecretName(name);
     const key = await this.keyPromise;
     const ciphertext = await encryptSecret(key, value);
-    const now = new Date().toISOString();
+    return {
+      key: this.rowKey(workspaceId, normalized),
+      updatedAt: new Date().toISOString(),
+      valueJson: JSON.stringify(ciphertext),
+    };
+  }
+
+  writePrepared(secret: PreparedWorkspaceSecret) {
     this.storage.sql.exec(
       `INSERT INTO secrets (key, value_json, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
          updated_at = excluded.updated_at`,
-      this.rowKey(workspaceId, normalized),
-      JSON.stringify(ciphertext),
-      now,
+      secret.key,
+      secret.valueJson,
+      secret.updatedAt,
     );
   }
 

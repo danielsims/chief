@@ -75,12 +75,17 @@ export function resolveInferenceApiKey(
   config: AgentConfig,
 ) {
   return Effect.gen(function* () {
-    const candidates = [config.inference.secretRef, "opencode"].filter(
-      (name): name is string => Boolean(name),
-    );
-    for (const name of candidates) {
+    if (job.workspaceId !== principal.workspaceId) {
+      return yield* sync("agent.inference.workspace_scope", () => {
+        throw new Error(
+          "The agent principal does not belong to the job's workspace.",
+        );
+      });
+    }
+    const secretRef = config.inference.secretRef;
+    if (secretRef) {
       const target = new URL("https://workspace.internal/secrets");
-      target.searchParams.set("name", name);
+      target.searchParams.set("name", secretRef);
       const response = yield* attempt("agent.secret.get", () =>
         env.WORKSPACES.get(env.WORKSPACES.idFromName(job.workspaceId)).fetch(
           withTrustedContext(
@@ -121,7 +126,6 @@ export function resolveInferenceApiKey(
         });
       }
     }
-    if (env.OPENCODE_API_KEY) return env.OPENCODE_API_KEY;
     return yield* sync("agent.inference.credential", () => {
       throw new Error(
         "No inference credential is configured for this workspace's hosted agents.",

@@ -40,6 +40,7 @@ import {
   traceToolExecution,
 } from "./agent-tracing";
 import { supersedeConversationTurn } from "./agent-turn-supersession";
+import { createAiSdkAgentInference } from "./ai-sdk-agent-inference";
 import { asyncTracer, attempt, sync, telemetryIncludesContent } from "./effect";
 import {
   hostedTurnResult,
@@ -47,7 +48,6 @@ import {
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
 import { hostedDurableTools } from "./hosted-agent-tools";
-import { createOpenCodeAgentInference } from "./opencode-agent-inference";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 
@@ -192,7 +192,7 @@ export class AgentRuntime {
       );
       const admission = Effect.gen(function* () {
         const prepared = yield* attempt("agent.turn.prepare", () =>
-          prepareHostedAgentTurn(env, lease.job, principal, hosting),
+          prepareHostedAgentTurn(env, lease.job, principal, hosting, storage),
         );
         yield* attempt("agent.turn.create", () =>
           turns.create({
@@ -295,7 +295,7 @@ export class AgentRuntime {
           traceAgentRun(tracer, traceContext, current.revision, (turnTracer) =>
             turns.advance({
               inference: tracedInference(
-                createOpenCodeAgentInference(apiKey),
+                createAiSdkAgentInference(apiKey, traceContext),
                 traceContext,
                 turnTracer,
               ),

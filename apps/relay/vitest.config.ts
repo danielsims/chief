@@ -23,7 +23,6 @@ export default defineConfig({
             RELAY_TELEMETRY_MODE: "off",
             RELAY_SECRET_KEY:
               "test-only-relay-secret-key-with-at-least-thirty-two-characters",
-            OPENCODE_API_KEY: process.env.OPENCODE_API_KEY ?? "test",
             AUTH_BASE_URL: "https://relay.test",
             AUTH_UI_ORIGIN: "https://app.test",
             AUTH_GOOGLE_REDIRECT_URI:

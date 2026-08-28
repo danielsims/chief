@@ -120,7 +120,7 @@ export class AccountObject extends DurableObject<Env> {
     );
     if (prior) {
       this.setActiveWorkspace(identity.pubkey, prior.workspace_id);
-      return json(toDirectoryEntry(prior));
+      return json({ ...toDirectoryEntry(prior), created: false });
     }
 
     const workspaceId = workspaceIdSchema.parse(
@@ -142,7 +142,7 @@ export class AccountObject extends DurableObject<Env> {
       );
       this.setActiveWorkspace(identity.pubkey, workspaceId, createdAt);
     });
-    return json({ workspaceId, command, createdAt });
+    return json({ workspaceId, command, createdAt, created: true });
   }
 
   private active(identity: Extract<AuthenticatedIdentity, { kind: "user" }>) {

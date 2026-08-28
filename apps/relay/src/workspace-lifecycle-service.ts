@@ -3,8 +3,8 @@ import {
   agentConfigSchema,
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
-  createWorkspaceCommandSchema,
   messagePageSchema,
+  provisionWorkspaceCommandSchema,
   workspaceOnboardingResultSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -21,6 +21,7 @@ import {
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
 } from "./workspace-defaults";
+import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
   agent_id: string;
@@ -122,7 +123,19 @@ export class WorkspaceLifecycleService {
       return relayError(403, "user_required", "A user identity is required.");
     }
     const ownerIdentity = context.identity;
-    const input = createWorkspaceCommandSchema.parse(await parseJson(request));
+    const provision = provisionWorkspaceCommandSchema.parse(
+      await parseJson(request),
+    );
+    const input = provision.workspace;
+    const secretStore = new WorkspaceSecretStore(
+      this.storage,
+      this.env.RELAY_SECRET_KEY,
+    );
+    const preparedSecret = await secretStore.prepare(
+      context.workspaceId,
+      "opencode",
+      provision.secrets.opencode,
+    );
     const createdAt = new Date().toISOString();
     const snapshot = workspaceSnapshotSchema.parse({
       id: context.workspaceId,
@@ -145,7 +158,10 @@ export class WorkspaceLifecycleService {
       const existing = firstRow<WorkspaceRow>(
         this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
       );
-      if (existing) return;
+      if (existing) {
+        secretStore.writePrepared(preparedSecret);
+        return;
+      }
       this.storage.sql.exec(
         `INSERT INTO workspace (
           singleton, workspace_id, name, created_at, created_by_user_id,
@@ -177,6 +193,7 @@ export class WorkspaceLifecycleService {
           inference: {
             provider: "opencode",
             model: "opencode-go/deepseek-v4-flash",
+            secretRef: "opencode",
           },
         });
         this.storage.sql.exec(
@@ -187,6 +204,7 @@ export class WorkspaceLifecycleService {
           createdAt,
         );
       }
+      secretStore.writePrepared(preparedSecret);
     });
     return this.snapshot(context);
   }

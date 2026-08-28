@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { WorkspaceSecretStore } from "../src/workspace-secret-store";
+import {
+  decryptSecret,
+  deriveKey,
+  WorkspaceSecretStore,
+} from "../src/workspace-secret-store";
 
 const MASTER = "test-relay-secret-master-key-0123456789abcdef";
 
@@ -65,6 +69,13 @@ function createCursor<T>(rows: T[]) {
 }
 
 describe("workspace secret store", () => {
+  it("decrypts the portable v2 PBKDF2 and AES-GCM envelope", async () => {
+    const key = await deriveKey(MASTER);
+    const payload =
+      "v2.AAECAwQFBgcICQoL.DmDA97aj0MZts0pCiDbBpHDCJgFyGZrlkFti9FpQQQ==";
+    expect(await decryptSecret(key, payload)).toBe("portable-secret");
+  });
+
   it("round-trips a value", async () => {
     const { store } = makeStore();
     await store.set("ws-a", "opencode", "sk-test-123");
@@ -76,7 +87,7 @@ describe("workspace secret store", () => {
     await store.set("ws-a", "opencode", "super-secret-api-key");
     const stored = [...rows.values()][0] ?? "";
     expect(stored).not.toContain("super-secret-api-key");
-    expect(JSON.parse(stored)).toMatch(/^v1\./u);
+    expect(JSON.parse(stored)).toMatch(/^v2\./u);
   });
 
   it("isolates secrets across workspaces", async () => {
