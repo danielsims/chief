@@ -13,13 +13,17 @@ import {
   boundedHostedHistory,
   HOSTED_HISTORY_MESSAGE_LIMIT,
   HOSTED_TOOL_SELECTION_GUIDANCE,
+  hostedCompletionContract,
 } from "../src/hosted-agent-runner";
 import { inheritedThreadRootId } from "../src/hosted-agent-tools/toolkits/channels";
 
 describe("hosted agent turn context", () => {
-  it("keeps ordinary answers and plugin setup off the durable computer", () => {
+  it("keeps research lightweight and interactive work off the computer", () => {
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Never use it for ordinary questions or plugin setup",
+      "Use web_read for ordinary public research",
+    );
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
+      "browser or computer for ordinary questions or plugin setup",
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_list");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_recommend");
@@ -40,6 +44,15 @@ describe("hosted agent turn context", () => {
     expect(bounded.at(-1)?.body).toBe(
       `message-${HOSTED_HISTORY_MESSAGE_LIMIT + 3}`,
     );
+  });
+
+  it("requires channel creation and membership before claiming completion", () => {
+    expect(
+      hostedCompletionContract(
+        "Create #engineering-kickoff and invite Setup, Engineer, and me to it.",
+        false,
+      ).requiredToolNames,
+    ).toEqual(["channels_create", "channels_members_add"]);
   });
 
   it("keeps agent tool posts in the originating thread by default", () => {

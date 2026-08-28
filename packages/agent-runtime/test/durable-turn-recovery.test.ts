@@ -9,7 +9,89 @@ import type {
 import type { DurableTool } from "../src/durable-turn/types.js";
 import { MemoryCellPersistence } from "../src/cells/memory-persistence.js";
 import { DurableTurnRunner } from "../src/durable-turn/runner.js";
-import { RecoverableToolError } from "../src/durable-turn/tool-errors.js";
+import {
+  DeferredToolError,
+  RecoverableToolError,
+} from "../src/durable-turn/tool-errors.js";
+
+void test("a deferred tool sleeps without returning a failure to the model", async () => {
+  const persistence = new MemoryCellPersistence();
+  const runner = new DurableTurnRunner(persistence, "workspace:prospector");
+  const wakeAt = Date.now() + 20_000;
+  const scheduled: number[] = [];
+  let failedObservations = 0;
+  const inference: AgentInference = {
+    estimateTokens: () => 10,
+    complete: () =>
+      Promise.resolve({
+        content: null,
+        toolCalls: [
+          {
+            id: "open-1",
+            name: "browser_open",
+            arguments: { url: "https://example.com" },
+          },
+        ],
+      }),
+  };
+  const browser: DurableTool = {
+    definition: {
+      name: "browser_open",
+      description: "Open a browser page.",
+      parameters: { type: "object", properties: {} },
+    },
+    effect: "idempotent",
+  };
+  await runner.create({
+    jobId: "job-1",
+    leaseToken: "lease-1",
+    conversationId: "prospecting",
+    instruction: "Research the company.",
+    systemPrompt: "You are the Prospector.",
+    browserEnabled: true,
+  });
+  await runner.advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+
+  const deferred = await runner.advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: (scheduledAt) => {
+      scheduled.push(scheduledAt);
+      return Promise.resolve();
+    },
+    executor: {
+      execute: () =>
+        Promise.reject(
+          new DeferredToolError(
+            "Browser capacity is temporarily full.",
+            wakeAt,
+          ),
+        ),
+    },
+    observer: {
+      toolFailed: () => {
+        failedObservations += 1;
+      },
+    },
+  });
+
+  assert.equal(deferred.kind, "sleeping");
+  assert.equal(scheduled.at(-1), wakeAt);
+  assert.ok(scheduled.some((scheduledAt) => scheduledAt > wakeAt));
+  assert.equal(failedObservations, 0);
+  const active = await runner.active();
+  assert.ok(active);
+  assert.equal(active.tools[0]?.state, "prepared");
+  assert.deepEqual(active.phase, {
+    kind: "runnable",
+    next: { kind: "tool", callId: "open-1" },
+  });
+});
 
 void test("a recoverable non-replayable browser failure returns control to the agent", async () => {
   const persistence = new MemoryCellPersistence();

@@ -22,6 +22,7 @@ import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins
 import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
 import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
+import { readWebPageDefinition } from "./toolkits/web/read-web-page.js";
 import { getBrandProfileStatusDefinition } from "./toolkits/workspace/get-brand-profile-status.js";
 import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-profile.js";
 
@@ -47,6 +48,7 @@ export const hostedAgentToolDefinitions = {
     listProspectsDefinition,
     saveProspectDefinition,
     delegateSpecialistDefinition,
+    readWebPageDefinition,
   ],
   browser: [
     openBrowserDefinition,
