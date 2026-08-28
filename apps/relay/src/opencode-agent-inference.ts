@@ -9,6 +9,7 @@ import { isJsonString } from "@chief/relay-contracts";
 
 const OPEN_CODE_GO_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions";
 const OPEN_CODE_GO_MODEL = "deepseek-v4-flash";
+export const HOSTED_INFERENCE_TIMEOUT_MS = 45_000;
 
 const completionSchema = z.object({
   choices: z
@@ -76,6 +77,7 @@ export class OpenCodeAgentInference implements AgentInference {
         max_tokens: input.maxTokens,
         temperature: input.temperature,
       }),
+      signal: AbortSignal.timeout(HOSTED_INFERENCE_TIMEOUT_MS),
     });
     const body = await response.text();
     if (!response.ok) {

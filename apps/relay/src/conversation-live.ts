@@ -5,6 +5,7 @@ import type {
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "./internal-context";
+import { requireInternalResponse } from "./internal-response";
 
 export function publishConversationWorkspaceEvent(
   context: DurableObjectState,
@@ -36,10 +37,11 @@ export function publishConversationWorkspaceEvent(
           },
         ),
       )
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Workspace live event publication failed.");
-        }
-      }),
+      .then((response) =>
+        requireInternalResponse(
+          response,
+          "Workspace live event publication failed.",
+        ),
+      ),
   );
 }

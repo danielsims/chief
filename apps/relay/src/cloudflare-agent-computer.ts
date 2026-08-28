@@ -76,7 +76,7 @@ export class CloudflareAgentComputer implements AgentComputer {
       fs,
       cwd,
       network: { dangerouslyAllowFullInternetAccess: true },
-      executionLimits: { maxExecutionTimeMs: 120_000 },
+      executionLimits: { maxExecutionTimeMs: 30_000 },
     });
     const result = await bash.exec(command);
     await this.persistShellFileSystem(fs);

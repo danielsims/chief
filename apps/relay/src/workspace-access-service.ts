@@ -15,7 +15,7 @@ import type { readTrustedIdentity } from "./internal-context";
 import type { MemberRow, WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
-import { recordMetrics } from "./metrics";
+import { recordProductEvents } from "./product-events";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -174,7 +174,7 @@ export class WorkspaceAccessService {
         );
       }
     });
-    recordMetrics(this.env, ["agent-created"]);
+    recordProductEvents(this.env, ["agent-created"]);
     return json({ agentId: input.agentId, pubkey: input.pubkey });
   }
 

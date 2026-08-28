@@ -99,7 +99,7 @@ export class RemoteAgentComputer implements AgentComputer {
     const result = await this.client.json("/v1/exec", execResultSchema, {
       argv,
       cwd: relativeComputerPath(cwd),
-      timeoutMillis: 120_000,
+      timeoutMillis: 30_000,
     });
     return {
       exitCode: result.exitCode ?? 1,

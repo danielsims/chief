@@ -13,9 +13,7 @@ import {
   editMessagePayloadSchema,
   editMessageResultSchema,
   messageIdSchema,
-  principalSchema,
   reactToMessagePayloadSchema,
-  socketTicketSchema,
 } from "@chief/relay-contracts";
 
 import { upsertConversationActivity } from "./conversation-activity";
@@ -26,16 +24,19 @@ import {
   parseConversationPageInteger,
 } from "./conversation-request";
 import { SqlConversationStore } from "./conversation-store";
+import {
+  connectConversationWebSocket,
+  createConversationSocketTicket,
+} from "./conversation-websocket";
 import { attempt, runResponse, sync, telemetryIncludesContent } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
-  readTrustedSocketTicket,
   requiredTrustedConversationId,
   trustedTelemetryAttributes,
 } from "./internal-context";
-import { recordMetrics } from "./metrics";
 import { validatePluginComponentPlacement } from "./plugin-component-policy";
+import { recordProductEvents } from "./product-events";
 
 const repliesRoute = /\/messages\/([^/]+)\/replies$/u;
 const reactionsRoute = /\/messages\/([^/]+)\/reactions$/u;
@@ -58,13 +59,15 @@ export class ConversationObject extends DurableObject<Env> {
     const ctx = this.ctx;
     const env = this.env;
     const workflowId = await conversationWorkflowId(request);
-    const connectWebSocket = this.connectWebSocket.bind(this);
+    const connectWebSocket = (socketRequest: Request) =>
+      connectConversationWebSocket(ctx, this.store, socketRequest);
     const listEvents = this.listEvents.bind(this);
     const listReplies = this.replies.bind(this);
     const listReactions = this.reactions.bind(this);
     const listMessages = this.listMessages.bind(this);
     const agentHistory = this.agentHistory.bind(this);
-    const createSocketTicket = this.createSocketTicket.bind(this);
+    const createSocketTicket = (principal: Principal) =>
+      createConversationSocketTicket(this.store, principal);
     const react = this.react.bind(this);
     const upsertActivity = (
       activityRequest: Request,
@@ -225,7 +228,6 @@ export class ConversationObject extends DurableObject<Env> {
       workflowId,
     });
   }
-
   private async append(
     request: Request,
     principal: Principal,
@@ -264,11 +266,10 @@ export class ConversationObject extends DurableObject<Env> {
         conversationId,
         command.commandId,
       );
-      recordMetrics(this.env, ["message"]);
+      recordProductEvents(this.env, ["message"]);
     }
     return json({ duplicate: result.duplicate, message: result.message });
   }
-
   private listMessages(request: Request) {
     const url = new URL(request.url);
     const after = parseConversationPageInteger(
@@ -288,7 +289,6 @@ export class ConversationObject extends DurableObject<Env> {
     }
     return json(this.store.list(after, limit, query));
   }
-
   private agentHistory(request: Request) {
     const url = new URL(request.url);
     const limit = parseConversationPageInteger(
@@ -306,7 +306,6 @@ export class ConversationObject extends DurableObject<Env> {
       nextSequence: null,
     });
   }
-
   private replies(request: Request, rootId: string) {
     const url = new URL(request.url);
     const after = parseConversationPageInteger(
@@ -324,7 +323,6 @@ export class ConversationObject extends DurableObject<Env> {
       this.store.replies(messageIdSchema.parse(rootId), after, limit),
     );
   }
-
   private reactions(messageId: string) {
     const message = this.store.getMessage(messageIdSchema.parse(messageId));
     if (!message) {
@@ -336,7 +334,6 @@ export class ConversationObject extends DurableObject<Env> {
     }
     return json({ reactions: message.reactions });
   }
-
   private async react(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
@@ -484,31 +481,6 @@ export class ConversationObject extends DurableObject<Env> {
         "Only the message author or a workspace owner can edit or delete this message.",
       );
     }
-  }
-
-  private async createSocketTicket(principal: Principal) {
-    return json(
-      socketTicketSchema.parse(await this.store.createSocketTicket(principal)),
-      { status: 201 },
-    );
-  }
-
-  private async connectWebSocket(request: Request) {
-    const context = readTrustedSocketTicket(request);
-    const principalJson = await this.store.consumeSocketTicket(context.ticket);
-    if (!principalJson) {
-      return relayError(
-        401,
-        "invalid_socket_ticket",
-        "The socket ticket is invalid or expired.",
-      );
-    }
-    principalSchema.parse(JSON.parse(principalJson));
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    this.ctx.acceptWebSocket(server);
-    return new Response(null, { status: 101, webSocket: client });
   }
 
   private broadcast(event: JsonObject) {

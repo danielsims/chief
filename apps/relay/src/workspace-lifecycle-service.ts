@@ -13,6 +13,7 @@ import type { readTrustedIdentity } from "./internal-context";
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { defaultAgentConfigFor } from "./workspace-agent-config";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
@@ -369,6 +370,7 @@ export class WorkspaceLifecycleService {
       ),
     );
     if (!response.ok) {
+      await releaseInternalResponse(response);
       throw new HttpError(
         502,
         "onboarding_messages_unavailable",

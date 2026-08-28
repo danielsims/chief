@@ -7,6 +7,7 @@ import {
 
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 /** A specialist completion is accepted only after the relay itself shows its
  * threaded acknowledgement and public, owner-visible work channel. */
@@ -45,6 +46,7 @@ export async function validateSpecialistKickoff(
     ),
   );
   if (!channelResponse.ok) {
+    await releaseInternalResponse(channelResponse);
     throw new HttpError(
       409,
       "kickoff_channel_missing",
@@ -91,7 +93,7 @@ export async function validateSpecialistKickoff(
   );
   const workMessages = workMessagesResponse.ok
     ? messagePageSchema.parse(await workMessagesResponse.json()).messages
-    : [];
+    : await releaseInternalResponse(workMessagesResponse).then(() => []);
   const arrivedInWorkChannel = workMessages.some(
     (message) =>
       message.author.kind === "agent" &&
@@ -122,7 +124,7 @@ export async function validateSpecialistKickoff(
   );
   const messages = messagesResponse.ok
     ? messagePageSchema.parse(await messagesResponse.json()).messages
-    : [];
+    : await releaseInternalResponse(messagesResponse).then(() => []);
   const acknowledged = messages.some(
     (message) =>
       message.author.kind === "agent" &&

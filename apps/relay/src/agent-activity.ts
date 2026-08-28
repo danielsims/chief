@@ -6,6 +6,7 @@ import { upsertAgentActivityPayloadSchema } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 export async function publishAgentActivity(
   env: Env,
@@ -49,7 +50,9 @@ export async function publishAgentActivity(
       },
     ),
   );
-  if (!response.ok) {
+  const published = response.ok;
+  await releaseInternalResponse(response);
+  if (!published) {
     throw new HttpError(
       502,
       "agent_activity_failed",

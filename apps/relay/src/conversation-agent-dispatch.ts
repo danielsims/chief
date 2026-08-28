@@ -5,6 +5,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 export async function dispatchAppendedMessage(
   env: Env,
@@ -37,7 +38,9 @@ export async function dispatchAppendedMessage(
     message: result.message,
     ...(replyAgentId ? { replyAgentId } : undefined),
   });
-  return workspaceResponse.ok ? input.response : workspaceResponse;
+  if (!workspaceResponse.ok) return workspaceResponse;
+  await releaseInternalResponse(workspaceResponse);
+  return input.response;
 }
 
 export function dispatchPersistedMessage(
@@ -99,7 +102,10 @@ async function threadOwner(
       input,
     ),
   );
-  if (!response.ok) return undefined;
+  if (!response.ok) {
+    await releaseInternalResponse(response);
+    return undefined;
+  }
   const page = messagePageSchema.parse(await response.json());
   const root = page.messages.find(
     (message) => message.id === input.threadRootId,

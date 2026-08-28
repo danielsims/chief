@@ -17,6 +17,7 @@ import {
   readTrustedAccountIdentity,
   withTrustedIdentity,
 } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 interface DirectoryRow extends Record<string, SqlStorageValue> {
   workspace_id: string;
@@ -197,7 +198,10 @@ export class AccountObject extends DurableObject<Env> {
           },
         ),
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        await releaseInternalResponse(response);
+        return false;
+      }
       const snapshot: { onboardingComplete?: boolean } = await response.json();
       return snapshot.onboardingComplete === true;
     } catch {
@@ -230,7 +234,7 @@ export class AccountObject extends DurableObject<Env> {
     if (current?.workspace_id !== target) {
       this.setActiveWorkspace(identity.pubkey, target);
     }
-    void this.maybeRecordMetrics();
+    void this.maybeRecordProductEvents();
     return json({ workspaceId: target, isActive: true });
   }
 
@@ -358,10 +362,10 @@ export class AccountObject extends DurableObject<Env> {
     );
   }
 
-  private async maybeRecordMetrics() {
+  private async maybeRecordProductEvents() {
     try {
-      const { recordMetrics } = await import("./metrics");
-      recordMetrics(this.env, ["active-workspace"]);
+      const { recordProductEvents } = await import("./product-events");
+      recordProductEvents(this.env, ["active-workspace"]);
     } catch {
       // Observability only.
     }

@@ -19,7 +19,7 @@ import type {
 } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
-import { recordMetrics } from "./metrics";
+import { recordProductEvents } from "./product-events";
 import {
   channelRecordFromRow,
   firstRow,
@@ -103,7 +103,7 @@ export class WorkspaceChannelService {
         });
       });
     });
-    recordMetrics(this.store.env, ["channel-created"]);
+    recordProductEvents(this.store.env, ["channel-created"]);
     return json(this.store.channelDetail(command.payload.conversationId), {
       status: 201,
     });

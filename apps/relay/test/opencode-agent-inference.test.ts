@@ -20,6 +20,7 @@ describe("OpenCodeAgentInference", () => {
 
   it("sends DeepSeek V4 Flash through the OpenCode Go API", async () => {
     let requestBody: unknown;
+    let requestSignal: AbortSignal | null | undefined;
     const request = async function (
       this: void,
       _input: string | URL | Request,
@@ -27,6 +28,7 @@ describe("OpenCodeAgentInference", () => {
     ) {
       expect(this).toBeUndefined();
       requestBody = JSON.parse(z.string().parse(init?.body));
+      requestSignal = init?.signal;
       return Response.json({
         choices: [{ message: { content: "ready", tool_calls: [] } }],
       });
@@ -43,6 +45,7 @@ describe("OpenCodeAgentInference", () => {
     expect(requestSchema.parse(requestBody)).toMatchObject({
       model: "deepseek-v4-flash",
     });
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });
 

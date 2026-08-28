@@ -13,6 +13,7 @@ import {
 import { dispatchPersistedMessage } from "./conversation-agent-dispatch";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 /** Publishes a completed cell result through the same permission and
  * conversation authorization boundary as a direct agent tool call. */
@@ -65,9 +66,12 @@ export async function publishAgentMessage(
       },
     ),
   );
-  if (!authorization.ok) {
+  const authorized = authorization.ok;
+  const authorizationStatus = authorization.status;
+  await releaseInternalResponse(authorization);
+  if (!authorized) {
     throw new HttpError(
-      authorization.status,
+      authorizationStatus,
       "job_conversation_denied",
       "The agent cannot publish to that conversation.",
     );
@@ -113,6 +117,7 @@ export async function publishAgentMessage(
     ),
   );
   if (!response.ok) {
+    await releaseInternalResponse(response);
     throw new HttpError(
       502,
       "job_message_failed",
@@ -138,7 +143,9 @@ export async function publishAgentMessage(
       ? job.payload.workflowId
       : job.id,
   });
-  if (!dispatch.ok) {
+  const dispatched = dispatch.ok;
+  await releaseInternalResponse(dispatch);
+  if (!dispatched) {
     throw new HttpError(
       502,
       "job_dispatch_failed",

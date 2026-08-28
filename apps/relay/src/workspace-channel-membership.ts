@@ -21,6 +21,7 @@ import type {
 } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import {
   firstRow,
   parseChannelId,
@@ -330,7 +331,9 @@ export class WorkspaceChannelMembership {
         },
       ),
     );
-    if (!response.ok) {
+    const published = response.ok;
+    await releaseInternalResponse(response);
+    if (!published) {
       throw new HttpError(
         502,
         "membership_event_failed",
