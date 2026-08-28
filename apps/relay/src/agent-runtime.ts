@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 
-import type { AgentPrincipal, JsonObject } from "@chief/relay-contracts";
+import type {
+  AgentJob,
+  AgentPrincipal,
+  JsonObject,
+} from "@chief/relay-contracts";
 import {
   DurableTurnRunner,
   measureDurableTurnState,
@@ -48,8 +52,6 @@ import {
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
 import { hostedDurableTools } from "./hosted-agent-tools";
-
-type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 
 export class AgentRuntime {
   private readonly turns: DurableTurnRunner;
@@ -253,7 +255,7 @@ export class AgentRuntime {
         ...agentTelemetryAttributes(maintained.job),
         ...durableTurnStateAttributes(measureDurableTurnState(current)),
       });
-      const execution = executionFor(maintained.job);
+      const execution = executionFor();
       if (current.phase.kind !== "runnable") {
         return yield* settleTurn(maintained.job, principal);
       }
@@ -288,7 +290,7 @@ export class AgentRuntime {
           config,
         );
         const browserEnabled = current.browserEnabled;
-        const tools = hostedDurableTools(browserEnabled);
+        const tools = hostedDurableTools(current);
         const traceContext = traceContextFor(maintained.job, workspaceName);
         const tracer = yield* asyncTracer;
         const result = yield* attempt("agent.turn.advance", () =>
@@ -309,6 +311,7 @@ export class AgentRuntime {
                     executeObservedHostedAgentTool(
                       execution,
                       browserEnabled,
+                      current.computerEnabled,
                       env,
                       maintained.job,
                       principal,

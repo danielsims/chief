@@ -70,6 +70,11 @@ const ProjectsPage = lazy(() =>
     default: module.ProjectsPage,
   })),
 );
+const MachinesPage = lazy(() =>
+  import("./pages/machines").then((module) => ({
+    default: module.MachinesPage,
+  })),
+);
 
 function ConfigurationRequired() {
   return (
@@ -317,6 +322,10 @@ function AuthenticatedApp() {
                       />
                       <Route path="agents" element={<AgentsPage />} />
                       <Route
+                        path="machines"
+                        element={<Navigate to="/settings/machines" replace />}
+                      />
+                      <Route
                         path="projects/:projectId?"
                         element={
                           <Suspense fallback={null}>
@@ -368,6 +377,14 @@ function AuthenticatedApp() {
                         <Route
                           path="environment"
                           element={<EnvironmentSettings />}
+                        />
+                        <Route
+                          path="machines"
+                          element={
+                            <Suspense fallback={null}>
+                              <MachinesPage />
+                            </Suspense>
+                          }
                         />
                         <Route
                           path="integrations/*"

@@ -132,6 +132,7 @@ export const durableTurnSchema = z.object({
   instruction: z.string().min(1),
   systemPrompt: z.string().min(1),
   browserEnabled: z.boolean(),
+  computerEnabled: z.boolean().default(true),
   completion: z
     .object({
       requiredToolNames: z.string().min(1).array().max(32),
@@ -173,6 +174,7 @@ export interface CreateDurableTurn {
   instruction: string;
   systemPrompt: string;
   browserEnabled: boolean;
+  computerEnabled?: boolean;
   completion?: {
     requiredToolNames: readonly string[];
     browserMustRemainOpen: boolean;

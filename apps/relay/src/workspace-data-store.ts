@@ -16,6 +16,10 @@ import {
 import { requireAgentPrincipal } from "./agent-job-store";
 import { HttpError, json, parseJson } from "./http";
 import {
+  initializeWorkspaceMachines,
+  routeWorkspaceMachines,
+} from "./workspace-machine-store";
+import {
   initializeWorkspaceProjects,
   routeWorkspaceProjects,
 } from "./workspace-project-store";
@@ -78,6 +82,7 @@ export function initializeWorkspaceData(storage: DurableObjectStorage) {
       ON prospects (updated_at DESC);
   `);
   initializeWorkspaceProjects(storage);
+  initializeWorkspaceMachines(storage);
 }
 
 export async function routeWorkspaceData(
@@ -105,7 +110,15 @@ export async function routeWorkspaceData(
   if (operation === "data-file-update") {
     return await updateFile(storage, request);
   }
-  return await routeWorkspaceProjects(storage, request, operation, workspaceId);
+  const machines = await routeWorkspaceMachines(
+    storage,
+    request,
+    operation,
+    workspaceId,
+  );
+  return (
+    machines ?? routeWorkspaceProjects(storage, request, operation, workspaceId)
+  );
 }
 
 function getBrandProfile(storage: DurableObjectStorage) {

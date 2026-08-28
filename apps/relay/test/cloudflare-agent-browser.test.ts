@@ -6,7 +6,7 @@ import {
 } from "../src/cloudflare-agent-browser";
 
 describe("CloudflareAgentBrowser", () => {
-  it("defers for Cloudflare's full browser acquisition window", () => {
+  it("reports Cloudflare's full browser acquisition wait window", () => {
     expect(
       browserAcquisitionDelay({
         activeSessions: [],
@@ -17,7 +17,7 @@ describe("CloudflareAgentBrowser", () => {
     ).toBe(19_500);
   });
 
-  it("defers while all browser sessions are occupied", () => {
+  it("reports a wait while all browser sessions are occupied", () => {
     expect(
       browserAcquisitionDelay({
         activeSessions: [{ id: "one" }, { id: "two" }, { id: "three" }],

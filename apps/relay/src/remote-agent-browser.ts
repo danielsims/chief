@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import type { AgentBrowser, AgentBrowserTarget } from "@chief/agent-computer";
-import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
+import {
+  RecoverableToolError,
+  UnavailableToolError,
+} from "@chief/agent-runtime/durable-turn";
 import {
   browserSnapshotSchema,
   browserStreamSchema,
@@ -13,10 +16,22 @@ export class RemoteAgentBrowser implements AgentBrowser {
   constructor(private readonly client: RemoteComputerClient) {}
 
   async open(url: string, options?: { fresh?: boolean }) {
-    return await this.client.json("/v1/browser/open", browserSnapshotSchema, {
-      url,
-      fresh: options?.fresh ?? false,
-    });
+    try {
+      return await this.client.json("/v1/browser/open", browserSnapshotSchema, {
+        url,
+        fresh: options?.fresh ?? false,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error.";
+      if (/(?:429|too many requests|rate.?limit|capacity)/iu.test(detail)) {
+        throw new UnavailableToolError(
+          `The interactive browser is temporarily unavailable. Continue with web_read, another source, or the evidence already available. ${detail}`,
+        );
+      }
+      throw new RecoverableToolError(
+        `The interactive browser could not open this page. Continue with another available method. ${detail}`,
+      );
+    }
   }
 
   async snapshot() {

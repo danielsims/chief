@@ -11,6 +11,7 @@ import type { HostedAgentToolContext } from "./context";
 export interface HostedAgentTool {
   definition: ReturnType<typeof localAgentToolsByOperation>[number];
   requiresBrowser: boolean;
+  requiresComputer: boolean;
   effect: ToolEffect;
   execute: (
     context: HostedAgentToolContext,
@@ -24,13 +25,18 @@ export function defineHostedAgentTool(
     context: HostedAgentToolContext,
     input: JsonObject,
   ) => Promise<object>,
-  options: { effect: ToolEffect; requiresBrowser?: boolean },
+  options: {
+    effect: ToolEffect;
+    requiresBrowser?: boolean;
+    requiresComputer?: boolean;
+  },
 ): HostedAgentTool {
   const definition = localAgentToolsByOperation([operationId])[0];
   if (!definition) throw new Error(`Unknown hosted agent tool: ${operationId}`);
   return {
     definition,
     requiresBrowser: options.requiresBrowser ?? false,
+    requiresComputer: options.requiresComputer ?? false,
     effect: options.effect,
     execute: async (context, input) =>
       jsonValueSchema.parse(await execute(context, input)),

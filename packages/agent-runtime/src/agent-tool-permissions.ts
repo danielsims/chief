@@ -17,6 +17,7 @@ export interface AgentToolPermissionDefinition {
   group:
     | "Workspace"
     | "Projects"
+    | "Machines"
     | "Channels"
     | "Messages"
     | "Scheduled work"
@@ -48,6 +49,18 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
       label: "Work in projects",
       description: "Create isolated checkouts and commit agent changes.",
       group: "Projects",
+    },
+    {
+      id: "machines.read",
+      label: "View machines",
+      description: "See the machines connected to this workspace.",
+      group: "Machines",
+    },
+    {
+      id: "machines.write",
+      label: "Manage machines",
+      description: "Connect machines and assign agent access.",
+      group: "Machines",
     },
     {
       id: "channels.read",

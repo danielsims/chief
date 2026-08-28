@@ -7,9 +7,10 @@ describe("hosted web tools", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("exposes lightweight public research without requiring a browser", () => {
-    const read = hostedDurableTools(false).find(
-      (tool) => tool.definition.name === "web_read",
-    );
+    const read = hostedDurableTools({
+      browserEnabled: false,
+      computerEnabled: false,
+    }).find((tool) => tool.definition.name === "web_read");
 
     expect(read?.effect).toBe("read_only");
   });

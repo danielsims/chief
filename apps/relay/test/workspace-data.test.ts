@@ -220,6 +220,45 @@ describe("workspace data", () => {
     expect(deleted.status).toBe(200);
     expect(await deleted.json()).toEqual({ id: project.id, deleted: true });
   });
+
+  it("stores machine capabilities and agent grants in the workspace boundary", async () => {
+    const ctx = await setupChannelTest();
+    const listed = await rpc(ctx, ctx.principal, "data-machines-list");
+    expect(await listed.json()).toMatchObject({
+      machines: [
+        expect.objectContaining({
+          name: "Cloudflare Computer",
+          kind: "cloudflare",
+          status: "online",
+          capabilities: ["browser", "screen"],
+        }),
+      ],
+    });
+
+    const created = await rpc(ctx, ctx.principal, "data-machine-create", {
+      name: "Raspberry Pi",
+      kind: "self-hosted",
+      capabilities: ["files", "git", "shell"],
+    });
+    expect(created.status).toBe(201);
+    const machine = (await created.json()) as { id: string };
+
+    const updated = await rpc(
+      ctx,
+      ctx.principal,
+      "data-machine-update",
+      {
+        name: "Raspberry Pi",
+        capabilities: ["files", "git", "shell"],
+        agentIds: ["engineer"],
+      },
+      { "x-chief-machine-id": machine.id },
+    );
+    expect(await updated.json()).toMatchObject({
+      status: "pairing",
+      agentIds: ["engineer"],
+    });
+  });
 });
 
 function rpc(

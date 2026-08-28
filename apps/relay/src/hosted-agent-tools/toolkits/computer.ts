@@ -34,7 +34,7 @@ export const hostedComputerTools = [
         await computer.readText(requiredString(input, "path")),
       ),
     }),
-    { effect: "read_only" },
+    { effect: "read_only", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.list",
@@ -45,7 +45,7 @@ export const hostedComputerTools = [
         500,
       ),
     }),
-    { effect: "read_only" },
+    { effect: "read_only", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.write",
@@ -59,7 +59,7 @@ export const hostedComputerTools = [
         bytesWritten: new TextEncoder().encode(content).length,
       };
     },
-    { effect: "idempotent" },
+    { effect: "idempotent", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.edit",
@@ -76,7 +76,7 @@ export const hostedComputerTools = [
         )),
       };
     },
-    { effect: "non_replayable" },
+    { effect: "non_replayable", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.execute",
@@ -87,7 +87,7 @@ export const hostedComputerTools = [
           optionalString(input, "cwd"),
         ),
       ),
-    { effect: "non_replayable" },
+    { effect: "non_replayable", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.git",
@@ -98,7 +98,7 @@ export const hostedComputerTools = [
           optionalString(input, "cwd"),
         ),
       ),
-    { effect: "non_replayable" },
+    { effect: "non_replayable", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.artifacts.publish",
@@ -110,6 +110,6 @@ export const hostedComputerTools = [
         name: requiredString(input, "name"),
         contentType: requiredString(input, "contentType"),
       }),
-    { effect: "non_replayable" },
+    { effect: "non_replayable", requiresComputer: true },
   ),
 ];

@@ -5,6 +5,7 @@ export * from "./discovery";
 export * from "./directs";
 export * from "./device-identities";
 export * from "./logs";
+export * from "./machines";
 export * from "./envelopes";
 export * from "./execution";
 export * from "./identifiers";

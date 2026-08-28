@@ -4,8 +4,8 @@ import { z } from "zod";
 
 import type { AgentBrowser, AgentBrowserTarget } from "@chief/agent-computer";
 import {
-  DeferredToolError,
   RecoverableToolError,
+  UnavailableToolError,
 } from "@chief/agent-runtime/durable-turn";
 
 export class CloudflareAgentBrowser implements AgentBrowser {
@@ -22,7 +22,16 @@ export class CloudflareAgentBrowser implements AgentBrowser {
     if (options?.fresh) await this.close();
     const url = safeBrowserUrl(value);
     const page = await this.currentPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const response = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    const status = response?.status();
+    if (status && status >= 400) {
+      throw new RecoverableToolError(
+        `The website returned HTTP ${status} for ${url}. Try another public source or continue with the evidence already available.`,
+      );
+    }
     return await browserSnapshot(page);
   }
 
@@ -159,18 +168,18 @@ async function readBrowserSnapshot(
 async function launchBrowser(binding: BrowserWorker) {
   const limits = await puppeteer.limits(binding).catch(() => undefined);
   const delay = browserAcquisitionDelay(limits);
-  if (delay > 0) throw browserCapacityDeferred(delay);
+  if (delay > 0) throw browserCapacityUnavailable(delay);
   try {
     return await puppeteer.launch(binding);
   } catch (error) {
     if (!isBrowserAcquisitionRateLimit(error)) throw error;
     if (isDailyBrowserLimit(error)) {
-      throw new RecoverableToolError(
+      throw new UnavailableToolError(
         "Cloudflare Browser Run has reached its daily allowance. Do not retry the browser today; continue with another available research tool.",
       );
     }
     const refreshed = await puppeteer.limits(binding).catch(() => undefined);
-    throw browserCapacityDeferred(
+    throw browserCapacityUnavailable(
       Math.max(
         browserAcquisitionDelay(refreshed),
         retryAfterMilliseconds(error),
@@ -192,7 +201,10 @@ export function browserAcquisitionDelay(
 
 function isBrowserAcquisitionRateLimit(error: unknown): error is Error {
   return (
-    error instanceof Error && /(?:code:\s*429|rate limit)/iu.test(error.message)
+    error instanceof Error &&
+    /(?:code:\s*429|status(?: code)?:?\s*429|too many requests|rate.?limit|unable to create (?:a )?browser)/iu.test(
+      error.message,
+    )
   );
 }
 
@@ -203,11 +215,9 @@ function isDailyBrowserLimit(error: unknown) {
   );
 }
 
-function browserCapacityDeferred(delay: number) {
-  const jitter = Math.floor(Math.random() * 750);
-  return new DeferredToolError(
-    "Cloudflare Browser Run capacity is temporarily full.",
-    Date.now() + delay + jitter,
+function browserCapacityUnavailable(delay: number) {
+  return new UnavailableToolError(
+    `Cloudflare Browser Run is temporarily at capacity for about ${Math.ceil(delay / 1_000)} seconds. Continue now with web_read, another source, or the evidence already available.`,
   );
 }
 

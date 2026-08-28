@@ -1,5 +1,10 @@
 export { DurableTurnRunner } from "./runner.js";
-export { DeferredToolError, RecoverableToolError } from "./tool-errors.js";
+export {
+  DeferredToolError,
+  isRecoverableToolError,
+  RecoverableToolError,
+  UnavailableToolError,
+} from "./tool-errors.js";
 export { durableTodoTools } from "./plan.js";
 export { measureDurableTurnState, serializedBytes } from "./state-size.js";
 export type {
