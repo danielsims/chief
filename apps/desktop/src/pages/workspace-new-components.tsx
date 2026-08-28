@@ -93,8 +93,7 @@ export function CreateForm({
     step === 0
       ? Boolean(name.trim())
       : step === 2
-        ? provider !== null &&
-          (hosting !== "self-hosted" || Boolean(apiKey.trim()))
+        ? provider !== null && Boolean(apiKey.trim())
         : true;
   const back = () => {
     if (step === 0) onBackToHome();
@@ -216,11 +215,7 @@ export function CreateForm({
               {provider ? (
                 <div>
                   <div className="mt-4">
-                    <Field
-                      label="OpenCode API key"
-                      optional={hosting !== "self-hosted"}
-                      htmlFor="cloud-api-key"
-                    >
+                    <Field label="OpenCode API key" htmlFor="cloud-api-key">
                       <Input
                         id="cloud-api-key"
                         type="password"
@@ -231,9 +226,8 @@ export function CreateForm({
                         disabled={working}
                       />
                       <p className="text-muted-foreground mt-1 text-xs">
-                        {hosting === "self-hosted"
-                          ? "Required once, encrypted by your relay, and used only by this workspace’s hosted agents."
-                          : "Stored encrypted and used only by this workspace’s hosted agents. Skip to use Chief’s shared key."}
+                        Encrypted by this relay and available only to this
+                        workspace’s hosted agents.
                       </p>
                     </Field>
                   </div>

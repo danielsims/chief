@@ -69,16 +69,27 @@ export async function activeRelayWorkspace() {
 }
 
 export async function connectBoundRelayDevice(sessionToken: string) {
+  if (!deviceAuthorization) {
+    const bound = await bindSignedInAccount(sessionToken);
+    if (!bound) return undefined;
+  }
   try {
     return await activeRelayWorkspace();
   } catch (error) {
     if (!(error instanceof RelaySessionError) || error.status !== 401)
       throw error;
   }
-  const accountAssertion = await requestAccountAssertion(sessionToken);
-  if (!accountAssertion) return undefined;
-  await bindAccount(accountAssertion);
+  deviceAuthorization = undefined;
+  const bound = await bindSignedInAccount(sessionToken);
+  if (!bound) return undefined;
   return activeRelayWorkspace();
+}
+
+async function bindSignedInAccount(sessionToken: string) {
+  const accountAssertion = await requestAccountAssertion(sessionToken);
+  if (!accountAssertion) return false;
+  await bindAccount(accountAssertion);
+  return true;
 }
 
 export const relaySessionTransport = {

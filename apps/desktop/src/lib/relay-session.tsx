@@ -36,10 +36,10 @@ import {
 } from "./relay-session-api";
 import { RelaySessionContext } from "./relay-session-context";
 import {
-  adoptCreatedWorkspace,
   beginWorkspaceTransition,
   initialRelaySessionState,
   visibleRelaySessionState,
+  workspaceSummaryFromSnapshot,
 } from "./relay-session-state";
 import { setRelayWorkspaceOverride } from "./relay-workspace-override";
 import {
@@ -463,35 +463,28 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   );
 
   const createWorkspace = useCallback(
-    async (command: CreateWorkspaceCommand, apiKey?: string) => {
+    async (command: CreateWorkspaceCommand, apiKey: string) => {
       if (!state.client) throw new Error("The relay is not connected.");
       if (!accountId) throw new Error("Sign in before creating a workspace.");
-      const snapshot = await state.client.createWorkspace(command);
+      const apiKeyValue = apiKey.trim();
+      if (!apiKeyValue) {
+        throw new Error(
+          "Enter an OpenCode API key before creating a workspace.",
+        );
+      }
+      const snapshot = await state.client.createWorkspace(command, apiKeyValue);
       const workspace = state.client.forWorkspace(snapshot.id);
-      const nextState = adoptCreatedWorkspace(
-        state,
-        accountId,
-        workspace,
-        snapshot,
-      );
-      rememberRelayWorkspaces(RELAY_URL, accountId, nextState.workspaces);
-      setRelayWorkspaceOverride(snapshot.id);
-      rememberConnectedWorkspace(accountId, {
-        workspaceId: snapshot.id,
-        relayUrl: new URL(RELAY_URL).origin,
-      });
-      setState(nextState);
-      const apiKeyValue = apiKey?.trim();
-      const configureWorkspace = async () => {
-        if (apiKeyValue) {
-          await workspace.setWorkspaceSecret("opencode", apiKeyValue);
-        }
-        await ensureDesktopCells(snapshot, workspace);
-      };
-      // Configuration continues after the durable creation commit point.
-      void Promise.all([configureWorkspace(), connect()]).catch((error) =>
-        console.error("[Workspace] Post-create setup failed:", error),
-      );
+      await ensureDesktopCells(snapshot, workspace);
+
+      const summary = workspaceSummaryFromSnapshot(snapshot);
+      const nextWorkspaces = [
+        summary,
+        ...state.workspaces.filter((candidate) => candidate.id !== snapshot.id),
+      ];
+      rememberRelayWorkspaces(RELAY_URL, accountId, nextWorkspaces);
+      connectionGeneration.current += 1;
+      connectionPromise.current = null;
+      await connect();
       return snapshot;
     },
     [accountId, connect, state],

@@ -478,7 +478,6 @@ export function ChiefChatAuxiliaryPanels({
       blocks={currentTurnBlocks}
       error={controls.error}
       previousTurns={previousActivityTurns}
-      agentLabel={activityAgentLabel}
       running={controls.status === "running"}
       tasks={childSessions}
       onClose={() => setActivityOpen(false)}
