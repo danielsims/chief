@@ -1,8 +1,6 @@
-import type { Dispatch, SetStateAction } from "react";
 import { useState } from "react";
 import {
   Check,
-  ChevronRight,
   ChevronUp,
   LogOut,
   Plus,
@@ -13,11 +11,16 @@ import { useNavigate } from "react-router";
 
 import { isJsonString } from "@chief/relay-contracts";
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "@chief/ui/components/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@chief/ui/components/dropdown-menu";
+import { Popover, PopoverAnchor } from "@chief/ui/components/popover";
 
 import type { RelayAccountIdentity } from "../lib/auth/account-directory";
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
@@ -79,9 +82,9 @@ export function SidebarProfileMenu() {
   };
 
   return (
-    <Popover open={open} onOpenChange={setProfileMenuOpen}>
+    <DropdownMenu open={open} onOpenChange={setProfileMenuOpen}>
       <div className="group/profile hover:bg-sidebar-accent/70 flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors">
-        <PopoverTrigger asChild>
+        <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label="Relay connections and workspaces"
@@ -89,7 +92,7 @@ export function SidebarProfileMenu() {
           >
             <ProfileImage user={user} />
           </button>
-        </PopoverTrigger>
+        </DropdownMenuTrigger>
         <button
           type="button"
           onClick={() => setProfileMenuOpen(!open)}
@@ -109,12 +112,11 @@ export function SidebarProfileMenu() {
           />
         </button>
       </div>
-      <PopoverContent
+      <DropdownMenuContent
         side="top"
         align="start"
         sideOffset={8}
         className="w-[310px] p-1.5"
-        onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex min-h-14 items-center gap-3 px-2 py-2">
           <ProfileImage user={user} className="size-9" />
@@ -129,11 +131,10 @@ export function SidebarProfileMenu() {
         </div>
 
         <div className="max-h-[390px] overflow-y-auto overscroll-contain">
-          {identities.map((identity, index) => (
+          {identities.map((identity) => (
             <RelaySection
               key={identity.relayUrl}
               identity={identity}
-              separated={index > 0}
               activeWorkspaceId={activeWorkspaceId}
               switchingTo={switchingTo}
               workspaceMenuId={workspaceMenuId}
@@ -166,7 +167,7 @@ export function SidebarProfileMenu() {
           ))}
         </div>
 
-        <div className="bg-border/60 my-1 h-px" />
+        <DropdownMenuSeparator />
         <RelayConnectionDialog>
           <button
             type="button"
@@ -187,14 +188,13 @@ export function SidebarProfileMenu() {
           <SettingsIcon className="text-muted-foreground size-4 shrink-0" />
           Settings
         </button>
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function RelaySection({
   identity,
-  separated,
   activeWorkspaceId,
   switchingTo,
   workspaceMenuId,
@@ -205,11 +205,10 @@ function RelaySection({
   onSignOut,
 }: {
   identity: RelayAccountIdentity;
-  separated: boolean;
   activeWorkspaceId: string | null;
   switchingTo: string | null;
   workspaceMenuId: string | null;
-  setWorkspaceMenuId: Dispatch<SetStateAction<string | null>>;
+  setWorkspaceMenuId: (value: string | null) => void;
   onSwitchWorkspace: (
     organization: AuthOrganization,
     location: ConnectedWorkspace,
@@ -221,8 +220,8 @@ function RelaySection({
   const navigate = useNavigate();
   const workspaces = knownWorkspacesForRelayIdentities([identity]);
   return (
-    <section className={separated ? "border-border/60 border-t pt-1" : ""}>
-      <div className="text-muted-foreground flex h-8 items-center gap-2 px-2 text-[12px] leading-4">
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="h-9">
         {isChiefCloud(identity.relayUrl) ? (
           <ChiefMark className="size-3.5 shrink-0" />
         ) : (
@@ -231,94 +230,94 @@ function RelaySection({
         <span className="min-w-0 flex-1 truncate font-medium">
           {relayLabel(identity.relayUrl)}
         </span>
-      </div>
-      {workspaces.map((location) => {
-        const organization = workspaceOrganization(location);
-        const metadata = parseOrganizationMetadata(organization);
-        const active = isActiveWorkspace(location, activeWorkspaceId);
-        const menuKey = workspaceMenuKey(location);
-        return (
-          <Popover
-            key={menuKey}
-            open={workspaceMenuId === menuKey}
-            onOpenChange={(nextOpen) =>
-              setWorkspaceMenuId((currentId) =>
-                nextWorkspaceMenuId(currentId, menuKey, nextOpen),
-              )
-            }
-          >
-            <PopoverAnchor asChild>
-              <button
-                type="button"
-                onClick={() => void onSwitchWorkspace(organization, location)}
-                disabled={switchingTo !== null}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setWorkspaceMenuId(menuKey);
-                }}
-                className="hover:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors outline-none disabled:opacity-50"
-              >
-                <OrgLogo
-                  name={organization.name}
-                  logo={organization.logo}
-                  website={
-                    isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : ""
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="max-h-[420px] w-[280px] overflow-y-auto overscroll-contain">
+        {workspaces.map((location) => {
+          const organization = workspaceOrganization(location);
+          const metadata = parseOrganizationMetadata(organization);
+          const active = isActiveWorkspace(location, activeWorkspaceId);
+          const menuKey = workspaceMenuKey(location);
+          return (
+            <Popover
+              key={menuKey}
+              open={workspaceMenuId === menuKey}
+              onOpenChange={(nextOpen) =>
+                setWorkspaceMenuId(
+                  nextWorkspaceMenuId(workspaceMenuId, menuKey, nextOpen),
+                )
+              }
+            >
+              <PopoverAnchor asChild>
+                <DropdownMenuItem
+                  disabled={switchingTo !== null}
+                  onSelect={() =>
+                    void onSwitchWorkspace(organization, location)
                   }
-                  className="size-6 shrink-0 text-[10px]"
-                  transparentWhenLoaded
-                />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                  {organization.name}
-                </span>
-                {active ? (
-                  <Check className="size-3.5 shrink-0" />
-                ) : (
-                  <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-                )}
-              </button>
-            </PopoverAnchor>
-            <WorkspaceActionsPopover
-              showOpenWorkspace={!active}
-              actionsDisabled={switchingTo !== null}
-              onOpenWorkspace={() => {
-                setWorkspaceMenuId(null);
-                void onSwitchWorkspace(organization, location);
-              }}
-              onWorkspaceSettings={() => {
-                setWorkspaceMenuId(null);
-                if (active) {
-                  onClose();
-                  void navigate("/settings/workspace");
-                  return;
-                }
-                void onSwitchWorkspace(organization, location).then(() => {
-                  onClose();
-                  void navigate("/settings/workspace", { replace: true });
-                });
-              }}
-              workspaceName={organization.name}
-              relayUrl={location.relayUrl}
-            />
-          </Popover>
-        );
-      })}
-      <button
-        type="button"
-        onClick={() => void onAddWorkspace()}
-        className="hover:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors"
-      >
-        <Plus className="text-muted-foreground size-4 shrink-0" />
-        Add a workspace
-      </button>
-      <button
-        type="button"
-        onClick={onSignOut}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors"
-      >
-        <LogOut className="size-4 shrink-0" />
-        Sign out of {relayLabel(identity.relayUrl)}
-      </button>
-    </section>
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setWorkspaceMenuId(menuKey);
+                  }}
+                  className="h-9 gap-2.5"
+                >
+                  <OrgLogo
+                    name={organization.name}
+                    logo={organization.logo}
+                    website={
+                      isJsonString(metadata.websiteUrl)
+                        ? metadata.websiteUrl
+                        : ""
+                    }
+                    className="size-6 shrink-0 text-[10px]"
+                    transparentWhenLoaded
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {organization.name}
+                  </span>
+                  {active ? <Check className="size-3.5 shrink-0" /> : null}
+                </DropdownMenuItem>
+              </PopoverAnchor>
+              <WorkspaceActionsPopover
+                showOpenWorkspace={!active}
+                actionsDisabled={switchingTo !== null}
+                onOpenWorkspace={() => {
+                  setWorkspaceMenuId(null);
+                  void onSwitchWorkspace(organization, location);
+                }}
+                onWorkspaceSettings={() => {
+                  setWorkspaceMenuId(null);
+                  if (active) {
+                    onClose();
+                    void navigate("/settings/workspace");
+                    return;
+                  }
+                  void onSwitchWorkspace(organization, location).then(() => {
+                    onClose();
+                    void navigate("/settings/workspace", { replace: true });
+                  });
+                }}
+                workspaceName={organization.name}
+                relayUrl={location.relayUrl}
+              />
+            </Popover>
+          );
+        })}
+        <DropdownMenuItem
+          onSelect={() => void onAddWorkspace()}
+          className="h-9"
+        >
+          <Plus className="text-muted-foreground size-4" />
+          Add a workspace
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={onSignOut}
+          className="text-muted-foreground h-9"
+        >
+          <LogOut className="size-4" />
+          Sign out of {relayLabel(identity.relayUrl)}
+        </DropdownMenuItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
