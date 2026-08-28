@@ -12,7 +12,8 @@ export const browserSession = definePromptPart({
   visible controls rather than shell commands or guessed URLs. Let the user
   take control for sign-in, passkeys, MFA, consent, and consequential
   submissions. If an action fails, refresh the page state once; do not loop
-  through repeated retries or change strategy without new evidence. Leave the
-  browser open while the user is needed, and close it when the browser work is
-  complete.`,
+  through repeated retries or change strategy without new evidence. If it
+  still fails, use another accessible source or report the specific gap and
+  finish the useful work that remains. Leave the browser open while the user
+  is needed, and close it when the browser work is complete.`,
 });

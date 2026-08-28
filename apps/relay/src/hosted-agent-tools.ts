@@ -1,6 +1,7 @@
 import type { AgentBrowser, AgentComputer } from "@chief/agent-computer";
 import type { DurableTool } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
+import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import {
   localAgentToolDefinitions,
   parseLocalAgentToolCall,
@@ -44,8 +45,8 @@ export async function executeHostedAgentTool<Input>(
   const tools = availableTools(browser !== undefined);
   const handler = tools.find((tool) => hostedAgentToolName(tool) === name);
   if (!handler) throw new Error(`Unknown hosted agent tool: ${name}`);
-  const parsed = parseLocalAgentToolCall(
-    [handler.definition],
+  const parsed = parseHostedAgentToolCall(
+    handler.definition,
     name,
     rawArguments,
   );
@@ -53,4 +54,20 @@ export async function executeHostedAgentTool<Input>(
     { computer, browser, env, job, principal },
     parsed.input,
   );
+}
+
+function parseHostedAgentToolCall(
+  definition: Parameters<typeof parseLocalAgentToolCall>[0][number],
+  name: string,
+  rawArguments: unknown,
+) {
+  try {
+    return parseLocalAgentToolCall([definition], name, rawArguments);
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Tool input is invalid.";
+    throw new RecoverableToolError(
+      `${name} was not run because its input was rejected. ${detail}`,
+    );
+  }
 }
