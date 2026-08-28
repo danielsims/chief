@@ -4,6 +4,7 @@ import type { RelayClient } from "@chief/relay-client";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
 
 import { RELAY_URL } from "./config";
+import { shouldStartDesktopCells } from "./desktop-cell-runtime-selection";
 
 export { shouldStartDesktopCells } from "./desktop-cell-runtime-selection";
 
@@ -11,7 +12,7 @@ export async function ensureDesktopCells(
   snapshot: WorkspaceSnapshot,
   workspace: Pick<RelayClient, "loadAgentConfig" | "registerAgentKey">,
 ) {
-  if (!isTauri()) return;
+  if (!shouldStartDesktopCells(snapshot.runtime) || !isTauri()) return;
   const configurations = await Promise.all(
     snapshot.agents.map(async (agent) => {
       const configuration = await workspace.loadAgentConfig(agent.id);

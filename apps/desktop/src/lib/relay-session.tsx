@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { CreateWorkspaceCommand } from "@chief/relay-contracts";
+import type {
+  CreateWorkspaceCommand,
+  WorkspaceSummary,
+} from "@chief/relay-contracts";
 import { RelayClient } from "@chief/relay-client";
 
 import type { RelaySessionValue } from "./relay-session-value";
@@ -20,6 +23,7 @@ import {
 } from "./organization-invitation";
 import {
   knownRelayConnections,
+  knownWorkspacesForRelayIdentities,
   knownWorkspaceSummaries,
   rememberRelayWorkspaces,
   resolveRelayConnection,
@@ -32,6 +36,8 @@ import {
 } from "./relay-session-api";
 import { RelaySessionContext } from "./relay-session-context";
 import {
+  adoptCreatedWorkspace,
+  beginWorkspaceTransition,
   initialRelaySessionState,
   visibleRelaySessionState,
 } from "./relay-session-state";
@@ -59,6 +65,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
     const attempt = (async () => {
       const generation = ++connectionGeneration.current;
       let accountClient: RelayClient | null = null;
+      let refreshedWorkspaces: WorkspaceSummary[] | null = null;
       if (!sessionToken) {
         relaySessionTransport.resetDeviceAuthorization();
         setRelayWorkspaceOverride(null);
@@ -129,6 +136,16 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           await accountClient.switchWorkspace(pendingWorkspace.workspaceId);
           snapshot = await activeRelayWorkspace();
         }
+        if (!snapshot) {
+          // Resolve the directory before treating a missing selection as empty.
+          refreshedWorkspaces = await accountClient.listWorkspaces();
+          rememberRelayWorkspaces(RELAY_URL, accountId, refreshedWorkspaces);
+          const [fallbackWorkspace] = refreshedWorkspaces;
+          if (fallbackWorkspace) {
+            await accountClient.switchWorkspace(fallbackWorkspace.id);
+            snapshot = await activeRelayWorkspace();
+          }
+        }
         const client = snapshot
           ? new RelayClient({
               relayUrl: RELAY_URL,
@@ -171,28 +188,31 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           loading: false,
           error: null,
         });
-        // The active workspace is enough to enter the app. Refreshing the
-        // account-wide workspace directory is useful sidebar metadata, but it
-        // must never turn a healthy workspace into a full-screen outage.
-        void accountClient
-          .listWorkspaces()
-          .then((workspaces) => {
-            rememberRelayWorkspaces(RELAY_URL, accountId, workspaces);
-            if (generation !== connectionGeneration.current) return;
-            setState((current) => ({
-              ...current,
-              accountId,
-              workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
-                (summary) => ({
-                  ...summary,
-                  isActive: summary.id === current.snapshot?.id,
-                }),
-              ),
-            }));
-          })
-          .catch((error: unknown) => {
-            console.warn("[Relay] Workspace directory refresh failed:", error);
-          });
+        // Directory metadata must not turn a healthy workspace into an outage.
+        if (!refreshedWorkspaces) {
+          void accountClient
+            .listWorkspaces()
+            .then((workspaces) => {
+              rememberRelayWorkspaces(RELAY_URL, accountId, workspaces);
+              if (generation !== connectionGeneration.current) return;
+              setState((current) => ({
+                ...current,
+                accountId,
+                workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
+                  (summary) => ({
+                    ...summary,
+                    isActive: summary.id === current.snapshot?.id,
+                  }),
+                ),
+              }));
+            })
+            .catch((error: unknown) => {
+              console.warn(
+                "[Relay] Workspace directory refresh failed:",
+                error,
+              );
+            });
+        }
         void cellsStarted.catch((error: unknown) => {
           console.error("[Relay] Desktop cells could not start:", error);
         });
@@ -251,7 +271,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         ? { relayUrl: target.relayUrl, accountId: target.accountId }
         : workspaceForRelayIdentities(workspaceId, connectedRelayIdentities());
       const workspaceRelay = workspaceLocation?.relayUrl ?? null;
-      if (workspaceRelay && workspaceRelay !== new URL(RELAY_URL).origin) {
+      if (
+        workspaceLocation &&
+        workspaceRelay &&
+        workspaceRelay !== new URL(RELAY_URL).origin
+      ) {
         const connection = resolveRelayConnection(
           workspaceRelay,
           knownRelayConnections(),
@@ -265,7 +289,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         if (!connection) {
           throw new Error("This workspace's relay is no longer available.");
         }
-        rememberWorkspaceSwitch(accountId, {
+        rememberWorkspaceSwitch(workspaceLocation.accountId, {
           target: { workspaceId, relayUrl: workspaceRelay },
           ...(state.snapshot?.id
             ? {
@@ -356,7 +380,13 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         },
       );
       if (connection) {
-        rememberWorkspaceSwitch(accountId, { target: previous });
+        const previousLocation = workspaceForRelayIdentities(
+          previous.workspaceId,
+          connectedRelayIdentities(),
+        );
+        rememberWorkspaceSwitch(previousLocation?.accountId ?? accountId, {
+          target: previous,
+        });
         await connectRelay(connection);
         return;
       }
@@ -386,25 +416,85 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
     switchWorkspace,
   ]);
 
+  const deleteWorkspace = useCallback(
+    async (workspaceId: string) => {
+      if (!state.client) throw new Error("The relay is not connected.");
+      if (!accountId) throw new Error("Sign in before deleting a workspace.");
+
+      connectionGeneration.current += 1;
+      connectionPromise.current = null;
+      setState(beginWorkspaceTransition);
+      let deleted = false;
+      try {
+        await state.client.deleteWorkspace(workspaceId);
+        deleted = true;
+
+        const remainingOnRelay = await state.client.listWorkspaces();
+        rememberRelayWorkspaces(RELAY_URL, accountId, remainingOnRelay);
+        const [nextOnRelay] = remainingOnRelay;
+        if (nextOnRelay) {
+          await state.client.switchWorkspace(nextOnRelay.id);
+          await connect();
+          return;
+        }
+
+        const fallback = knownWorkspacesForRelayIdentities(
+          connectedRelayIdentities(),
+        ).find(
+          (workspace) =>
+            workspace.summary.id !== workspaceId ||
+            workspace.relayUrl !== new URL(RELAY_URL).origin,
+        );
+        if (fallback) {
+          await switchWorkspace(fallback.summary.id, fallback);
+          return;
+        }
+        await connect();
+      } catch (error) {
+        if (deleted) {
+          await connect().catch(() => undefined);
+        } else {
+          setState({ ...state, loading: false, error: null });
+        }
+        throw error;
+      }
+    },
+    [accountId, connect, state, switchWorkspace],
+  );
+
   const createWorkspace = useCallback(
     async (command: CreateWorkspaceCommand, apiKey?: string) => {
       if (!state.client) throw new Error("The relay is not connected.");
+      if (!accountId) throw new Error("Sign in before creating a workspace.");
       const snapshot = await state.client.createWorkspace(command);
       const workspace = state.client.forWorkspace(snapshot.id);
+      const nextState = adoptCreatedWorkspace(
+        state,
+        accountId,
+        workspace,
+        snapshot,
+      );
+      rememberRelayWorkspaces(RELAY_URL, accountId, nextState.workspaces);
+      setRelayWorkspaceOverride(snapshot.id);
+      rememberConnectedWorkspace(accountId, {
+        workspaceId: snapshot.id,
+        relayUrl: new URL(RELAY_URL).origin,
+      });
+      setState(nextState);
       const apiKeyValue = apiKey?.trim();
-      if (apiKeyValue) {
-        await workspace.setWorkspaceSecret("opencode", apiKeyValue);
-      }
-      await ensureDesktopCells(snapshot, workspace);
-      // Reconnect the session to the new workspace, but never block the caller
-      // while it settles. The app reconnects on mount anyway; a slow or failed
-      // reconnect must not strand the user on the create screen.
-      void connect().catch((error) =>
-        console.error("[Workspace] Reconnect after create failed:", error),
+      const configureWorkspace = async () => {
+        if (apiKeyValue) {
+          await workspace.setWorkspaceSecret("opencode", apiKeyValue);
+        }
+        await ensureDesktopCells(snapshot, workspace);
+      };
+      // Configuration continues after the durable creation commit point.
+      void Promise.all([configureWorkspace(), connect()]).catch((error) =>
+        console.error("[Workspace] Post-create setup failed:", error),
       );
       return snapshot;
     },
-    [connect, state.client],
+    [accountId, connect, state],
   );
 
   const previewWorkspaceInvite = useCallback(
@@ -439,6 +529,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       recoveryWorkspace,
       refresh: connect,
       returnToPreviousWorkspace,
+      deleteWorkspace,
       switchWorkspace,
       createWorkspace,
       previewWorkspaceInvite,
@@ -448,6 +539,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       claimWorkspaceInvite,
       connect,
       createWorkspace,
+      deleteWorkspace,
       previewWorkspaceInvite,
       recoveryWorkspace,
       returnToPreviousWorkspace,

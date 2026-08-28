@@ -5,6 +5,7 @@ import type { WorkspaceSummary } from "@chief/relay-contracts";
 import { workspaceSummarySchema } from "@chief/relay-contracts";
 
 import {
+  knownWorkspacesForRelayIdentities,
   knownWorkspaceSummaries,
   relayForWorkspace,
   rememberRelayWorkspaces,
@@ -178,6 +179,49 @@ void test("workspace directories remain isolated between signed-in accounts", ()
       relayForWorkspace("account-one", second.id),
       null,
       "one account cannot resolve another account's cached workspace",
+    );
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: previousLocalStorage,
+    });
+  }
+});
+
+void test("deleting the last workspace on one relay retains other relay workspaces", () => {
+  const previousLocalStorage = globalThis.localStorage;
+  const localStorage = new MemoryStorage();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorage,
+  });
+
+  try {
+    const cloud = workspace("workspace-cloud");
+    const local = workspace("workspace-local");
+    rememberRelayWorkspaces("https://cloud.example", "cloud-account", [cloud]);
+    rememberRelayWorkspaces("http://localhost:8080", "local-account", [local]);
+
+    rememberRelayWorkspaces("https://cloud.example", "cloud-account", []);
+
+    assert.deepEqual(
+      knownWorkspacesForRelayIdentities([
+        {
+          relayUrl: "https://cloud.example",
+          user: { id: "cloud-account" },
+        },
+        {
+          relayUrl: "http://localhost:8080",
+          user: { id: "local-account" },
+        },
+      ]),
+      [
+        {
+          relayUrl: "http://localhost:8080",
+          accountId: "local-account",
+          summary: local,
+        },
+      ],
     );
   } finally {
     Object.defineProperty(globalThis, "localStorage", {
