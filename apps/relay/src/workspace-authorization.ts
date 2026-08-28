@@ -7,6 +7,7 @@ import { workspaceAuthorizationResultSchema } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "./auth";
 import { withTrustedContext, withTrustedIdentity } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { workspaceStub } from "./workspace-stubs";
 
 export async function authorizeWorkspace(
@@ -24,6 +25,7 @@ export async function authorizeWorkspace(
     }),
   );
   if (!response.ok) {
+    await releaseInternalResponse(response);
     throw new AuthorizationError(
       "The workspace is not available to this identity.",
     );
@@ -63,7 +65,9 @@ export async function authorizeConversation(
       input,
     ),
   );
-  if (!response.ok) {
+  const authorized = response.ok;
+  await releaseInternalResponse(response);
+  if (!authorized) {
     throw new AuthorizationError(
       "The conversation is not available to this identity.",
     );

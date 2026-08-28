@@ -9,6 +9,7 @@ import {
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 
@@ -131,7 +132,9 @@ export async function dispatchWorkspaceMessage(
           },
         ),
       );
-      if (!response.ok) {
+      const accepted = response.ok;
+      await releaseInternalResponse(response);
+      if (!accepted) {
         throw new HttpError(
           502,
           "agent_enqueue_failed",

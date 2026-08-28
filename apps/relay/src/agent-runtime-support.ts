@@ -7,15 +7,16 @@ import { agentJobSchema } from "@chief/relay-contracts";
 import type { AgentJobQueue } from "./agent-job-queue";
 import { attempt, sync } from "./effect";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 
-export type TurnFailure = {
+export interface TurnFailure {
   readonly message: string;
   readonly cause?: unknown;
   readonly code?: string;
   readonly status?: number;
-};
+}
 
 export function internalFailureMessage(failure: TurnFailure) {
   return failure.cause instanceof Error
@@ -103,7 +104,11 @@ export function resolveInferenceApiKey(
           secretValueSchema.parse(value),
         );
         if (document.value) return document.value;
-      } else if (response.status !== 404) {
+      } else if (response.status === 404) {
+        yield* attempt("agent.secret.missing.release", () =>
+          releaseInternalResponse(response),
+        );
+      } else {
         const detail = yield* attempt("agent.secret.error.decode", () =>
           response.text(),
         );
@@ -144,8 +149,12 @@ export function completeAgentJob(
         trustedAgentContext(principal),
       ),
     );
+    const completed = response.ok;
+    yield* attempt("agent.job.complete.release", () =>
+      releaseInternalResponse(response),
+    );
     yield* sync("agent.job.complete.verify", () => {
-      if (!response.ok) {
+      if (!completed) {
         throw new Error(`Hosted cell completion failed (${response.status}).`);
       }
     });

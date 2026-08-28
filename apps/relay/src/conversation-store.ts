@@ -1,12 +1,9 @@
 import type { z } from "zod";
 
 import type {
-  AppendMessageCommand,
   ConversationEvent,
   ConversationMessage,
-  MessageAuthor,
   Principal,
-  WorkspaceId,
 } from "@chief/relay-contracts";
 import {
   appendMessageResultSchema,
@@ -19,6 +16,13 @@ import {
 
 import type { UpsertActivityInput } from "./conversation-activity-store";
 import type { EventRow, MessageRow } from "./conversation-rows";
+import type {
+  AppendInput,
+  ConversationStore,
+  DeleteInput,
+  EditInput,
+  ReactInput,
+} from "./conversation-store-types";
 import { upsertAgentActivity } from "./conversation-activity-store";
 import {
   escapeLike,
@@ -30,96 +34,10 @@ import { initializeConversationStorage } from "./conversation-schema";
 import { HttpError } from "./http";
 import { consumeSocketTicket, createSocketTicket } from "./socket-ticket-store";
 
-interface AppendInput {
-  command: AppendMessageCommand;
-  workspaceId: WorkspaceId;
-  author: MessageAuthor;
-  actor: Principal;
-}
-
-interface ReactInput {
-  messageId: string;
-  emoji: string;
-  pubkey: string;
-  add: boolean;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
-interface EditInput {
-  messageId: string;
-  body: string;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
-interface DeleteInput {
-  messageId: string;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
 const storedAppendSchema = appendMessageResultSchema.extend({
   event: conversationEventSchema,
 });
 type StoredAppend = z.infer<typeof storedAppendSchema>;
-
-export interface ConversationStore {
-  append(input: AppendInput): StoredAppend;
-  getMessage(messageId: string): ConversationMessage | null;
-  list(
-    after: number,
-    limit: number,
-    query?: string,
-  ): {
-    messages: ConversationMessage[];
-    nextSequence: number | null;
-  };
-  recent(limit: number): {
-    messages: ConversationMessage[];
-    nextSequence: number | null;
-  };
-  replies(
-    rootId: string,
-    after: number,
-    limit: number,
-  ): {
-    messages: ConversationMessage[];
-    nextSequence: number | null;
-  };
-  history(
-    threadRootId: string | undefined,
-    limit: number,
-  ): ConversationMessage[];
-  react(input: ReactInput): {
-    changed: boolean;
-    result: z.infer<typeof reactToMessageResultSchema>;
-    event: ConversationEvent | null;
-  };
-  edit(input: EditInput): {
-    message: ConversationMessage;
-    event: ConversationEvent | null;
-  };
-  upsertActivity(input: UpsertActivityInput): {
-    created: boolean;
-    message: ConversationMessage;
-    event: ConversationEvent;
-  };
-  delete(input: DeleteInput): {
-    message: ConversationMessage;
-    event: ConversationEvent | null;
-  };
-  listEvents(
-    after: number,
-    limit: number,
-  ): {
-    events: ConversationEvent[];
-    nextSequence: number | null;
-  };
-}
 
 export class SqlConversationStore implements ConversationStore {
   constructor(private readonly storage: DurableObjectStorage) {}

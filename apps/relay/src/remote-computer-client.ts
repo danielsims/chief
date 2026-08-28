@@ -6,6 +6,7 @@ import { executionLeaseSchema } from "@chief/relay-contracts";
 
 const COMPUTER_TOKEN_ISSUER = "https://chief-relay.internal";
 const COMPUTER_TOKEN_AUDIENCE = "chief-computer";
+export const REMOTE_COMPUTER_REQUEST_TIMEOUT_MS = 45_000;
 
 type RemoteComputerRequest =
   | {
@@ -63,6 +64,7 @@ export class RemoteComputerClient {
           : { "content-type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(REMOTE_COMPUTER_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(

@@ -10,7 +10,6 @@
       { "name": "ACCOUNTS", "class_name": "AccountObject" },
       { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
       { "name": "AGENTS", "class_name": "AgentObject" },
-      { "name": "METRICS", "class_name": "AnalyticsObject" },
     ],
   },
   "migrations": [
@@ -37,6 +36,10 @@
     {
       "tag": "v5",
       "deleted_classes": ["IdentityObject"],
+    },
+    {
+      "tag": "v6",
+      "deleted_classes": ["AnalyticsObject"],
     },
   ],
   "r2_buckets": [
@@ -94,6 +97,10 @@
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
   },
   "observability": {
-    "enabled": false,
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false,
+    },
   },
 }

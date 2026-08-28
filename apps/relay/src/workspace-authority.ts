@@ -20,12 +20,13 @@ import {
   withTrustedContext,
   withTrustedIdentity,
 } from "./internal-context";
-import { recordMetrics } from "./metrics";
+import { releaseInternalResponse } from "./internal-response";
 import {
   registerWorkspaceOrganization,
   registerWorkspaceOrganizationMember,
   requireWorkspaceOrganizationMember,
 } from "./organization-tenancy";
+import { recordProductEvents } from "./product-events";
 import { workspaceOnboardingInstruction } from "./workspace-onboarding-job";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
@@ -89,7 +90,7 @@ export async function createManagedWorkspace(
     ),
   );
   if (!response.ok) return response;
-  recordMetrics(env, ["signup", "workspace-created"], {
+  recordProductEvents(env, ["signup", "workspace-created"], {
     kind: "user",
     userId: identity.userId,
     pubkey: identity.pubkey,
@@ -113,7 +114,6 @@ export async function createManagedWorkspace(
   }
   return response;
 }
-
 export async function activeManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
@@ -173,7 +173,6 @@ export async function activeManagedWorkspace(
   // for bytes that will never arrive.
   return json(snapshot, { status: response.status });
 }
-
 export async function createWorkspaceInvite(
   env: Env,
   request: Request,
@@ -400,9 +399,6 @@ export async function routeWorkspaceLogs(
   );
 }
 
-/** Forwards a channels RPC to the workspace DO using the resolved principal
- * context so registered agents can create channels and add members during
- * kick-off (matching how agent jobs are routed). */
 export async function routeChannelOperation(
   env: Env,
   request: Request,
@@ -492,7 +488,9 @@ async function enqueueOnboarding(
       workspaceId: entry.workspaceId,
     }),
   );
-  if (!response.ok) {
+  const enqueued = response.ok;
+  await releaseInternalResponse(response);
+  if (!enqueued) {
     throw new HttpError(
       502,
       "agent_enqueue_failed",

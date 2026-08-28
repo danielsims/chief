@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isJsonString } from "@chief/relay-contracts";
+import { commandIdSchema, isJsonString } from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
@@ -31,7 +31,7 @@ void test("records privacy-safe onboarding events at the account relay boundary"
   });
 
   await client.recordOnboardingEvent({
-    sessionId: "21545a96-d835-4de6-858f-8a28eaada32f",
+    sessionId: commandIdSchema.parse("21545a96-d835-4de6-858f-8a28eaada32f"),
     stage: "apps",
     event: "advanced",
     hosting: "self-hosted",

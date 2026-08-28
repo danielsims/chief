@@ -18,7 +18,7 @@ export class CloudflareAgentBrowser implements AgentBrowser {
     if (options?.fresh) await this.close();
     const url = safeBrowserUrl(value);
     const page = await this.currentPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     return await browserSnapshot(page);
   }
 
@@ -154,7 +154,7 @@ async function readBrowserSnapshot(
 
 async function launchBrowser(binding: BrowserWorker) {
   let rateLimit: unknown;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     const limits = await puppeteer.limits(binding).catch(() => undefined);
     const waitMs = browserAcquisitionWait(limits);
     if (waitMs > 0) await wait(waitMs);
@@ -163,9 +163,15 @@ async function launchBrowser(binding: BrowserWorker) {
     } catch (error) {
       if (!isBrowserAcquisitionRateLimit(error)) throw error;
       rateLimit = error;
-      if (attempt < 3) {
+      if (attempt < 1) {
         await wait(
-          Math.max(limits?.timeUntilNextAllowedBrowserAcquisition ?? 0, 1_000),
+          Math.min(
+            Math.max(
+              limits?.timeUntilNextAllowedBrowserAcquisition ?? 0,
+              1_000,
+            ),
+            5_000,
+          ),
         );
       }
     }
@@ -180,7 +186,10 @@ function browserAcquisitionWait(
   if (limits.activeSessions.length >= limits.maxConcurrentSessions)
     return 5_000;
   if (limits.allowedBrowserAcquisitions > 0) return 0;
-  return Math.max(limits.timeUntilNextAllowedBrowserAcquisition, 1_000);
+  return Math.min(
+    Math.max(limits.timeUntilNextAllowedBrowserAcquisition, 1_000),
+    5_000,
+  );
 }
 
 function isBrowserAcquisitionRateLimit(error: unknown) {

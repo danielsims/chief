@@ -14,6 +14,7 @@ import {
 import { channelIdForKey } from "./hosted-agent-tools/toolkits/channels";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 type MessagePublisher = (
   job: AgentJob,
@@ -80,6 +81,7 @@ export async function publishOnboardingResult(
       }`,
     );
   }
+  await releaseInternalResponse(snapshotResponse);
   await enqueueKickoff(env, job, agent, kickoffThreadRoots(messages));
 }
 
@@ -210,7 +212,9 @@ async function enqueueKickoff(
         },
       ),
     );
-    if (!response.ok) {
+    const enqueued = response.ok;
+    await releaseInternalResponse(response);
+    if (!enqueued) {
       throw new HttpError(
         502,
         "kickoff_enqueue_failed",
@@ -240,6 +244,7 @@ async function missionControlMessages(
     ),
   );
   if (!response.ok) {
+    await releaseInternalResponse(response);
     throw new HttpError(
       502,
       "kickoff_messages_unavailable",

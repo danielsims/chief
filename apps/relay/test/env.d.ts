@@ -4,7 +4,6 @@ declare module "cloudflare:workers" {
     ACCOUNTS: DurableObjectNamespace;
     CONVERSATIONS: DurableObjectNamespace;
     AGENTS: DurableObjectNamespace;
-    METRICS: DurableObjectNamespace;
     ARTIFACTS: R2Bucket;
     RELAY_DEPLOYMENT:
       "chief-cloud" | "cloudflare-byoc" | "self-hosted" | "local";

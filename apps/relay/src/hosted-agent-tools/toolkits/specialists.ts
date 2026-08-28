@@ -3,6 +3,7 @@ import { getAgent } from "@chief/agent-runtime/agents";
 
 import { HttpError } from "../../http";
 import { withTrustedContext } from "../../internal-context";
+import { releaseInternalResponse } from "../../internal-response";
 import { optionalString, requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
 import { deterministicUuid } from "./channels";
@@ -38,7 +39,9 @@ export const hostedSpecialistTools = [
           },
         ),
       );
-      if (!response.ok) {
+      const enqueued = response.ok;
+      await releaseInternalResponse(response);
+      if (!enqueued) {
         throw new HttpError(
           502,
           "specialist_delegation_failed",

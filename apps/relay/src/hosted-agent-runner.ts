@@ -16,6 +16,7 @@ import {
 
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
@@ -55,7 +56,10 @@ export async function loadAgentHostingContext(
       },
     ),
   );
-  if (!response.ok) return null;
+  if (!response.ok) {
+    await releaseInternalResponse(response);
+    return null;
+  }
   const context: HostingContext = await response.json();
   return context;
 }
