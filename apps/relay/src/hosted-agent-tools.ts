@@ -13,20 +13,31 @@ import { recentConversationMessages } from "./hosted-agent-tools/toolkits/channe
 
 export { recentConversationMessages };
 
-function availableTools(browserEnabled: boolean) {
+interface HostedToolAvailability {
+  browserEnabled: boolean;
+  computerEnabled: boolean;
+}
+
+function availableTools(availability: HostedToolAvailability) {
   return hostedAgentTools.filter(
-    (tool) => browserEnabled || !tool.requiresBrowser,
+    (tool) =>
+      (availability.browserEnabled || !tool.requiresBrowser) &&
+      (availability.computerEnabled || !tool.requiresComputer),
   );
 }
 
-export function hostedAgentToolDefinitions(browserEnabled: boolean) {
+export function hostedAgentToolDefinitions(
+  availability: HostedToolAvailability,
+) {
   return localAgentToolDefinitions(
-    availableTools(browserEnabled).map((tool) => tool.definition),
+    availableTools(availability).map((tool) => tool.definition),
   );
 }
 
-export function hostedDurableTools(browserEnabled: boolean): DurableTool[] {
-  return availableTools(browserEnabled).map((tool) => {
+export function hostedDurableTools(
+  availability: HostedToolAvailability,
+): DurableTool[] {
+  return availableTools(availability).map((tool) => {
     const definition = localAgentToolDefinitions([tool.definition])[0];
     if (!definition) throw new Error("Hosted tool definition is missing.");
     return { definition, effect: tool.effect };
@@ -36,13 +47,17 @@ export function hostedDurableTools(browserEnabled: boolean): DurableTool[] {
 export async function executeHostedAgentTool<Input>(
   computer: AgentComputer,
   browser: AgentBrowser | undefined,
+  computerEnabled: boolean,
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
   rawArguments: Input,
 ) {
-  const tools = availableTools(browser !== undefined);
+  const tools = availableTools({
+    browserEnabled: browser !== undefined,
+    computerEnabled,
+  });
   const handler = tools.find((tool) => hostedAgentToolName(tool) === name);
   if (!handler) throw new Error(`Unknown hosted agent tool: ${name}`);
   const parsed = parseHostedAgentToolCall(

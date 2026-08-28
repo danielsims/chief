@@ -148,11 +148,3 @@ const rejectedBeforeExecution = new Set([
   "not_found",
   "request_too_large",
 ]);
-
-export function remoteComputerClient(env: Env, job: AgentJob) {
-  const baseUrl = env.COMPUTER_BASE_URL?.trim();
-  const secret = env.COMPUTER_AUTH_SECRET?.trim();
-  return baseUrl && secret
-    ? new RemoteComputerClient(baseUrl, secret, job)
-    : undefined;
-}

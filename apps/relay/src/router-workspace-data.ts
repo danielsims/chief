@@ -13,6 +13,8 @@ const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const fileRoute = /^\/v1\/workspaces\/([^/]+)\/files\/([^/]+)$/u;
 const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
 const projectRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)$/u;
+const machinesRoute = /^\/v1\/workspaces\/([^/]+)\/machines$/u;
+const machineRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/([^/]+)$/u;
 
 export function routeWorkspaceDataRequest(
   env: Env,
@@ -27,6 +29,8 @@ export function routeWorkspaceDataRequest(
     const file = fileRoute.exec(url.pathname);
     const projects = projectsRoute.exec(url.pathname);
     const project = projectRoute.exec(url.pathname);
+    const machines = machinesRoute.exec(url.pathname);
+    const machine = machineRoute.exec(url.pathname);
     let rawWorkspaceId: string | undefined;
     let operation: string | undefined;
     if (brand && ["GET", "PUT"].includes(request.method)) {
@@ -51,6 +55,16 @@ export function routeWorkspaceDataRequest(
     } else if (project && request.method === "DELETE") {
       rawWorkspaceId = project[1];
       operation = "data-project-delete";
+    } else if (machines && ["GET", "POST"].includes(request.method)) {
+      rawWorkspaceId = machines[1];
+      operation =
+        request.method === "GET" ? "data-machines-list" : "data-machine-create";
+    } else if (machine && ["PUT", "DELETE"].includes(request.method)) {
+      rawWorkspaceId = machine[1];
+      operation =
+        request.method === "PUT"
+          ? "data-machine-update"
+          : "data-machine-delete";
     }
     if (!operation) return undefined;
     const workspaceId = yield* sync("relay.workspace_data.scope", () =>
@@ -87,6 +101,9 @@ export function routeWorkspaceDataRequest(
                 : undefined),
               ...(project?.[2]
                 ? { "x-chief-project-id": decodeURIComponent(project[2]) }
+                : undefined),
+              ...(machine?.[2]
+                ? { "x-chief-machine-id": decodeURIComponent(machine[2]) }
                 : undefined),
               ...(body ? { "content-type": "application/json" } : undefined),
             },

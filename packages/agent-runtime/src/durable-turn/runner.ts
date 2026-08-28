@@ -22,8 +22,9 @@ import {
   shouldCompact,
   validateCompactionRatio,
 } from "./context.js";
-import { durableTodoTools, executeTodo, isTodoTool } from "./plan.js";
+import { executeTodo, isTodoTool } from "./plan.js";
 import {
+  availableToolDefinitions,
   effectFor,
   isBareSpeakerLabel,
   notify,
@@ -31,8 +32,10 @@ import {
   prepareToolReceiptForRetry,
   retainedToolReceipts,
   shouldPauseAfterToolFailure,
+  toolFeedbackMessages,
+  toolResultFailed,
 } from "./runner-support.js";
-import { isDeferredToolError } from "./tool-errors.js";
+import { isDeferredToolError, isUnavailableToolError } from "./tool-errors.js";
 import { durableToolCallSchema, durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
@@ -67,6 +70,7 @@ export class DurableTurnRunner {
       instruction: input.instruction,
       systemPrompt: input.systemPrompt,
       browserEnabled: input.browserEnabled,
+      computerEnabled: input.computerEnabled ?? true,
       completion: {
         requiredToolNames: [...(input.completion?.requiredToolNames ?? [])],
         browserMustRemainOpen: input.completion?.browserMustRemainOpen ?? false,
@@ -188,10 +192,7 @@ export class DurableTurnRunner {
     tools: readonly DurableTool[],
     observer?: DurableTurnObserver,
   ): Promise<AdvanceResult> {
-    const definitions = [
-      ...tools.map((tool) => tool.definition),
-      ...durableTodoTools,
-    ];
+    const definitions = availableToolDefinitions(turn, tools);
     if (
       shouldCompact({
         inference,
@@ -366,6 +367,9 @@ export class DurableTurnRunner {
       result = {
         ok: false,
         error: failure.message,
+        ...(isUnavailableToolError(failure)
+          ? { unavailableForTurn: true }
+          : undefined),
       } satisfies JsonValue;
     }
     if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
@@ -398,7 +402,7 @@ export class DurableTurnRunner {
         content: JSON.stringify(durableResult),
       },
     ];
-    if (repeated >= 3) {
+    if (repeated >= 3 && !toolResultFailed(durableResult)) {
       return this.updated(turn, {
         tools,
         messages,
@@ -411,16 +415,12 @@ export class DurableTurnRunner {
     }
     return this.updated(turn, {
       tools,
-      messages:
-        repeated === 2
-          ? [
-              ...messages,
-              {
-                role: "system",
-                content: `${call.name} returned the same result twice for identical arguments. Choose a different action, report a genuine blocker, or complete the task; do not repeat this call unchanged.`,
-              },
-            ]
-          : messages,
+      messages: toolFeedbackMessages(
+        messages,
+        call.name,
+        repeated,
+        toolResultFailed(durableResult),
+      ),
       phase: {
         kind: "runnable",
         next: next ? { kind: "tool", callId: next.call.id } : { kind: "infer" },

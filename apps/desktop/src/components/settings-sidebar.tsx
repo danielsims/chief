@@ -6,6 +6,7 @@ import {
   Building2,
   KeyRound,
   MonitorCog,
+  MonitorUp,
   Radio,
   Target,
   UserRound,
@@ -30,6 +31,7 @@ const groups = [
       { to: "/settings/connection", label: "Connection", icon: Radio },
       { to: "/settings/missions", label: "Missions", icon: Target },
       { to: "/settings/environment", label: "Environment", icon: KeyRound },
+      { to: "/settings/machines", label: "Machines", icon: MonitorUp },
     ],
   },
   {

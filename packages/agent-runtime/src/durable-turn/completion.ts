@@ -30,10 +30,20 @@ export function completionRequirements(turn: DurableTurn) {
         : [],
     ),
   );
-  const missing = turn.completion.requiredToolNames.filter(
-    (name) => !completed.has(name),
+  const unavailable = new Set(
+    turn.tools.flatMap((receipt) =>
+      receipt.state === "completed" && receiptUnavailable(receipt.result)
+        ? [receipt.call.name]
+        : [],
+    ),
   );
-  if (turn.completion.browserMustRemainOpen) {
+  const missing = turn.completion.requiredToolNames.filter(
+    (name) => !completed.has(name) && !unavailable.has(name),
+  );
+  if (
+    turn.completion.browserMustRemainOpen &&
+    !unavailable.has("browser_open")
+  ) {
     const browserLifecycle = latestBrowserLifecycle(turn.tools);
     if (browserLifecycle !== "browser_open") {
       missing.push("leave the requested browser page open for the user");
@@ -57,6 +67,10 @@ export function repeatedCompletedTool(tools: DurableTurn["tools"]) {
 
 function receiptSucceeded(result: DurableTurn["tools"][number]["result"]) {
   return !isJsonObject(result) || result.ok !== false;
+}
+
+function receiptUnavailable(result: DurableTurn["tools"][number]["result"]) {
+  return isJsonObject(result) && result.unavailableForTurn === true;
 }
 
 function missingRequirementsFinish(

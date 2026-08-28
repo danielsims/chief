@@ -24,6 +24,7 @@ import {
   trustedTelemetryAttributes,
 } from "./internal-context";
 import { WorkspaceAccessService } from "./workspace-access-service";
+import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import {
@@ -280,7 +281,9 @@ export class WorkspaceObject extends DurableObject<Env> {
   private async routeData(request: Request, operation: string) {
     const context = readTrustedContext(request);
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    channels.requirePrincipalMember(context.principal);
+    if (workspaceDataCapability(operation) === "machines.write")
+      requireWorkspaceAdministrator(channels, context.principal);
+    else channels.requirePrincipalMember(context.principal);
     channels.requireAgentCapability(
       context.principal,
       workspaceDataCapability(operation),
@@ -569,11 +572,18 @@ function workspaceDataCapability(operation: string) {
   if (operation === "data-brand-save") return "brand-profile-write";
   if (operation === "data-prospect-save") return "prospects-write";
   if (operation === "data-projects-list") return "projects.read";
+  if (operation === "data-machines-list") return "machines.read";
   if (
     operation === "data-project-create" ||
     operation === "data-project-delete"
   )
     return "projects.write";
+  if (
+    operation === "data-machine-create" ||
+    operation === "data-machine-update" ||
+    operation === "data-machine-delete"
+  )
+    return "machines.write";
   if (operation === "data-file-save" || operation === "data-file-update")
     return "workspace.write";
   return "workspace.read";

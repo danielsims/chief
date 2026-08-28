@@ -13,6 +13,9 @@ import type {
   JsonObject,
   LogBatch,
   LogPage,
+  Machine,
+  MachineCreate,
+  MachineUpdate,
   MessageComponent,
   RegisterAgentKeyResult,
   WorkspaceId,
@@ -31,6 +34,11 @@ import {
   directStartResultSchema,
   logPageSchema,
   logReceiptSchema,
+  machineCreateSchema,
+  machineDeleteResultSchema,
+  machineSchema,
+  machinesResultSchema,
+  machineUpdateSchema,
   messagePageSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
@@ -63,6 +71,42 @@ export class RelayClient extends RelayClientBase {
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
+  }
+
+  async listMachines(): Promise<Machine[]> {
+    return (
+      await this.fetchJson(this.workspaceUrl("machines"), machinesResultSchema)
+    ).machines;
+  }
+
+  async createMachine(input: MachineCreate): Promise<Machine> {
+    return this.fetchJson(this.workspaceUrl("machines"), machineSchema, true, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(machineCreateSchema.parse(input)),
+    });
+  }
+
+  async updateMachine(id: string, input: MachineUpdate): Promise<Machine> {
+    return this.fetchJson(
+      this.workspaceUrl(`machines/${encodeURIComponent(id)}`),
+      machineSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(machineUpdateSchema.parse(input)),
+      },
+    );
+  }
+
+  async deleteMachine(id: string) {
+    return this.fetchJson(
+      this.workspaceUrl(`machines/${encodeURIComponent(id)}`),
+      machineDeleteResultSchema,
+      true,
+      { method: "DELETE" },
+    );
   }
 
   async setWorkspaceSecret(name: string, value: string) {

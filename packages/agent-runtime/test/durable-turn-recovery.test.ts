@@ -12,6 +12,7 @@ import { DurableTurnRunner } from "../src/durable-turn/runner.js";
 import {
   DeferredToolError,
   RecoverableToolError,
+  UnavailableToolError,
 } from "../src/durable-turn/tool-errors.js";
 
 void test("a deferred tool sleeps without returning a failure to the model", async () => {
@@ -158,4 +159,76 @@ void test("a recoverable non-replayable browser failure returns control to the a
     ok: false,
     error: "target disappeared",
   });
+});
+
+void test("an unavailable browser is removed while the agent completes the turn", async () => {
+  const persistence = new MemoryCellPersistence();
+  const runner = new DurableTurnRunner(persistence, "workspace:prospector");
+  const visibleTools: string[][] = [];
+  let modelCalls = 0;
+  const inference: AgentInference = {
+    estimateTokens: () => 10,
+    complete: (request) => {
+      visibleTools.push(request.tools.map((tool) => tool.name));
+      modelCalls += 1;
+      return Promise.resolve(
+        modelCalls === 1
+          ? {
+              content: null,
+              toolCalls: [
+                {
+                  id: "browser-capacity",
+                  name: "browser_open",
+                  arguments: { url: "https://example.com" },
+                },
+              ],
+            }
+          : {
+              content: "I continued without the unavailable browser.",
+              toolCalls: [],
+            },
+      );
+    },
+  };
+  const browser: DurableTool = {
+    definition: {
+      name: "browser_open",
+      description: "Open a page.",
+      parameters: { type: "object", properties: {} },
+    },
+    effect: "idempotent",
+  };
+  await runner.create({
+    jobId: "job-1",
+    leaseToken: "lease-1",
+    conversationId: "prospecting",
+    instruction: "Research the company.",
+    systemPrompt: "You are the Prospector.",
+    browserEnabled: true,
+  });
+  await runner.advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+  await runner.advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: {
+      execute: () =>
+        Promise.reject(new UnavailableToolError("Browser capacity is full.")),
+    },
+  });
+  const completed = await runner.advance({
+    inference,
+    tools: [browser],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+
+  assert.equal(completed.kind, "terminal");
+  assert.equal(visibleTools[0]?.includes("browser_open"), true);
+  assert.equal(visibleTools[1]?.includes("browser_open"), false);
 });

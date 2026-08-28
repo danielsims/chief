@@ -35,6 +35,8 @@ export const agentConfigSchema = z
           "workspace.write",
           "projects.read",
           "projects.write",
+          "machines.read",
+          "machines.write",
           "channels.read",
           "channels.create",
           "channels.update",

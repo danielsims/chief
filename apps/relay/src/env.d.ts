@@ -13,8 +13,4 @@ interface Env {
   RELAY_OTLP_ENDPOINT?: string;
   /** Optional Authorization header sent to the OTLP endpoint. */
   RELAY_OTLP_AUTHORIZATION?: string;
-  /** Public URL of an independently deployed Chief computer host. */
-  COMPUTER_BASE_URL?: string;
-  /** Shared signing key used only to mint short-lived computer leases. */
-  COMPUTER_AUTH_SECRET?: string;
 }

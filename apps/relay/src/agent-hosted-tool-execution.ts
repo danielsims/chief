@@ -1,10 +1,11 @@
 import type { AgentPrincipal } from "@chief/relay-contracts";
+import { UnavailableToolError } from "@chief/agent-runtime/durable-turn";
 
 import type { AgentExecutionEnvironment } from "./agent-execution-environment";
 import { publishHostedBrowserActivity } from "./agent-hosted-activity";
 import { executeHostedAgentTool } from "./hosted-agent-tools";
 
-type AgentJob = Parameters<typeof executeHostedAgentTool>[3];
+type AgentJob = Parameters<typeof executeHostedAgentTool>[4];
 
 export const HOSTED_TOOL_TIMEOUT_MS = 45_000;
 
@@ -36,25 +37,41 @@ export function runHostedToolWithDeadline<Output>(
 export async function executeObservedHostedAgentTool<Input>(
   execution: AgentExecutionEnvironment,
   browserEnabled: boolean,
+  computerEnabled: boolean,
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
   rawArguments: Input,
 ) {
-  const output = await runHostedToolWithDeadline(
-    () =>
-      executeHostedAgentTool(
-        execution.computer,
-        browserEnabled ? execution.browser : undefined,
-        env,
-        job,
-        principal,
-        name,
-        rawArguments,
-      ),
-    () => execution.browser.close(),
-  );
+  let output;
+  try {
+    output = await runHostedToolWithDeadline(
+      () =>
+        executeHostedAgentTool(
+          execution.computer,
+          browserEnabled ? execution.browser : undefined,
+          computerEnabled,
+          env,
+          job,
+          principal,
+          name,
+          rawArguments,
+        ),
+      () => execution.browser.close(),
+    );
+  } catch (error) {
+    if (
+      name.startsWith("browser_") &&
+      error instanceof Error &&
+      error.message.startsWith("Hosted tool exceeded")
+    ) {
+      throw new UnavailableToolError(
+        "The interactive browser timed out. Continue now with web_read, another source, or the evidence already available.",
+      );
+    }
+    throw error;
+  }
   await publishHostedBrowserActivity(
     env,
     job,

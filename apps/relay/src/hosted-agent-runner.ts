@@ -5,6 +5,7 @@ import type {
   AgentJobCompletionResult,
   AgentPrincipal,
   ConversationMessage,
+  Machine,
 } from "@chief/relay-contracts";
 import { getAgent } from "@chief/agent-runtime/agents";
 import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
@@ -35,6 +36,7 @@ export interface HostingContext {
   };
   agent?: { id: string; name: string; role: string };
   config?: AgentConfig;
+  machines?: Machine[];
 }
 
 export async function loadAgentHostingContext(
@@ -73,8 +75,16 @@ export async function prepareHostedAgentTurn(
   storage?: DurableObjectStorage,
 ) {
   const durableMemory = storage ? loadAgentWorkMemory(storage) : "";
+  const assignedCapabilities = new Set(
+    context.machines?.flatMap((machine) => machine.capabilities) ?? [],
+  );
   const browserEnabled =
-    context.config?.toolPermissions.includes("browser.use") ?? false;
+    assignedCapabilities.has("browser") &&
+    (context.config?.toolPermissions.includes("browser.use") ?? false);
+  const computerEnabled =
+    assignedCapabilities.has("files") ||
+    assignedCapabilities.has("git") ||
+    assignedCapabilities.has("shell");
   const conversationId = conversationIdSchema.parse(
     stringPayload(job, "conversationId") ?? "mission-control",
   );
@@ -101,6 +111,7 @@ export async function prepareHostedAgentTurn(
     instruction,
     systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
+    computerEnabled,
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
       historyMessage(message, job.agentId),
@@ -220,10 +231,17 @@ function workspaceContextBlock(
   const workspace = context.workspace;
   const website = workspace?.website.trim();
   const selectedApps = workspace?.selectedApps.join(", ");
+  const assignedMachines = context.machines
+    ?.map(
+      (machine) =>
+        `${machine.name} (${machine.capabilities.join(", ") || "no capabilities"})`,
+    )
+    .join("; ");
   const lines = [
     `Workspace: ${workspace?.name ?? job.workspaceId}.`,
     `Website: ${nonEmptyOr(website, "not supplied")}.`,
     `Selected apps: ${nonEmptyOr(selectedApps, "none")}.`,
+    `Assigned machines: ${nonEmptyOr(assignedMachines, "none")}.`,
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
       ? "The browser tools provide a real remote interactive browser when web_read is insufficient."

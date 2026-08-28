@@ -1,9 +1,11 @@
 import type { AgentInferenceToolCall } from "@chief/agent-computer";
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonObject } from "@chief/relay-contracts";
 
 import type { CellPersistence } from "../cells/sqlite-store.js";
 import type { DurableTool, DurableTurn, ToolEffect } from "./types.js";
 import { compactCheckpointEvidence } from "./context.js";
-import { isTodoTool } from "./plan.js";
+import { durableTodoTools, isTodoTool } from "./plan.js";
 import { isRecoverableToolError } from "./tool-errors.js";
 import { durableTurnSchema } from "./types.js";
 
@@ -102,4 +104,75 @@ export function shouldPauseAfterToolFailure(
   failure: Error,
 ) {
   return effect === "non_replayable" && !isRecoverableToolError(failure);
+}
+
+export function unavailableToolNames(turn: DurableTurn) {
+  const unavailable = new Set<string>();
+  const failedSignatures = new Map<string, number>();
+  for (const receipt of turn.tools) {
+    if (receipt.state !== "completed" || !toolResultFailed(receipt.result)) {
+      continue;
+    }
+    if (toolResultUnavailable(receipt.result)) {
+      unavailable.add(receipt.call.name);
+      continue;
+    }
+    const signature = JSON.stringify([
+      receipt.call.name,
+      receipt.call.arguments,
+      receipt.result,
+    ]);
+    const count = (failedSignatures.get(signature) ?? 0) + 1;
+    failedSignatures.set(signature, count);
+    if (count >= 3) unavailable.add(receipt.call.name);
+  }
+  return unavailable;
+}
+
+export function availableToolDefinitions(
+  turn: DurableTurn,
+  tools: readonly DurableTool[],
+) {
+  const unavailable = unavailableToolNames(turn);
+  return [
+    ...tools
+      .filter((tool) => !unavailable.has(tool.definition.name))
+      .map((tool) => tool.definition),
+    ...durableTodoTools,
+  ];
+}
+
+export function toolResultFailed(value: JsonValue | undefined) {
+  return isJsonObject(value) && value.ok === false;
+}
+
+export function toolFeedbackMessages(
+  messages: DurableTurn["messages"],
+  toolName: string,
+  repeated: number,
+  failed: boolean,
+): DurableTurn["messages"] {
+  if (repeated >= 3 && failed) {
+    return [
+      ...messages,
+      {
+        role: "system",
+        content: `${toolName} is unavailable for the rest of this turn after three identical failures. Continue with another source or method, or answer with the useful evidence you have. Do not wait for or call this tool again.`,
+      },
+    ];
+  }
+  if (repeated === 2) {
+    return [
+      ...messages,
+      {
+        role: "system",
+        content: `${toolName} returned the same result twice for identical arguments. Choose a different action, report a genuine blocker, or complete the task; do not repeat this call unchanged.`,
+      },
+    ];
+  }
+  return messages;
+}
+
+function toolResultUnavailable(value: JsonValue | undefined) {
+  return isJsonObject(value) && value.unavailableForTurn === true;
 }

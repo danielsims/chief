@@ -16,6 +16,7 @@ import {
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import { readMachines } from "./workspace-machine-store";
 
 export class WorkspaceAgentAccessService {
   private readonly channels: WorkspaceChannelStore;
@@ -184,6 +185,10 @@ export class WorkspaceAgentAccessService {
       },
       agent,
       config: this.channels.agentConfiguration(agentId),
+      machines: readMachines(this.storage, snapshot.id).filter(
+        (machine) =>
+          machine.status === "online" && machine.agentIds.includes(agentId),
+      ),
     });
   }
 

@@ -15,6 +15,7 @@ import type {
   AgentPrincipal,
   JsonValue,
 } from "@chief/relay-contracts";
+import { isRecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import { agentToolName } from "@chief/agent-runtime/local-tools";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
@@ -105,19 +106,22 @@ export function hostedActivityObserver(
       // Object invocation can still complete successfully. Emit a dedicated
       // error record as well as the UI component so Workers logs and external
       // OTLP backends can find the failure without misclassifying the turn.
+      const attributes = {
+        "chief.workspace.id": job.workspaceId,
+        "chief.job.id": job.id,
+        "chief.workflow.id": isJsonString(job.payload.workflowId)
+          ? job.payload.workflowId
+          : job.id,
+        "gen_ai.agent.name": job.agentId,
+        "gen_ai.conversation.id": conversationId,
+        "gen_ai.tool.name": call.name,
+        "gen_ai.tool.call.id": call.id,
+        error: error.message.slice(0, 10_000),
+      };
       await runEffect(
-        Effect.logError("agent.tool.failed", {
-          "chief.workspace.id": job.workspaceId,
-          "chief.job.id": job.id,
-          "chief.workflow.id": isJsonString(job.payload.workflowId)
-            ? job.payload.workflowId
-            : job.id,
-          "gen_ai.agent.name": job.agentId,
-          "gen_ai.conversation.id": conversationId,
-          "gen_ai.tool.name": call.name,
-          "gen_ai.tool.call.id": call.id,
-          error: error.message.slice(0, 10_000),
-        }),
+        isRecoverableToolError(error)
+          ? Effect.logWarning("agent.tool.unavailable", attributes)
+          : Effect.logError("agent.tool.failed", attributes),
         env,
         isJsonString(job.payload.workflowId) ? job.payload.workflowId : job.id,
       ).catch(() => undefined);
