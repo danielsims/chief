@@ -29,12 +29,7 @@ import {
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
 import { workspaceRoleForUser } from "../../lib/auth/organization-role";
-import { RELAY_URL } from "../../lib/config";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
-import {
-  relayForWorkspace,
-  rememberRelayWorkspaces,
-} from "../../lib/relay-connection";
 import { useRelaySession } from "../../lib/relay-session";
 
 // Vite removes this development-only replay import from production releases.
@@ -74,8 +69,7 @@ function DeleteWorkspaceCard({
   workspaceId: string;
   workspaceName: string;
 }) {
-  const { user } = useAuth();
-  const { client, switchWorkspace, workspaces } = useRelaySession();
+  const { deleteWorkspace } = useRelaySession();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -85,32 +79,7 @@ function DeleteWorkspaceCard({
     setDeleting(true);
     setError(null);
     try {
-      if (!client) throw new Error("Chief is not connected to the relay.");
-      if (!user) throw new Error("Sign in before deleting a workspace.");
-      await client.deleteWorkspace(workspaceId);
-
-      const remainingOnRelay = await client.listWorkspaces();
-      rememberRelayWorkspaces(RELAY_URL, user.id, remainingOnRelay);
-      const [nextOnRelay] = remainingOnRelay;
-      if (nextOnRelay) {
-        // Relay workspaces are not BetterAuth organizations; switch through the
-        // relay session so it reconnects the client to the next workspace.
-        await switchWorkspace(nextOnRelay.id);
-        window.location.assign("/");
-        return;
-      }
-
-      const fallback = workspaces.find(
-        (workspace) =>
-          workspace.id !== workspaceId &&
-          relayForWorkspace(user.id, workspace.id, RELAY_URL) !==
-            new URL(RELAY_URL).origin,
-      );
-      if (fallback) {
-        await switchWorkspace(fallback.id);
-        return;
-      }
-      window.location.assign("/");
+      await deleteWorkspace(workspaceId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setDeleting(false);

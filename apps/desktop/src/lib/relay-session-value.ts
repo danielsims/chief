@@ -16,6 +16,7 @@ export interface RelaySessionValue {
   recoveryWorkspace: WorkspaceSummary | null;
   refresh: () => Promise<void>;
   returnToPreviousWorkspace: () => Promise<void>;
+  deleteWorkspace: (workspaceId: string) => Promise<void>;
   switchWorkspace: (
     workspaceId: string,
     target?: { relayUrl: string; accountId: string },

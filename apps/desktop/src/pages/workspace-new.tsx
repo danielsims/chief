@@ -17,6 +17,7 @@ import { TooltipProvider } from "@chief/ui/components/tooltip";
 
 import type { WorkspaceHosting } from "./workspace-create-draft";
 import type { LocalRelayDiscovery } from "./workspace-new-supplementary";
+import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   CHIEF_CLOUD_AUTH_BASE_URL,
@@ -30,6 +31,7 @@ import {
   storePendingOrganizationInvitation,
 } from "../lib/organization-invitation";
 import {
+  knownWorkspacesForRelayIdentities,
   saveStoredRelayConnection,
   validateRelayConnection,
 } from "../lib/relay-connection";
@@ -39,6 +41,7 @@ import {
   pendingCreateRelayKey,
   shouldResumeWorkspaceCreate,
 } from "../lib/workspace-entry";
+import { UserIndicator } from "./onboarding-presentation";
 import {
   createWorkspaceDraftKey,
   parseCreateWorkspaceDraft,
@@ -264,6 +267,30 @@ export function CreateWorkspacePage() {
     setSelectedRelayUrl(activeRelayUrl);
     returnToWorkspaceHome();
   }, [activeRelayUrl, createDraftKey, returnToWorkspaceHome]);
+
+  const returnToExistingWorkspace = useCallback(async () => {
+    setActionError(null);
+    if (relay.snapshot) {
+      void navigate("/", { replace: true });
+      return;
+    }
+    const fallback = knownWorkspacesForRelayIdentities(
+      connectedRelayIdentities(),
+    )[0];
+    if (!fallback || isWorking) return;
+    setIsWorking(true);
+    try {
+      await relay.switchWorkspace(fallback.summary.id, fallback);
+      void navigate("/", { replace: true });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setIsWorking(false);
+    }
+  }, [isWorking, navigate, relay]);
+
+  const canReturnToWorkspace =
+    relay.snapshot !== null ||
+    knownWorkspacesForRelayIdentities(connectedRelayIdentities()).length > 0;
 
   const preserveDraftAcrossRelaySwitch = useCallback(
     (nextHosting: WorkspaceHosting, nextRelayUrl: string) => {
@@ -507,6 +534,7 @@ export function CreateWorkspacePage() {
   return (
     <TooltipProvider delayDuration={250}>
       <div className="bg-background text-foreground flex h-screen overflow-hidden">
+        <UserIndicator user={auth.user} onSignOut={() => auth.signOut()} />
         <div className="bg-background flex min-w-0 flex-1 flex-col">
           {mode === "create" || mode === "hosting" ? (
             <WorkspaceProgress step={createStep} />
@@ -516,7 +544,11 @@ export function CreateWorkspacePage() {
             <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center py-12">
               {mode === "home" ? (
                 <WorkspaceHome
-                  onBack={relay.snapshot ? () => void navigate("/") : undefined}
+                  onBack={
+                    canReturnToWorkspace
+                      ? () => void returnToExistingWorkspace()
+                      : undefined
+                  }
                   onCreate={() => {
                     recordOnboardingEvent("advanced", "workspace-home");
                     setActionError(null);
