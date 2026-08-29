@@ -16,6 +16,7 @@ import {
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 
 import type { WorkspaceHosting } from "./workspace-create-draft";
+import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
 import type { LocalRelayDiscovery } from "./workspace-new-supplementary";
 import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
@@ -123,9 +124,9 @@ export function CreateWorkspacePage() {
   const lastViewedStage = useRef<string | null>(null);
   const [name, setName] = useState(initialDraft?.name ?? "");
   const [website, setWebsite] = useState(initialDraft?.website ?? "");
-  const [provider, setProvider] = useState<
-    "claude" | "codex" | "opencode" | null
-  >(initialDraft?.provider ?? "opencode");
+  const [provider, setProvider] = useState<WorkspaceInferenceProvider>(
+    initialDraft?.provider ?? "opencode",
+  );
   const [apiKey, setApiKey] = useState("");
   const [selectedApps, setSelectedApps] = useState<Set<string>>(
     () => new Set(initialDraft?.selectedApps ?? []),
@@ -605,7 +606,10 @@ export function CreateWorkspacePage() {
                   onSelfHosted={() => {
                     setMode("hosting");
                   }}
-                  onProviderChange={setProvider}
+                  onProviderChange={(nextProvider) => {
+                    setProvider(nextProvider);
+                    setApiKey("");
+                  }}
                   onApiKeyChange={setApiKey}
                   onSelectedAppsChange={setSelectedApps}
                   onStepChange={(nextStep) => {

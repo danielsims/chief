@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { OpenCode } from "@lobehub/icons";
+import { OpenCode, Vercel } from "@lobehub/icons";
 import { ArrowLeft, Check, Server } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -13,6 +13,7 @@ import {
   workspaceOnboardingAppLogo,
   workspaceOnboardingApps,
 } from "./workspace-create-options";
+import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
 
 export function CreateForm({
   name,
@@ -40,7 +41,7 @@ export function CreateForm({
 }: {
   name: string;
   website: string;
-  provider: "claude" | "codex" | "opencode" | null;
+  provider: WorkspaceInferenceProvider;
   apiKey: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
@@ -54,7 +55,7 @@ export function CreateForm({
   onWebsiteChange: (value: string) => void;
   onChiefCloud: () => void;
   onSelfHosted: () => void;
-  onProviderChange: (value: "claude" | "codex" | "opencode") => void;
+  onProviderChange: (value: Exclude<WorkspaceInferenceProvider, null>) => void;
   onApiKeyChange: (value: string) => void;
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
@@ -204,9 +205,17 @@ export function CreateForm({
             </div>
           ) : step === 2 ? (
             <div className="space-y-3">
-              <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <ProviderOption
+                  label="Vercel AI Gateway"
+                  detail="One API for hundreds of models, with budgets, usage monitoring, and fallbacks."
+                  selected={provider === "vercelAiGateway"}
+                  onClick={() => onProviderChange("vercelAiGateway")}
+                  icon={<Vercel size={27} />}
+                />
                 <ProviderOption
                   label="OpenCode"
+                  detail="An open-source coding agent for the terminal, desktop, and IDE."
                   selected={provider === "opencode"}
                   onClick={() => onProviderChange("opencode")}
                   icon={<OpenCode size={27} />}
@@ -215,7 +224,14 @@ export function CreateForm({
               {provider ? (
                 <div>
                   <div className="mt-4">
-                    <Field label="OpenCode API key" htmlFor="cloud-api-key">
+                    <Field
+                      label={
+                        provider === "vercelAiGateway"
+                          ? "Vercel AI Gateway API key"
+                          : "OpenCode API key"
+                      }
+                      htmlFor="cloud-api-key"
+                    >
                       <Input
                         id="cloud-api-key"
                         type="password"
@@ -229,6 +245,20 @@ export function CreateForm({
                         Encrypted by this relay and available only to this
                         workspace’s hosted agents.
                       </p>
+                      <a
+                        className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
+                        href={
+                          provider === "vercelAiGateway"
+                            ? "https://vercel.com/docs/ai-gateway/authentication"
+                            : "https://opencode.ai/auth"
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {provider === "vercelAiGateway"
+                          ? "Get an AI Gateway key"
+                          : "Get an OpenCode API key"}
+                      </a>
                     </Field>
                   </div>
                 </div>

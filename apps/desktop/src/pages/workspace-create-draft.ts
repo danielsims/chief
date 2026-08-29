@@ -5,7 +5,10 @@ import {
   isJsonString,
 } from "@chief/relay-contracts";
 
-export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
+export type WorkspaceInferenceProvider =
+  | "opencode"
+  | "vercelAiGateway"
+  | null;
 export type WorkspaceHosting = "chief-cloud" | "self-hosted";
 
 const createDraftVersion = 5;
@@ -54,9 +57,8 @@ export function parseCreateWorkspaceDraft(
       !isJsonString(value.relayUrl) ||
       (value.provider !== undefined &&
         value.provider !== null &&
-        value.provider !== "claude" &&
-        value.provider !== "codex" &&
-        value.provider !== "opencode")
+        value.provider !== "opencode" &&
+        value.provider !== "vercelAiGateway")
     ) {
       return null;
     }
@@ -67,9 +69,8 @@ export function parseCreateWorkspaceDraft(
       name: value.name,
       website: value.website,
       provider:
-        value.provider === "claude" ||
-        value.provider === "codex" ||
-        value.provider === "opencode"
+        value.provider === "opencode" ||
+        value.provider === "vercelAiGateway"
           ? value.provider
           : null,
       selectedApps: value.selectedApps,

@@ -69,26 +69,34 @@ export function ConnectionSettings() {
           </ConnectionRow>
         </CardContent>
       </Card>
-      {!chiefHosted ? <HostedAgentCredential /> : null}
+      <HostedAgentCredential />
     </div>
   );
 }
 
 function HostedAgentCredential() {
-  const { client } = useRelaySession();
+  const { client, snapshot } = useRelaySession();
   const [apiKey, setApiKey] = useState("");
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [provider, setProvider] = useState<
+    "opencode" | "vercel-ai-gateway"
+  >("opencode");
+  const [configuredSecrets, setConfiguredSecrets] = useState<Set<string>>(
+    new Set(),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!client) return;
-    void client
-      .listWorkspaceSecrets()
-      .then((secrets) => {
+    void Promise.all([
+      client.listWorkspaceSecrets(),
+      client.loadAgentConfig("chief"),
+    ])
+      .then(([secrets, chief]) => {
         if (!cancelled) {
-          setConfigured(secrets.some((secret) => secret.name === "opencode"));
+          setConfiguredSecrets(new Set(secrets.map((secret) => secret.name)));
+          setProvider(chief.config.inference.provider);
         }
       })
       .catch((caught: unknown) => {
@@ -107,9 +115,32 @@ function HostedAgentCredential() {
     setSaving(true);
     setError(null);
     try {
-      await client.setWorkspaceSecret("opencode", value);
+      const inference =
+        provider === "vercel-ai-gateway"
+          ? ({
+              provider,
+              model: "deepseek/deepseek-v4-flash",
+              secretRef: "vercel-ai-gateway",
+            } as const)
+          : ({
+              provider,
+              model: "opencode-go/deepseek-v4-flash",
+              secretRef: "opencode",
+            } as const);
+      await client.setWorkspaceSecret(inference.secretRef, value);
+      await Promise.all(
+        (snapshot?.agents ?? []).map(async (agent) => {
+          const current = await client.loadAgentConfig(agent.id);
+          await client.saveAgentConfig(agent.id, {
+            ...current.config,
+            inference,
+          });
+        }),
+      );
       setApiKey("");
-      setConfigured(true);
+      setConfiguredSecrets((current) =>
+        new Set(current).add(inference.secretRef),
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -117,23 +148,47 @@ function HostedAgentCredential() {
     }
   };
 
+  const secretName =
+    provider === "vercel-ai-gateway" ? "vercel-ai-gateway" : "opencode";
+  const configured = configuredSecrets.has(secretName);
+  const providerName =
+    provider === "vercel-ai-gateway" ? "Vercel AI Gateway" : "OpenCode";
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Hosted agents</CardTitle>
         <CardDescription>
-          OpenCode inference is encrypted by this relay and scoped to this
-          workspace.
+          Choose the inference provider for this workspace’s agents.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              ["vercel-ai-gateway", "Vercel AI Gateway"],
+              ["opencode", "OpenCode"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setProvider(value)}
+              className={`min-h-11 rounded-lg border px-3 text-sm transition-colors ${provider === value ? "border-foreground bg-muted" : "border-border hover:border-foreground/50"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-2">
           <Input
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder={
-              configured ? "Enter a replacement API key" : "OpenCode API key"
+              configured
+                ? `Replace ${providerName} API key`
+                : `${providerName} API key`
             }
             autoComplete="new-password"
             disabled={!client || saving}
@@ -149,8 +204,8 @@ function HostedAgentCredential() {
         </div>
         <p className="text-muted-foreground mt-2 text-xs">
           {configured
-            ? "An inference credential is configured. Its value cannot be read back."
-            : "Required for agents hosted on this self-hosted relay."}
+            ? `${providerName} is configured. Its credential cannot be read back.`
+            : `Add your ${providerName} API key to use this provider.`}
         </p>
         {error ? (
           <p className="text-destructive mt-2 text-xs">{error}</p>
