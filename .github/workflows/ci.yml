@@ -52,11 +52,16 @@ jobs:
 
   self-host-images:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: relay
+            dockerfile: apps/relay/Dockerfile
+          - name: web
+            dockerfile: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build relay image
-        run: docker build --file apps/relay/Dockerfile --tag chief-relay:ci .
-
-      - name: Build web image
-        run: docker build --file apps/web/Dockerfile --tag chief-web:ci .
+      - name: Build ${{ matrix.image.name }} image
+        run: docker build --file "${{ matrix.image.dockerfile }}" --tag "chief-${{ matrix.image.name }}:ci" .
