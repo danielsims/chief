@@ -162,7 +162,13 @@ export const createWorkspaceCommandSchema = z
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
     runtime: z.enum(["phone", "desktop", "cloud"]),
-    inferenceProvider: z.string().trim().min(1).max(64),
+    inferenceProvider: z.enum([
+      "openCodeGo",
+      "opencode",
+      "vercelAiGateway",
+      "onDevice",
+      "codexBridge",
+    ]),
     inferenceModel: z.string().trim().min(1).max(128),
     selectedApps: z.array(z.string().trim().min(1).max(128)).max(100),
   })
@@ -173,11 +179,36 @@ export const provisionWorkspaceCommandSchema = z
     workspace: createWorkspaceCommandSchema,
     secrets: z
       .object({
-        opencode: z.string().trim().min(1).max(20_000),
+        opencode: z.string().trim().min(1).max(20_000).optional(),
+        vercelAiGateway: z.string().trim().min(1).max(20_000).optional(),
       })
       .strict(),
   })
-  .strict();
+  .strict()
+  .superRefine((provision, context) => {
+    if (provision.workspace.runtime === "phone") return;
+    const provider = provision.workspace.inferenceProvider;
+    if (
+      (provider === "openCodeGo" || provider === "opencode") &&
+      !provision.secrets.opencode
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Hosted workspaces require an OpenCode credential.",
+        path: ["secrets", "opencode"],
+      });
+    }
+    if (
+      provider === "vercelAiGateway" &&
+      !provision.secrets.vercelAiGateway
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Hosted workspaces require a Vercel AI Gateway credential.",
+        path: ["secrets", "vercelAiGateway"],
+      });
+    }
+  });
 
 export const conversationSummarySchema = z.object({
   id: z.string().min(1).max(128),

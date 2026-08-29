@@ -66,12 +66,14 @@ export interface AgentInferenceRequest {
 
 export interface AgentInferenceResult {
   content: string | null;
+  reasoning?: string;
   toolCalls: AgentInferenceToolCall[];
 }
 
 export interface AgentInferenceMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
+  reasoning?: string;
   toolCalls?: AgentInferenceToolCall[];
   toolCallId?: string;
   name?: string;

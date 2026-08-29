@@ -13,18 +13,30 @@ import {
 } from "./identifiers";
 import { jsonObjectSchema, jsonValueSchema } from "./json";
 
+export const agentInferenceSchema = z.discriminatedUnion("provider", [
+  z
+    .object({
+      provider: z.literal("opencode"),
+      model: z.literal("opencode-go/deepseek-v4-flash"),
+      secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("vercel-ai-gateway"),
+      model: z.literal("deepseek/deepseek-v4-flash"),
+      secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+]);
+
+export type AgentInferenceConfig = z.infer<typeof agentInferenceSchema>;
+
 export const agentConfigSchema = z
   .object({
     enabled: z.boolean(),
     deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
-    inference: z
-      .object({
-        provider: z.literal("opencode"),
-        model: z.literal("opencode-go/deepseek-v4-flash"),
-        /** Workspace-scoped secret name holding the provider API key. */
-        secretRef: secretNameSchema.optional(),
-      })
-      .strict(),
+    inference: agentInferenceSchema,
     approvals: z.enum(["auto", "ask"]),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
