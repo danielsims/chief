@@ -131,11 +131,18 @@ export class WorkspaceLifecycleService {
       this.storage,
       this.env.RELAY_SECRET_KEY,
     );
-    const preparedSecret = await secretStore.prepare(
-      context.workspaceId,
-      "opencode",
-      provision.secrets.opencode,
-    );
+    const inference = workspaceInference(provision.workspace.inferenceProvider);
+    const credential =
+      inference.provider === "vercel-ai-gateway"
+        ? provision.secrets.vercelAiGateway
+        : provision.secrets.opencode;
+    const preparedSecret = credential
+      ? await secretStore.prepare(
+          context.workspaceId,
+          inference.secretRef,
+          credential,
+        )
+      : null;
     const createdAt = new Date().toISOString();
     const snapshot = workspaceSnapshotSchema.parse({
       id: context.workspaceId,
@@ -159,7 +166,7 @@ export class WorkspaceLifecycleService {
         this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
       );
       if (existing) {
-        secretStore.writePrepared(preparedSecret);
+        if (preparedSecret) secretStore.writePrepared(preparedSecret);
         return;
       }
       this.storage.sql.exec(
@@ -191,9 +198,9 @@ export class WorkspaceLifecycleService {
           ...defaultAgentConfigFor(agent.id),
           deploymentTarget: input.runtime,
           inference: {
-            provider: "opencode",
-            model: "opencode-go/deepseek-v4-flash",
-            secretRef: "opencode",
+            provider: inference.provider,
+            model: inference.model,
+            ...(preparedSecret ? { secretRef: inference.secretRef } : {}),
           },
         });
         this.storage.sql.exec(
@@ -204,7 +211,7 @@ export class WorkspaceLifecycleService {
           createdAt,
         );
       }
-      secretStore.writePrepared(preparedSecret);
+      if (preparedSecret) secretStore.writePrepared(preparedSecret);
     });
     return this.snapshot(context);
   }
@@ -456,6 +463,21 @@ export class WorkspaceLifecycleService {
       );
     }
   }
+}
+
+function workspaceInference(provider: string) {
+  if (provider === "vercelAiGateway") {
+    return {
+      provider: "vercel-ai-gateway" as const,
+      model: "deepseek/deepseek-v4-flash" as const,
+      secretRef: "vercel-ai-gateway" as const,
+    };
+  }
+  return {
+    provider: "opencode" as const,
+    model: "opencode-go/deepseek-v4-flash" as const,
+    secretRef: "opencode" as const,
+  };
 }
 
 function initialConversation(

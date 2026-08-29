@@ -1,4 +1,5 @@
-import type { ModelMessage, ToolSet } from "ai";
+import type { LanguageModel, ModelMessage, ToolSet } from "ai";
+import { createGateway } from "@ai-sdk/gateway";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapAISDK } from "agents/observability/ai";
 import * as aiSdk from "ai";
@@ -11,6 +12,7 @@ import type {
   AgentInferenceTool,
 } from "@chief/agent-computer";
 import { jsonObjectSchema } from "@chief/relay-contracts";
+import type { AgentInferenceConfig } from "@chief/relay-contracts";
 
 import type { HostedAgentTraceContext } from "./agent-tracing";
 
@@ -39,31 +41,32 @@ const tracedAI = wrapAISDK(aiSdk, {
 });
 
 export class AiSdkAgentInference implements AgentInference {
-  readonly model = {
-    id: OPEN_CODE_GO_MODEL,
-    contextWindowTokens: 1_000_000,
-    maxOutputTokens: 384_000,
-    limitSource: "model_catalog",
-  } as const;
-  private readonly provider;
+  readonly model;
+  private readonly languageModel: LanguageModel;
 
   constructor(
     apiKey: string,
     private readonly context: HostedAgentTraceContext,
     request?: typeof fetch,
+    inference: AgentInferenceConfig = {
+      provider: "opencode",
+      model: "opencode-go/deepseek-v4-flash",
+      secretRef: "opencode",
+    },
   ) {
-    this.provider = createOpenAICompatible({
-      name: "opencode",
-      baseURL: OPEN_CODE_GO_BASE_URL,
-      apiKey,
-      ...(request ? { fetch: request } : undefined),
-    });
+    this.model = {
+      id: inference.model,
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
+      limitSource: "model_catalog" as const,
+    };
+    this.languageModel = languageModel(inference, apiKey, request);
   }
 
   async complete(input: AgentInferenceRequest) {
     const prompt = aiSdkPrompt(input.messages);
     const result = await tracedAI.generateText({
-      model: this.provider.chatModel(OPEN_CODE_GO_MODEL),
+      model: this.languageModel,
       ...prompt,
       tools: toolSet(input.tools),
       maxOutputTokens: input.maxTokens,
@@ -92,6 +95,9 @@ export class AiSdkAgentInference implements AgentInference {
     });
     return {
       content: result.text || null,
+      ...(result.reasoningText
+        ? { reasoning: result.reasoningText }
+        : undefined),
       toolCalls: result.toolCalls.map((call) => ({
         id: call.toolCallId,
         name: call.toolName,
@@ -107,12 +113,45 @@ export class AiSdkAgentInference implements AgentInference {
 
 export function createAiSdkAgentInference(
   apiKey: string | undefined,
+  inference: AgentInferenceConfig,
   context: HostedAgentTraceContext,
 ) {
   if (!apiKey?.trim()) {
-    throw new Error("OpenCode Go is not configured for hosted agents.");
+    throw new Error(
+      `${inferenceProviderName(inference)} is not configured for hosted agents.`,
+    );
   }
-  return new AiSdkAgentInference(apiKey, context);
+  return new AiSdkAgentInference(apiKey, context, undefined, inference);
+}
+
+function languageModel(
+  inference: AgentInferenceConfig,
+  apiKey: string,
+  request?: typeof fetch,
+): LanguageModel {
+  switch (inference.provider) {
+    case "opencode":
+      return createOpenAICompatible({
+        name: "opencode",
+        baseURL: OPEN_CODE_GO_BASE_URL,
+        apiKey,
+        ...(request ? { fetch: request } : undefined),
+      }).chatModel(OPEN_CODE_GO_MODEL);
+    case "vercel-ai-gateway":
+      return createGateway({
+        apiKey,
+        ...(request ? { fetch: request } : undefined),
+      })(inference.model);
+  }
+}
+
+function inferenceProviderName(inference: AgentInferenceConfig) {
+  switch (inference.provider) {
+    case "opencode":
+      return "OpenCode Go";
+    case "vercel-ai-gateway":
+      return "Vercel AI Gateway";
+  }
 }
 
 function aiSdkPrompt(messages: readonly AgentInferenceMessage[]): {
@@ -141,6 +180,9 @@ function modelMessage(
     return {
       role: "assistant",
       content: [
+        ...(message.reasoning
+          ? [{ type: "reasoning" as const, text: message.reasoning }]
+          : []),
         ...(message.content
           ? [{ type: "text" as const, text: message.content }]
           : []),

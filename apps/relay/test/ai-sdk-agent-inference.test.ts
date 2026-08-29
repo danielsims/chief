@@ -66,6 +66,54 @@ describe("AiSdkAgentInference", () => {
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });
 
+  it("sends DeepSeek V4 Flash through the native Vercel AI Gateway provider", async () => {
+    let requestUrl = "";
+    let requestHeaders = new Headers();
+    const request = async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      requestUrl = String(input);
+      requestHeaders = new Headers(init?.headers);
+      return Response.json({
+        content: [{ type: "text", text: "ready" }],
+        finishReason: "stop",
+        usage: {
+          inputTokens: { total: 1 },
+          outputTokens: { total: 1 },
+        },
+      });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-vercel-key",
+      traceContext(),
+      request,
+      {
+        provider: "vercel-ai-gateway",
+        model: "deepseek/deepseek-v4-flash",
+        secretRef: "vercel-ai-gateway",
+      },
+    );
+
+    const result = await inference.complete({
+      messages: [{ role: "user", content: "Say ready." }],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(requestUrl).toBe(
+      "https://ai-gateway.vercel.sh/v4/ai/language-model",
+    );
+    expect(requestHeaders.get("authorization")).toBe(
+      "Bearer test-vercel-key",
+    );
+    expect(requestHeaders.get("ai-language-model-id")).toBe(
+      "deepseek/deepseek-v4-flash",
+    );
+    expect(result).toEqual({ content: "ready", toolCalls: [] });
+  });
+
   it("passes every durable system message through AI SDK instructions", async () => {
     let requestBody: unknown;
     const request = async function (
@@ -128,6 +176,89 @@ describe("AiSdkAgentInference", () => {
     });
 
     expect(result).toEqual({ content: "ok", toolCalls: [] });
+  });
+
+  it("preserves provider reasoning across a tool continuation", async () => {
+    const requestBodies: unknown[] = [];
+    const request = async function (
+      this: void,
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) {
+      expect(this).toBeUndefined();
+      requestBodies.push(JSON.parse(z.string().parse(init?.body)));
+      return requestBodies.length === 1
+        ? Response.json({
+            choices: [
+              {
+                message: {
+                  content: null,
+                  reasoning_content: "I need the current status first.",
+                  tool_calls: [
+                    {
+                      id: "status-1",
+                      type: "function",
+                      function: { name: "read_status", arguments: "{}" },
+                    },
+                  ],
+                },
+              },
+            ],
+          })
+        : Response.json({
+            choices: [{ message: { content: "done", tool_calls: [] } }],
+          });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+    const first = await inference.complete({
+      messages: [{ role: "user", content: "Read the status." }],
+      tools: [
+        {
+          name: "read_status",
+          description: "Read the current status.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    await inference.complete({
+      messages: [
+        { role: "user", content: "Read the status." },
+        {
+          role: "assistant",
+          content: first.content,
+          reasoning: first.reasoning,
+          toolCalls: first.toolCalls,
+        },
+        {
+          role: "tool",
+          content: "ready",
+          toolCallId: "status-1",
+          name: "read_status",
+        },
+      ],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(first.reasoning).toBe("I need the current status first.");
+    expect(requestBodies[1]).toMatchObject({
+      messages: [
+        { role: "user" },
+        {
+          role: "assistant",
+          reasoning_content: "I need the current status first.",
+        },
+        { role: "tool" },
+      ],
+    });
   });
 
   it("leaves retries to the durable cell boundary", async () => {

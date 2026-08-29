@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "4.0.22",
     "@ai-sdk/openai-compatible": "3.0.39",
     "@chief/agent-computer": "workspace:*",
     "@chief/agent-runtime": "workspace:*",

@@ -10,10 +10,61 @@ import {
   eventEnvelopeSchema,
   executionLeaseSchema,
   messageComponentSchema,
+  provisionWorkspaceCommandSchema,
   relativeExecutionPathSchema,
   relayDiscoverySchema,
 } from "../src/index";
 import { createRelayOpenApiDocument } from "../src/openapi";
+
+const workspaceProvision = (runtime: "phone" | "cloud") => ({
+  workspace: {
+    commandId: "9b15b985-1a51-4c69-bc39-a941db4f7754",
+    name: "Chief",
+    website: "https://heychief.sh",
+    runtime,
+    inferenceProvider: runtime === "phone" ? "onDevice" : "openCodeGo",
+    inferenceModel: runtime === "phone" ? "gemma-4-e2b" : "auto",
+    selectedApps: [],
+  },
+  secrets: {},
+});
+
+void test("phone workspaces can keep inference entirely on device", () => {
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse(workspaceProvision("phone"))
+      .success,
+    true,
+  );
+});
+
+void test("hosted workspaces require a relay-owned inference credential", () => {
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse(workspaceProvision("cloud"))
+      .success,
+    false,
+  );
+});
+
+void test("hosted workspaces accept a workspace-scoped Vercel AI Gateway credential", () => {
+  const input = workspaceProvision("cloud");
+  input.workspace.inferenceProvider = "vercelAiGateway";
+  input.workspace.inferenceModel = "deepseek/deepseek-v4-flash";
+
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      secrets: { vercelAiGateway: "workspace-gateway-key" },
+    }).success,
+    true,
+  );
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      secrets: { opencode: "wrong-provider-key" },
+    }).success,
+    false,
+  );
+});
 
 void test("public commands reject attempts to inject a trusted actor", () => {
   const result = appendMessageCommandSchema.safeParse({

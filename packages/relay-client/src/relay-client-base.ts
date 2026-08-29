@@ -113,7 +113,11 @@ export class RelayClientBase {
       )
     ).workspaces;
   }
-  async createWorkspace(command: CreateWorkspaceCommand, opencode: string) {
+  async createWorkspace(command: CreateWorkspaceCommand, credential: string) {
+    const secrets =
+      command.inferenceProvider === "vercelAiGateway"
+        ? { vercelAiGateway: credential }
+        : { opencode: credential };
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
       workspaceSnapshotSchema,
@@ -121,7 +125,7 @@ export class RelayClientBase {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspace: command, secrets: { opencode } }),
+        body: JSON.stringify({ workspace: command, secrets }),
       },
     );
   }
