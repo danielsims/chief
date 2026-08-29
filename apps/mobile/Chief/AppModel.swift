@@ -8,6 +8,7 @@ let activityLog = Logger(subsystem: "sh.heychief.mobile", category: "activity")
 enum AppPhase: Equatable {
   case launching
   case signedOut
+  case workspaceSetup
   case onboarding
   case workspace
 }
@@ -66,6 +67,8 @@ final class AppModel {
   private var agentLoopTask: Task<Void, Never>?
   private var workspaceLiveTask: Task<Void, Never>?
   private var workspaceLiveBackgroundStopTask: Task<Void, Never>?
+  private var workspaceMembershipRefreshTask: Task<Void, Never>?
+  private var workspaceMembershipRefreshWorkspaceID: String?
   private var workspaceLiveClient: RelayLiveClient?
   private var workspaceLiveWorkspaceID: String?
   private var workspaceLiveConversationIDs: Set<String> = []
@@ -116,18 +119,23 @@ final class AppModel {
     pendingWorkspaceInvite?.relayURL ?? pendingOrganizationInvite?.relayURL
   }
 
-  var canCancelOnboarding: Bool {
-    workspace?.onboardingComplete == true
+  var canReturnToWorkspace: Bool {
+    if workspace?.onboardingComplete == true { return true }
+    if let saved = try? workspaces.load(), saved.onboardingComplete { return true }
+    return relayDirectory.workspaceSummaries(activeWorkspaceID: workspace?.id)
+      .contains(where: \.onboardingComplete)
   }
 
   var canAdvanceOnboarding: Bool {
     switch onboarding.step {
     case 0:
-      return onboarding.runtime != nil
+      return !onboarding.companyName.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ).isEmpty
     case 1:
-      return inferenceSelectionReady
+      return onboarding.runtime != nil
     case 2:
-      return !onboarding.companyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      return inferenceSelectionReady
     default:
       return onboarding.canContinue && inferenceSelectionReady
     }
@@ -137,8 +145,19 @@ final class AppModel {
     guard let provider = onboarding.inferenceProvider else { return false }
     switch provider {
     case .openCodeGo:
+      if onboarding.runtime == .cloud {
+        return workspaceForOnboardingResume != nil
+          || !inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
       return !inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || inferenceCredentials.contains(.openCodeGo)
+    case .vercelAiGateway:
+      if onboarding.runtime == .cloud {
+        return workspaceForOnboardingResume != nil
+          || !inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      return !inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || inferenceCredentials.contains(.vercelAiGateway)
     #if DEBUG
       case .codexBridge:
         return DevCodexBridgeSettings.isConfigured
@@ -263,7 +282,7 @@ final class AppModel {
   private func bootCellRuntimeIfNeeded() async {
     #if CELL_RUNTIME
       guard phase == .workspace else { return }
-      let host = ChiefOpenCodeAgentHost(
+      let host = ChiefAgentHost(
         relay: relay,
         credentials: inferenceCredentials,
         onActivity: { [weak self] workspaceID, conversationID, agentID, component in
@@ -853,12 +872,12 @@ final class AppModel {
       // back to the sign-in screen.
       onboardingLog.warning("relay rejected workspace hydration; preserving account session")
       isWorkspaceReadyForPresentation = workspace != nil
-      phase = workspace == nil ? .onboarding : .workspace
+      phase = workspace == nil ? .workspaceSetup : .workspace
     } catch {
       // Authentication succeeded. Keep the user in onboarding while a relay is
       // unavailable or while no workspace has been created yet.
       isWorkspaceReadyForPresentation = workspace != nil
-      phase = workspace == nil ? .onboarding : .workspace
+      phase = workspace == nil ? .workspaceSetup : .workspace
     }
   }
 
@@ -1019,6 +1038,37 @@ final class AppModel {
       }
     }
     workspaceSummaries = relayDirectory.workspaceSummaries(activeWorkspaceID: workspace?.id)
+  }
+
+  func relayLabel(forWorkspaceID workspaceID: String) -> String {
+    guard let location = relayDirectory.location(for: workspaceID) else {
+      return relayLabel(for: appConfiguration.relayURL)
+    }
+    return relayLabel(for: location.relayURL)
+  }
+
+  var activeRelayLabel: String { relayLabel(for: appConfiguration.relayURL) }
+  var activeRelayIsChiefCloud: Bool {
+    RelayDirectoryStore.sameOrigin(
+      appConfiguration.relayURL,
+      AppConfiguration.chiefCloud().relayURL
+    )
+  }
+
+  private func relayLabel(for relayURL: URL) -> String {
+    if RelayDirectoryStore.sameOrigin(
+      relayURL,
+      AppConfiguration.chiefCloud().relayURL
+    ) {
+      return "Chief Cloud"
+    }
+    return relayHost(relayURL)
+  }
+
+  private func relayHost(_ url: URL) -> String {
+    guard let host = url.host else { return "Relay" }
+    if let port = url.port { return "\(host):\(port)" }
+    return host
   }
 
   /// Switch the active organization, mirroring the desktop workspace rail. The
@@ -1319,19 +1369,36 @@ final class AppModel {
       return
     }
 
-    if onboarding.inferenceProvider == .openCodeGo && !debugSkipCredentialStore {
+    let resumedWorkspace = workspaceForOnboardingResume
+    var relayCredential: String?
+    if let hostedProvider = onboarding.inferenceProvider,
+      hostedProvider == .openCodeGo || hostedProvider == .vercelAiGateway,
+      !debugSkipCredentialStore
+    {
       let credential = inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !credential.isEmpty || inferenceCredentials.contains(.openCodeGo) else {
-        onboardingError = "Connect OpenCode Go before continuing."
-        return
+      let providerName = hostedProvider == .vercelAiGateway
+        ? "Vercel AI Gateway" : "OpenCode Go"
+      if onboarding.runtime == .cloud {
+        if resumedWorkspace == nil {
+          guard !credential.isEmpty else {
+            onboardingError = "Connect \(providerName) before continuing."
+            return
+          }
+          relayCredential = credential
+        }
+      } else {
+        guard !credential.isEmpty || inferenceCredentials.contains(hostedProvider) else {
+          onboardingError = "Connect \(providerName) before continuing."
+          return
+        }
       }
-      if !credential.isEmpty {
+      if onboarding.runtime == .phone, !credential.isEmpty {
         do {
-          try inferenceCredentials.save(credential, for: .openCodeGo)
+          try inferenceCredentials.save(credential, for: hostedProvider)
           inferenceCredential = ""
-          onboardingLog.info("saved OpenCode Go credential")
+          onboardingLog.info("saved inference credential")
         } catch {
-          onboardingError = "Chief could not save the OpenCode credential."
+          onboardingError = "Chief could not save the inference credential."
           return
         }
       }
@@ -1349,10 +1416,14 @@ final class AppModel {
 
     do {
       let pending: WorkspaceSnapshot
-      if let existing = workspaceForOnboardingResume {
+      if let existing = resumedWorkspace {
         pending = existing
       } else {
-        pending = try await relay.createWorkspace(from: onboarding)
+        pending = try await relay.createWorkspace(
+          from: onboarding,
+          inferenceCredential: relayCredential
+        )
+        if relayCredential != nil { inferenceCredential = "" }
         workspace = pending
         upsertWorkspaceSummary(for: pending, isActive: true)
         // This file is only a launch cache. The relay is authoritative, so a
@@ -1389,6 +1460,16 @@ final class AppModel {
         conversationID: "mission-control",
         isWorking: true
       )
+      if pending.runtime == "cloud" {
+        workspaceSyncFailed = false
+        onboardingError = nil
+        pendingNewWorkspace = false
+        onboardingLog.info("relay provisioned cloud workspace \(pending.id)")
+        print("[Chief] relay provisioned cloud workspace \(pending.id)")
+        phase = .workspace
+        await refreshWorkspaces()
+        return
+      }
       await registerAgentKeyIfNeeded(workspaceID: pending.id)
       try await configureInitialAgentModels(for: pending)
       await bootCellRuntimeIfNeeded()
@@ -1495,7 +1576,7 @@ final class AppModel {
   }
 
   private func hasRecoverableInferenceCredential(for workspaceID: String) -> Bool {
-    if workspace?.id == workspaceID, workspace?.runtime == "cloud" { return true }
+    if workspace?.id == workspaceID, workspace?.runtime == "cloud" { return false }
     #if DEBUG
       if DevCodexBridgeSettings.isEnabled(for: workspaceID),
         DevCodexBridgeSettings.isConfigured,
@@ -1751,7 +1832,9 @@ final class AppModel {
       }
       clearRelayActivityPresence(for: message)
       updateConversationPreview(with: message)
-      applyCurrentUserMembershipEvent(message)
+      if applyCurrentUserMembershipEvent(message) {
+        scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: expectedWorkspaceID)
+      }
       guard isConversationJoined(message.conversationID) else { return }
       if message.createdAt <= launchedAt {
         let context = ConversationReadState.channelKey(message.conversationID)
@@ -1879,20 +1962,68 @@ final class AppModel {
   /// Channel membership messages are relay-authored, signed live events. Apply
   /// only events explicitly targeting the current user so another member's
   /// invite can never change this device's joined-channel state.
-  private func applyCurrentUserMembershipEvent(_ message: ConversationMessage) {
-    guard let userID = session?.user.id else { return }
+  private func applyCurrentUserMembershipEvent(_ message: ConversationMessage) -> Bool {
+    guard let userID = session?.user.id else { return false }
+    var grantedConversation = false
     for component in message.components where component.kind == "channel-action" {
-      guard component.payload["targetKind"] == "user",
-        component.payload["targetId"] == userID
-      else { continue }
+      let userIDs = Set(
+        (component.payload["userIds"] ?? "")
+          .split(separator: ",")
+          .map(String.init)
+      )
+      let targetsCurrentUser = userIDs.contains(userID)
+        || (
+          component.payload["targetKind"] == "user"
+            && component.payload["targetId"] == userID
+        )
+      guard targetsCurrentUser else { continue }
       switch component.payload["type"] {
       case "member-added":
         setConversationJoined(message.conversationID, joined: true)
+        grantedConversation = true
       case "member-removed":
         setConversationJoined(message.conversationID, joined: false)
       default:
         break
       }
+    }
+    return grantedConversation
+  }
+
+  private func scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: String) {
+    if workspaceMembershipRefreshWorkspaceID == expectedID,
+      workspaceMembershipRefreshTask != nil
+    {
+      return
+    }
+    workspaceMembershipRefreshTask?.cancel()
+    workspaceMembershipRefreshWorkspaceID = expectedID
+    workspaceMembershipRefreshTask = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        if self.workspaceMembershipRefreshWorkspaceID == expectedID {
+          self.workspaceMembershipRefreshTask = nil
+          self.workspaceMembershipRefreshWorkspaceID = nil
+        }
+      }
+      await self.refreshWorkspaceSnapshot(expectedID: expectedID)
+    }
+  }
+
+  private func refreshWorkspaceSnapshot(expectedID: String) async {
+    do {
+      let remote = try await relay.loadWorkspace()
+      guard !Task.isCancelled, remote.id == expectedID else { return }
+      workspace = remote
+      upsertWorkspaceSummary(for: remote, isActive: true)
+      await refreshCurrentChannelMemberships(for: remote)
+      recomputeAllConversationPresentation()
+      syncWorkspaceLiveStreams(for: remote)
+      try? workspaces.save(remote)
+    } catch {
+      liveLog.warning(
+        "workspace membership refresh failed: \(error.localizedDescription)"
+      )
     }
   }
 
@@ -1901,7 +2032,10 @@ final class AppModel {
     workspaceLiveBackgroundStopTask?.cancel()
     workspaceLiveBackgroundStopTask = nil
     if active {
-      if let workspace { syncWorkspaceLiveStreams(for: workspace) }
+      if let workspace {
+        syncWorkspaceLiveStreams(for: workspace)
+        scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: workspace.id)
+      }
     } else {
       workspaceLiveBackgroundStopTask = Task { [weak self] in
         try? await Task.sleep(for: .seconds(5))
@@ -2503,15 +2637,39 @@ final class AppModel {
     phase = .onboarding
   }
 
-  /// Exits an accidental workspace setup and returns to the existing
-  /// workspace when one is already saved locally.
-  func cancelWorkspaceSetup() {
+  /// Opens the workspace entry screen without discarding the signed-in relay session.
+  func showWorkspaceSetup() {
     stopAgentLoop()
     pendingNewWorkspace = false
     onboarding = OnboardingDraft()
     inferenceCredential = ""
     onboardingError = nil
-    phase = workspace != nil ? .workspace : .signedOut
+    phase = .workspaceSetup
+  }
+
+  func returnToWorkspaceFromSetup() async {
+    if workspace?.onboardingComplete == true {
+      cancelWorkspaceSetup()
+      return
+    }
+
+    await refreshWorkspaces()
+    let savedWorkspaceID = (try? workspaces.load())?.id
+    let target = workspaceSummaries.first { $0.id == savedWorkspaceID }
+      ?? workspaceSummaries.first(where: \.onboardingComplete)
+    guard let target else { return }
+    _ = await switchWorkspace(workspaceID: target.id)
+  }
+
+  /// Returns from the workspace entry screen to the active workspace.
+  func cancelWorkspaceSetup() {
+    guard workspace?.onboardingComplete == true else { return }
+    stopAgentLoop()
+    pendingNewWorkspace = false
+    onboarding = OnboardingDraft()
+    inferenceCredential = ""
+    onboardingError = nil
+    phase = .workspace
     if let workspace { syncWorkspaceLiveStreams(for: workspace) }
     startAgentLoopIfNeeded()
   }

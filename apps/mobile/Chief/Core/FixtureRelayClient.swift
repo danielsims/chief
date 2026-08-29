@@ -2,22 +2,32 @@ import Foundation
 
 actor FixtureRelayClient: RelayServing {
     private var fixtureMessages = DemoWorkspace.messages
+    private var provisioningCredential: String?
 
     func bindDeviceIdentity(accountToken: String) async throws {}
 
     func loadWorkspace() async throws -> WorkspaceSnapshot { DemoWorkspace.snapshot }
 
-    func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot {
-        WorkspaceSnapshot(
+    func createWorkspace(
+        from draft: OnboardingDraft,
+        inferenceCredential: String?
+    ) async throws -> WorkspaceSnapshot {
+        provisioningCredential = inferenceCredential
+        return WorkspaceSnapshot(
             id: "workspace-\(UUID().uuidString.lowercased())",
             name: draft.companyName,
             website: draft.website,
             selectedApps: draft.selectedApps.sorted(),
+            runtime: draft.runtime?.rawValue,
             onboardingComplete: true,
             conversations: DemoWorkspace.snapshot.conversations,
             agents: DemoWorkspace.snapshot.agents,
             projects: []
         )
+    }
+
+    func latestProvisioningCredential() -> String? {
+        provisioningCredential
     }
 
     func messages(
@@ -329,6 +339,8 @@ actor FixtureRelayClient: RelayServing {
     }
 
     func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {}
+    func workspaceSecretNames(workspaceID: String) async throws -> [String] { [] }
+    func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws {}
 
     private func fromSummary(_ summary: ConversationSummary, workspaceID: String) -> ChannelRecord {
         ChannelRecord(

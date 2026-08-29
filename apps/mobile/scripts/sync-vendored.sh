@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
-# Restores the vendored cell build artifacts the mobile app needs at build time.
-# libworker_core.a is an 84MB compiled static library and agent.js is the
-# embedded worker bundle. Both are produced from the ios-durable-agent project
-# and are intentionally not committed to this repository.
+# Restores the vendored native cell library the mobile app needs at build time.
+# Chief owns its embedded worker bundle; only the compiled native library is
+# synchronized from the ios-durable-agent project.
 set -euo pipefail
 
 IAROOT="${IAROOT:-$HOME/Documents/Development/ios-durable-agent}"
-MOBILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+MOBILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-LIB_SRC="$IAROOT/rust/worker-core/target/current/release/libworker_core.a"
-WORKER_SRC="$IAROOT/ios/DurableAgent/agent.js"
-
+DEVICE_LIB_SRC="$IAROOT/rust/worker-core/target/aarch64-apple-ios/release/libworker_core.a"
+CURRENT_LIB_SRC="$IAROOT/rust/worker-core/target/current/release/libworker_core.a"
 mkdir -p "$MOBILE/Chief/Vendored/lib"
-mkdir -p "$MOBILE/Chief/Resources"
 
-if [[ -f "$LIB_SRC" ]]; then
-  cp "$LIB_SRC" "$MOBILE/Chief/Vendored/lib/libworker_core.a"
+if [[ -f "$DEVICE_LIB_SRC" ]]; then
+  cp "$DEVICE_LIB_SRC" "$MOBILE/Chief/Vendored/lib/libworker_core.a"
+  echo "vendored libworker_core.a"
+elif [[ -f "$CURRENT_LIB_SRC" ]]; then
+  cp "$CURRENT_LIB_SRC" "$MOBILE/Chief/Vendored/lib/libworker_core.a"
   echo "vendored libworker_core.a"
 else
-  echo "WARN: libworker_core.a not found at $LIB_SRC (device builds need it)" >&2
-fi
-
-if [[ -f "$WORKER_SRC" ]]; then
-  cp "$WORKER_SRC" "$MOBILE/Chief/Resources/agent.js"
-  echo "vendored agent.js worker"
-else
-  echo "WARN: agent.js not found at $WORKER_SRC" >&2
+  echo "WARN: libworker_core.a not found in the device build outputs" >&2
 fi
 
 echo "done"
