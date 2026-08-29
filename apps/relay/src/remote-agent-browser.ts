@@ -13,7 +13,9 @@ import {
 import type { RemoteComputerClient } from "./remote-computer-client";
 
 export class RemoteAgentBrowser implements AgentBrowser {
-  constructor(private readonly client: RemoteComputerClient) {}
+  constructor(
+    private readonly client: Pick<RemoteComputerClient, "bytes" | "json">,
+  ) {}
 
   async open(url: string, options?: { fresh?: boolean }) {
     try {

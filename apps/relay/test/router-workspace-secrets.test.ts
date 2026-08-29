@@ -41,13 +41,12 @@ describe("routeWorkspaceSecrets", () => {
       });
       return Response.json({ workspaceId, name: "opencode" });
     });
-    const env = {
-      ...relayTestEnv(),
+    const env: Env = Object.assign(relayTestEnv(), {
       WORKSPACES: {
         idFromName: vi.fn(() => ({ id: workspaceId })),
         get: vi.fn(() => ({ fetch })),
-      } as unknown as Env["WORKSPACES"],
-    };
+      },
+    });
 
     const response = await Effect.runPromise(
       routeWorkspaceSecrets(

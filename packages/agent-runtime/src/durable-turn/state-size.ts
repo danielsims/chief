@@ -1,3 +1,5 @@
+import type { JsonValue } from "@chief/relay-contracts";
+
 import type { DurableTurn } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -27,9 +29,9 @@ export interface DurableTurnStateSize {
   largestToolResultName: string;
 }
 
-export function serializedBytes(value: unknown) {
-  const serialized = JSON.stringify(value);
-  return serialized === undefined ? 0 : encoder.encode(serialized).byteLength;
+export function serializedBytes(value: JsonValue | undefined) {
+  if (value === undefined) return 0;
+  return encoder.encode(JSON.stringify(value)).byteLength;
 }
 
 export function measureDurableTurnState(

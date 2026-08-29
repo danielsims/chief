@@ -9,6 +9,7 @@ import {
   agentCellSnapshotSchema,
   agentIdSchema,
   agentJobSchema,
+  conversationIdSchema,
   enqueueAgentJobCommandSchema,
 } from "@chief/relay-contracts";
 
@@ -133,15 +134,12 @@ export class AgentObject extends DurableObject<Env> {
             enqueueAgentJobCommandSchema.parse(body),
           );
           if (command.payload.kind === "conversation.message") {
-            const conversationId = command.payload.payload.conversationId;
-            if (typeof conversationId === "string") {
-              yield* attempt("agent.turn.supersede", () =>
-                runtime.supersedeConversation(
-                  conversationId,
-                  command.payload.id,
-                ),
-              );
-            }
+            const conversationId = conversationIdSchema.parse(
+              command.payload.payload.conversationId,
+            );
+            yield* attempt("agent.turn.supersede", () =>
+              runtime.supersedeConversation(conversationId, command.payload.id),
+            );
           }
         }
         const response = yield* attempt(

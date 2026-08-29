@@ -2,10 +2,10 @@ import type { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 
 import type { AgentJobQueue } from "./agent-job-queue";
 
-type ConversationJob = {
+interface ConversationJob {
   readonly id: string;
   readonly kind: string;
-};
+}
 
 export async function supersedeConversationTurn(input: {
   conversationId: string;
