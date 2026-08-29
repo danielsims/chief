@@ -469,7 +469,9 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       const apiKeyValue = apiKey.trim();
       if (!apiKeyValue) {
         throw new Error(
-          "Enter an OpenCode API key before creating a workspace.",
+          command.inferenceProvider === "vercelAiGateway"
+            ? "Enter a Vercel AI Gateway API key before creating a workspace."
+            : "Enter an OpenCode API key before creating a workspace.",
         );
       }
       const snapshot = await state.client.createWorkspace(command, apiKeyValue);
