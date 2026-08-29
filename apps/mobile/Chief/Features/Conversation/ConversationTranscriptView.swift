@@ -38,7 +38,10 @@ struct ConversationTranscriptView: View {
             .frame(height: 1)
             .id(latestAnchorID)
         }
-        .animation(.easeOut(duration: 0.3), value: messages.map(\.id))
+        .animation(
+          hasPositionedInitially ? .easeOut(duration: 0.3) : nil,
+          value: messages.map(\.id)
+        )
         .padding(ChiefTheme.pagePadding)
       }
       .defaultScrollAnchor(.bottom)
@@ -54,9 +57,9 @@ struct ConversationTranscriptView: View {
         handleMessageChanges(messageIDs, scrollProxy: proxy)
       }
       .task(id: conversationID) {
-        await Task.yield()
-        scrollToLatest(using: proxy, animated: false)
-        hasPositionedInitially = true
+        hasPositionedInitially = false
+        isNearLatest = true
+        await positionInitially(using: proxy)
       }
       .overlay(alignment: .bottom) {
         if hasPositionedInitially && !isNearLatest {
@@ -145,9 +148,27 @@ struct ConversationTranscriptView: View {
     seenMessageIDs = currentIDs
     sentMessageIDs.formIntersection(currentIDs)
 
+    if !hasPositionedInitially {
+      guard !messageIDs.isEmpty else { return }
+      Task { await positionInitially(using: scrollProxy) }
+      return
+    }
+
     if shouldFollowLatest {
       scrollToLatest(using: scrollProxy, animated: true)
     }
+  }
+
+  private func positionInitially(using proxy: ScrollViewProxy) async {
+    guard !hasPositionedInitially, !messages.isEmpty else { return }
+    // Let the lazy stack commit both the messages and its day separator before
+    // resolving the bottom anchor. Scrolling while the empty state is laid out
+    // leaves the separator at the viewport edge on first entry.
+    await Task.yield()
+    await Task.yield()
+    guard !hasPositionedInitially, !messages.isEmpty else { return }
+    scrollToLatest(using: proxy, animated: false)
+    hasPositionedInitially = true
   }
 
   private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {

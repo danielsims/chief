@@ -85,7 +85,9 @@ final class ConversationPresentationTests: XCTestCase {
     )
 
     XCTAssertTrue(activity.isAgentActivityProjection)
+    XCTAssertFalse(activity.isVisibleThreadReply)
     XCTAssertFalse(reply.isAgentActivityProjection)
+    XCTAssertTrue(reply.isVisibleThreadReply)
     let rows = ChatTimelineBuilder.rows(for: [activity, reply], calendar: calendar)
     XCTAssertEqual(
       rows.compactMap { row in

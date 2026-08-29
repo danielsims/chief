@@ -321,24 +321,29 @@ struct AgentActivityDetailView: View {
     active: Bool,
     onRetry: (() -> Void)? = nil
   ) -> some View {
-    VStack(alignment: .leading, spacing: 9) {
+    VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 8) {
-        Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+        Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1)
         Spacer(minLength: 8)
         Text(date, style: .time)
-          .font(.system(size: 10))
+          .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.tertiary)
       }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 11)
+
+      Divider().overlay(ChiefTheme.line)
+
       if components.isEmpty {
         Text(active
           ? "The run is active. Tool calls will appear here as they start."
           : "Run completed without recorded tool calls.")
           .font(.system(size: 13))
           .foregroundStyle(ChiefTheme.secondary)
-          .padding(.vertical, 8)
+          .padding(12)
       } else {
-        VStack(alignment: .leading, spacing: 12) {
-          ForEach(components) { component in
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(components.enumerated()), id: \.element.id) { index, component in
             if component.kind == "thinking" {
               ThinkingMessageComponent(component: component)
             } else if component.kind == "error" {
@@ -351,9 +356,17 @@ struct AgentActivityDetailView: View {
             } else {
               ToolMessageComponent(component: component)
             }
+            if index < components.count - 1 {
+              Divider().overlay(ChiefTheme.line.opacity(0.7))
+            }
           }
         }
       }
+    }
+    .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
+    .overlay {
+      RoundedRectangle(cornerRadius: 13)
+        .stroke(ChiefTheme.line, lineWidth: 0.5)
     }
   }
 
