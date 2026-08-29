@@ -25,6 +25,7 @@ import {
 import { executeTodo, isTodoTool } from "./plan.js";
 import {
   availableToolDefinitions,
+  consecutiveToolFailures,
   effectFor,
   isBareSpeakerLabel,
   notify,
@@ -40,6 +41,7 @@ import { durableToolCallSchema, durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
 const MAX_OUTPUT_TOKENS = 2_000;
+const FINALIZATION_OUTPUT_TOKENS = 600;
 const CLAIM_TTL_MS = 60_000;
 
 export class DurableTurnRunner {
@@ -76,6 +78,10 @@ export class DurableTurnRunner {
         browserMustRemainOpen: input.completion?.browserMustRemainOpen ?? false,
         rejectedFinishes: 0,
       },
+      maxInferenceSteps: input.maxInferenceSteps ?? 64,
+      inferenceSteps: 0,
+      interruptionCount: 0,
+      finalization: null,
       phase: { kind: "runnable", next: { kind: "infer" } },
       settled: false,
       revision: 0,
@@ -108,6 +114,7 @@ export class DurableTurnRunner {
     const generation = turn.claim?.generation ?? turn.revision + 1;
     await this.save(
       this.updated(turn, {
+        interruptionCount: turn.interruptionCount + 1,
         claim: { generation, recoverAfter: wakeAt },
       }),
     );
@@ -116,6 +123,14 @@ export class DurableTurnRunner {
   async markSettled() {
     const turn = await this.requireActive();
     await this.save(this.updated(turn, { settled: true, claim: null }));
+  }
+
+  async requestFinalization(reason: string) {
+    const turn = await this.requireActive();
+    if (turn.finalization) return turn;
+    const finalizing = this.startFinalization(turn, reason);
+    await this.save(finalizing);
+    return finalizing;
   }
 
   async cancelActive() {
@@ -192,8 +207,22 @@ export class DurableTurnRunner {
     tools: readonly DurableTool[],
     observer?: DurableTurnObserver,
   ): Promise<AdvanceResult> {
-    const definitions = availableToolDefinitions(turn, tools);
     if (
+      turn.inferenceSteps >= turn.maxInferenceSteps &&
+      turn.finalization === null
+    ) {
+      const finalizing = this.startFinalization(
+        turn,
+        `The agent reached its ${turn.maxInferenceSteps}-step inference budget.`,
+      );
+      await this.save(finalizing);
+      return { kind: "advanced", turn: finalizing };
+    }
+    const definitions = turn.finalization
+      ? []
+      : availableToolDefinitions(turn, tools);
+    if (
+      turn.finalization === null &&
       shouldCompact({
         inference,
         turn,
@@ -209,10 +238,21 @@ export class DurableTurnRunner {
       await this.save(next);
       return { kind: "advanced", turn: next };
     }
+    const messages = inferenceMessages(turn);
     const request = {
-      messages: inferenceMessages(turn),
+      messages: turn.finalization
+        ? [
+            ...messages,
+            {
+              role: "system" as const,
+              content: `${turn.finalization.reason} Do not call another tool. Finish now with one concise, useful update grounded only in the verified results already present. State the exact blocker when the requested outcome could not be completed.`,
+            },
+          ]
+        : messages,
       tools: definitions,
-      maxTokens: MAX_OUTPUT_TOKENS,
+      maxTokens: turn.finalization
+        ? FINALIZATION_OUTPUT_TOKENS
+        : MAX_OUTPUT_TOKENS,
       temperature: 0.3,
     };
     await notify(() => observer?.inferenceStarted?.(turn, request));
@@ -239,18 +279,29 @@ export class DurableTurnRunner {
       {
         role: "assistant" as const,
         content: response.content,
+        ...(response.reasoning ? { reasoning: response.reasoning } : undefined),
         ...(toolCalls.length > 0 ? { toolCalls } : undefined),
       },
     ];
+    const inferenceSteps = turn.inferenceSteps + 1;
     if (toolCalls.length === 0) {
       const result = response.content?.trim();
       if (!result || isBareSpeakerLabel(result)) {
         throw new Error("The agent returned an empty response.");
       }
+      if (turn.finalization) {
+        return this.updated(turn, {
+          messages,
+          inferenceSteps,
+          phase: { kind: "completed", result },
+          claim: null,
+        });
+      }
       const finish = finishTurn(turn, result);
       if (finish.kind === "retry") {
         return this.updated(turn, {
           messages: [...messages, { role: "system", content: finish.message }],
+          inferenceSteps,
           ...(finish.rejectedFinishes === undefined
             ? undefined
             : {
@@ -265,12 +316,14 @@ export class DurableTurnRunner {
       if (finish.kind === "failed") {
         return this.updated(turn, {
           messages,
+          inferenceSteps,
           phase: { kind: "failed", error: finish.error },
           claim: null,
         });
       }
       return this.updated(turn, {
         messages,
+        inferenceSteps,
         phase: { kind: "completed", result: finish.result },
         claim: null,
       });
@@ -282,6 +335,7 @@ export class DurableTurnRunner {
     }));
     return this.updated(turn, {
       messages,
+      inferenceSteps,
       tools: [...turn.tools, ...receipts],
       phase: {
         kind: "runnable",
@@ -402,16 +456,18 @@ export class DurableTurnRunner {
         content: JSON.stringify(durableResult),
       },
     ];
+    const failureCount = consecutiveToolFailures({ ...turn, tools });
+    if (failureCount >= 6) {
+      return this.startFinalization(
+        { ...turn, tools, messages },
+        "The agent encountered six consecutive tool failures without progress.",
+      );
+    }
     if (repeated >= 3 && !toolResultFailed(durableResult)) {
-      return this.updated(turn, {
-        tools,
-        messages,
-        phase: {
-          kind: "failed",
-          error: `Agent stopped after repeating ${call.name} with the same arguments and result three times without progress.`,
-        },
-        claim: null,
-      });
+      return this.startFinalization(
+        { ...turn, tools, messages },
+        `The agent repeated ${call.name} with the same arguments and result three times without progress.`,
+      );
     }
     return this.updated(turn, {
       tools,
@@ -439,6 +495,7 @@ export class DurableTurnRunner {
       checkpoint,
       messages: turn.messages.slice(-10),
       tools: retainedToolReceipts(turn),
+      inferenceSteps: turn.inferenceSteps + 1,
       phase: { kind: "runnable", next: { kind: "infer" } },
       claim: null,
     });
@@ -473,6 +530,14 @@ export class DurableTurnRunner {
     const turn = await this.active();
     if (!turn) throw new Error("No durable turn is active.");
     return turn;
+  }
+
+  private startFinalization(turn: DurableTurn, reason: string) {
+    return this.updated(turn, {
+      finalization: { reason },
+      phase: { kind: "runnable", next: { kind: "infer" } },
+      claim: null,
+    });
   }
 
   private async isCurrent(jobId: string) {

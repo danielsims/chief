@@ -1,3 +1,4 @@
+import type { AgentInferenceToolCall } from "@chief/agent-computer";
 import type { AgentPrincipal } from "@chief/relay-contracts";
 import { UnavailableToolError } from "@chief/agent-runtime/durable-turn";
 
@@ -34,7 +35,7 @@ export function runHostedToolWithDeadline<Output>(
   });
 }
 
-export async function executeObservedHostedAgentTool<Input>(
+export async function executeObservedHostedAgentTool(
   execution: AgentExecutionEnvironment,
   browserEnabled: boolean,
   computerEnabled: boolean,
@@ -42,7 +43,7 @@ export async function executeObservedHostedAgentTool<Input>(
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
-  rawArguments: Input,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
   let output;
   try {

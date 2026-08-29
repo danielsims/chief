@@ -1,9 +1,14 @@
+import { APICallError } from "ai";
 import { Effect } from "effect";
 import { expect, test, vi } from "vitest";
 
 import { agentJobSchema, agentPrincipalSchema } from "@chief/relay-contracts";
 
-import { resolveInferenceApiKey } from "../src/agent-runtime-support";
+import {
+  isHostedInferenceTimeoutFailure,
+  resolveInferenceApiKey,
+  shouldRetryHostedTurnFailure,
+} from "../src/agent-runtime-support";
 import { defaultAgentConfigFor } from "../src/workspace-agent-config";
 import { relayTestEnv } from "./helpers";
 
@@ -137,4 +142,92 @@ test("rejects a principal from another workspace before reading a secret", async
     ),
   ).rejects.toThrow();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+test("does not retry a provider usage-limit rejection", () => {
+  const cause = new APICallError({
+    message: "Weekly usage limit reached. Resets in 2 days.",
+    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 400,
+  });
+
+  expect(
+    shouldRetryHostedTurnFailure({
+      message: "The relay request is invalid.",
+      cause,
+      code: "invalid_request",
+      status: 400,
+    }),
+  ).toBe(false);
+
+  const rateLimitedQuota = new APICallError({
+    message: "Weekly usage limit reached. Resets in 2 days.",
+    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 429,
+  });
+  expect(
+    shouldRetryHostedTurnFailure({
+      message: rateLimitedQuota.message,
+      cause: rateLimitedQuota,
+      code: "invalid_request",
+      status: 400,
+    }),
+  ).toBe(false);
+});
+
+test("continues to retry transient provider failures", () => {
+  for (const statusCode of [429, 503]) {
+    const cause = new APICallError({
+      message: `Transient provider failure (${statusCode}).`,
+      url: "https://opencode.ai/zen/go/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode,
+    });
+
+    expect(
+      shouldRetryHostedTurnFailure({
+        message: cause.message,
+        cause,
+        code: "invalid_request",
+        status: 400,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryHostedTurnFailure(
+        {
+          message: cause.message,
+          cause,
+          code: "invalid_request",
+          status: 400,
+        },
+        2,
+      ),
+    ).toBe(false);
+  }
+});
+
+test("recognizes the hosted inference timeout reported by AI SDK", () => {
+  const cause = Object.assign(
+    new Error("The operation was aborted due to timeout"),
+    { name: "TimeoutError" },
+  );
+
+  expect(
+    isHostedInferenceTimeoutFailure({
+      message: cause.message,
+      cause,
+      code: "invalid_request",
+      status: 400,
+    }),
+  ).toBe(true);
+  expect(
+    isHostedInferenceTimeoutFailure({
+      message: "The model rejected the prompt.",
+      cause: new Error("The model rejected the prompt."),
+      code: "invalid_request",
+      status: 400,
+    }),
+  ).toBe(false);
 });

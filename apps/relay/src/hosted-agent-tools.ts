@@ -1,4 +1,8 @@
-import type { AgentBrowser, AgentComputer } from "@chief/agent-computer";
+import type {
+  AgentBrowser,
+  AgentComputer,
+  AgentInferenceToolCall,
+} from "@chief/agent-computer";
 import type { DurableTool } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
 import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
@@ -6,6 +10,7 @@ import {
   localAgentToolDefinitions,
   parseLocalAgentToolCall,
 } from "@chief/agent-runtime/local-tools";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import { hostedAgentTools } from "./hosted-agent-tools/registry";
 import { hostedAgentToolName } from "./hosted-agent-tools/tool";
@@ -44,7 +49,7 @@ export function hostedDurableTools(
   });
 }
 
-export async function executeHostedAgentTool<Input>(
+export async function executeHostedAgentTool(
   computer: AgentComputer,
   browser: AgentBrowser | undefined,
   computerEnabled: boolean,
@@ -52,7 +57,7 @@ export async function executeHostedAgentTool<Input>(
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
-  rawArguments: Input,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
   const tools = availableTools({
     browserEnabled: browser !== undefined,
@@ -74,10 +79,14 @@ export async function executeHostedAgentTool<Input>(
 function parseHostedAgentToolCall(
   definition: Parameters<typeof parseLocalAgentToolCall>[0][number],
   name: string,
-  rawArguments: unknown,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
   try {
-    return parseLocalAgentToolCall([definition], name, rawArguments);
+    return parseLocalAgentToolCall(
+      [definition],
+      name,
+      normalizeHostedToolArguments(name, rawArguments),
+    );
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Tool input is invalid.";
@@ -85,4 +94,14 @@ function parseHostedAgentToolCall(
       `${name} was not run because its input was rejected. ${detail}`,
     );
   }
+}
+
+export function normalizeHostedToolArguments(
+  name: string,
+  rawArguments: AgentInferenceToolCall["arguments"],
+) {
+  if (name !== "channels_messages_post") return rawArguments;
+  const input = parseJsonObject(rawArguments);
+  if (!input || !isJsonString(input.mentions)) return rawArguments;
+  return { ...input, mentions: [input.mentions] };
 }

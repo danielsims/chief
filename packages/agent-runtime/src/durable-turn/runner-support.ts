@@ -146,6 +146,19 @@ export function toolResultFailed(value: JsonValue | undefined) {
   return isJsonObject(value) && value.ok === false;
 }
 
+export function consecutiveToolFailures(turn: DurableTurn) {
+  let failures = 0;
+  for (let index = turn.tools.length - 1; index >= 0; index -= 1) {
+    const receipt = turn.tools[index];
+    if (receipt?.state !== "completed" || isTodoTool(receipt.call.name)) {
+      continue;
+    }
+    if (!toolResultFailed(receipt.result)) break;
+    failures += 1;
+  }
+  return failures;
+}
+
 export function toolFeedbackMessages(
   messages: DurableTurn["messages"],
   toolName: string,

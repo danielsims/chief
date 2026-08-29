@@ -22,6 +22,8 @@ import { releaseInternalResponse } from "./internal-response";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
+export const HOSTED_MAX_INFERENCE_STEPS = 24;
+export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
   "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
 
@@ -112,6 +114,10 @@ export async function prepareHostedAgentTurn(
     systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
+    maxInferenceSteps:
+      job.kind === "workspace.onboarding"
+        ? HOSTED_ONBOARDING_MAX_INFERENCE_STEPS
+        : HOSTED_MAX_INFERENCE_STEPS,
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
       historyMessage(message, job.agentId),
