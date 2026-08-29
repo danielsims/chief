@@ -1,3 +1,4 @@
+import { AISDKError, APICallError } from "ai";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -29,6 +30,8 @@ const hostedLeaseSchema = z.object({
   leaseToken: z.string(),
 });
 const secretValueSchema = z.object({ value: z.string().optional() });
+const providerQuotaFailure =
+  /\b(?:available balance|credit balance|insufficient[_ -]?quota|quota exceeded|usage limit reached)\b/iu;
 
 export function hostedClaimRequest() {
   return new Request("https://agent.internal/claim", {
@@ -61,6 +64,37 @@ export function agentRetryDelay(attempt: number) {
 
 export function hostedErrorMessage(error: string) {
   return `Chief could not complete this step: ${error.slice(0, 600)}. Chief will retry automatically.`;
+}
+
+export function hostedTerminalErrorMessage(error: string) {
+  return `Chief could not complete this step: ${error.slice(0, 600)}`;
+}
+
+export function shouldRetryHostedTurnFailure(
+  failure: TurnFailure,
+  priorInterruptions = 0,
+) {
+  if (priorInterruptions >= 2) return false;
+  if (providerQuotaFailure.test(internalFailureMessage(failure))) return false;
+  if (APICallError.isInstance(failure.cause)) {
+    return failure.cause.isRetryable;
+  }
+  if (AISDKError.isInstance(failure.cause)) return false;
+  return (
+    failure.status === undefined ||
+    failure.status === 408 ||
+    failure.status === 409 ||
+    failure.status === 429 ||
+    failure.status >= 500
+  );
+}
+
+export function isHostedInferenceTimeoutFailure(failure: TurnFailure) {
+  const cause = failure.cause;
+  if (cause instanceof Error && cause.name === "TimeoutError") return true;
+  return /\b(?:aborted due to timeout|inference timed out)\b/iu.test(
+    internalFailureMessage(failure),
+  );
 }
 
 export async function parseHostedLease(response: Response) {

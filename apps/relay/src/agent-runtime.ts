@@ -30,9 +30,12 @@ import {
   hostedClaimRequest,
   hostedCompactionRatio,
   hostedErrorMessage,
+  hostedTerminalErrorMessage,
   internalFailureMessage,
+  isHostedInferenceTimeoutFailure,
   parseHostedLease,
   resolveInferenceApiKey,
+  shouldRetryHostedTurnFailure,
   trustedAgentContext,
 } from "./agent-runtime-support";
 import {
@@ -224,6 +227,7 @@ export class AgentRuntime {
     const { env, executionFor, queue, storage, turns } = this;
     const deferTurn = this.deferTurn.bind(this);
     const failTurn = this.failTurn.bind(this);
+    const finalizeTimedOutTurn = this.finalizeTimedOutTurn.bind(this);
     const loadJob = this.loadJob.bind(this);
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     const settleTurn = this.settleTurn.bind(this);
@@ -297,7 +301,11 @@ export class AgentRuntime {
           traceAgentRun(tracer, traceContext, current.revision, (turnTracer) =>
             turns.advance({
               inference: tracedInference(
-                createAiSdkAgentInference(apiKey, traceContext),
+                createAiSdkAgentInference(
+                  apiKey,
+                  config.inference,
+                  traceContext,
+                ),
                 traceContext,
                 turnTracer,
               ),
@@ -335,8 +343,34 @@ export class AgentRuntime {
       });
       return yield* advance.pipe(
         Effect.matchEffect({
-          onFailure: (failure) =>
-            deferTurn(maintained.job, principal, workspaceName, failure),
+          onFailure: (failure) => {
+            if (current.finalization) {
+              return failTurn(
+                maintained.job,
+                principal,
+                execution,
+                internalFailureMessage(failure),
+              );
+            }
+            if (isHostedInferenceTimeoutFailure(failure)) {
+              return finalizeTimedOutTurn(
+                maintained.job,
+                workspaceName,
+                failure,
+              );
+            }
+            return shouldRetryHostedTurnFailure(
+              failure,
+              current.interruptionCount,
+            )
+              ? deferTurn(maintained.job, principal, workspaceName, failure)
+              : failTurn(
+                  maintained.job,
+                  principal,
+                  execution,
+                  internalFailureMessage(failure),
+                );
+          },
           onSuccess: () => Effect.void,
         }),
       );
@@ -382,13 +416,37 @@ export class AgentRuntime {
     }).pipe(Effect.withSpan("agent.turn.settle"));
   }
 
+  private finalizeTimedOutTurn(
+    job: AgentJob,
+    workspaceName: string,
+    failure: TurnFailure,
+  ) {
+    const { storage, turns } = this;
+    return Effect.gen(function* () {
+      const wakeAt = Date.now() + 50;
+      yield* attempt("agent.turn.finalize", () =>
+        turns.requestFinalization(
+          "The model response timed out before the requested work could finish.",
+        ),
+      );
+      yield* Effect.logWarning("Agent turn is finalizing after timeout", {
+        workspaceId: job.workspaceId,
+        workspaceName,
+        agentId: job.agentId,
+        jobId: job.id,
+        cause: internalFailureMessage(failure),
+      });
+      yield* attempt("agent.alarm.set", () => storage.setAlarm(wakeAt));
+    });
+  }
+
   private failTurn(
     job: AgentJob,
     principal: AgentPrincipal,
     execution: AgentExecutionEnvironment,
     message: string,
   ) {
-    const { queue, turns } = this;
+    const { env, queue, turns } = this;
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     return Effect.gen(function* () {
       const turn = yield* attempt("agent.turn.active", () => turns.active());
@@ -397,6 +455,20 @@ export class AgentRuntime {
         status: "failed",
         error: message,
       });
+      yield* attempt("agent.activity.error", () =>
+        publishAgentErrorActivity(env, {
+          principal,
+          conversationId: isJsonString(job.payload.conversationId)
+            ? job.payload.conversationId
+            : "mission-control",
+          seed: `${job.id}:hosted-run`,
+          code: "agent_run_failed",
+          title: "Agent run stopped",
+          message: hostedTerminalErrorMessage(message),
+          jobId: job.id,
+          retryable: false,
+        }).catch(() => undefined),
+      );
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* Effect.ignore(
         attempt("agent.browser.close", () => execution.browser.close()),

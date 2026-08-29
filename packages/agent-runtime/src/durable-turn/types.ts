@@ -42,6 +42,7 @@ export const durableToolCallSchema = z.object({
 const messageSchema = z.object({
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string().nullable(),
+  reasoning: z.string().optional(),
   toolCalls: durableToolCallSchema.array().optional(),
   toolCallId: z.string().optional(),
   name: z.string().optional(),
@@ -144,6 +145,13 @@ export const durableTurnSchema = z.object({
       browserMustRemainOpen: false,
       rejectedFinishes: 0,
     }),
+  maxInferenceSteps: z.number().int().positive().default(64),
+  inferenceSteps: z.number().int().nonnegative().default(0),
+  interruptionCount: z.number().int().nonnegative().default(0),
+  finalization: z
+    .object({ reason: z.string().min(1) })
+    .nullable()
+    .default(null),
   phase: phaseSchema,
   settled: z.boolean(),
   revision: z.number().int().nonnegative(),
@@ -175,6 +183,7 @@ export interface CreateDurableTurn {
   systemPrompt: string;
   browserEnabled: boolean;
   computerEnabled?: boolean;
+  maxInferenceSteps?: number;
   completion?: {
     requiredToolNames: readonly string[];
     browserMustRemainOpen: boolean;
