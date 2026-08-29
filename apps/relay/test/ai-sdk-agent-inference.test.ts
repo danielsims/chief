@@ -73,7 +73,7 @@ describe("AiSdkAgentInference", () => {
       input: string | URL | Request,
       init?: RequestInit,
     ) => {
-      requestUrl = String(input);
+      requestUrl = input instanceof Request ? input.url : input.toString();
       requestHeaders = new Headers(init?.headers);
       return Response.json({
         content: [{ type: "text", text: "ready" }],
@@ -105,9 +105,7 @@ describe("AiSdkAgentInference", () => {
     expect(requestUrl).toBe(
       "https://ai-gateway.vercel.sh/v4/ai/language-model",
     );
-    expect(requestHeaders.get("authorization")).toBe(
-      "Bearer test-vercel-key",
-    );
+    expect(requestHeaders.get("authorization")).toBe("Bearer test-vercel-key");
     expect(requestHeaders.get("ai-language-model-id")).toBe(
       "deepseek/deepseek-v4-flash",
     );

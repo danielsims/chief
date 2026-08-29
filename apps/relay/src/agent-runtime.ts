@@ -25,6 +25,15 @@ import { executeObservedHostedAgentTool } from "./agent-hosted-tool-execution";
 import { firstAgentRow } from "./agent-job-store";
 import { hostedPrincipal } from "./agent-object-values";
 import {
+  agentTraceContext,
+  currentAgentWorkflowId,
+  loadAgentJob,
+} from "./agent-runtime-context";
+import {
+  failAgentAdmission,
+  finalizeTimedOutAgentTurn,
+} from "./agent-runtime-lifecycle";
+import {
   agentRetryDelay,
   completeAgentJob,
   hostedClaimRequest,
@@ -40,7 +49,6 @@ import {
 } from "./agent-runtime-support";
 import {
   agentTelemetryAttributes,
-  agentWorkflowId,
   durableTurnStateAttributes,
   traceAgentRun,
   tracedInference,
@@ -48,7 +56,7 @@ import {
 } from "./agent-tracing";
 import { supersedeConversationTurn } from "./agent-turn-supersession";
 import { createAiSdkAgentInference } from "./ai-sdk-agent-inference";
-import { asyncTracer, attempt, sync, telemetryIncludesContent } from "./effect";
+import { asyncTracer, attempt, sync } from "./effect";
 import {
   hostedTurnResult,
   loadAgentHostingContext,
@@ -85,25 +93,7 @@ export class AgentRuntime {
   }
 
   async currentWorkflowId() {
-    const active = await this.turns.active();
-    if (active) {
-      const job = this.loadJob(active.jobId);
-      return job ? agentWorkflowId(job) : undefined;
-    }
-    const now = new Date().toISOString();
-    const due = firstAgentRow<{ job_json: string }>(
-      this.storage.sql.exec(
-        `SELECT job_json FROM jobs
-         WHERE (status = 'pending' AND available_at <= ?)
-            OR (status = 'leased' AND lease_expires_at <= ?)
-         ORDER BY available_at ASC, rowid ASC LIMIT 1`,
-        now,
-        now,
-      ),
-    );
-    return due
-      ? agentWorkflowId(agentJobSchema.parse(JSON.parse(due.job_json)))
-      : undefined;
+    return await currentAgentWorkflowId(this.storage, this.turns);
   }
 
   async supersedeConversation(
@@ -115,7 +105,7 @@ export class AgentRuntime {
       replacementJobId,
       turns: this.turns,
       queue: this.queue,
-      loadJob: (jobId) => this.loadJob(jobId),
+      loadJob: (jobId) => loadAgentJob(this.storage, jobId),
     });
   }
 
@@ -138,7 +128,6 @@ export class AgentRuntime {
 
   private admitDueJob() {
     const { broadcast, env, queue, storage, turns } = this;
-    const failAdmission = this.failAdmission.bind(this);
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     return Effect.gen(function* () {
       const now = new Date().toISOString();
@@ -210,13 +199,14 @@ export class AgentRuntime {
       return yield* admission.pipe(
         Effect.matchEffect({
           onFailure: (failure) =>
-            failAdmission(
-              lease.job,
-              lease.leaseToken,
+            failAgentAdmission({
+              queue,
+              job: lease.job,
+              leaseToken: lease.leaseToken,
               principal,
-              hosting.workspace?.name ?? lease.job.workspaceId,
-              new Error(failure.message),
-            ),
+              workspaceName: hosting.workspace?.name ?? lease.job.workspaceId,
+              error: new Error(failure.message),
+            }),
           onSuccess: () => Effect.void,
         }),
       );
@@ -227,15 +217,14 @@ export class AgentRuntime {
     const { env, executionFor, queue, storage, turns } = this;
     const deferTurn = this.deferTurn.bind(this);
     const failTurn = this.failTurn.bind(this);
-    const finalizeTimedOutTurn = this.finalizeTimedOutTurn.bind(this);
-    const loadJob = this.loadJob.bind(this);
     const scheduleNextAlarm = this.scheduleNextAlarm.bind(this);
     const settleTurn = this.settleTurn.bind(this);
-    const traceContextFor = this.traceContext.bind(this);
     return Effect.gen(function* () {
       const turn = yield* attempt("agent.turn.active", () => turns.active());
       if (!turn || turn.jobId !== jobId) return;
-      const job = yield* sync("agent.job.load", () => loadJob(jobId));
+      const job = yield* sync("agent.job.load", () =>
+        loadAgentJob(storage, jobId),
+      );
       if (!job) {
         yield* attempt("agent.turn.settle", () => turns.markSettled());
         return yield* scheduleNextAlarm();
@@ -295,7 +284,11 @@ export class AgentRuntime {
         );
         const browserEnabled = current.browserEnabled;
         const tools = hostedDurableTools(current);
-        const traceContext = traceContextFor(maintained.job, workspaceName);
+        const traceContext = agentTraceContext(
+          env,
+          maintained.job,
+          workspaceName,
+        );
         const tracer = yield* asyncTracer;
         const result = yield* attempt("agent.turn.advance", () =>
           traceAgentRun(tracer, traceContext, current.revision, (turnTracer) =>
@@ -353,11 +346,13 @@ export class AgentRuntime {
               );
             }
             if (isHostedInferenceTimeoutFailure(failure)) {
-              return finalizeTimedOutTurn(
-                maintained.job,
+              return finalizeTimedOutAgentTurn({
+                storage,
+                turns,
+                job: maintained.job,
                 workspaceName,
                 failure,
-              );
+              });
             }
             return shouldRetryHostedTurnFailure(
               failure,
@@ -414,30 +409,6 @@ export class AgentRuntime {
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* scheduleNextAlarm();
     }).pipe(Effect.withSpan("agent.turn.settle"));
-  }
-
-  private finalizeTimedOutTurn(
-    job: AgentJob,
-    workspaceName: string,
-    failure: TurnFailure,
-  ) {
-    const { storage, turns } = this;
-    return Effect.gen(function* () {
-      const wakeAt = Date.now() + 50;
-      yield* attempt("agent.turn.finalize", () =>
-        turns.requestFinalization(
-          "The model response timed out before the requested work could finish.",
-        ),
-      );
-      yield* Effect.logWarning("Agent turn is finalizing after timeout", {
-        workspaceId: job.workspaceId,
-        workspaceName,
-        agentId: job.agentId,
-        jobId: job.id,
-        cause: internalFailureMessage(failure),
-      });
-      yield* attempt("agent.alarm.set", () => storage.setAlarm(wakeAt));
-    });
   }
 
   private failTurn(
@@ -513,60 +484,5 @@ export class AgentRuntime {
       );
       yield* attempt("agent.alarm.set", () => storage.setAlarm(wakeAt));
     });
-  }
-
-  private failAdmission(
-    job: AgentJob,
-    leaseToken: string,
-    principal: AgentPrincipal,
-    workspaceName: string,
-    error: Error,
-  ) {
-    const { queue } = this;
-    return Effect.gen(function* () {
-      const retryAt = new Date(
-        Date.now() + agentRetryDelay(job.attempt),
-      ).toISOString();
-      yield* Effect.logError("Agent admission failed", {
-        workspaceId: job.workspaceId,
-        workspaceName,
-        agentId: job.agentId,
-        jobId: job.id,
-        cause: error.message,
-        retryAt,
-      });
-      yield* completeAgentJob(queue, leaseToken, principal, {
-        status: "failed",
-        error: error.message.slice(0, 4_000),
-        retryAt,
-      });
-    });
-  }
-
-  private traceContext(job: AgentJob, workspaceName: string) {
-    return {
-      workspaceId: job.workspaceId,
-      workspaceName,
-      agentId: job.agentId,
-      conversationId: isJsonString(job.payload.conversationId)
-        ? job.payload.conversationId
-        : "mission-control",
-      jobId: job.id,
-      workflowId: agentWorkflowId(job),
-      messageId: isJsonString(job.payload.messageId)
-        ? job.payload.messageId
-        : undefined,
-      includeContent: telemetryIncludesContent(this.env),
-    };
-  }
-
-  private loadJob(jobId: string) {
-    const row = firstAgentRow<{ job_json: string }>(
-      this.storage.sql.exec(
-        "SELECT job_json FROM jobs WHERE job_id = ?",
-        jobId,
-      ),
-    );
-    return row ? agentJobSchema.parse(JSON.parse(row.job_json)) : undefined;
   }
 }

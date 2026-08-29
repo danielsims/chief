@@ -21,6 +21,12 @@ import {
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
 } from "./workspace-defaults";
+import {
+  delegationIncomplete,
+  initialConversation,
+  matchesBootstrapToken,
+  workspaceInference,
+} from "./workspace-lifecycle-support";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -197,11 +203,16 @@ export class WorkspaceLifecycleService {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
           deploymentTarget: input.runtime,
-          inference: {
-            provider: inference.provider,
-            model: inference.model,
-            ...(preparedSecret ? { secretRef: inference.secretRef } : {}),
-          },
+          inference: preparedSecret
+            ? {
+                provider: inference.provider,
+                model: inference.model,
+                secretRef: inference.secretRef,
+              }
+            : {
+                provider: inference.provider,
+                model: inference.model,
+              },
         });
         this.storage.sql.exec(
           `INSERT INTO agent_configs (agent_id, config_json, updated_at)
@@ -463,59 +474,4 @@ export class WorkspaceLifecycleService {
       );
     }
   }
-}
-
-function workspaceInference(provider: string) {
-  if (provider === "vercelAiGateway") {
-    return {
-      provider: "vercel-ai-gateway" as const,
-      model: "deepseek/deepseek-v4-flash" as const,
-      secretRef: "vercel-ai-gateway" as const,
-    };
-  }
-  return {
-    provider: "opencode" as const,
-    model: "opencode-go/deepseek-v4-flash" as const,
-    secretRef: "opencode" as const,
-  };
-}
-
-function initialConversation(
-  id: string,
-  name: string,
-  kind: "channel" | "direct",
-) {
-  return {
-    id,
-    name,
-    kind,
-    isPrivate: kind === "direct",
-    unreadCount: 0,
-    requiresAttention: false,
-    lastMessage: null,
-  };
-}
-
-function delegationIncomplete(message: string) {
-  return new HttpError(409, "onboarding_delegation_incomplete", message);
-}
-
-async function matchesBootstrapToken(token: string, env: Env) {
-  const actual = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
-  );
-  const expected = hexBytes(env.BOOTSTRAP_TOKEN_SHA256);
-  if (actual.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actual.length; index += 1) {
-    difference |= (actual[index] ?? 0) ^ (expected[index] ?? 0);
-  }
-  return difference === 0;
-}
-
-function hexBytes(value: string) {
-  if (!/^[0-9a-f]{64}$/iu.test(value)) return new Uint8Array();
-  return Uint8Array.from(value.match(/.{2}/gu) ?? [], (byte) =>
-    Number.parseInt(byte, 16),
-  );
 }
