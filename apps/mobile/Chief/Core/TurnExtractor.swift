@@ -46,7 +46,7 @@ enum TurnExtractor {
       !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
       let code = object["errorCode"] as? String ?? "run_failed"
-      if code == "inference_limit" {
+      if code == "inference_limit" || code == "provider_usage_limit" {
         throw WorkspaceSetupError.providerUsageLimit
       }
       throw AgentCellTurnError(code: code, message: error)
