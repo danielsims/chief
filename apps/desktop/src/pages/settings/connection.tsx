@@ -77,9 +77,9 @@ export function ConnectionSettings() {
 function HostedAgentCredential() {
   const { client, snapshot } = useRelaySession();
   const [apiKey, setApiKey] = useState("");
-  const [provider, setProvider] = useState<
-    "opencode" | "vercel-ai-gateway"
-  >("opencode");
+  const [provider, setProvider] = useState<"opencode" | "vercel-ai-gateway">(
+    "opencode",
+  );
   const [configuredSecrets, setConfiguredSecrets] = useState<Set<string>>(
     new Set(),
   );

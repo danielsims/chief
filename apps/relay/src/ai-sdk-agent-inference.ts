@@ -11,8 +11,8 @@ import type {
   AgentInferenceRequest,
   AgentInferenceTool,
 } from "@chief/agent-computer";
-import { jsonObjectSchema } from "@chief/relay-contracts";
 import type { AgentInferenceConfig } from "@chief/relay-contracts";
+import { jsonObjectSchema } from "@chief/relay-contracts";
 
 import type { HostedAgentTraceContext } from "./agent-tracing";
 

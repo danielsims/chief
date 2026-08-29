@@ -7,13 +7,13 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 
+import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
 import { ChiefMark } from "../components/chief-mark";
 import {
   ProviderOption,
   workspaceOnboardingAppLogo,
   workspaceOnboardingApps,
 } from "./workspace-create-options";
-import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
 
 export function CreateForm({
   name,

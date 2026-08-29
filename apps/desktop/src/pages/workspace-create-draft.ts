@@ -5,10 +5,7 @@ import {
   isJsonString,
 } from "@chief/relay-contracts";
 
-export type WorkspaceInferenceProvider =
-  | "opencode"
-  | "vercelAiGateway"
-  | null;
+export type WorkspaceInferenceProvider = "opencode" | "vercelAiGateway" | null;
 export type WorkspaceHosting = "chief-cloud" | "self-hosted";
 
 const createDraftVersion = 5;
@@ -69,8 +66,7 @@ export function parseCreateWorkspaceDraft(
       name: value.name,
       website: value.website,
       provider:
-        value.provider === "opencode" ||
-        value.provider === "vercelAiGateway"
+        value.provider === "opencode" || value.provider === "vercelAiGateway"
           ? value.provider
           : null,
       selectedApps: value.selectedApps,
