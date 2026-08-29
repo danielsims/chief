@@ -11,6 +11,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { format, resolveConfig } from "prettier";
 
 import { agentManifests } from "../src/agents/manifest.js";
 
@@ -65,5 +66,11 @@ export const generatedAgentDefinitions: AgentDefinition[] = agentManifests.map((
 });
 `;
 
-writeFileSync(outputPath, banner, "utf8");
+const prettierConfig = await resolveConfig(outputPath);
+const source = await format(banner, {
+  ...prettierConfig,
+  parser: "typescript",
+  filepath: outputPath,
+});
+writeFileSync(outputPath, source, "utf8");
 console.info(`Generated ${outputPath}`);

@@ -15,8 +15,10 @@ import {
 } from "@chief/relay-contracts";
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 
-import type { WorkspaceHosting } from "./workspace-create-draft";
-import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
+import type {
+  WorkspaceHosting,
+  WorkspaceInferenceProvider,
+} from "./workspace-create-draft";
 import type { LocalRelayDiscovery } from "./workspace-new-supplementary";
 import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";

@@ -1,9 +1,15 @@
-import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { access } from "node:fs/promises";
 import process from "node:process";
 
-const runtimeManifest = new URL("../../../packages/agent-runtime/package.json", import.meta.url);
-const generatedApi = new URL("../generated/local-tools-openapi.json", import.meta.url);
+const runtimeManifest = new URL(
+  "../../../packages/agent-runtime/package.json",
+  import.meta.url,
+);
+const generatedApi = new URL(
+  "../generated/local-tools-openapi.json",
+  import.meta.url,
+);
 
 const exists = async (url) => {
   try {
@@ -28,5 +34,7 @@ if (await exists(runtimeManifest)) {
 
   if (exitCode !== 0) process.exit(exitCode ?? 1);
 } else if (!(await exists(generatedApi))) {
-  throw new Error("The generated agent API reference is missing from this deployment.");
+  throw new Error(
+    "The generated agent API reference is missing from this deployment.",
+  );
 }

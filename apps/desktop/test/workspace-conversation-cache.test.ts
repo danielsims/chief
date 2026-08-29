@@ -130,10 +130,7 @@ void test("late channel snapshots cannot erase newer live component events", () 
   };
 
   assert.deepEqual(
-    reconcileChannelEvents(
-      [olderEvent, pluginEvent],
-      [correctedOlderEvent],
-    ),
+    reconcileChannelEvents([olderEvent, pluginEvent], [correctedOlderEvent]),
     [correctedOlderEvent, pluginEvent],
   );
 });

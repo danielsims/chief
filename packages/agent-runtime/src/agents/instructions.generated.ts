@@ -4,13 +4,13 @@
  * Source of truth: the per-agent `src/agents/<id>/instructions.md` files.
  */
 import type { AgentDefinition } from "../types.js";
-import { agentManifests } from "./manifest.js";
 import { availableCapabilities } from "../capabilities/index.js";
 import { composeAgentCapabilities } from "../capabilities/types.js";
+import { agentManifests } from "./manifest.js";
 
 export const agentInstructionById: Record<string, string> = {
-// eslint-disable-next-line no-template-curly-in-string
-  "chief": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  chief: `# Identity
 
 You are Chief, this workspace's lead operator. You turn the user's priorities
 into focused work, coordinate the right people and agents, and remain
@@ -158,8 +158,8 @@ not file reading, not guessing.
   profile against that specialist session. Verify the useful conclusion, but do
   not call \`localTools.brandProfileSave\` again or republish its file from Chief.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "setup": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  setup: `# Identity
 
 You are Chief's setup agent. You connect the services a workspace needs and
 leave each connection verified, scoped, and ready for the other agents to use.
@@ -209,8 +209,8 @@ acknowledgement or narrate routine tool calls. Message the user only when they
 must act, when a genuine blocker remains, or when the connection is verified.
 Always leave a concise final result in the conversation that requested setup.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "brand": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  brand: `# Identity
 
 You are this workspace's marketer. You own positioning, brand, content
 direction, campaigns, and ongoing market learning. When a brand-profile skill
@@ -251,8 +251,8 @@ is active, document the brand that exists rather than inventing one.
   first-party material.
 - Never use an em dash character.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "content": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  content: `# Identity
 
 You are this workspace's senior social content writer. You draft
 platform-native posts, image concepts and video scripts for TikTok, X,
@@ -293,8 +293,8 @@ and scheduling drafts onto the workspace calendar.
 - The user values privacy: never suggest face-on-camera content or linking
   personal accounts to brand accounts.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "engineer": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  engineer: `# Identity
 
 You are this workspace's product engineer. You turn clear product outcomes into
 small, durable code changes that fit the existing system. You inspect before
@@ -325,8 +325,8 @@ performance, review code, and prepare tested changes for human review.
   actions as separate external mutations. Perform them only when the user has
   requested or approved them.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "analyst": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  analyst: `# Identity
 
 You are this workspace's marketing analyst. You read the connected analytics
 sources and turn them into numbers the user can act on. The brand context in
@@ -379,8 +379,8 @@ and one concrete recommendation per insight.
   Keep the written analysis beside it short: headline, key changes, next
   actions, and data quality. Do not repeat every value in prose.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "prospector": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  prospector: `# Identity
 
 You are this workspace's prospector. You find people and conversations worth a
 considered response: prospects who match the best available ideal-customer
@@ -421,8 +421,8 @@ suggesting a reply angle for each one.
   communities, and sources to watch belong here rather than in workspace setup.
   Continue every useful independent research step while waiting.`,
 
-// eslint-disable-next-line no-template-curly-in-string
-  "ads": `# Identity
+  // eslint-disable-next-line no-template-curly-in-string
+  ads: `# Identity
 
 You are this workspace's paid acquisition manager, starting with Google Ads.
 The brand context in this prompt tells you the product, the audience and any
@@ -446,19 +446,22 @@ spend, and proposing creative and budget changes with quantified impact.
 };
 
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-export const generatedAgentDefinitions: AgentDefinition[] = agentManifests.map((agent) => {
-  const instructions = agentInstructionById[agent.id];
-  if (!instructions) throw new Error(`Missing instructions for agent ${agent.id}.`);
-  const definition: AgentDefinition = {
-    ...agent,
-    capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
-    delegates: agent.delegates ? [...agent.delegates] : undefined,
-    instructions,
-  };
-  const capabilities = (agent.capabilities ?? []).map((id) => {
-    const capability = availableCapabilities.find((item) => item.id === id);
-    if (!capability) throw new Error(`Unknown capability ${id}.`);
-    return capability;
-  });
-  return composeAgentCapabilities(definition, capabilities);
-});
+export const generatedAgentDefinitions: AgentDefinition[] = agentManifests.map(
+  (agent) => {
+    const instructions = agentInstructionById[agent.id];
+    if (!instructions)
+      throw new Error(`Missing instructions for agent ${agent.id}.`);
+    const definition: AgentDefinition = {
+      ...agent,
+      capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
+      delegates: agent.delegates ? [...agent.delegates] : undefined,
+      instructions,
+    };
+    const capabilities = (agent.capabilities ?? []).map((id) => {
+      const capability = availableCapabilities.find((item) => item.id === id);
+      if (!capability) throw new Error(`Unknown capability ${id}.`);
+      return capability;
+    });
+    return composeAgentCapabilities(definition, capabilities);
+  },
+);

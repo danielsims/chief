@@ -198,10 +198,7 @@ export const provisionWorkspaceCommandSchema = z
         path: ["secrets", "opencode"],
       });
     }
-    if (
-      provider === "vercelAiGateway" &&
-      !provision.secrets.vercelAiGateway
-    ) {
+    if (provider === "vercelAiGateway" && !provision.secrets.vercelAiGateway) {
       context.addIssue({
         code: "custom",
         message: "Hosted workspaces require a Vercel AI Gateway credential.",

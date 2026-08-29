@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { format, resolveConfig } from "prettier";
 
 import { localToolsOpenApi } from "../src/local-tools-openapi.js";
 
@@ -12,4 +13,10 @@ const outputPath = resolve(outputArgument);
 const document = localToolsOpenApi("http://127.0.0.1:4318");
 
 await mkdir(dirname(outputPath), { recursive: true });
-await writeFile(outputPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+const prettierConfig = await resolveConfig(outputPath);
+const source = await format(JSON.stringify(document), {
+  ...prettierConfig,
+  filepath: outputPath,
+  parser: "json",
+});
+await writeFile(outputPath, source, "utf8");
