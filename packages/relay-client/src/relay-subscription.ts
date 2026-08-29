@@ -1,6 +1,7 @@
 import type { ConversationEvent, RelayDiscovery } from "@chief/relay-contracts";
 import { conversationEventSchema } from "@chief/relay-contracts";
 
+import type { RelaySocket } from "./relay-client-options";
 import {
   asRelayError,
   isTerminalSubscriptionError,
@@ -23,7 +24,7 @@ export async function openRelayConversationSubscription(input: {
     events: ConversationEvent[];
     nextSequence: number | null;
   }>;
-  createWebSocket: (url: string) => WebSocket;
+  createWebSocket: (url: string) => RelaySocket;
   onEvent: (event: ConversationEvent) => void;
   onError?: (error: Error) => void;
 }): Promise<RelayConversationSubscription> {
@@ -34,7 +35,7 @@ export async function openRelayConversationSubscription(input: {
   let reconnectDelay: number = relayReconnectPolicy.baseDelayMs;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
-  let activeSocket: WebSocket | null = null;
+  let activeSocket: RelaySocket | null = null;
 
   const clearStabilityTimer = () => {
     if (!stabilityTimer) return;
@@ -67,8 +68,10 @@ export async function openRelayConversationSubscription(input: {
     );
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void openSocket().catch((error: unknown) => {
-        const cause = asRelayError(error);
+      void openSocket().catch((error: Error) => {
+        const cause = asRelayError(
+          error instanceof Error ? error : String(error),
+        );
         input.onError?.(cause);
         if (isTerminalSubscriptionError(cause)) {
           closed = true;
@@ -104,7 +107,9 @@ export async function openRelayConversationSubscription(input: {
         if (catchingUp) pending.push(event);
         else accept(event);
       } catch (error) {
-        input.onError?.(asRelayError(error));
+        input.onError?.(
+          asRelayError(error instanceof Error ? error : String(error)),
+        );
       }
     });
     socket.addEventListener("error", () => {

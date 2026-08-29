@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { JsonValue } from "@chief/relay-contracts";
+
 import type { CellPersistence } from "./sqlite-store.js";
 import type { OutboxRecord, OutboxRecordState } from "./types.js";
 
@@ -11,7 +13,7 @@ export interface OutboxDelivery {
 export interface OutboxPrepareInput {
   idempotencyKey: string;
   kind: string;
-  payload?: unknown;
+  payload?: JsonValue;
 }
 
 /**
@@ -31,7 +33,7 @@ export class TransactionalOutbox {
       id: randomUUID(),
       idempotencyKey: input.idempotencyKey,
       kind: input.kind,
-      ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      payload: input.payload,
       state: "prepared",
       attempts: 0,
       createdAt: Date.now(),

@@ -1,9 +1,10 @@
 import type { UserPrincipal } from "@chief/relay-contracts";
 import {
+  agentConfigSchema,
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
-  createWorkspaceCommandSchema,
   messagePageSchema,
+  provisionWorkspaceCommandSchema,
   workspaceOnboardingResultSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -12,11 +13,21 @@ import type { readTrustedIdentity } from "./internal-context";
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
+import { defaultAgentConfigFor } from "./workspace-agent-config";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
+  decodeWorkspaceSnapshot,
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
 } from "./workspace-defaults";
+import {
+  delegationIncomplete,
+  initialConversation,
+  matchesBootstrapToken,
+  workspaceInference,
+} from "./workspace-lifecycle-support";
+import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
   agent_id: string;
@@ -118,7 +129,26 @@ export class WorkspaceLifecycleService {
       return relayError(403, "user_required", "A user identity is required.");
     }
     const ownerIdentity = context.identity;
-    const input = createWorkspaceCommandSchema.parse(await parseJson(request));
+    const provision = provisionWorkspaceCommandSchema.parse(
+      await parseJson(request),
+    );
+    const input = provision.workspace;
+    const secretStore = new WorkspaceSecretStore(
+      this.storage,
+      this.env.RELAY_SECRET_KEY,
+    );
+    const inference = workspaceInference(provision.workspace.inferenceProvider);
+    const credential =
+      inference.provider === "vercel-ai-gateway"
+        ? provision.secrets.vercelAiGateway
+        : provision.secrets.opencode;
+    const preparedSecret = credential
+      ? await secretStore.prepare(
+          context.workspaceId,
+          inference.secretRef,
+          credential,
+        )
+      : null;
     const createdAt = new Date().toISOString();
     const snapshot = workspaceSnapshotSchema.parse({
       id: context.workspaceId,
@@ -141,7 +171,10 @@ export class WorkspaceLifecycleService {
       const existing = firstRow<WorkspaceRow>(
         this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
       );
-      if (existing) return;
+      if (existing) {
+        if (preparedSecret) secretStore.writePrepared(preparedSecret);
+        return;
+      }
       this.storage.sql.exec(
         `INSERT INTO workspace (
           singleton, workspace_id, name, created_at, created_by_user_id,
@@ -166,6 +199,30 @@ export class WorkspaceLifecycleService {
         createdAt,
       );
       this.channels.seedSnapshotAgents(snapshot, createdAt);
+      for (const agent of snapshot.agents) {
+        const config = agentConfigSchema.parse({
+          ...defaultAgentConfigFor(agent.id),
+          deploymentTarget: input.runtime,
+          inference: preparedSecret
+            ? {
+                provider: inference.provider,
+                model: inference.model,
+                secretRef: inference.secretRef,
+              }
+            : {
+                provider: inference.provider,
+                model: inference.model,
+              },
+        });
+        this.storage.sql.exec(
+          `INSERT INTO agent_configs (agent_id, config_json, updated_at)
+           VALUES (?, ?, ?)`,
+          agent.id,
+          JSON.stringify(config),
+          createdAt,
+        );
+      }
+      if (preparedSecret) secretStore.writePrepared(preparedSecret);
     });
     return this.snapshot(context);
   }
@@ -181,7 +238,7 @@ export class WorkspaceLifecycleService {
       );
     }
     const reconciled = reconcileWorkspaceAgents(
-      workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json)),
+      decodeWorkspaceSnapshot(workspace.snapshot_json),
     );
     if (reconciled.changed) {
       this.storage.sql.exec(
@@ -208,9 +265,9 @@ export class WorkspaceLifecycleService {
       .toArray()
       .map((row) => String(row.agent_id));
     const snapshotAgentIds = workspace.snapshot_json
-      ? workspaceSnapshotSchema
-          .parse(JSON.parse(workspace.snapshot_json))
-          .agents.map((agent) => agent.id)
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json).agents.map(
+          (agent) => agent.id,
+        )
       : [];
     return json({
       conversationIds,
@@ -244,7 +301,13 @@ export class WorkspaceLifecycleService {
         context.principal.agentId,
       ),
     );
-    if (key?.pubkey !== context.principal.pubkey) {
+    // The relay's own hosted cell executes Chief inside a trusted Durable Object
+    // boundary and presents the all-zero relay pubkey. It does not hold a
+    // device-registered key, so it must be allowed to finalize onboarding even
+    // when no key is registered. Phone/desktop cells carry a real key and must
+    // still match it.
+    const isHostedCell = context.principal.pubkey === "0".repeat(64);
+    if (!isHostedCell && key?.pubkey !== context.principal.pubkey) {
       throw new HttpError(
         403,
         "agent_key_mismatch",
@@ -266,7 +329,7 @@ export class WorkspaceLifecycleService {
       result.openingMessage,
     );
     const previous = reconcileWorkspaceAgents(
-      workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json)),
+      decodeWorkspaceSnapshot(workspace.snapshot_json),
     ).snapshot;
     const existing = previous.conversations.find(
       (conversation) => conversation.id === "mission-control",
@@ -343,6 +406,7 @@ export class WorkspaceLifecycleService {
       ),
     );
     if (!response.ok) {
+      await releaseInternalResponse(response);
       throw new HttpError(
         502,
         "onboarding_messages_unavailable",
@@ -410,44 +474,4 @@ export class WorkspaceLifecycleService {
       );
     }
   }
-}
-
-function initialConversation(
-  id: string,
-  name: string,
-  kind: "channel" | "direct",
-) {
-  return {
-    id,
-    name,
-    kind,
-    isPrivate: kind === "direct",
-    unreadCount: 0,
-    requiresAttention: false,
-    lastMessage: null,
-  };
-}
-
-function delegationIncomplete(message: string) {
-  return new HttpError(409, "onboarding_delegation_incomplete", message);
-}
-
-async function matchesBootstrapToken(token: string, env: Env) {
-  const actual = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
-  );
-  const expected = hexBytes(env.BOOTSTRAP_TOKEN_SHA256);
-  if (actual.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actual.length; index += 1) {
-    difference |= (actual[index] ?? 0) ^ (expected[index] ?? 0);
-  }
-  return difference === 0;
-}
-
-function hexBytes(value: string) {
-  if (!/^[0-9a-f]{64}$/iu.test(value)) return new Uint8Array();
-  return Uint8Array.from(value.match(/.{2}/gu) ?? [], (byte) =>
-    Number.parseInt(byte, 16),
-  );
 }

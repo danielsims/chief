@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { ArrowLeft, CalendarDays, Eye, X } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
@@ -15,12 +15,9 @@ import { cn } from "@chief/ui/lib/utils";
 import type {
   IntegrationDependency,
   PlaybookCategory,
-} from "../../lib/playbooks";
-import {
-  PLAYBOOK_CATEGORIES,
-  playbookRunPrompt,
-  PLAYBOOKS,
-} from "../../lib/playbooks";
+} from "../../lib/playbook-types";
+import { PLAYBOOK_CATEGORIES, PLAYBOOKS } from "../../lib/playbook-catalog";
+import { playbookRunPrompt } from "../../lib/playbook-prompts";
 import { IntegrationAvatarStack } from "../integrations/integration-avatar-stack";
 import { PlaybookDocument } from "../playbooks/playbook-document";
 
@@ -87,6 +84,10 @@ const FREQUENCIES: { value: Frequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
 ];
 
+function isFrequency(value: string): value is Frequency {
+  return FREQUENCIES.some((frequency) => frequency.value === value);
+}
+
 const WEEKDAYS = [
   "Monday",
   "Tuesday",
@@ -125,7 +126,7 @@ function nextScheduleDefaults() {
   next.setMinutes(Math.ceil((next.getMinutes() + 1) / 30) * 30);
   const weekdayIndex = (next.getDay() + 6) % 7;
   return {
-    weekday: WEEKDAYS[weekdayIndex]!,
+    weekday: WEEKDAYS[weekdayIndex] ?? "monday",
     dayOfMonth: String(next.getDate()),
     time: `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`,
   };
@@ -174,14 +175,15 @@ export function RecurringWorkComposer({
     null,
   );
 
-  const preset = presets.find((item) => item.id === presetId) ?? presets[0]!;
-  const task = presetId === "custom" ? customTask.trim() : preset.task;
+  const preset = presets.find((item) => item.id === presetId) ?? presets.at(0);
+  const task = presetId === "custom" ? customTask.trim() : (preset?.task ?? "");
   const visiblePresets = oneOff
     ? presets
     : presets.filter((item) => item.categories?.includes(category));
   const viewingPlaybook = PLAYBOOKS.find(
     (playbook) => playbook.id === viewingPlaybookId,
   );
+  const compose = useEffectEvent(onCompose);
 
   const selectCategory = (next: PlaybookCategory) => {
     setCategory(next);
@@ -189,7 +191,8 @@ export function RecurringWorkComposer({
       item.categories?.includes(next),
     );
     if (!nextPresets.some((item) => item.id === presetId)) {
-      setPresetId(nextPresets[0]!.id);
+      const nextPresetId = nextPresets.at(0)?.id;
+      if (nextPresetId) setPresetId(nextPresetId);
     }
   };
 
@@ -203,9 +206,7 @@ export function RecurringWorkComposer({
         ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Set onceAt to ${new Date(`${onDate}T${time}:00`).toISOString()}. Configure everything else yourself. ${approvalInstruction}`
         : `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself. ${approvalInstruction}`
       : "";
-    onCompose({ text, approveAfterCreation });
-    // onCompose deliberately mirrors form state into the editable chat draft.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    compose({ text, approveAfterCreation });
   }, [
     task,
     frequency,
@@ -264,7 +265,8 @@ export function RecurringWorkComposer({
           </Button>
           <Button
             onClick={() => {
-              setCategory(viewingPlaybook.categories[0]!);
+              const firstCategory = viewingPlaybook.categories.at(0);
+              if (firstCategory) setCategory(firstCategory);
               setPresetId(viewingPlaybook.id);
               setViewingPlaybookId(null);
             }}
@@ -323,7 +325,9 @@ export function RecurringWorkComposer({
               Repeats
               <Select
                 value={frequency}
-                onValueChange={(value) => setFrequency(value as Frequency)}
+                onValueChange={(value) => {
+                  if (isFrequency(value)) setFrequency(value);
+                }}
               >
                 <SelectTrigger className="text-foreground h-10 w-full text-sm">
                   {FREQUENCIES.find((item) => item.value === frequency)?.label}

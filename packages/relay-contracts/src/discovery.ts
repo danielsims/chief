@@ -9,9 +9,15 @@ export const relayCapabilitySchema = z.enum([
   "logs",
 ]);
 
+export const relayAuthenticationMethodSchema = z.enum([
+  "email-password",
+  "google",
+]);
+
 export const relayDiscoverySchema = z.object({
   protocol: z.literal("chief-relay"),
   protocolVersion: z.literal(1),
+  relayId: z.string().min(1),
   deployment: z.enum([
     "chief-cloud",
     "cloudflare-byoc",
@@ -26,6 +32,7 @@ export const relayDiscoverySchema = z.object({
     scheme: z.literal("NIP-98"),
     signingAlgorithm: z.literal("secp256k1-schnorr"),
     accountIssuer: z.url(),
+    methods: z.array(relayAuthenticationMethodSchema).default(["google"]),
   }),
 });
 

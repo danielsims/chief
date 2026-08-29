@@ -1,3 +1,6 @@
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { WorkspaceChannel } from "./channel-types.js";
 import { normalizeAgentText } from "./agent-output.js";
@@ -33,7 +36,6 @@ interface MessageToolResult {
   value?: unknown;
   status?: number;
 }
-
 const THREAD_PREVIEW_LIMIT = 3;
 const THREAD_PREVIEW_LENGTH = 600;
 
@@ -164,7 +166,7 @@ async function searchMessages(
 export async function handleChannelMessageLocalTool(input: {
   request: Request;
   workspaceId: string;
-  body: Record<string, unknown>;
+  body: JsonObject;
   context: ChannelLocalToolContext;
   channel?: WorkspaceChannel;
   tail?: string;
@@ -245,15 +247,15 @@ export async function handleChannelMessageLocalTool(input: {
       await context.beforeMessagePost?.({
         channel,
         content,
-        ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : undefined),
       });
       const mentions = validatedAgentIds(
         normalizedChannelMentions({
           availableAgentIds: context.availableAgentIds,
           content,
           explicitMentions: Array.isArray(body.mentions)
-            ? body.mentions.filter(
-                (value): value is string => typeof value === "string",
+            ? body.mentions.filter((value): value is string =>
+                isJsonString(value),
               )
             : [],
         }),
@@ -276,7 +278,7 @@ export async function handleChannelMessageLocalTool(input: {
           channel,
           agentIds: invitedAgentIds,
           userIds: [],
-          ...(sourceId ? { sourceId: `${sourceId}:mentioned-members` } : {}),
+          sourceId: sourceId ? `${sourceId}:mentioned-members` : undefined,
         });
         await context.onChannelsChanged?.();
       }
@@ -422,10 +424,9 @@ export async function handleChannelMessageLocalTool(input: {
         );
       if (request.method === "PATCH") {
         const rawContent = textValue(body.content, "content", 8_000);
-        const expectedVersion =
-          typeof body.expectedVersion === "number"
-            ? body.expectedVersion
-            : undefined;
+        const expectedVersion = isJsonNumber(body.expectedVersion)
+          ? body.expectedVersion
+          : undefined;
         if (
           expectedVersion !== undefined &&
           expectedVersion !== message.version

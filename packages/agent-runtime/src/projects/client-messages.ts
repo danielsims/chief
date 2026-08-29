@@ -129,13 +129,15 @@ export async function handleProjectClientMessage(
       message.checkoutId,
       principal,
       {
-        ...(message.targetBranch ? { targetBranch: message.targetBranch } : {}),
+        ...(message.targetBranch
+          ? { targetBranch: message.targetBranch }
+          : undefined),
         ...(message.correlationId
           ? { correlationId: message.correlationId }
-          : {}),
+          : undefined),
         ...(message.allowDefaultBranch
           ? { allowDefaultBranch: message.allowDefaultBranch }
-          : {}),
+          : undefined),
       },
     );
     send({
@@ -172,7 +174,9 @@ export async function handleProjectClientMessage(
       principal,
       {
         title: message.title,
-        ...(message.description ? { description: message.description } : {}),
+        ...(message.description
+          ? { description: message.description }
+          : undefined),
         headBranch: message.headBranch,
         baseBranch: message.baseBranch,
       },
@@ -221,12 +225,16 @@ export async function handleProjectClientMessage(
   const project =
     message.type === "attachProject"
       ? await service.attach(message.workspaceId, message.path, principal, {
-          ...(message.name ? { name: message.name } : {}),
-          ...(message.description ? { description: message.description } : {}),
+          ...(message.name ? { name: message.name } : undefined),
+          ...(message.description
+            ? { description: message.description }
+            : undefined),
         })
       : await service.clone(message.workspaceId, message.remoteUrl, principal, {
-          ...(message.name ? { name: message.name } : {}),
-          ...(message.description ? { description: message.description } : {}),
+          ...(message.name ? { name: message.name } : undefined),
+          ...(message.description
+            ? { description: message.description }
+            : undefined),
         });
   send({
     type: "projectSaved",

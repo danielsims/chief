@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentDefinition, AgentEvent } from "../src/types.js";
+import { isJsonString } from "@chief/relay-contracts";
+
+import type {
+  AgentDefinition,
+  AgentEvent,
+  StartOptions,
+} from "../src/types.js";
+import { BaseDriver } from "../src/drivers/base.js";
 import { remoteHistoryContext } from "../src/drivers/remote-history.js";
 import { AgentSession } from "../src/session.js";
 
@@ -12,6 +19,38 @@ const cmo: AgentDefinition = {
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
 };
+
+class TestDriver extends BaseDriver {
+  readonly prompts: string[] = [];
+  startedWith: StartOptions | undefined;
+  sendFailure: Error | undefined;
+
+  start(options: StartOptions) {
+    this.startedWith = options;
+    return Promise.resolve();
+  }
+
+  sendPromptOnce(prompt: string) {
+    this.prompts.push(prompt);
+    return this.sendFailure
+      ? Promise.reject(this.sendFailure)
+      : Promise.resolve();
+  }
+
+  restart() {
+    return Promise.resolve();
+  }
+  interrupt() {
+    return Promise.resolve();
+  }
+  stop() {
+    return Promise.resolve();
+  }
+
+  emitAgentEvent(event: AgentEvent) {
+    this.emit("event", event);
+  }
+}
 void test("a fresh local provider receives normalized history without persisting the wrapper", async () => {
   const history: AgentEvent[] = [
     {
@@ -25,6 +64,7 @@ void test("a fresh local provider receives normalized history without persisting
       content: [{ type: "text", text: "I will plan around Tuesday." }],
     },
   ];
+  const driver = new TestDriver();
   const session = new AgentSession(
     cmo,
     "chat",
@@ -34,22 +74,14 @@ void test("a fresh local provider receives normalized history without persisting
       workspaceId: "workspace",
     },
     history,
+    driver,
   );
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async (prompt: string) => {
-      prompts.push(prompt);
-      await Promise.resolve();
-    },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
 
   await session.start("/tmp");
   await session.sendPrompt("What should we publish?");
 
-  assert.match(prompts[0] ?? "", /Remember the launch is Tuesday/);
-  assert.match(prompts[0] ?? "", /What should we publish/);
+  assert.match(driver.prompts[0] ?? "", /Remember the launch is Tuesday/);
+  assert.match(driver.prompts[0] ?? "", /What should we publish/);
   const last = session.events.at(-1);
   if (last?.type !== "message") assert.fail("Expected the raw user message.");
   assert.deepEqual(last.content, [
@@ -58,28 +90,26 @@ void test("a fresh local provider receives normalized history without persisting
 });
 
 void test("private turn instructions reach the provider without entering the transcript", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async (prompt: string) => {
-      prompts.push(prompt);
-      await Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
     },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+    [],
+    driver,
+  );
 
   await session.start("/tmp");
   await session.sendPrompt("Connect GitHub.", "message", true, {
     privateInstructions: "Use the private GitHub setup recipe.",
   });
 
-  assert.match(prompts[0] ?? "", /private GitHub setup recipe/u);
-  assert.match(prompts[0] ?? "", /Never quote, paraphrase, summarize/u);
+  assert.match(driver.prompts[0] ?? "", /private GitHub setup recipe/u);
+  assert.match(driver.prompts[0] ?? "", /Never quote, paraphrase, summarize/u);
   const recorded = session.events.at(-1);
   if (recorded?.type !== "message") {
     assert.fail("Expected the visible user message.");
@@ -115,44 +145,44 @@ void test("remote history omits a pre-recorded copy of the current prompt", () =
 });
 
 void test("session passes dynamic runtime context separately from instructions", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "remote",
-    access: "guarded",
-    workspaceId: "workspace",
-    runtimeContext: "Session chat belongs to conversation root.",
-  });
-  let startedWith: unknown;
-  const driver = {
-    start: (options: unknown) => {
-      startedWith = options;
-      return Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "remote",
+      access: "guarded",
+      workspaceId: "workspace",
+      runtimeContext: "Session chat belongs to conversation root.",
     },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+    [],
+    driver,
+  );
 
   await session.start("/tmp");
 
+  assert.ok(driver.startedWith, "driver should receive its start options");
   assert.equal(
-    (startedWith as { runtimeContext?: string }).runtimeContext,
+    driver.startedWith.runtimeContext,
     "Session chat belongs to conversation root.",
   );
-  assert.equal(
-    (startedWith as { instructions?: string }).instructions,
-    "Run the requested work.",
-  );
+  assert.equal(driver.startedWith.instructions, "Run the requested work.");
 });
 
 void test("a rejected provider send does not leave the session busy", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "remote",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async () => Promise.reject(new Error("deployment missing")),
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+  const driver = new TestDriver();
+  driver.sendFailure = new Error("deployment missing");
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "remote",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
   await session.start("/tmp");
 
   await assert.rejects(() => session.sendPrompt("Hello"), /deployment missing/);
@@ -160,26 +190,24 @@ void test("a rejected provider send does not leave the session busy", async () =
 });
 
 void test("late assistant content stays with the turn that completed", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = async () => Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
   await session.sendPrompt("Research this", "user-message", true, {
     threadRootId: "thread-root",
   });
-  driver.emit("event", { type: "result", ok: true });
-  driver.emit("event", {
+  driver.emitAgentEvent({ type: "result", ok: true });
+  driver.emitAgentEvent({
     type: "message",
     role: "assistant",
     content: [{ type: "text", text: "The final result" }],
@@ -192,7 +220,7 @@ void test("late assistant content stays with the turn that completed", async () 
   assert.equal(finalMessage.threadRootId, "thread-root");
 
   await session.sendPrompt("A new turn", "next-message");
-  driver.emit("event", {
+  driver.emitAgentEvent({
     type: "message",
     role: "assistant",
     content: [{ type: "text", text: "A new answer" }],
@@ -205,21 +233,20 @@ void test("late assistant content stays with the turn that completed", async () 
 });
 
 void test("assistant message events receive a stable id for channel mirroring", () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
-  driver.emit("event", {
+  driver.emitAgentEvent({
     type: "message",
     role: "assistant",
     content: [{ type: "text", text: "The reply" }],
@@ -231,34 +258,32 @@ void test("assistant message events receive a stable id for channel mirroring", 
   );
   assert.ok(recorded, "assistant message should be recorded");
   assert.ok(
-    typeof recorded.id === "string" && recorded.id.length > 0,
+    isJsonString(recorded.id) && recorded.id.length > 0,
     "assistant message should be stamped with an id",
   );
 });
 
 void test("send marker flushes mid-turn messages without duplicating the final", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = async () => Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
   await session.sendPrompt("Set up analytics", "user-1");
-  driver.emit("event", {
+  driver.emitAgentEvent({
     type: "stream",
     text: "On it, setting up now. [message:send]",
   });
-  driver.emit("event", { type: "stream", text: "Opening the browser." });
-  driver.emit("event", {
+  driver.emitAgentEvent({ type: "stream", text: "Opening the browser." });
+  driver.emitAgentEvent({
     type: "message",
     role: "assistant",
     content: [
@@ -271,36 +296,33 @@ void test("send marker flushes mid-turn messages without duplicating the final",
       event.type === "message" && event.role === "assistant",
   );
   assert.equal(assistant.length, 2, "one flushed message plus the final tail");
+  const firstText = assistant[0]?.content.at(-1);
   assert.match(
-    assistant[0]?.content.at(-1)?.type === "text"
-      ? (assistant[0].content.at(-1) as { text: string }).text
-      : "",
+    firstText?.type === "text" ? firstText.text : "",
     /On it, setting up now/,
   );
   assert.ok(
-    typeof assistant[0]?.id === "string" && assistant[0].id.length > 0,
+    isJsonString(assistant[0]?.id) && assistant[0].id.length > 0,
     "flushed message should carry an id",
   );
 });
 
 void test("legacy channel send marker still flushes a message", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = async () => Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
   await session.sendPrompt("Set up analytics", "user-1");
-  driver.emit("event", {
+  driver.emitAgentEvent({
     type: "stream",
     text: "Quick update. [channel:send]",
   });
@@ -313,24 +335,25 @@ void test("legacy channel send marker still flushes a message", async () => {
 });
 
 void test("text before a tool call surfaces as its own message", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = async () => Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
   await session.sendPrompt("Open the browser", "user-1");
-  driver.emit("event", { type: "stream", text: "On it, opening the browser." });
-  driver.emit("event", {
+  driver.emitAgentEvent({
+    type: "stream",
+    text: "On it, opening the browser.",
+  });
+  driver.emitAgentEvent({
     type: "message",
     role: "assistant",
     content: [
@@ -371,20 +394,18 @@ void test("text before a tool call surfaces as its own message", async () => {
 });
 
 void test("narration between tool calls streams as its own messages", async () => {
-  const session = new AgentSession(cmo, "chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = async () => Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
 
   await session.sendPrompt("Set up analytics", "user-1");
   // Opening confirmation, then three tool calls each preceded by narration the

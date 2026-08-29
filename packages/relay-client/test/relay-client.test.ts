@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { workspaceIdSchema } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  isJsonString,
+  parseJsonObject,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
 const relayDiscovery = {
   protocol: "chief-relay",
   protocolVersion: 1,
+  relayId: "relay_test",
   deployment: "chief-cloud",
   apiBaseUrl: "https://relay.test/v1",
   websocketUrl: "wss://relay.test/v1/connect",
@@ -28,12 +34,11 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
   }[] = [];
   let socketUrl = "";
   const fetcher: typeof fetch = (input, init) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
+    const url = isJsonString(input)
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
     const headers = new Headers(init?.headers);
     requests.push({
       url,
@@ -68,11 +73,11 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     fetch: fetcher,
     createWebSocket: (url) => {
       socketUrl = url;
-      return new FakeWebSocket() as unknown as WebSocket;
+      return new FakeWebSocket();
     },
   });
 
-  await client.listMessages("general");
+  await client.listMessages("general", { limit: 200, recent: true });
   const subscription = await client.subscribeConversation({
     conversationId: "general",
     onEvent: () => undefined,
@@ -83,6 +88,8 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     requests[0]?.url ?? "",
     /\/v1\/workspaces\/workspace-a\/conversations\/general\/messages/u,
   );
+  assert.match(requests[0]?.url ?? "", /[?&]limit=200(?:&|$)/u);
+  assert.match(requests[0]?.url ?? "", /[?&]recent=true(?:&|$)/u);
   assert.equal(requests[0]?.authorization, "Nostr signed-request");
   assert.equal(
     requests[0].deviceAuthorization,
@@ -115,7 +122,7 @@ void test("loads the current and workspace channel rosters from relay membership
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -138,8 +145,11 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const requests: { method: string; path: string; body: unknown }[] = [];
   const config = {
     enabled: true,
-    driver: "codex",
-    model: "auto",
+    deploymentTarget: "cloud" as const,
+    inference: {
+      provider: "opencode" as const,
+      model: "opencode-go/deepseek-v4-flash" as const,
+    },
     approvals: "auto" as const,
     capabilities: [],
     integrations: [],
@@ -150,7 +160,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input, init) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -159,7 +169,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
       requests.push({
         method: init?.method ?? "GET",
         path: url.pathname,
-        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        body: isJsonString(init?.body) ? JSON.parse(init.body) : null,
       });
       return Promise.resolve(
         url.pathname.endsWith("/keys")
@@ -175,8 +185,8 @@ void test("scopes per-agent configuration to the selected workspace", async () =
   const workspace = account.forWorkspace("workspace-a");
 
   assert.equal(
-    (await workspace.loadAgentConfig("chief")).config.driver,
-    "codex",
+    (await workspace.loadAgentConfig("chief")).config.inference.provider,
+    "opencode",
   );
   await workspace.saveAgentConfig("chief", config);
   await workspace.registerAgentKey("chief", "a".repeat(64));
@@ -207,7 +217,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
   const received: number[] = [];
   const fetcher: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string"
+      isJsonString(input)
         ? input
         : input instanceof URL
           ? input.toString()
@@ -249,7 +259,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -274,7 +284,7 @@ void test("does not retry a terminal authorization failure after a live disconne
   const errors: string[] = [];
   const fetcher: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string"
+      isJsonString(input)
         ? input
         : input instanceof URL
           ? input.toString()
@@ -316,7 +326,7 @@ void test("does not retry a terminal authorization failure after a live disconne
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -343,7 +353,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -370,7 +380,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -383,7 +393,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
 
   assert.equal(sockets.length, 1);
   assert.deepEqual(
-    sockets[0]?.sent.map((value) => JSON.parse(value) as unknown),
+    sockets[0]?.sent.map((value) => parseJsonObject(JSON.parse(value)) ?? {}),
     [
       {
         type: "workspace.subscribe",
@@ -428,7 +438,7 @@ class FakeWebSocket extends EventTarget {
     this.sent.push(value);
   }
 
-  receive(value: unknown) {
+  receive(value: JsonObject) {
     this.dispatchEvent(
       new MessageEvent("message", { data: JSON.stringify(value) }),
     );
@@ -470,7 +480,7 @@ function conversationEvent(sequence: number) {
   };
 }
 
-function jsonResponse(value: unknown, status = 200) {
+function jsonResponse(value: JsonObject, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },

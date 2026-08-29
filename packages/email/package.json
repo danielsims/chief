@@ -15,22 +15,21 @@
     "dev": "email dev --dir ./emails --port 3001",
     "email": "email",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint packages/email",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-email/components": "1.0.12",
     "@react-email/render": "2.1.0",
-    "react": "^19.1.0"
+    "react": "^19.1.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@chief/eslint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@react-email/ui": "6.7.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
-    "eslint": "catalog:",
     "prettier": "catalog:",
     "react-email": "6.7.0",
     "typescript": "catalog:"

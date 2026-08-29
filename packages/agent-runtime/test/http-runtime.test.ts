@@ -2,10 +2,20 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 
+import { isJsonNumber, parseJsonObject } from "@chief/relay-contracts";
+
 import {
   guardedRequestHandler,
   localToolRequest,
 } from "../src/http-runtime.js";
+
+function listeningPort(
+  address: ReturnType<ReturnType<typeof createServer>["address"]>,
+) {
+  const port = parseJsonObject(address)?.port;
+  assert.ok(isJsonNumber(port));
+  return port;
+}
 
 void test("GET and HEAD local-tool requests discard envelope bodies", () => {
   for (const method of ["GET", "HEAD"]) {
@@ -52,13 +62,11 @@ void test("an async request failure returns 500 without closing the server", asy
   );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
-  assert.ok(address && typeof address === "object");
+  const port = listeningPort(address);
 
   try {
     for (let requestIndex = 0; requestIndex < 2; requestIndex += 1) {
-      const response: Response = await fetch(
-        `http://127.0.0.1:${address.port}/broken`,
-      );
+      const response: Response = await fetch(`http://127.0.0.1:${port}/broken`);
       assert.equal(response.status, 500);
       assert.deepEqual(await response.json(), {
         error: "bad request",

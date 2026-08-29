@@ -216,7 +216,9 @@ export class ProjectAdministrationService extends ProjectServiceBase {
       principalType: input.principal.type,
       principalId: input.principal.id,
       capability: input.capability,
-      ...(input.constraintJson ? { constraintJson: input.constraintJson } : {}),
+      ...(input.constraintJson
+        ? { constraintJson: input.constraintJson }
+        : undefined),
       createdAt: now,
       updatedAt: now,
     };

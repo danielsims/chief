@@ -5,12 +5,12 @@ import {
   previewWorkspaceInviteCommandSchema,
   workspaceInviteClaimResultSchema,
   workspaceInviteSchema,
-  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
+import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
 interface InviteRow extends Record<string, SqlStorageValue> {
   invite_id: string;
@@ -327,7 +327,7 @@ export class WorkspaceInvitationService {
         "This workspace is not ready to accept invitations.",
       );
     }
-    return workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json));
+    return decodeWorkspaceSnapshot(workspace.snapshot_json);
   }
 }
 

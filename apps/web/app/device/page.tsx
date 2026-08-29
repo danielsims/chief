@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@chief/ui/components/button";
@@ -119,10 +120,12 @@ function DeviceAuthorizationContent() {
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="p-8">
-        <img
+        <Image
           alt="Chief"
           className="h-8 w-8"
           src="/brand/chief-mark-sharp-open-white.svg"
+          width={32}
+          height={32}
         />
       </header>
       <div className="flex flex-1 items-center justify-center px-8 pb-24">

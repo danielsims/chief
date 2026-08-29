@@ -1,20 +1,14 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
-import { ArrowLeft, Check } from "lucide-react";
+import { OpenCode, Vercel } from "@lobehub/icons";
+import { ArrowLeft, Check, Server } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@chief/ui/components/select";
 
-import { useProviderModels } from "../lib/runtime";
+import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
+import { ChiefMark } from "../components/chief-mark";
 import {
   ProviderOption,
   workspaceOnboardingAppLogo,
@@ -25,15 +19,21 @@ export function CreateForm({
   name,
   website,
   provider,
-  model,
+  apiKey,
   selectedApps,
   working,
   connected,
+  hosting,
+  relayUrl,
+  relayConnected,
+  error,
   step,
   onNameChange,
   onWebsiteChange,
+  onChiefCloud,
+  onSelfHosted,
   onProviderChange,
-  onModelChange,
+  onApiKeyChange,
   onSelectedAppsChange,
   onStepChange,
   onBackToHome,
@@ -41,22 +41,27 @@ export function CreateForm({
 }: {
   name: string;
   website: string;
-  provider: "claude" | "codex" | "opencode" | null;
-  model: string;
+  provider: WorkspaceInferenceProvider;
+  apiKey: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
   connected: boolean;
+  hosting: "chief-cloud" | "self-hosted";
+  relayUrl: string;
+  relayConnected: boolean;
+  error: string | null;
   step: number;
   onNameChange: (value: string) => void;
   onWebsiteChange: (value: string) => void;
-  onProviderChange: (value: "claude" | "codex" | "opencode") => void;
-  onModelChange: (value: string) => void;
+  onChiefCloud: () => void;
+  onSelfHosted: () => void;
+  onProviderChange: (value: Exclude<WorkspaceInferenceProvider, null>) => void;
+  onApiKeyChange: (value: string) => void;
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
   onBackToHome: () => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
-  const providerModels = useProviderModels(provider);
   const appListRef = useRef<HTMLDivElement>(null);
   const [canScrollApps, setCanScrollApps] = useState(false);
   const updateAppScrollCue = useCallback(() => {
@@ -86,7 +91,11 @@ export function CreateForm({
     onSubmit(event);
   };
   const canContinue =
-    step === 0 ? Boolean(name.trim()) : step === 2 ? provider !== null : true;
+    step === 0
+      ? Boolean(name.trim())
+      : step === 2
+        ? provider !== null && Boolean(apiKey.trim())
+        : true;
   const back = () => {
     if (step === 0) onBackToHome();
     else onStepChange(step - 1);
@@ -112,16 +121,18 @@ export function CreateForm({
             : step === 1
               ? "Where should your agents run?"
               : step === 2
-                ? "What harness will your agents use?"
+                ? "What inference provider will your agents use?"
                 : "What apps do you already use?"
         }
         detail={
           step === 0
             ? "Add a website if there’s one your agents should understand."
             : step === 1
-              ? "Each agent runs in its own private cell on this Mac."
+              ? "Each agent stays available on Chief Cloud or infrastructure you control."
               : step === 2
-                ? "Choose the agent app and starting model."
+                ? hosting === "self-hosted"
+                  ? "Inference runs through OpenCode inside your self-hosted relay."
+                  : "Chief Cloud keeps the team available across devices."
                 : "Choose the apps your team already uses."
         }
       />
@@ -129,7 +140,6 @@ export function CreateForm({
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
           key={`control-${step}`}
-          layout
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
@@ -158,73 +168,101 @@ export function CreateForm({
               </Field>
             </div>
           ) : step === 1 ? (
-            <div className="border-foreground bg-muted rounded-xl border px-4 py-3.5">
-              <span className="block text-sm font-medium">This Mac</span>
-              <span className="text-muted-foreground mt-0.5 block text-xs">
-                Private and persistent
-              </span>
+            <div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ProviderOption
+                  label="Chief Cloud"
+                  selected={hosting === "chief-cloud"}
+                  onClick={onChiefCloud}
+                  icon={<ChiefMark className="size-7" />}
+                />
+                <ProviderOption
+                  label="Self-hosted"
+                  selected={hosting === "self-hosted"}
+                  onClick={onSelfHosted}
+                  icon={<Server size={27} />}
+                />
+              </div>
+              {hosting === "self-hosted" ? (
+                <div className="border-border/70 mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">
+                      {relayConnected ? "Connected relay" : "Selected relay"}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {relayHost(relayUrl)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onSelfHosted}
+                    className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : step === 2 ? (
             <div className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2">
                 <ProviderOption
-                  label="Codex"
-                  selected={provider === "codex"}
-                  onClick={() => onProviderChange("codex")}
-                  icon={<OpenAI size={27} />}
-                />
-                <ProviderOption
-                  label="Claude"
-                  selected={provider === "claude"}
-                  onClick={() => onProviderChange("claude")}
-                  icon={<Claude.Color size={27} />}
+                  label="Vercel AI Gateway"
+                  detail="One API for hundreds of models, with budgets, usage monitoring, and fallbacks."
+                  selected={provider === "vercelAiGateway"}
+                  onClick={() => onProviderChange("vercelAiGateway")}
+                  icon={<Vercel size={27} />}
                 />
                 <ProviderOption
                   label="OpenCode"
+                  detail="An open-source coding agent for the terminal, desktop, and IDE."
                   selected={provider === "opencode"}
                   onClick={() => onProviderChange("opencode")}
                   icon={<OpenCode size={27} />}
                 />
               </div>
-              <AnimatePresence initial={false}>
-                {provider ? (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.24, ease: "easeOut" }}
-                    className="overflow-hidden"
-                  >
-                    <Field label="Model" htmlFor="agent-model">
-                      <Select
-                        value={model || "auto"}
-                        onValueChange={onModelChange}
+              {provider ? (
+                <div>
+                  <div className="mt-4">
+                    <Field
+                      label={
+                        provider === "vercelAiGateway"
+                          ? "Vercel AI Gateway API key"
+                          : "OpenCode API key"
+                      }
+                      htmlFor="cloud-api-key"
+                    >
+                      <Input
+                        id="cloud-api-key"
+                        type="password"
+                        autoComplete="off"
+                        value={apiKey}
+                        onChange={(event) => onApiKeyChange(event.target.value)}
+                        placeholder="sk-…"
+                        disabled={working}
+                      />
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        Encrypted by this relay and available only to this
+                        workspace’s hosted agents.
+                      </p>
+                      <a
+                        className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
+                        href={
+                          provider === "vercelAiGateway"
+                            ? "https://vercel.com/docs/ai-gateway/authentication"
+                            : "https://opencode.ai/auth"
+                        }
+                        target="_blank"
+                        rel="noreferrer"
                       >
-                        <SelectTrigger
-                          id="agent-model"
-                          className="w-full"
-                          aria-label="Agent model"
-                        >
-                          <SelectValue placeholder="Auto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto</SelectItem>
-                          {selectableProviderModels(providerModels.models).map(
-                            (option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ),
-                          )}
-                        </SelectContent>
-                      </Select>
+                        {provider === "vercelAiGateway"
+                          ? "Get an AI Gateway key"
+                          : "Get an OpenCode API key"}
+                      </a>
                     </Field>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="relative">
@@ -273,6 +311,12 @@ export function CreateForm({
         </motion.div>
       </AnimatePresence>
 
+      {error ? (
+        <p className="bg-destructive/5 text-destructive rounded-lg px-3 py-2 text-xs leading-5">
+          {error}
+        </p>
+      ) : null}
+
       <div className="flex justify-end pt-1">
         <Button
           type="submit"
@@ -284,6 +328,14 @@ export function CreateForm({
       </div>
     </form>
   );
+}
+
+function relayHost(value: string) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
 }
 
 function ArrivingQuestion({
@@ -433,19 +485,4 @@ function Field({
       {children}
     </div>
   );
-}
-
-export function selectableProviderModels<
-  T extends { value: string; label: string },
->(models: readonly T[]) {
-  const seen = new Set<string>();
-  return models.filter((option) => {
-    const value = option.value.trim().toLowerCase();
-    const label = option.label.trim().toLowerCase();
-    if (!value || value === "auto" || label === "auto" || seen.has(value)) {
-      return false;
-    }
-    seen.add(value);
-    return true;
-  });
 }

@@ -90,8 +90,11 @@ describe("workspace agent capability policy", () => {
   it("upgrades the exact legacy Advertising permission snapshot", () => {
     const config = effectiveAgentConfigFor("ads", {
       enabled: true,
-      driver: "codex",
-      model: "gpt-5.6-luna",
+      deploymentTarget: "cloud",
+      inference: {
+        provider: "opencode",
+        model: "opencode-go/deepseek-v4-flash",
+      },
       approvals: "auto",
       capabilities: [],
       integrations: [],
@@ -126,8 +129,11 @@ describe("workspace agent capability policy", () => {
   it("upgrades the exact legacy Setup permission snapshot", () => {
     const config = effectiveAgentConfigFor("setup", {
       enabled: true,
-      driver: "codex",
-      model: "gpt-5.6-luna",
+      deploymentTarget: "cloud",
+      inference: {
+        provider: "opencode",
+        model: "opencode-go/deepseek-v4-flash",
+      },
       approvals: "auto",
       capabilities: [],
       integrations: [],

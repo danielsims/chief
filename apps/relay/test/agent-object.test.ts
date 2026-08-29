@@ -1,6 +1,6 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   agentJobListSchema,
@@ -9,7 +9,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("agent-queue-test");
 const agentId = agentIdSchema.parse("engineer");
@@ -196,7 +196,7 @@ describe("AgentObject", () => {
     });
   });
 
-  it("round-trips versioned logical cell state without copying runtime databases", async () => {
+  it("round-trips logical state and computer files as one portable cell", async () => {
     const stub = agentStub();
     const first = await ownerRequest(
       stub,
@@ -212,7 +212,7 @@ describe("AgentObject", () => {
       `snapshot?agentId=${agentId}`,
       "PUT",
       {
-        version: 1,
+        version: 2,
         cellId: `${workspaceId}:${agentId}`,
         workspaceId,
         agentId,
@@ -221,6 +221,12 @@ describe("AgentObject", () => {
           {
             key: "conversation:general:messages",
             value: [{ role: "assistant", content: "Portable state" }],
+          },
+        ],
+        files: [
+          {
+            path: "/workspace/README.md",
+            contentBase64: btoa("# Portable agent\n"),
           },
         ],
       },
@@ -232,21 +238,32 @@ describe("AgentObject", () => {
     );
 
     expect(initial).toEqual({
-      version: 1,
+      version: 2,
       cellId: `${workspaceId}:${agentId}`,
       workspaceId,
       agentId,
       exportedAt: expect.any(String),
       records: [],
+      files: [],
     });
     expect(imported.status).toBe(200);
-    expect(await imported.json()).toEqual({ ok: true, imported: 1 });
+    expect(await imported.json()).toEqual({
+      ok: true,
+      importedRecords: 1,
+      importedFiles: 1,
+    });
     expect(await exported.json()).toMatchObject({
-      version: 1,
+      version: 2,
       records: [
         {
           key: "conversation:general:messages",
           value: [{ role: "assistant", content: "Portable state" }],
+        },
+      ],
+      files: [
+        {
+          path: "/workspace/README.md",
+          contentBase64: btoa("# Portable agent\n"),
         },
       ],
     });
@@ -254,11 +271,11 @@ describe("AgentObject", () => {
 });
 
 function agentStub() {
-  const agents = (env as unknown as { AGENTS: DurableObjectNamespace }).AGENTS;
+  const { AGENTS: agents } = relayTestEnv();
   return agents.get(agents.idFromName(`${workspaceId}:${agentId}`));
 }
 
-function post(stub: DurableObjectStub, operation: string, body: unknown) {
+function post(stub: DurableObjectStub, operation: string, body: JsonObject) {
   const request = withTrustedContext(
     new Request(`https://relay.test/internal/${operation}`, {
       method: "POST",
@@ -284,14 +301,14 @@ function ownerRequest(
   stub: DurableObjectStub,
   path: string,
   method: "GET" | "POST" | "PUT",
-  body?: unknown,
+  body?: JsonObject,
 ) {
   return stub.fetch(
     withTrustedContext(
       new Request(`https://relay.test/internal/${path}`, {
         method,
         ...(body === undefined
-          ? {}
+          ? undefined
           : {
               headers: { "content-type": "application/json" },
               body: JSON.stringify(body),

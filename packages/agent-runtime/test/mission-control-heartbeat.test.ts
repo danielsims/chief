@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
+import type { MissionControlHeartbeatManager } from "../src/mission-control-heartbeat.js";
 import type { RecurringWorkRecord } from "../src/types.js";
 import {
   MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
@@ -42,7 +42,7 @@ function fixture() {
       work = next;
       return Promise.resolve();
     },
-  } as unknown as SessionManager;
+  } satisfies MissionControlHeartbeatManager;
   return { manager, rootChats, work: () => work };
 }
 
@@ -50,12 +50,18 @@ void test("mission control waits for Chief configuration without creating a brok
   let saved = false;
   const manager = {
     agentPreference: () => Promise.resolve(undefined),
+    store: {
+      channelStore: () => ({
+        get: () => Promise.resolve(undefined),
+      }),
+    },
+    createRootChat: () => Promise.resolve(undefined),
     recurringWorkByOperationKey: () => Promise.resolve(undefined),
     saveRecurringWork: () => {
       saved = true;
       return Promise.resolve();
     },
-  } as unknown as SessionManager;
+  } satisfies MissionControlHeartbeatManager;
   await syncMissionControlHeartbeat(manager, "workspace", {
     mode: "mission-control",
     missionControlChannelId: "channel-a",

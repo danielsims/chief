@@ -5,18 +5,17 @@ import {
 } from "./recipes.js";
 import { GoogleOAuthSetupError } from "./types.js";
 
-interface GoogleInstalledCredentials {
-  readonly client_id?: unknown;
-  readonly client_secret?: unknown;
-  readonly project_id?: unknown;
-  readonly auth_uri?: unknown;
-  readonly token_uri?: unknown;
-}
-
 export interface GoogleDesktopOAuthClientValues {
   readonly clientId: unknown;
   readonly clientSecret: unknown;
   readonly projectId?: unknown;
+}
+
+type CredentialValue =
+  boolean | CredentialRecord | CredentialValue[] | null | number | string;
+
+interface CredentialRecord {
+  readonly [key: string]: CredentialValue;
 }
 
 /** Remove OAuth client material before browser state enters model context. */
@@ -47,25 +46,38 @@ const GOOGLE_TOKEN_ENDPOINTS = [
   "https://www.googleapis.com/oauth2/v3/token",
 ] as const;
 
-const requiredString = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.trim().length === 0) {
+function parseCredentialString(value: unknown): string | undefined {
+  const text = String(value);
+  return text === value && text.trim() ? text.trim() : undefined;
+}
+
+function isCredentialRecord(value: unknown): value is CredentialRecord {
+  return Object(value) === value && !Array.isArray(value);
+}
+
+const parseRequiredCredentialString = (
+  value: unknown,
+  field: string,
+): string => {
+  const text = parseCredentialString(value);
+  if (!text) {
     throw new GoogleOAuthSetupError(
       "invalid-credentials",
       `Google's credential file is missing ${field}.`,
       "Create a Desktop app OAuth client and download its JSON file again.",
     );
   }
-  return value.trim();
+  return text;
 };
 
-const googleEndpoint = (
+const parseGoogleEndpoint = (
   value: unknown,
   canonical: string,
   allowed: readonly string[],
   field: string,
 ): string => {
   if (value === undefined) return canonical;
-  const endpoint = requiredString(value, field);
+  const endpoint = parseRequiredCredentialString(value, field);
   if (!allowed.includes(endpoint)) {
     throw new GoogleOAuthSetupError(
       "invalid-credentials",
@@ -79,7 +91,7 @@ const googleEndpoint = (
 export function createGoogleDesktopOAuthIdentity(
   values: GoogleDesktopOAuthClientValues,
 ): GoogleOAuthClientIdentity {
-  const clientId = requiredString(values.clientId, "client_id");
+  const clientId = parseRequiredCredentialString(values.clientId, "client_id");
   if (!clientId.endsWith(".apps.googleusercontent.com")) {
     throw new GoogleOAuthSetupError(
       "invalid-credentials",
@@ -87,17 +99,17 @@ export function createGoogleDesktopOAuthIdentity(
       "Create the OAuth client with Desktop app as its application type.",
     );
   }
-  const projectId =
-    typeof values.projectId === "string" && values.projectId.trim()
-      ? values.projectId.trim()
-      : undefined;
+  const projectId = parseCredentialString(values.projectId);
   return {
     grant: "authorization_code",
     authorizationUrl: GOOGLE_OAUTH_AUTHORIZATION_URL,
     tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
     clientId,
-    clientSecret: requiredString(values.clientSecret, "client_secret"),
-    ...(projectId ? { projectId } : {}),
+    clientSecret: parseRequiredCredentialString(
+      values.clientSecret,
+      "client_secret",
+    ),
+    ...(projectId ? { projectId } : undefined),
   };
 }
 
@@ -121,7 +133,7 @@ export function parseGoogleDesktopOAuthCredentials(
       "Download the OAuth client JSON again.",
     );
   }
-  if (!parsed || typeof parsed !== "object" || !("installed" in parsed)) {
+  if (!isCredentialRecord(parsed) || !("installed" in parsed)) {
     throw new GoogleOAuthSetupError(
       "invalid-credentials",
       "Google's credential file is not for a Desktop app.",
@@ -129,29 +141,28 @@ export function parseGoogleDesktopOAuthCredentials(
     );
   }
   const installed = parsed.installed;
-  if (!installed || typeof installed !== "object") {
+  if (!isCredentialRecord(installed)) {
     throw new GoogleOAuthSetupError(
       "invalid-credentials",
       "Google's credential file has an invalid Desktop app section.",
       "Download the OAuth client JSON again.",
     );
   }
-  const values: GoogleInstalledCredentials = installed;
   const identity = createGoogleDesktopOAuthIdentity({
-    clientId: values.client_id,
-    clientSecret: values.client_secret,
-    projectId: values.project_id,
+    clientId: installed.client_id,
+    clientSecret: installed.client_secret,
+    projectId: installed.project_id,
   });
   return {
     ...identity,
-    authorizationUrl: googleEndpoint(
-      values.auth_uri,
+    authorizationUrl: parseGoogleEndpoint(
+      installed.auth_uri,
       GOOGLE_OAUTH_AUTHORIZATION_URL,
       GOOGLE_AUTHORIZATION_ENDPOINTS,
       "auth_uri",
     ),
-    tokenUrl: googleEndpoint(
-      values.token_uri,
+    tokenUrl: parseGoogleEndpoint(
+      installed.token_uri,
       GOOGLE_OAUTH_TOKEN_URL,
       GOOGLE_TOKEN_ENDPOINTS,
       "token_uri",

@@ -1,3 +1,6 @@
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonString, parseJsonValue } from "@chief/relay-contracts";
+
 import type * as schema from "./db/schema.js";
 import type {
   AgentMessageMetadata,
@@ -47,14 +50,16 @@ function eventMessage(event: AgentEvent) {
               type: "channel" as const,
               ...(event.threadRootId
                 ? { threadRootId: event.threadRootId }
-                : {}),
-              ...(event.mentions?.length ? { mentions: event.mentions } : {}),
+                : undefined),
+              ...(event.mentions?.length
+                ? { mentions: event.mentions }
+                : undefined),
               ...(event.channelAction
                 ? { channelAction: event.channelAction }
-                : {}),
+                : undefined),
             } satisfies AgentMessageMetadata,
           }
-        : {}),
+        : undefined),
     } as const;
   }
   if (
@@ -92,20 +97,60 @@ function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
           input: block.input,
         };
       case "tool_result":
-        return {
-          type: "dynamic-tool",
-          toolName: "tool",
-          toolCallId: block.tool_use_id,
-          state: block.is_error ? "output-error" : "output-available",
-          input: undefined,
-          ...(block.is_error
-            ? { errorText: String(block.content) }
-            : { output: block.content }),
-        } as ChiefUIMessage["parts"][number];
+        return block.is_error
+          ? {
+              type: "dynamic-tool",
+              toolName: "tool",
+              toolCallId: block.tool_use_id,
+              state: "output-error",
+              input: undefined,
+              errorText: textContent(block.content),
+            }
+          : {
+              type: "dynamic-tool",
+              toolName: "tool",
+              toolCallId: block.tool_use_id,
+              state: "output-available",
+              input: undefined,
+              output: block.content,
+            };
       default:
         return block;
     }
   });
+}
+
+function textContent(value: JsonValue | undefined): string {
+  if (value === undefined) return "";
+  return isJsonString(value) ? value : JSON.stringify(value);
+}
+
+type DynamicToolPart = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "dynamic-tool" }
+>;
+
+function completedToolPart(
+  part: DynamicToolPart,
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+): DynamicToolPart {
+  return block.is_error
+    ? {
+        type: "dynamic-tool",
+        toolName: part.toolName,
+        toolCallId: part.toolCallId,
+        state: "output-error",
+        input: part.input,
+        errorText: textContent(block.content),
+      }
+    : {
+        type: "dynamic-tool",
+        toolName: part.toolName,
+        toolCallId: part.toolCallId,
+        state: "output-available",
+        input: part.input,
+        output: block.content,
+      };
 }
 
 function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
@@ -129,7 +174,7 @@ function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
         type: "tool_use",
         id: part.toolCallId,
         name: part.toolName,
-        input: part.input,
+        input: parseJsonValue(part.input),
       };
       if (part.state === "output-available") {
         return [
@@ -137,7 +182,7 @@ function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
           {
             type: "tool_result",
             tool_use_id: part.toolCallId,
-            content: part.output,
+            content: parseJsonValue(part.output),
           },
         ];
       }
@@ -222,21 +267,9 @@ function uiEventMessages(events: AgentEvent[]) {
         if (part?.type !== "dynamic-tool") return false;
         prior.parts = prior.parts.map((candidate, candidateIndex) =>
           candidateIndex === partIndex
-            ? block.is_error
-              ? {
-                  ...part,
-                  state: "output-error" as const,
-                  input: part.input,
-                  errorText: String(block.content),
-                }
-              : {
-                  ...part,
-                  state: "output-available" as const,
-                  input: part.input,
-                  output: block.content,
-                }
+            ? completedToolPart(part, block)
             : candidate,
-        ) as ChiefUIMessage["parts"];
+        );
         mergedToolTarget = prior;
         return false;
       }
@@ -326,16 +359,16 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
       type: "message",
       id: message.id,
       role: message.role === "system" ? "user" : message.role,
-      content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+      content: contentBlocks(message.parts),
       ...(message.metadata.threadRootId
         ? { threadRootId: message.metadata.threadRootId }
-        : {}),
+        : undefined),
       ...(message.metadata.mentions?.length
         ? { mentions: message.metadata.mentions }
-        : {}),
+        : undefined),
       ...(message.metadata.channelAction
         ? { channelAction: message.metadata.channelAction }
-        : {}),
+        : undefined),
     };
   }
   if (message.metadata) return message.metadata;
@@ -344,7 +377,7 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
     type: "message",
     id: message.id,
     role: message.role,
-    content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+    content: contentBlocks(message.parts),
   };
 }
 

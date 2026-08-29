@@ -2,15 +2,24 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import test from "node:test";
-import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+import { isJsonNumber, parseJsonObject } from "@chief/relay-contracts";
 
 import {
   agentLocalOperations,
   createAgentLocalMcpHandler,
 } from "../src/agent-local-mcp.js";
 import { localToolsOpenApi } from "../src/local-tools.js";
+
+function listeningPort(
+  address: ReturnType<ReturnType<typeof createServer>["address"]>,
+) {
+  const port = parseJsonObject(address)?.port;
+  assert.ok(isJsonNumber(port));
+  return port;
+}
 
 void test("agent-bound MCP exposes Chief local operations with resolved schemas", () => {
   const operations = agentLocalOperations(
@@ -33,25 +42,22 @@ void test("agent-bound MCP exposes Chief local operations with resolved schemas"
   assert.ok(postMessage);
   assert.deepEqual(postMessage.inputSchema.required, ["content", "channelId"]);
   assert.deepEqual(
-    (postMessage.inputSchema.properties as Record<string, unknown>).channelId,
+    parseJsonObject(postMessage.inputSchema.properties)?.channelId,
     { type: "string" },
   );
   assert.equal(
-    (postMessage.inputSchema.properties as Record<string, unknown>).content !==
-      undefined,
+    parseJsonObject(postMessage.inputSchema.properties)?.content !== undefined,
     true,
   );
-
   const listMessages = operations.get("localTools.channelsMessagesList");
   assert.ok(listMessages);
   assert.deepEqual(listMessages.inputSchema.required, ["channelId"]);
   assert.deepEqual(
-    (listMessages.inputSchema.properties as Record<string, unknown>).channelId,
+    parseJsonObject(listMessages.inputSchema.properties)?.channelId,
     { type: "string" },
   );
   assert.equal(
-    (listMessages.inputSchema.properties as Record<string, unknown>).cursor !==
-      undefined,
+    parseJsonObject(listMessages.inputSchema.properties)?.cursor !== undefined,
     true,
   );
   assert.equal(operations.has("localTools.specialistsDelegate"), true);
@@ -72,7 +78,8 @@ void test("agent-bound MCP rejects workspace tokens and forwards the session cap
   const server = createServer();
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const address = server.address();
+  const origin = `http://127.0.0.1:${listeningPort(address)}`;
   const handleMcp = createAgentLocalMcpHandler({
     authenticate: (token) =>
       token === "live-agent-token"
@@ -98,7 +105,7 @@ void test("agent-bound MCP rejects workspace tokens and forwards the session cap
     }
     if (request.url === "/local-tools/channels/channel-a/messages") {
       observedMessagePath = request.url;
-      request.on("data", (chunk: unknown) => {
+      request.on("data", (chunk: string | Uint8Array) => {
         observedMessageBody += String(chunk);
       });
       request.on("end", () => {

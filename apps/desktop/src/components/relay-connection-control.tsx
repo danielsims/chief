@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { Settings2 } from "lucide-react";
+import { Check, Server, Settings2 } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -27,7 +27,11 @@ import {
   RELAY_URL,
   USING_CUSTOM_RELAY,
 } from "../lib/config";
-import { validateRelayConnection } from "../lib/relay-connection";
+import {
+  knownRelayConnections,
+  validateRelayConnection,
+} from "../lib/relay-connection";
+import { ChiefMark } from "./chief-mark";
 
 export function RelayConnectionControl({
   error,
@@ -113,10 +117,43 @@ export function RelayConnectionDialog({
 
 export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
   const { connectRelay } = useAuth();
+  const chiefCloud = {
+    version: 1 as const,
+    relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
+    authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
+    authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
+  };
+  const savedRelays = [
+    chiefCloud,
+    ...knownRelayConnections().filter(
+      (connection) => connection.relayUrl !== chiefCloud.relayUrl,
+    ),
+  ];
   const [showsSelfHosted, setShowsSelfHosted] = useState(USING_CUSTOM_RELAY);
-  const [relayUrl, setRelayUrl] = useState(USING_CUSTOM_RELAY ? RELAY_URL : "");
+  const [relayUrl, setRelayUrl] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const connect = async (connection: (typeof savedRelays)[number]) => {
+    if (working) return;
+    if (connection.relayUrl === new URL(RELAY_URL).origin) {
+      onDone?.();
+      return;
+    }
+    setWorking(true);
+    setError(null);
+    try {
+      await connectRelay(connection);
+      onDone?.();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Chief could not connect to this relay.",
+      );
+      setWorking(false);
+    }
+  };
 
   const apply = async () => {
     if (working) return;
@@ -145,34 +182,45 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
     }
   };
 
-  const connectChiefCloud = async () => {
-    if (working) return;
-    if (!USING_CUSTOM_RELAY) {
-      onDone?.();
-      return;
-    }
-    setWorking(true);
-    setError(null);
-    try {
-      await connectRelay({
-        version: 1,
-        relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
-        authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
-        authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
-      });
-      onDone?.();
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Chief could not connect to Chief Cloud.",
-      );
-      setWorking(false);
-    }
-  };
-
   return (
     <div className="p-5">
+      <div className="mb-5">
+        <p className="text-sm font-medium">Relays</p>
+        <div className="mt-2 space-y-1">
+          {savedRelays.map((connection) => {
+            const cloud = connection.relayUrl === chiefCloud.relayUrl;
+            const active = connection.relayUrl === new URL(RELAY_URL).origin;
+            return (
+              <button
+                key={connection.relayUrl}
+                type="button"
+                disabled={working}
+                onClick={() => void connect(connection)}
+                className="hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors disabled:opacity-50"
+              >
+                {cloud ? (
+                  <ChiefMark className="text-foreground size-4" />
+                ) : (
+                  <Server className="text-muted-foreground size-4 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm">
+                    {cloud ? "Chief Cloud" : new URL(connection.relayUrl).host}
+                  </span>
+                  {cloud ? (
+                    <span className="text-muted-foreground block truncate text-xs">
+                      Managed by Chief
+                    </span>
+                  ) : null}
+                </span>
+                {active ? (
+                  <Check className="text-muted-foreground size-4 shrink-0" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       {!showsSelfHosted ? (
         <button
           type="button"
@@ -204,16 +252,6 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
       ) : null}
 
       <div className="mt-6 flex justify-end gap-2">
-        {USING_CUSTOM_RELAY ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => void connectChiefCloud()}
-            disabled={working}
-          >
-            Use Chief Cloud
-          </Button>
-        ) : null}
         {onDone ? (
           <Button
             type="button"

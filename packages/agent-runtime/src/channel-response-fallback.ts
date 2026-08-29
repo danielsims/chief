@@ -31,8 +31,9 @@ export class AddressedChannelReplyFallback {
     if (text) {
       this.candidate = {
         ...event,
+        role: "assistant",
         content: [{ type: "text", text }],
-      } as AssistantMessage;
+      } satisfies AssistantMessage;
     }
   }
 

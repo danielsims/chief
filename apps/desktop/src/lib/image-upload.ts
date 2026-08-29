@@ -19,7 +19,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 }
 
 /**
- * Normalize uploads before sending them to Convex file storage. WebP keeps
+ * Normalize uploads before sending them to relay file storage. WebP keeps
  * alpha while capping storage and transfer size.
  */
 async function imageFileToBlob(

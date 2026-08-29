@@ -1,5 +1,7 @@
 import { createSign, randomUUID } from "node:crypto";
 
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 export interface GitHubAppCredentials {
   appId: string;
   privateKey: string;
@@ -10,7 +12,7 @@ export interface GitHubAppToken {
   expiresAt: number;
 }
 
-function base64Url(value: Buffer) {
+function base64Url(value: Buffer): string {
   return value
     .toString("base64")
     .replace(/=/g, "")
@@ -18,7 +20,10 @@ function base64Url(value: Buffer) {
     .replace(/\//g, "_");
 }
 
-function signJwt(payload: Record<string, number | string>, privateKey: string) {
+function signJwt(
+  payload: Record<string, number | string>,
+  privateKey: string,
+): string {
   const header = base64Url(
     Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })),
   );
@@ -65,26 +70,24 @@ export class GitHubApp {
         },
       },
     );
-    const body = (await response.json().catch(() => null)) as {
-      token?: string;
-      expires_at?: string;
-      message?: string;
-    } | null;
-    if (!response.ok || !body?.token) {
+    const body = parseJsonObject(await response.json().catch(() => null));
+    const token = body?.token;
+    if (!response.ok || !isJsonString(token)) {
       throw new Error(
-        `GitHub could not mint an installation token: ${body?.message ?? response.status}`,
+        `GitHub could not mint an installation token: ${isJsonString(body?.message) ? body.message : response.status}`,
       );
     }
+    const expiresAt = body?.expires_at;
     return {
-      token: body.token,
-      expiresAt: body.expires_at
-        ? Date.parse(body.expires_at)
+      token,
+      expiresAt: isJsonString(expiresAt)
+        ? Date.parse(expiresAt)
         : now + 60 * 60_000,
     };
   }
 
   /** Returns a stable opaque reference for a freshly installed app. */
-  static secretReference() {
+  static secretReference(): string {
     return `github-app:${randomUUID()}`;
   }
 }

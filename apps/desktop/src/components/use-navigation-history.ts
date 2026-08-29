@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 interface BrowserHistoryState {
   idx?: number;
   key?: string;
 }
 
 function historyState(): BrowserHistoryState {
-  return (window.history.state ?? {}) as BrowserHistoryState;
+  const state: unknown = window.history.state;
+  if (!isJsonObject(state)) return {};
+  const idx = state.idx;
+  const key = state.key;
+  if (isJsonNumber(idx) && isJsonString(key)) return { idx, key };
+  if (isJsonNumber(idx)) return { idx };
+  return isJsonString(key) ? { key } : {};
 }
 
 function isEditableTarget(target: EventTarget | null) {

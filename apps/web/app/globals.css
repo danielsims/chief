@@ -171,12 +171,6 @@ body {
   background-size: cover;
   background-blend-mode: multiply;
 }
-.hero-product img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
 /* A coded mirror of the desktop dashboard. The proportions and hierarchy are
    taken from apps/desktop rather than approximated from the old screenshot. */
 .hero-workspace {
@@ -3358,10 +3352,6 @@ body {
     margin: 56px 0 0;
     padding: 30px 16px 22px;
     background-position: center;
-  }
-  .hero-product img {
-    width: 720px;
-    max-width: none;
   }
   .hero-workspace {
     width: 900px;

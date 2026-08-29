@@ -6,6 +6,11 @@ import WebSocket from "ws";
 
 import type { AgentConfig, AgentJob } from "@chief/relay-contracts";
 import { createNip98Authorization, RelayClient } from "@chief/relay-client";
+import {
+  agentConfigSchema,
+  parseJsonObject,
+  parseJsonString,
+} from "@chief/relay-contracts";
 
 import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
@@ -28,7 +33,7 @@ const relayCellHostInstructions = `# Relay cell tool binding
 
 In this relay-hosted cell, the canonical plugin tools are named plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation and authorization require explicit user approval from a plugin card. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
 
-The canonical browser tools are browser_navigate, browser_snapshot, browser_click, browser_type, browser_scroll, browser_back, and browser_release. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Navigate, snapshot before drawing conclusions, and release when finished.`;
+The canonical browser tools are browser_open, browser_snapshot, browser_click, browser_fill, browser_select, browser_press, and browser_close. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Open the page, snapshot before drawing conclusions, and close it when finished.`;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -37,7 +42,9 @@ function requiredEnvironment(name: string) {
 }
 
 function parseConfig(): AgentConfig {
-  return JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")) as AgentConfig;
+  return agentConfigSchema.parse(
+    JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")),
+  );
 }
 
 function relayClient() {
@@ -53,13 +60,19 @@ function relayClient() {
 
 function workspaceContext(job: AgentJob) {
   const payload = job.payload;
+  const name = parseJsonString(payload.name);
+  const website = parseJsonString(payload.website);
+  const selectedApps = Array.isArray(payload.selectedApps)
+    ? payload.selectedApps.flatMap((value) => {
+        const app = parseJsonString(value);
+        return app === undefined ? [] : [app];
+      })
+    : [];
   return [
-    typeof payload.name === "string" ? `Workspace: ${payload.name}` : undefined,
-    typeof payload.website === "string" && payload.website
-      ? `Website: ${payload.website}`
-      : undefined,
-    Array.isArray(payload.selectedApps) && payload.selectedApps.length > 0
-      ? `Selected apps (relevance only): ${payload.selectedApps.join(", ")}`
+    name ? `Workspace: ${name}` : undefined,
+    website ? `Website: ${website}` : undefined,
+    selectedApps.length > 0
+      ? `Selected apps (relevance only): ${selectedApps.join(", ")}`
       : undefined,
   ]
     .filter(Boolean)
@@ -88,16 +101,13 @@ function postedFinalToOrigin(
       ? event.content.some((block) => {
           if (
             block.type !== "tool_use" ||
-            !block.name.includes("relay_message_post")
+            !block.name.includes("channels_messages_post")
           ) {
             return false;
           }
-          const input = block.input as Record<string, unknown> | undefined;
-          if (input?.conversationId !== conversationId) return false;
-          const key =
-            typeof input.idempotencyKey === "string"
-              ? input.idempotencyKey
-              : "";
+          const input = parseJsonObject(block.input);
+          if (input?.channelId !== conversationId) return false;
+          const key = parseJsonString(input.idempotencyKey) ?? "";
           return key.includes("result") || key.includes("handoff");
         })
       : false,
@@ -108,15 +118,12 @@ async function executeJob(
   cell: DesktopAgentCell,
   client: RelayClient,
   config: AgentConfig,
-  lease: Awaited<ReturnType<RelayClient["claimAgentJob"]>> & {},
+  lease: NonNullable<Awaited<ReturnType<RelayClient["claimAgentJob"]>>>,
 ) {
   const agentId = requiredEnvironment("CHIEF_AGENT_ID");
   const job = lease.job;
   const conversationId = jobConversationId(job);
-  const instruction =
-    typeof job.payload.instruction === "string"
-      ? job.payload.instruction.trim()
-      : "";
+  const instruction = parseJsonString(job.payload.instruction)?.trim() ?? "";
   if (!instruction) throw new Error("The durable job has no instruction.");
   await cell.enqueue({
     id: job.id,
@@ -146,10 +153,7 @@ async function executeJob(
     relayId: requiredEnvironment("CHIEF_RELAY_URL"),
     workspaceId: job.workspaceId,
     conversationId,
-    threadRootId:
-      typeof job.payload.threadRootId === "string"
-        ? job.payload.threadRootId
-        : undefined,
+    threadRootId: parseJsonString(job.payload.threadRootId),
     agentId,
     cellId: cell.id,
     jobId: job.id,
@@ -162,15 +166,14 @@ async function executeJob(
   try {
     const definition = getAgent(agentId);
     if (!definition) throw new Error(`Unknown agent ${agentId}.`);
-    const skillId = job.payload.skillId;
-    const activeSkill =
-      typeof skillId === "string"
-        ? agentSkillById(agentId, skillId)
-        : undefined;
-    const priorEvents =
-      (await cell.readState<AgentEvent[]>(`events:${conversationId}`)) ?? [];
+    const skillId = parseJsonString(job.payload.skillId);
+    const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
+    const storedEvents = await cell.readState(`events:${conversationId}`);
+    const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnStart = priorEvents.length;
     process.env.CHIEF_CONVERSATION_ID = conversationId;
+    process.env.CHIEF_THREAD_ROOT_ID =
+      parseJsonString(job.payload.threadRootId) ?? "";
     relayMcp = await startRelayCellMcpHttpServer();
     const agentSession = new AgentSession(
       {
@@ -190,10 +193,13 @@ async function executeJob(
       },
       conversationId,
       {
-        driver: normalizeDriver(config.driver),
+        driver: normalizeDriver(config.inference.provider),
         access: "guarded",
         workspaceId: job.workspaceId,
-        model: config.model.toLowerCase() === "auto" ? undefined : config.model,
+        model:
+          config.inference.model.toLowerCase() === "auto"
+            ? undefined
+            : config.inference.model,
         mcpServers: [
           relayMcp.spec,
           ...(await plugins.mcpServers(job.workspaceId)),
@@ -206,9 +212,7 @@ async function executeJob(
     const activityPublisher = new RelayActivityPublisher(
       client,
       conversationId,
-      typeof job.payload.threadRootId === "string"
-        ? job.payload.threadRootId
-        : undefined,
+      parseJsonString(job.payload.threadRootId),
       {
         ...activityContext,
         providerSessionId: () => agentSession.sessionId,
@@ -233,13 +237,15 @@ async function executeJob(
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      await cell.readState<string>(`providerSession:${conversationId}`),
+      parseJsonString(
+        await cell.readState(`providerSession:${conversationId}`),
+      ),
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
       privateInstructions: [
         workspaceContext(job),
         job.kind === "conversation.message"
-          ? `Return exactly one user-facing final reply. Do not call relay_message_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use relay_reaction_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
+          ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,
       ]
         .filter(Boolean)
@@ -339,10 +345,9 @@ function normalizeDriver(driver: string): DriverType {
 }
 
 function jobConversationId(job: AgentJob) {
-  const value = job.payload.conversationId;
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : "mission-control";
+  return (
+    parseJsonString(job.payload.conversationId)?.trim() ?? "mission-control"
+  );
 }
 
 async function drainMailbox(
@@ -423,6 +428,14 @@ async function listenForJobs() {
   }
 }
 
+async function smokeLocalStore() {
+  const cellRoot = requiredEnvironment("CHIEF_CELL_ROOT");
+  mkdirSync(cellRoot, { recursive: true, mode: 0o700 });
+  const store = new LocalStore(join(cellRoot, "cell.sqlite"));
+  await store.health();
+  await store.close();
+}
+
 // A tiny health endpoint lets the native supervisor distinguish a live cell
 // process from one that failed before loading its isolated database.
 function healthEndpoint() {
@@ -436,6 +449,8 @@ function healthEndpoint() {
 
 if (mode === "mcp") {
   await runRelayCellMcpServer();
+} else if (mode === "smoke") {
+  await smokeLocalStore();
 } else {
   healthEndpoint();
   await listenForJobs();

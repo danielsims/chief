@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 
 export interface EmailAddress {
@@ -43,17 +45,26 @@ export interface CloudflareEmailResult {
   queued: string[];
 }
 
-interface CloudflareMessage {
-  code: number;
-  message: string;
-}
+const cloudflareMessageSchema = z.object({
+  code: z.number(),
+  message: z.string(),
+});
 
-interface CloudflareEmailResponse {
-  success: boolean;
-  errors: CloudflareMessage[];
-  messages: CloudflareMessage[];
-  result: CloudflareEmailResult | null;
-}
+const cloudflareEmailResponseSchema = z.object({
+  success: z.boolean(),
+  errors: z.array(cloudflareMessageSchema),
+  messages: z.array(cloudflareMessageSchema),
+  result: z
+    .object({
+      delivered: z.array(z.string()),
+      message_id: z.string(),
+      permanent_bounces: z.array(z.string()),
+      queued: z.array(z.string()),
+    })
+    .nullable(),
+});
+
+type CloudflareMessage = z.infer<typeof cloudflareMessageSchema>;
 
 export interface CloudflareEmailClientOptions {
   accountId?: string;
@@ -116,9 +127,11 @@ export function createCloudflareEmailClient(
         },
       );
 
-      const payload = (await response.json()) as CloudflareEmailResponse;
+      const payload = cloudflareEmailResponseSchema.parse(
+        await response.json(),
+      );
       if (!response.ok || !payload.success || !payload.result) {
-        throw new CloudflareEmailError(response.status, payload.errors ?? []);
+        throw new CloudflareEmailError(response.status, payload.errors);
       }
       return payload.result;
     },

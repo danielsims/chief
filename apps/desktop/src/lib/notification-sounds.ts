@@ -2,6 +2,12 @@ import { useSyncExternalStore } from "react";
 import { play } from "cuelume";
 
 import type { ChannelEvent } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonBoolean,
+  isJsonObject,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 import { observedChannelMessage } from "./channel-read-state";
 
@@ -41,19 +47,17 @@ export function isNotificationSound(
 }
 
 export function parseNotificationSoundPreferences(
-  value: unknown,
+  value: JsonValue | undefined,
 ): NotificationSoundPreferences {
-  if (!value || typeof value !== "object") return DEFAULT_PREFERENCES;
-  const candidate = value as Partial<NotificationSoundPreferences>;
+  if (!isJsonObject(value)) return DEFAULT_PREFERENCES;
+  const candidate = value;
   return {
-    desktopEnabled:
-      typeof candidate.desktopEnabled === "boolean"
-        ? candidate.desktopEnabled
-        : DEFAULT_PREFERENCES.desktopEnabled,
-    enabled:
-      typeof candidate.enabled === "boolean"
-        ? candidate.enabled
-        : DEFAULT_PREFERENCES.enabled,
+    desktopEnabled: isJsonBoolean(candidate.desktopEnabled)
+      ? candidate.desktopEnabled
+      : DEFAULT_PREFERENCES.desktopEnabled,
+    enabled: isJsonBoolean(candidate.enabled)
+      ? candidate.enabled
+      : DEFAULT_PREFERENCES.enabled,
     sound: isNotificationSound(candidate.sound)
       ? candidate.sound
       : DEFAULT_PREFERENCES.sound,
@@ -64,7 +68,9 @@ function readPreferences() {
   if (cachedPreferences) return cachedPreferences;
   try {
     cachedPreferences = parseNotificationSoundPreferences(
-      JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as unknown,
+      parseJsonValue(
+        JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"),
+      ),
     );
   } catch {
     cachedPreferences = DEFAULT_PREFERENCES;

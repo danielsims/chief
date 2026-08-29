@@ -8,14 +8,35 @@ import {
   isoDateTimeSchema,
   jobIdSchema,
   messageIdSchema,
+  secretNameSchema,
   workspaceIdSchema,
 } from "./identifiers";
+import { jsonObjectSchema, jsonValueSchema } from "./json";
+
+export const agentInferenceSchema = z.discriminatedUnion("provider", [
+  z
+    .object({
+      provider: z.literal("opencode"),
+      model: z.literal("opencode-go/deepseek-v4-flash"),
+      secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("vercel-ai-gateway"),
+      model: z.literal("deepseek/deepseek-v4-flash"),
+      secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+]);
+
+export type AgentInferenceConfig = z.infer<typeof agentInferenceSchema>;
 
 export const agentConfigSchema = z
   .object({
     enabled: z.boolean(),
-    driver: z.string().trim().min(1).max(64),
-    model: z.string().trim().min(1).max(128),
+    deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
+    inference: agentInferenceSchema,
     approvals: z.enum(["auto", "ask"]),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
@@ -26,6 +47,8 @@ export const agentConfigSchema = z
           "workspace.write",
           "projects.read",
           "projects.write",
+          "machines.read",
+          "machines.write",
           "channels.read",
           "channels.create",
           "channels.update",
@@ -59,8 +82,12 @@ export const agentConfigSchema = z
 
 export const defaultAgentConfig = agentConfigSchema.parse({
   enabled: true,
-  driver: "openCodeGo",
-  model: "deepseek-v4-flash-free",
+  deploymentTarget: "cloud",
+  inference: {
+    provider: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+    secretRef: "opencode",
+  },
   approvals: "auto",
   capabilities: [],
   integrations: [],
@@ -76,6 +103,30 @@ export const defaultAgentConfig = agentConfigSchema.parse({
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+export const agentRuntimeDescriptorSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+    address: z.url(),
+    deploymentTarget: z.enum(["phone", "desktop", "cloud"]),
+    status: z.enum(["ready", "waiting", "disabled"]),
+    computer: z.enum(["cloudflare-worker", "local-celld"]),
+  })
+  .strict();
+
+export type AgentRuntimeDescriptor = z.infer<
+  typeof agentRuntimeDescriptorSchema
+>;
+
+export const invokeAgentSchema = z
+  .object({
+    instruction: z.string().trim().min(1).max(20_000),
+    conversationId: conversationIdSchema.optional(),
+    threadRootId: messageIdSchema.optional(),
+    idempotencyKey: z.string().trim().min(8).max(256),
+  })
+  .strict();
 
 export const agentConfigResultSchema = z
   .object({
@@ -93,7 +144,7 @@ export const agentJobSchema = z.object({
   agentId: agentIdSchema,
   agentPubkey: hexPubkeySchema.optional(),
   kind: z.string().trim().min(1).max(128),
-  payload: z.record(z.string(), z.unknown()),
+  payload: jsonObjectSchema,
   status: z.enum(["pending", "leased", "completed", "failed"]),
   attempt: z.int().nonnegative(),
   // Kept on the durable job so an authorized workspace owner can understand
@@ -139,7 +190,7 @@ export const agentJobListSchema = z
  * file format or Durable Object SQLite so a cell can move between runtimes. */
 export const agentCellSnapshotSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     cellId: z.string().trim().min(3).max(260),
     workspaceId: workspaceIdSchema,
     agentId: agentIdSchema,
@@ -149,7 +200,17 @@ export const agentCellSnapshotSchema = z
         z
           .object({
             key: z.string().trim().min(1).max(320),
-            value: z.unknown(),
+            value: jsonValueSchema,
+          })
+          .strict(),
+      )
+      .max(1_000),
+    files: z
+      .array(
+        z
+          .object({
+            path: z.string().startsWith("/workspace/").max(1_024),
+            contentBase64: z.string().max(12_000_000),
           })
           .strict(),
       )
@@ -192,7 +253,7 @@ export const agentPublishedMessageSchema = z
           id: z.string().trim().min(1).max(128),
           kind: z.string().trim().min(1).max(64),
           version: z.int().positive(),
-          payload: z.record(z.string(), z.unknown()),
+          payload: jsonObjectSchema,
         }),
       )
       .max(32)

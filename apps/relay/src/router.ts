@@ -1,26 +1,28 @@
-import {
-  conversationIdSchema,
-  createWorkspaceCommandSchema,
-  userIdSchema,
-  workspaceIdSchema,
-} from "@chief/relay-contracts";
-import { createRelayOpenApiDocument } from "@chief/relay-contracts/openapi";
+import { Effect } from "effect";
 
 import {
-  deleteImageAsset,
-  getPublicImageAsset,
-  uploadImageAsset,
-} from "./attachments";
-import { AuthenticationError, AuthorizationError } from "./auth";
+  appendMessageCommandSchema,
+  conversationIdSchema,
+  provisionWorkspaceCommandSchema,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
+
+import { deleteImageAsset, uploadImageAsset } from "./attachments";
+import { AuthorizationError } from "./auth";
 import { isRelayAuthRequest, routeRelayAuth } from "./auth/routes";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import { bindDeviceIdentity } from "./device-identities";
-import { relayDocsHtml } from "./docs";
-import { HttpError, json, relayError } from "./http";
+import {
+  attempt,
+  failureResponse,
+  parseRelayFailure,
+  runEffect,
+  sync,
+} from "./effect";
+import { relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { connectLiveSocket } from "./live-socket-router";
-import { relayCapacityResponse } from "./relay-capacity";
-import { publicOrigin, relayDiscovery } from "./relay-discovery";
+import { publicOrigin } from "./relay-discovery";
 import {
   enforceEdgeRequestLimit,
   enforcePublicIdentityRequestLimit,
@@ -28,7 +30,11 @@ import {
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
+import { routeOnboardingTelemetry } from "./router-onboarding";
+import { routeProfileImage } from "./router-profile-image";
+import { routePublicRequest } from "./router-public";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
+import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import {
   activeManagedWorkspace,
   authorizeConversation,
@@ -64,8 +70,7 @@ const workspaceInviteClaimRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/claim$/u;
 const orgJoinRoute = /^\/v1\/workspaces\/([^/]+)\/organization-membership$/u;
 const workspaceLogoRoute = /^\/v1\/workspaces\/([^/]+)\/logo$/u;
-const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
-const publicWorkspaceImageRoute = /^\/v1\/assets\/workspaces\/([^/]+)$/u;
+const workspaceSecretsRoute = /^\/v1\/workspaces\/([^/]+)\/secrets$/u;
 
 export async function routeRelayRequest(
   request: Request,
@@ -73,334 +78,370 @@ export async function routeRelayRequest(
   context: ExecutionContext,
 ) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  try {
-    await enforceEdgeRequestLimit(env, request);
-    await enforcePublicIdentityRequestLimit(env, request);
+  const trace = await relayTraceContext(request);
+  const program = Effect.gen(function* () {
+    yield* attempt("relay.rate_limit.edge", () =>
+      enforceEdgeRequestLimit(env, request),
+    );
+    yield* attempt("relay.rate_limit.identity", () =>
+      enforcePublicIdentityRequestLimit(env, request),
+    );
     const url = new URL(request.url);
     if (isRelayAuthRequest(url))
-      return await routeRelayAuth(request, env, context);
-    const publicResponse = routePublicRequest(request, url, env);
+      return yield* attempt("relay.auth", () =>
+        routeRelayAuth(request, env, context),
+      );
+    const publicResponse = yield* attempt("relay.public", () =>
+      routePublicRequest(request, url, env),
+    );
     if (publicResponse) return publicResponse;
     if (url.pathname === "/v1/identity/device" && request.method === "POST") {
-      // Await so malformed credentials use the stable relay error envelope.
-      return await bindDeviceIdentity(env, request);
+      return yield* attempt("relay.device.bind", () =>
+        bindDeviceIdentity(env, request),
+      );
     }
 
-    const workspaceResponse = await routeWorkspaceRequest(
+    const workspaceResponse = yield* routeWorkspaceRequest(
       env,
       request,
       requestId,
       context,
     );
     if (workspaceResponse) return workspaceResponse;
-    const agentResponse = await routeAgentRequest(env, request, requestId);
+    const agentResponse = yield* attempt("relay.agent", () =>
+      routeAgentRequest(env, request, requestId),
+    );
     if (agentResponse) return agentResponse;
-    const channelResponse = await routeChannelRequest(env, request, requestId);
+    const channelResponse = yield* attempt("relay.channel", () =>
+      routeChannelRequest(env, request, requestId),
+    );
     if (channelResponse) return channelResponse;
 
-    const response = await routeConversationRequest(env, request, requestId);
+    const response = yield* attempt("relay.conversation", () =>
+      routeConversationRequest(env, request, requestId),
+    );
     void context;
     return response;
-  } catch (error) {
-    if (error instanceof AuthenticationError) {
-      return relayError(401, "unauthenticated", error.message, requestId);
-    }
-    if (error instanceof AuthorizationError) {
-      return relayError(403, "forbidden", error.message, requestId);
-    }
-    if (error instanceof HttpError) {
-      return relayError(
-        error.status,
-        error.code,
-        error.message,
-        requestId,
-        error.details,
-      );
-    }
-    console.error("relay.request.unhandled", {
-      requestId,
-      method: request.method,
-      pathname: new URL(request.url).pathname,
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message, stack: error.stack }
-          : String(error),
-    });
-    const capacityResponse = relayCapacityResponse(error, requestId);
-    if (capacityResponse) return capacityResponse;
-    return relayError(
-      400,
-      "invalid_request",
-      "The relay request is invalid.",
-      requestId,
-    );
-  }
-}
-
-function routePublicRequest(request: Request, url: URL, env: Env) {
-  if (request.method !== "GET") return undefined;
-  const profileImage = publicProfileImageRoute.exec(url.pathname);
-  if (profileImage) {
-    return getPublicImageAsset(
-      env,
-      `profiles/${userIdSchema.parse(decodeURIComponent(profileImage[1] ?? ""))}`,
-    );
-  }
-  const workspaceImage = publicWorkspaceImageRoute.exec(url.pathname);
-  if (workspaceImage) {
-    return getPublicImageAsset(
-      env,
-      `workspaces/${parseWorkspaceId(workspaceImage[1])}`,
-    );
-  }
-  if (url.pathname === "/health") {
-    return json({ ok: true, protocolVersion: 1 });
-  }
-  if (url.pathname === "/.well-known/chief-relay") {
-    return json(relayDiscovery(request, url, env));
-  }
-  if (url.pathname === "/v1/openapi.json") {
-    return json(createRelayOpenApiDocument(publicOrigin(request, url, env)));
-  }
-  if (url.pathname === "/docs") {
-    return new Response(
-      relayDocsHtml(`${publicOrigin(request, url, env)}/v1/openapi.json`),
-      { headers: { "content-type": "text/html; charset=utf-8" } },
-    );
-  }
-  const invite = /^\/invite\/([^/]+)\/([^/]+)$/u.exec(url.pathname);
-  if (invite) {
-    const workspaceId = parseWorkspaceId(invite[1]);
-    const secret = decodeURIComponent(invite[2] ?? "");
-    if (!/^[A-Za-z0-9_-]{43,128}$/u.test(secret)) {
-      return relayError(
-        404,
-        "workspace_invite_not_found",
-        "This invite is not valid.",
-      );
-    }
-    return new Response(inviteLandingHtml(url.origin, workspaceId, secret), {
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "content-security-policy":
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
-        "referrer-policy": "no-referrer",
-        "x-content-type-options": "nosniff",
+  }).pipe(
+    Effect.withSpan("relay.request", {
+      attributes: {
+        "http.request.method": request.method,
+        "url.path": new URL(request.url).pathname,
+        "chief.request.id": requestId,
+        "chief.workspace.id": trace.workspaceId,
+        "chief.workflow.id": trace.workflowId,
+        "gen_ai.conversation.id": trace.conversationId,
+        "messaging.message.id": trace.messageId,
+        "chief.lifecycle.layer": "relay",
+        "chief.lifecycle.stage": "ingress",
       },
-    });
+    }),
+    Effect.mapError((failure) => parseRelayFailure(failure, requestId)),
+    Effect.tapError((failure) =>
+      Effect.logError("relay.request.failed", {
+        requestId,
+        method: request.method,
+        pathname: new URL(request.url).pathname,
+        code: failure.code,
+        error:
+          failure.cause instanceof Error
+            ? {
+                name: failure.cause.name,
+                message: failure.cause.message,
+                stack: failure.cause.stack,
+              }
+            : failure.message,
+      }),
+    ),
+    Effect.matchEffect({
+      onFailure: (failure) => Effect.succeed(failureResponse(failure)),
+      onSuccess: Effect.succeed,
+    }),
+  );
+  return runEffect(program, env, trace.workflowId);
+}
+
+async function relayTraceContext(request: Request) {
+  const url = new URL(request.url);
+  const match = messageRoute.exec(url.pathname);
+  if (
+    request.method !== "POST" ||
+    !match ||
+    url.pathname !==
+      `/v1/workspaces/${match[1]}/conversations/${match[2]}/messages`
+  ) {
+    return {};
   }
-  return undefined;
+  const workspace = workspaceIdSchema.safeParse(match[1]);
+  const conversation = conversationIdSchema.safeParse(match[2]);
+  const document = await request
+    .clone()
+    .json()
+    .catch(() => undefined);
+  const command = appendMessageCommandSchema.safeParse(document);
+  const messageId = command.success
+    ? command.data.payload.messageId
+    : undefined;
+  return {
+    workspaceId: workspace.success ? workspace.data : undefined,
+    conversationId: conversation.success ? conversation.data : undefined,
+    workflowId: messageId,
+    messageId,
+  };
 }
 
-function inviteLandingHtml(
-  origin: string,
-  workspaceId: string,
-  secret: string,
-) {
-  const query = new URLSearchParams({
-    relay: origin,
-    workspace: workspaceId,
-    code: secret,
-  }).toString();
-  const mobile = `chief-mobile://join?${query}`;
-  const desktop = `chief-desktop://join?${query}`;
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join Chief</title><style>html{color-scheme:dark}body{margin:0;background:#080808;color:#f5f5f5;font:15px -apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:grid;place-items:center}.card{width:min(360px,calc(100vw - 40px));padding:28px;border:1px solid #292929;border-radius:24px;background:#111}h1{font-size:26px;margin:0 0 8px}p{color:#aaa;line-height:1.5;margin:0 0 22px}a{display:block;text-align:center;text-decoration:none;color:#080808;background:#f5f5f5;padding:13px;border-radius:999px;font-weight:650}a+a{margin-top:10px;color:#eee;background:#242424}</style></head><body><main class="card"><h1>Join this Chief workspace</h1><p>Open the invitation in the Chief app on this device.</p><a id="primary" href="${mobile}">Open Chief</a><a href="${desktop}">Open Chief for desktop</a></main><script>const mobile=${JSON.stringify(mobile)};const desktop=${JSON.stringify(desktop)};const target=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)?mobile:desktop;document.getElementById('primary').href=target;location.href=target;</script></body></html>`;
-}
-
-async function routeWorkspaceRequest(
+function routeWorkspaceRequest(
   env: Env,
   request: Request,
   requestId: string,
   context: ExecutionContext,
 ) {
-  const url = new URL(request.url);
-  if (
-    url.pathname === "/v1/me/avatar" &&
-    (request.method === "POST" || request.method === "DELETE")
-  ) {
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    if (authenticated.identity.kind !== "user") {
-      throw new AuthorizationError("A user identity is required.");
-    }
-    const key = `profiles/${authenticated.identity.userId}`;
-    return request.method === "DELETE"
-      ? deleteImageAsset(env, key)
-      : uploadImageAsset(
-          env,
-          authenticated.request,
-          publicOrigin(request, url, env),
-          key,
-          `/v1/assets/profiles/${encodeURIComponent(authenticated.identity.userId)}`,
-        );
-  }
-  const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
-  if (invitePreview && request.method === "POST") {
-    return previewWorkspaceInvite(
-      env,
-      request,
-      parseWorkspaceId(invitePreview[1]),
-    );
-  }
-  if (url.pathname === "/v1/workspaces") {
-    if (request.method !== "GET" && request.method !== "POST") return undefined;
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    if (request.method === "GET") {
-      return listManagedWorkspaces(env, authenticated.identity);
-    }
-    const command = createWorkspaceCommandSchema.parse(
-      await authenticated.request.json(),
-    );
-    return createManagedWorkspace(env, authenticated.identity, command);
-  }
-  if (url.pathname === "/v1/me/workspace" && request.method === "GET") {
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    return activeManagedWorkspace(env, authenticated.identity, context);
-  }
-  const deletion = deleteWorkspaceRoute.exec(url.pathname);
-  if (deletion && request.method === "DELETE") {
-    const workspaceId = parseWorkspaceId(deletion[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    return deleteManagedWorkspace(
-      env,
-      authenticated.identity,
-      workspaceId,
-      requestId,
-    );
-  }
-  const inviteClaim = workspaceInviteClaimRoute.exec(url.pathname);
-  if (inviteClaim && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(inviteClaim[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    return claimWorkspaceInvite(env, authenticated.request, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-  }
-  const organizationJoin = orgJoinRoute.exec(url.pathname);
-  if (organizationJoin && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(organizationJoin[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    return joinOrganizationWorkspace(env, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-  }
-  const workspaceLogo = workspaceLogoRoute.exec(url.pathname);
-  if (
-    workspaceLogo &&
-    (request.method === "POST" || request.method === "DELETE")
-  ) {
-    const workspaceId = parseWorkspaceId(workspaceLogo[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    const principal = await authorizeWorkspace(env, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
+  return Effect.gen(function* () {
+    const authenticate = (candidate: Request) =>
+      attempt("relay.authenticate", () =>
+        authenticateRelayRequest(candidate, env),
+      );
+    const parseId = (raw: string | undefined) =>
+      sync("relay.workspace.scope", () => parseWorkspaceId(raw));
+    const requireBinding = (
+      bound: Parameters<typeof requireAccountBinding>[1],
+    ) =>
+      sync("relay.account_binding.require", () =>
+        requireAccountBinding(env, bound),
+      );
+    const url = new URL(request.url);
+    const onboarding = yield* routeOnboardingTelemetry(env, request, requestId);
+    if (onboarding) return onboarding;
     if (
-      principal.kind !== "user" ||
-      (principal.role !== "owner" && principal.role !== "admin")
+      url.pathname === "/v1/me/avatar" &&
+      (request.method === "POST" || request.method === "DELETE")
     ) {
-      throw new AuthorizationError(
-        "Only workspace owners and admins can change its image.",
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const user = yield* sync("relay.user.require", () => {
+        if (authenticated.identity.kind !== "user") {
+          throw new AuthorizationError("A user identity is required.");
+        }
+        return authenticated.identity;
+      });
+      return yield* routeProfileImage(
+        env,
+        request,
+        authenticated.request,
+        user.userId,
       );
     }
-    const key = `workspaces/${workspaceId}`;
-    return request.method === "DELETE"
-      ? deleteImageAsset(env, key)
-      : uploadImageAsset(
-          env,
-          authenticated.request,
-          publicOrigin(request, url, env),
-          key,
-          `/v1/assets/workspaces/${encodeURIComponent(workspaceId)}`,
+    const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
+    if (invitePreview && request.method === "POST") {
+      const workspaceId = yield* parseId(invitePreview[1]);
+      return yield* attempt("relay.workspace_invite.preview", () =>
+        previewWorkspaceInvite(env, request, workspaceId),
+      );
+    }
+    if (url.pathname === "/v1/workspaces") {
+      if (request.method !== "GET" && request.method !== "POST")
+        return undefined;
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      if (request.method === "GET") {
+        return yield* attempt("relay.workspace.list", () =>
+          listManagedWorkspaces(env, authenticated.identity),
         );
-  }
-  const inviteCreate = workspaceInviteRoute.exec(url.pathname);
-  if (inviteCreate && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(inviteCreate[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    const principal = await authorizeWorkspace(env, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-    return createWorkspaceInvite(env, authenticated.request, {
-      principal,
-      requestId,
-      workspaceId,
-    });
-  }
-  const switched = switchWorkspaceRoute.exec(url.pathname);
-  if (switched && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(switched[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    requireAccountBinding(env, authenticated.bound);
-    return switchManagedWorkspace(env, authenticated.identity, workspaceId);
-  }
-  const claimed = claimWorkspaceRoute.exec(url.pathname);
-  if (claimed && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(claimed[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    return claimWorkspace(env, authenticated.request, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-  }
-  const logs = workspaceLogsRoute.exec(url.pathname);
-  if (logs) {
-    if (request.method !== "GET" && request.method !== "POST") {
-      return relayError(
-        405,
-        "method_not_allowed",
-        "Method not allowed.",
-        requestId,
+      }
+      const body = yield* attempt("relay.request.json", () =>
+        authenticated.request.json(),
+      );
+      const command = yield* sync("relay.workspace_create.parse", () =>
+        provisionWorkspaceCommandSchema.parse(body),
+      );
+      return yield* attempt("relay.workspace.create", () =>
+        createManagedWorkspace(env, authenticated.identity, command, context),
       );
     }
-    const workspaceId = parseWorkspaceId(logs[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    await authorizeWorkspace(env, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-    return routeWorkspaceLogs(env, authenticated.request, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-  }
-  const liveTicket = workspaceSocketTicketRoute.exec(url.pathname);
-  if (liveTicket && request.method === "POST") {
-    const workspaceId = parseWorkspaceId(liveTicket[1]);
-    const authenticated = await authenticateRelayRequest(request, env);
-    const principal = await authorizeWorkspace(env, {
-      identity: authenticated.identity,
-      requestId,
-      workspaceId,
-    });
-    return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
-      withTrustedContext(
-        new Request("https://workspace.internal/socket-tickets", {
-          method: "POST",
-          headers: { "x-chief-internal-operation": "live-socket-ticket" },
+    if (url.pathname === "/v1/me/workspace" && request.method === "GET") {
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      return yield* attempt("relay.workspace.active", () =>
+        activeManagedWorkspace(env, authenticated.identity, context),
+      );
+    }
+    const deletion = deleteWorkspaceRoute.exec(url.pathname);
+    if (deletion && request.method === "DELETE") {
+      const workspaceId = yield* parseId(deletion[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      return yield* attempt("relay.workspace.delete", () =>
+        deleteManagedWorkspace(
+          env,
+          authenticated.identity,
+          workspaceId,
+          requestId,
+        ),
+      );
+    }
+    const inviteClaim = workspaceInviteClaimRoute.exec(url.pathname);
+    if (inviteClaim && request.method === "POST") {
+      const workspaceId = yield* parseId(inviteClaim[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      return yield* attempt("relay.workspace_invite.claim", () =>
+        claimWorkspaceInvite(env, authenticated.request, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
         }),
-        { principal, requestId, workspaceId },
-      ),
-    );
-  }
-  return routeWorkspaceDataRequest(env, request, requestId, url);
+      );
+    }
+    const organizationJoin = orgJoinRoute.exec(url.pathname);
+    if (organizationJoin && request.method === "POST") {
+      const workspaceId = yield* parseId(organizationJoin[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      return yield* attempt("relay.workspace_organization.join", () =>
+        joinOrganizationWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+    }
+    const workspaceLogo = workspaceLogoRoute.exec(url.pathname);
+    if (
+      workspaceLogo &&
+      (request.method === "POST" || request.method === "DELETE")
+    ) {
+      const workspaceId = yield* parseId(workspaceLogo[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      if (
+        principal.kind !== "user" ||
+        (principal.role !== "owner" && principal.role !== "admin")
+      ) {
+        return yield* sync("relay.workspace_admin.require", () => {
+          throw new AuthorizationError(
+            "Only workspace owners and admins can change its image.",
+          );
+        });
+      }
+      const key = `workspaces/${workspaceId}`;
+      return request.method === "DELETE"
+        ? yield* attempt("relay.workspace_image.delete", () =>
+            deleteImageAsset(env, key),
+          )
+        : yield* attempt("relay.workspace_image.upload", () =>
+            uploadImageAsset(
+              env,
+              authenticated.request,
+              publicOrigin(request, url, env),
+              key,
+              `/v1/assets/workspaces/${encodeURIComponent(workspaceId)}`,
+            ),
+          );
+    }
+    const inviteCreate = workspaceInviteRoute.exec(url.pathname);
+    if (inviteCreate && request.method === "POST") {
+      const workspaceId = yield* parseId(inviteCreate[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_invite.create", () =>
+        createWorkspaceInvite(env, authenticated.request, {
+          principal,
+          requestId,
+          workspaceId,
+        }),
+      );
+    }
+    const switched = switchWorkspaceRoute.exec(url.pathname);
+    if (switched && request.method === "POST") {
+      const workspaceId = yield* parseId(switched[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      return yield* attempt("relay.workspace.switch", () =>
+        switchManagedWorkspace(env, authenticated.identity, workspaceId),
+      );
+    }
+    const claimed = claimWorkspaceRoute.exec(url.pathname);
+    if (claimed && request.method === "POST") {
+      const workspaceId = yield* parseId(claimed[1]);
+      const authenticated = yield* authenticate(request);
+      return yield* attempt("relay.workspace.claim", () =>
+        claimWorkspace(env, authenticated.request, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+    }
+    const logs = workspaceLogsRoute.exec(url.pathname);
+    if (logs) {
+      if (request.method !== "GET" && request.method !== "POST") {
+        return relayError(
+          405,
+          "method_not_allowed",
+          "Method not allowed.",
+          requestId,
+        );
+      }
+      const workspaceId = yield* parseId(logs[1]);
+      const authenticated = yield* authenticate(request);
+      yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_logs.route", () =>
+        routeWorkspaceLogs(env, authenticated.request, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+    }
+    const liveTicket = workspaceSocketTicketRoute.exec(url.pathname);
+    if (liveTicket && request.method === "POST") {
+      const workspaceId = yield* parseId(liveTicket[1]);
+      const authenticated = yield* authenticate(request);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_live.ticket", () =>
+        env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
+          withTrustedContext(
+            new Request("https://workspace.internal/socket-tickets", {
+              method: "POST",
+              headers: { "x-chief-internal-operation": "live-socket-ticket" },
+            }),
+            { principal, requestId, workspaceId },
+          ),
+        ),
+      );
+    }
+    const secrets = workspaceSecretsRoute.exec(url.pathname);
+    if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
+      return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);
+    }
+    return yield* routeWorkspaceDataRequest(env, request, requestId, url);
+  }).pipe(Effect.withSpan("relay.workspace"));
 }
 
 async function routeConversationRequest(
@@ -479,23 +520,18 @@ function conversationPermission(
 ): "messages.read" | "messages.send" | "messages.manage" {
   if (request.method === "GET") return "messages.read";
   const path = new URL(request.url).pathname;
-  if (path.endsWith("/activity")) return "messages.send";
-  if (path.endsWith("/edit") || request.method === "DELETE") {
-    return "messages.manage";
-  }
-  return "messages.send";
+  return path.endsWith("/edit") || request.method === "DELETE"
+    ? "messages.manage"
+    : "messages.send";
 }
 
-function conversationStub(
+const conversationStub = (
   env: Env,
   workspaceId: string,
   conversationId: string,
-) {
-  return env.CONVERSATIONS.get(
+) =>
+  env.CONVERSATIONS.get(
     env.CONVERSATIONS.idFromName(`${workspaceId}:${conversationId}`),
   );
-}
-
-function parseWorkspaceId(value: string | undefined) {
-  return workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
-}
+const parseWorkspaceId = (value: string | undefined) =>
+  workspaceIdSchema.parse(decodeURIComponent(value ?? ""));

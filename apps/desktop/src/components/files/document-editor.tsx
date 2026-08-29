@@ -8,6 +8,9 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Suggestion from "@tiptap/suggestion";
 import { Markdown } from "tiptap-markdown";
+import { z } from "zod";
+
+import { isJsonString } from "@chief/relay-contracts";
 
 interface SlashItem {
   title: string;
@@ -122,12 +125,20 @@ function slashExtension(bridge: {
     name: "chiefSlashCommands",
     addProseMirrorPlugins() {
       return [
-        Suggestion({
+        Suggestion<SlashItem>({
           editor: this.editor,
           char: "/",
-          command: ({ editor, range, props }) => {
+          command: ({
+            editor,
+            range,
+            props,
+          }: {
+            editor: Editor;
+            range: { from: number; to: number };
+            props: SlashItem;
+          }) => {
             editor.chain().focus().deleteRange(range).run();
-            (props as SlashItem).run(editor);
+            props.run(editor);
           },
           items: ({ query }) =>
             slashItems.filter((item) =>
@@ -156,10 +167,21 @@ function slashExtension(bridge: {
 }
 
 function markdownFromEditor(editor: Editor) {
-  const storage = editor.storage as {
-    markdown?: { getMarkdown: () => string };
-  };
-  return storage.markdown?.getMarkdown() ?? "";
+  return parseMarkdown(editor.storage);
+}
+
+const markdownStorageSchema = z.object({
+  markdown: z.object({ getMarkdown: z.function() }).optional(),
+});
+
+function parseMarkdown(value: unknown): string {
+  const parsed = markdownStorageSchema.safeParse(value);
+  const getMarkdown = parsed.success
+    ? parsed.data.markdown?.getMarkdown
+    : undefined;
+  if (!getMarkdown) return "";
+  const result = getMarkdown();
+  return isJsonString(result) ? result : "";
 }
 
 export function DocumentEditor({

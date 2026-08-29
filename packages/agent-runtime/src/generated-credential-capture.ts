@@ -1,7 +1,20 @@
+import type { BrowserBoundaryValue } from "@chief/browser/node";
+
 export interface GeneratedCredentialBrowser {
-  evaluate<T>(expression: string): Promise<T>;
+  evaluate(expression: string): Promise<BrowserBoundaryValue>;
   getUrl(): Promise<string>;
-  waitForFunction(expression: string, timeout?: number): Promise<unknown>;
+  waitForFunction(expression: string, timeout?: number): Promise<void>;
+}
+
+interface GeneratedCredentialStoreResult {
+  connectionName: string;
+  integrationSlug: string;
+}
+
+function parseCredentialText(value: BrowserBoundaryValue): string | undefined {
+  if (value instanceof Object) return undefined;
+  const text = String(value);
+  return text === value ? text : undefined;
 }
 
 interface GeneratedCredentialProvider {
@@ -83,7 +96,7 @@ export async function captureGeneratedCredential(
 
   const expression = captureExpression(provider.patterns);
   await browser.waitForFunction(expression, 15_000);
-  const credential = await browser.evaluate<string | null>(expression);
+  const credential = parseCredentialText(await browser.evaluate(expression));
   if (!credential) {
     throw new Error(
       `${domain} is not displaying a newly generated credential to capture.`,
@@ -97,7 +110,10 @@ export async function captureAndStoreGeneratedCredential(input: {
   domain: string;
   integrationSlug?: string;
   progress(phase: "save-client" | "verify", instruction: string): void;
-  store(credential: string, integrationSlug: string): Promise<unknown>;
+  store(
+    credential: string,
+    integrationSlug: string,
+  ): Promise<GeneratedCredentialStoreResult>;
 }) {
   if (!input.integrationSlug) {
     throw new Error(
@@ -117,7 +133,7 @@ export async function captureAndStoreGeneratedCredential(input: {
     "verify",
     "The credential is stored. Verifying the connection…",
   );
-  return { status: "configured" as const, ...(stored as object) };
+  return { ...stored, status: "configured" as const };
 }
 
 export function supportsGeneratedCredentialCapture(domain: string) {

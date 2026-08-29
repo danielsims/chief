@@ -84,6 +84,30 @@ final class AppModelAuthenticationTests: XCTestCase {
     XCTAssertTrue(credentials.contains(.openCodeGo))
   }
 
+  func testCloudOnboardingHandsTheCredentialToTheRelayWithoutSavingItOnDevice() async {
+    let credentials = TestInferenceCredentialStore()
+    let relay = FixtureRelayClient()
+    let model = AppModel(
+      sessions: TestSessionStore(initial: .fixture),
+      workspaces: TestWorkspaceStore(),
+      inferenceCredentials: credentials,
+      relay: relay,
+      conversations: ConversationCache(),
+      authentication: UnusedAuthentication())
+    model.onboarding.runtime = .cloud
+    model.onboarding.inferenceProvider = .openCodeGo
+    model.onboarding.companyName = "Chief Cloud"
+    model.inferenceCredential = "workspace-secret"
+
+    await model.completeOnboarding()
+
+    let provisioningCredential = await relay.latestProvisioningCredential()
+    XCTAssertEqual(provisioningCredential, "workspace-secret")
+    XCTAssertFalse(credentials.contains(.openCodeGo))
+    XCTAssertEqual(model.inferenceCredential, "")
+    XCTAssertEqual(model.phase, .workspace)
+  }
+
   func testCancelingWorkspaceSetupReturnsToAnExistingWorkspace() async {
     let existing = DemoWorkspace.snapshot
     let workspaces = TestWorkspaceStore(initial: existing)
@@ -155,7 +179,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     model.onboarding.runtime = .phone
     model.onboarding.inferenceProvider = .onDevice
     model.onboarding.companyName = "Chief"
-    model.onboarding.step = 1
+    model.onboarding.step = 2
 
     XCTAssertFalse(model.canAdvanceOnboarding)
 
@@ -218,7 +242,10 @@ private struct FailingRelay: RelayServing {
 
   func bindDeviceIdentity(accountToken: String) async throws {}
   func loadWorkspace() async throws -> WorkspaceSnapshot { throw error }
-  func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot {
+  func createWorkspace(
+    from draft: OnboardingDraft,
+    inferenceCredential: String?
+  ) async throws -> WorkspaceSnapshot {
     throw error
   }
   func messages(

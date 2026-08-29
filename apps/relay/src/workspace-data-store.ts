@@ -3,6 +3,7 @@ import {
   brandProfileResultSchema,
   brandProfileSaveSchema,
   brandProfileSchema,
+  parseJsonValue,
   prospectSaveSchema,
   prospectSchema,
   prospectsResultSchema,
@@ -14,6 +15,10 @@ import {
 
 import { requireAgentPrincipal } from "./agent-job-store";
 import { HttpError, json, parseJson } from "./http";
+import {
+  initializeWorkspaceMachines,
+  routeWorkspaceMachines,
+} from "./workspace-machine-store";
 import {
   initializeWorkspaceProjects,
   routeWorkspaceProjects,
@@ -77,6 +82,7 @@ export function initializeWorkspaceData(storage: DurableObjectStorage) {
       ON prospects (updated_at DESC);
   `);
   initializeWorkspaceProjects(storage);
+  initializeWorkspaceMachines(storage);
 }
 
 export async function routeWorkspaceData(
@@ -104,7 +110,15 @@ export async function routeWorkspaceData(
   if (operation === "data-file-update") {
     return await updateFile(storage, request);
   }
-  return await routeWorkspaceProjects(storage, request, operation, workspaceId);
+  const machines = await routeWorkspaceMachines(
+    storage,
+    request,
+    operation,
+    workspaceId,
+  );
+  return (
+    machines ?? routeWorkspaceProjects(storage, request, operation, workspaceId)
+  );
 }
 
 function getBrandProfile(storage: DurableObjectStorage) {
@@ -358,7 +372,7 @@ async function updateFile(storage: DurableObjectStorage, request: Request) {
 function brandFromRow(row: BrandRow) {
   return {
     markdown: row.markdown,
-    sourceUrls: JSON.parse(row.source_urls_json) as unknown,
+    sourceUrls: parseJsonValue(JSON.parse(row.source_urls_json)) ?? [],
     version: row.version,
     authorAgentId: row.author_agent_id,
     updatedAt: row.updated_at,
@@ -381,5 +395,6 @@ function fileFromRow(row: FileRow) {
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

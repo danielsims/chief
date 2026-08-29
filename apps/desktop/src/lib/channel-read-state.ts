@@ -1,4 +1,5 @@
 import type { ChannelEvent } from "@chief/agent-runtime/types";
+import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
 
 export interface ChannelReadStateBlob {
   v: 1;
@@ -79,17 +80,15 @@ export function observedChannelMessage(
 }
 
 export function parseChannelReadState(value: unknown): ChannelReadStateBlob {
-  if (!value || typeof value !== "object") return EMPTY_CHANNEL_READ_STATE;
-  const candidate = value as Partial<ChannelReadStateBlob>;
+  if (!value || !isJsonObject(value)) return EMPTY_CHANNEL_READ_STATE;
+  const candidate = value;
   if (candidate.v !== 1 || !candidate.contexts) {
     return EMPTY_CHANNEL_READ_STATE;
   }
   const contexts = Object.fromEntries(
     Object.entries(candidate.contexts).filter(
       (entry): entry is [string, number] =>
-        typeof entry[1] === "number" &&
-        Number.isFinite(entry[1]) &&
-        entry[1] >= 0,
+        isJsonNumber(entry[1]) && Number.isFinite(entry[1]) && entry[1] >= 0,
     ),
   );
   return { v: 1, contexts };

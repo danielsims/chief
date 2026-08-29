@@ -7,6 +7,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+import type { JsonValue } from "@chief/relay-contracts";
+
+import type { CellStateValue } from "../cells/types.js";
+
 export const cellEvents = sqliteTable(
   "cell_event",
   {
@@ -14,7 +18,7 @@ export const cellEvents = sqliteTable(
     position: integer().notNull(),
     id: text().notNull(),
     type: text().notNull(),
-    payload: text({ mode: "json" }).$type<unknown>(),
+    payload: text({ mode: "json" }).$type<JsonValue>(),
     idempotencyKey: text("idempotency_key").notNull(),
     createdAt: integer("created_at").notNull(),
   },
@@ -33,7 +37,7 @@ export const cellState = sqliteTable(
   {
     cellId: text("cell_id").notNull(),
     key: text().notNull(),
-    value: text({ mode: "json" }).$type<unknown>().notNull(),
+    value: text({ mode: "json" }).$type<CellStateValue>().notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.cellId, table.key] })],
@@ -45,7 +49,7 @@ export const cellAlarms = sqliteTable(
     cellId: text("cell_id").notNull(),
     alarmId: text("alarm_id").notNull(),
     at: integer().notNull(),
-    payload: text({ mode: "json" }).$type<unknown>(),
+    payload: text({ mode: "json" }).$type<JsonValue>(),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
@@ -91,7 +95,7 @@ export const cellOutbox = sqliteTable(
     id: text().notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     kind: text().notNull(),
-    payload: text({ mode: "json" }).$type<unknown>(),
+    payload: text({ mode: "json" }).$type<JsonValue>(),
     state: text({ enum: ["prepared", "delivered", "failed"] }).notNull(),
     attempts: integer().notNull().default(0),
     deliveredAt: integer("delivered_at"),

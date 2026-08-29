@@ -195,10 +195,10 @@ export function LineChartCard({
           <g clipPath={`url(#${clipId})`}>
             {coordinates.map((item, index) => (
               <path
-                key={series[index]!.id}
+                key={series[index]?.id ?? `series-${index}`}
                 d={linePath(item)}
                 fill="none"
-                className={SERIES_STYLES[index % SERIES_STYLES.length]!.path}
+                className={SERIES_STYLES[index % SERIES_STYLES.length]?.path}
                 strokeDasharray={index === 1 ? "5 5" : undefined}
                 strokeLinecap="square"
                 strokeLinejoin="miter"
@@ -211,12 +211,12 @@ export function LineChartCard({
                   const point = item[hoveredIndex];
                   return point ? (
                     <circle
-                      key={`${series[index]!.id}-point`}
+                      key={`${series[index]?.id ?? index}-point`}
                       cx={point.x}
                       cy={point.y}
                       r="3.5"
                       className={
-                        SERIES_STYLES[index % SERIES_STYLES.length]!.dot
+                        SERIES_STYLES[index % SERIES_STYLES.length]?.dot
                       }
                     />
                   ) : null;
@@ -313,7 +313,8 @@ export function LineChartCard({
       </div>
       <div className="flex min-h-11 flex-wrap items-center gap-x-5 gap-y-2 border-t px-5 py-3">
         {series.map((item, index) => {
-          const style = SERIES_STYLES[index % SERIES_STYLES.length]!;
+          const style = SERIES_STYLES[index % SERIES_STYLES.length];
+          if (!style) return null;
           return (
             <span
               key={item.id}

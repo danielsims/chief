@@ -9,23 +9,9 @@ function PluginRecommendationsPart({
   part: GenerativePluginRecommendationsBlock;
 }) {
   const data = part.data;
-  const actionContext =
-    data.workspaceId &&
-    data.conversationId &&
-    data.agentId &&
-    data.recommendationId
-      ? {
-          workspaceId: data.workspaceId,
-          conversationId: data.conversationId,
-          ...(data.threadRootId ? { threadRootId: data.threadRootId } : {}),
-          agentId: data.agentId,
-          recommendationId: data.recommendationId,
-        }
-      : undefined;
   return (
     <PluginRecommendationCards
       plugins={data.plugins}
-      actionContext={actionContext}
       authorizations={data.authorizations}
     />
   );

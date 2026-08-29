@@ -1,3 +1,11 @@
+import { z } from "zod";
+
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type {
   ArtifactsMessage,
   ExecutorArtifactSummary,
@@ -10,6 +18,8 @@ import {
   request,
 } from "./control-plane.js";
 
+const artifactRowsSchema = z.array(z.unknown());
+
 /** Lists the model-created UI artifacts owned by one isolated Chief workspace. */
 export async function listExecutorArtifacts(
   workspaceId: string,
@@ -20,38 +30,37 @@ export async function listExecutorArtifacts(
   if (!manifest) {
     throw new Error("The local artifact service is not running.");
   }
-  const rows = await request<unknown>(manifest, "/artifacts");
+  const rows = await request(manifest, "/artifacts", artifactRowsSchema);
   if (!Array.isArray(rows)) {
     throw new Error("The local artifact service returned an invalid list.");
   }
   return rows.flatMap((row): ExecutorArtifactSummary[] => {
-    if (!row || typeof row !== "object") return [];
-    const value = row as Record<string, unknown>;
+    if (!row || !isJsonObject(row)) return [];
+    const value = row;
     if (
-      typeof value.id !== "string" ||
-      typeof value.title !== "string" ||
-      typeof value.createdAt !== "number" ||
-      typeof value.updatedAt !== "number"
+      !isJsonString(value.id) ||
+      !isJsonString(value.title) ||
+      !isJsonNumber(value.createdAt) ||
+      !isJsonNumber(value.updatedAt)
     ) {
       return [];
     }
     const previewValue = value.preview;
     const preview =
       previewValue &&
-      typeof previewValue === "object" &&
-      (previewValue as Record<string, unknown>).kind === "layout" &&
-      typeof (previewValue as Record<string, unknown>).markup === "string"
+      isJsonObject(previewValue) &&
+      previewValue.kind === "layout" &&
+      isJsonString(previewValue.markup)
         ? {
             kind: "layout" as const,
-            markup: (previewValue as Record<string, unknown>).markup as string,
+            markup: previewValue.markup,
           }
         : null;
     return [
       {
         id: value.id,
         title: value.title,
-        description:
-          typeof value.description === "string" ? value.description : null,
+        description: isJsonString(value.description) ? value.description : null,
         preview,
         createdAt: value.createdAt,
         updatedAt: value.updatedAt,

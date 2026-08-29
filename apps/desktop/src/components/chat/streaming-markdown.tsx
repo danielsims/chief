@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import {
   Children,
   cloneElement,
@@ -9,6 +9,8 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
@@ -97,7 +99,7 @@ function highlightReferences(
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
 ): ReactNode {
   return Children.map(children, (child) =>
-    typeof child === "string"
+    isJsonString(child)
       ? splitSkillReferences(child).map((segment, index) =>
           segment.type === "skill" ? (
             <MessageSkillChip
@@ -118,7 +120,7 @@ function highlightReferences(
       : isValidElement<{ children?: ReactNode }>(child) &&
           child.type !== "code" &&
           child.type !== "a"
-        ? cloneElement(child as ReactElement<{ children?: ReactNode }>, {
+        ? cloneElement(child, {
             children: highlightReferences(
               child.props.children,
               channels,

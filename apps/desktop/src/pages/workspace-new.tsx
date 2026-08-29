@@ -1,52 +1,83 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import { createWorkspaceCommandSchema } from "@chief/relay-contracts";
-import { Button } from "@chief/ui/components/button";
-import { Input } from "@chief/ui/components/input";
+import type {
+  OnboardingStage,
+  OnboardingTelemetryEvent,
+} from "@chief/relay-contracts";
+import { RelayClientError } from "@chief/relay-client";
+import {
+  commandIdSchema,
+  createWorkspaceCommandSchema,
+} from "@chief/relay-contracts";
+import { TooltipProvider } from "@chief/ui/components/tooltip";
 
+import type {
+  WorkspaceHosting,
+  WorkspaceInferenceProvider,
+} from "./workspace-create-draft";
+import type { LocalRelayDiscovery } from "./workspace-new-supplementary";
+import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   CHIEF_CLOUD_AUTH_BASE_URL,
   CHIEF_CLOUD_AUTH_UI_URL,
   CHIEF_CLOUD_RELAY_URL,
   RELAY_URL,
+  USING_CUSTOM_RELAY,
 } from "../lib/config";
 import {
   parseOrganizationInvitationUrl,
   storePendingOrganizationInvitation,
 } from "../lib/organization-invitation";
 import {
+  knownWorkspacesForRelayIdentities,
   saveStoredRelayConnection,
   validateRelayConnection,
 } from "../lib/relay-connection";
 import { useRelaySession } from "../lib/relay-session";
 import {
+  pendingCreateDraftKey,
   pendingCreateRelayKey,
   shouldResumeWorkspaceCreate,
 } from "../lib/workspace-entry";
+import { UserIndicator } from "./onboarding-presentation";
 import {
   createWorkspaceDraftKey,
+  parseCreateWorkspaceDraft,
   readCreateWorkspaceDraft,
   workspaceDraft,
 } from "./workspace-create-draft";
 import { preloadWorkspaceOnboardingApps } from "./workspace-create-options";
-import {
-  AccountIndicator,
-  WorkspaceAction,
-  WorkspaceHome,
-  WorkspaceProgress,
-} from "./workspace-new-chrome";
+import { WorkspaceHome, WorkspaceProgress } from "./workspace-new-chrome";
 import { CreateForm, JoinForm } from "./workspace-new-components";
+import {
+  ForeignRelayInvite,
+  parseIncomingOrganizationInvitation,
+  parseWorkspaceInvite,
+  preloadLocalRelayDiscovery,
+  WorkspaceHostingChoice,
+} from "./workspace-new-supplementary";
 
 type PageMode = "home" | "hosting" | "create" | "join";
 const pendingInviteKey = "chief.pending-workspace-invite.v1";
-const selfHostingGuideUrl =
-  "https://github.com/danielsims/chief/blob/main/deploy/self-host/README.md";
+
+function onboardingStage(mode: PageMode, step: number): OnboardingStage | null {
+  if (mode === "home") return "workspace-home";
+  if (mode === "hosting") return "agent-hosting";
+  if (mode !== "create") return null;
+  const stages: OnboardingStage[] = [
+    "workspace-profile",
+    "agent-hosting",
+    "inference-provider",
+    "apps",
+  ];
+  return stages[step] ?? null;
+}
+
 export function CreateWorkspacePage() {
   const auth = useAuth();
   const relay = useRelaySession();
@@ -55,10 +86,21 @@ export function CreateWorkspacePage() {
     () => createWorkspaceDraftKey(RELAY_URL, auth.user?.id),
     [auth.user?.id],
   );
-  const initialDraft = useMemo(
-    () => readCreateWorkspaceDraft(createDraftKey),
-    [createDraftKey],
+  const resumesWorkspaceCreate = shouldResumeWorkspaceCreate(
+    window.sessionStorage.getItem(pendingCreateRelayKey),
+    RELAY_URL,
   );
+  const initialDraft = useMemo(
+    () =>
+      readCreateWorkspaceDraft(createDraftKey) ??
+      (resumesWorkspaceCreate
+        ? parseCreateWorkspaceDraft(
+            window.sessionStorage.getItem(pendingCreateDraftKey),
+          )
+        : null),
+    [createDraftKey, resumesWorkspaceCreate],
+  );
+  const activeRelayUrl = new URL(RELAY_URL).origin;
   const incomingInvite =
     new URLSearchParams(window.location.search).get("invite") ??
     window.sessionStorage.getItem(pendingInviteKey) ??
@@ -70,10 +112,6 @@ export function CreateWorkspacePage() {
     () => parseIncomingOrganizationInvitation(incomingOrganizationInvite),
     [incomingOrganizationInvite],
   );
-  const resumesWorkspaceCreate = shouldResumeWorkspaceCreate(
-    window.sessionStorage.getItem(pendingCreateRelayKey),
-    RELAY_URL,
-  );
   const [mode, setMode] = useState<PageMode>(
     incomingInvite || organizationEntry.invitation
       ? "join"
@@ -82,12 +120,16 @@ export function CreateWorkspacePage() {
         : "home",
   );
   const [createStep, setCreateStep] = useState(initialDraft?.step ?? 0);
+  const [createCommandId, setCreateCommandId] = useState(
+    initialDraft?.commandId ?? crypto.randomUUID(),
+  );
+  const lastViewedStage = useRef<string | null>(null);
   const [name, setName] = useState(initialDraft?.name ?? "");
   const [website, setWebsite] = useState(initialDraft?.website ?? "");
-  const [provider, setProvider] = useState<
-    "claude" | "codex" | "opencode" | null
-  >(initialDraft?.provider ?? null);
-  const [model, setModel] = useState(initialDraft?.model ?? "auto");
+  const [provider, setProvider] = useState<WorkspaceInferenceProvider>(
+    initialDraft?.provider ?? "opencode",
+  );
+  const [apiKey, setApiKey] = useState("");
   const [selectedApps, setSelectedApps] = useState<Set<string>>(
     () => new Set(initialDraft?.selectedApps ?? []),
   );
@@ -102,7 +144,19 @@ export function CreateWorkspacePage() {
   const [actionError, setActionError] = useState<string | null>(
     organizationEntry.error,
   );
-  const [selfHostedRelayUrl, setSelfHostedRelayUrl] = useState("");
+  const [hosting, setHosting] = useState<WorkspaceHosting>(
+    initialDraft?.hosting ??
+      (USING_CUSTOM_RELAY ? "self-hosted" : "chief-cloud"),
+  );
+  const [selectedRelayUrl, setSelectedRelayUrl] = useState(
+    initialDraft?.relayUrl ?? activeRelayUrl,
+  );
+  const [selfHostedRelayUrl, setSelfHostedRelayUrl] = useState(
+    initialDraft?.hosting === "self-hosted" ? initialDraft.relayUrl : "",
+  );
+  const [localRelay, setLocalRelay] = useState<LocalRelayDiscovery>({
+    status: "checking",
+  });
   const [foreignRelay, setForeignRelay] = useState<{
     relayUrl: string;
     invitation: string;
@@ -119,33 +173,81 @@ export function CreateWorkspacePage() {
   );
   useEffect(() => {
     preloadWorkspaceOnboardingApps();
+    let cancelled = false;
+    void preloadLocalRelayDiscovery().then((discovery) => {
+      if (cancelled) return;
+      setLocalRelay(discovery);
+      if (discovery.status === "found") {
+        setSelfHostedRelayUrl((current) =>
+          current.trim() ? current : discovery.connection.relayUrl,
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (mode === "create") {
       window.sessionStorage.removeItem(pendingCreateRelayKey);
+      window.sessionStorage.removeItem(pendingCreateDraftKey);
     }
   }, [mode]);
+
+  const recordOnboardingEvent = useCallback(
+    (
+      event: OnboardingTelemetryEvent["event"],
+      stage: OnboardingStage,
+      details: Partial<OnboardingTelemetryEvent> = {},
+    ) => {
+      if (!relay.client) return;
+      void relay.client
+        .recordOnboardingEvent({
+          sessionId: commandIdSchema.parse(createCommandId),
+          stage,
+          event,
+          ...details,
+        })
+        .catch((error: unknown) => {
+          console.warn("[Onboarding] Telemetry delivery failed:", error);
+        });
+    },
+    [createCommandId, relay.client],
+  );
+
+  useEffect(() => {
+    const stage = onboardingStage(mode, createStep);
+    if (!stage) return;
+    const viewKey = `${mode}:${createStep}`;
+    if (lastViewedStage.current === viewKey) return;
+    lastViewedStage.current = viewKey;
+    recordOnboardingEvent("viewed", stage);
+  }, [createStep, mode, recordOnboardingEvent]);
 
   useEffect(() => {
     if (mode !== "create") return;
     const draft = workspaceDraft({
+      commandId: createCommandId,
       step: createStep,
       name,
       website,
       provider,
-      model,
       selectedApps: Array.from(selectedApps).sort(),
+      hosting,
+      relayUrl: selectedRelayUrl,
     });
     window.localStorage.setItem(createDraftKey, JSON.stringify(draft));
   }, [
+    createCommandId,
     createDraftKey,
     createStep,
+    hosting,
     mode,
-    model,
     name,
     provider,
     selectedApps,
+    selectedRelayUrl,
     website,
   ]);
 
@@ -158,24 +260,73 @@ export function CreateWorkspacePage() {
 
   const leaveCreateFlow = useCallback(() => {
     window.localStorage.removeItem(createDraftKey);
+    setCreateCommandId(crypto.randomUUID());
     setCreateStep(0);
     setName("");
     setWebsite("");
-    setProvider(null);
-    setModel("auto");
+    setProvider("opencode");
     setSelectedApps(new Set());
+    setHosting(USING_CUSTOM_RELAY ? "self-hosted" : "chief-cloud");
+    setSelectedRelayUrl(activeRelayUrl);
     returnToWorkspaceHome();
-  }, [createDraftKey, returnToWorkspaceHome]);
+  }, [activeRelayUrl, createDraftKey, returnToWorkspaceHome]);
+
+  const returnToExistingWorkspace = useCallback(async () => {
+    setActionError(null);
+    if (relay.snapshot) {
+      void navigate("/", { replace: true });
+      return;
+    }
+    const fallback = knownWorkspacesForRelayIdentities(
+      connectedRelayIdentities(),
+    )[0];
+    if (!fallback || isWorking) return;
+    setIsWorking(true);
+    try {
+      await relay.switchWorkspace(fallback.summary.id, fallback);
+      void navigate("/", { replace: true });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setIsWorking(false);
+    }
+  }, [isWorking, navigate, relay]);
+
+  const canReturnToWorkspace =
+    relay.snapshot !== null ||
+    knownWorkspacesForRelayIdentities(connectedRelayIdentities()).length > 0;
+
+  const preserveDraftAcrossRelaySwitch = useCallback(
+    (nextHosting: WorkspaceHosting, nextRelayUrl: string) => {
+      window.sessionStorage.setItem(
+        pendingCreateDraftKey,
+        JSON.stringify(
+          workspaceDraft({
+            commandId: createCommandId,
+            step: createStep,
+            name,
+            website,
+            provider,
+            selectedApps: Array.from(selectedApps).sort(),
+            hosting: nextHosting,
+            relayUrl: nextRelayUrl,
+          }),
+        ),
+      );
+    },
+    [createCommandId, createStep, name, provider, selectedApps, website],
+  );
 
   const createOnChiefHosted = useCallback(async () => {
     if (isWorking) return;
     setActionError(null);
+    const relayUrl = new URL(CHIEF_CLOUD_RELAY_URL).origin;
+    setHosting("chief-cloud");
+    setSelectedRelayUrl(relayUrl);
     if (new URL(RELAY_URL).origin === new URL(CHIEF_CLOUD_RELAY_URL).origin) {
-      setCreateStep(0);
-      setMode("create");
       return;
     }
     setIsWorking(true);
+    preserveDraftAcrossRelaySwitch("chief-cloud", relayUrl);
     window.sessionStorage.setItem(
       pendingCreateRelayKey,
       new URL(CHIEF_CLOUD_RELAY_URL).origin,
@@ -189,10 +340,11 @@ export function CreateWorkspacePage() {
       });
     } catch (error) {
       window.sessionStorage.removeItem(pendingCreateRelayKey);
+      window.sessionStorage.removeItem(pendingCreateDraftKey);
       setActionError(error instanceof Error ? error.message : String(error));
       setIsWorking(false);
     }
-  }, [auth, isWorking]);
+  }, [auth, isWorking, preserveDraftAcrossRelaySwitch]);
 
   const createOnSelfHosted = useCallback(async () => {
     if (isWorking || !selfHostedRelayUrl.trim()) return;
@@ -203,56 +355,96 @@ export function CreateWorkspacePage() {
         selfHostedRelayUrl,
         isTauri() ? tauriFetch : fetch,
       );
+      setHosting("self-hosted");
+      setSelectedRelayUrl(connection.relayUrl);
       if (connection.relayUrl === new URL(RELAY_URL).origin) {
-        setCreateStep(0);
+        setCreateStep(1);
         setMode("create");
         setIsWorking(false);
         return;
       }
+      preserveDraftAcrossRelaySwitch("self-hosted", connection.relayUrl);
       window.sessionStorage.setItem(pendingCreateRelayKey, connection.relayUrl);
       await auth.connectRelay(connection);
     } catch (error) {
       window.sessionStorage.removeItem(pendingCreateRelayKey);
+      window.sessionStorage.removeItem(pendingCreateDraftKey);
       setActionError(error instanceof Error ? error.message : String(error));
       setIsWorking(false);
     }
-  }, [auth, isWorking, selfHostedRelayUrl]);
+  }, [auth, isWorking, preserveDraftAcrossRelaySwitch, selfHostedRelayUrl]);
 
   const createWorkspace = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
       const trimmedName = name.trim();
       if (!trimmedName || isWorking) return;
+      if (!provider) {
+        setActionError("Choose an inference provider before continuing.");
+        return;
+      }
+      if (new URL(selectedRelayUrl).origin !== activeRelayUrl) {
+        setActionError(
+          "Reconnect the selected relay before creating this workspace.",
+        );
+        return;
+      }
       setIsWorking(true);
       setActionError(null);
       try {
-        await relay.createWorkspace(
+        recordOnboardingEvent("advanced", "apps", {
+          hosting,
+          provider,
+          selectedAppCount: selectedApps.size,
+        });
+        const snapshot = await relay.createWorkspace(
           createWorkspaceCommandSchema.parse({
-            commandId: crypto.randomUUID(),
+            commandId: createCommandId,
             name: trimmedName,
             website: website.trim(),
-            runtime: "mac",
+            runtime: "cloud",
             inferenceProvider: provider,
-            inferenceModel: model || "auto",
+            inferenceModel: "auto",
             selectedApps: Array.from(selectedApps).sort(),
           }),
+          apiKey,
         );
+        recordOnboardingEvent("completed", "workspace-create", {
+          hosting,
+          provider,
+          selectedAppCount: selectedApps.size,
+          workspaceId: snapshot.id,
+        });
         window.localStorage.removeItem(createDraftKey);
         void navigate("/", { replace: true });
       } catch (error) {
+        recordOnboardingEvent("failed", "workspace-create", {
+          hosting,
+          provider,
+          selectedAppCount: selectedApps.size,
+          errorCode:
+            error instanceof RelayClientError
+              ? (error.code ?? `http_${error.status}`)
+              : "client_error",
+        });
         setActionError(error instanceof Error ? error.message : String(error));
         setIsWorking(false);
       }
     },
     [
+      apiKey,
+      activeRelayUrl,
+      createCommandId,
       createDraftKey,
+      hosting,
       isWorking,
-      model,
       name,
       navigate,
       provider,
+      recordOnboardingEvent,
       relay,
       selectedApps,
+      selectedRelayUrl,
       website,
     ],
   );
@@ -343,384 +535,133 @@ export function CreateWorkspacePage() {
   }, [invitePreview, relay]);
 
   return (
-    <div className="bg-background text-foreground flex h-screen flex-col">
-      <AccountIndicator
-        user={auth.user}
-        onSignOut={auth.signOut}
-        disabled={isWorking}
-      />
-      {mode === "create" ? <WorkspaceProgress step={createStep} /> : null}
-      <header data-tauri-drag-region className="h-[72px] shrink-0" />
-      <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-10">
-        <div
-          className={`mx-auto flex min-h-full w-full max-w-[560px] flex-col ${mode === "create" ? "justify-start pt-20 pb-12" : "justify-center py-12"}`}
-        >
-          {mode === "home" ? (
-            <WorkspaceHome
-              onCreate={() => {
-                setActionError(null);
-                setMode("hosting");
-              }}
-              onJoin={() => {
-                setActionError(null);
-                setMode("join");
-              }}
-            />
-          ) : mode === "hosting" ? (
-            <WorkspaceHostingChoice
-              relayUrl={selfHostedRelayUrl}
-              working={isWorking}
-              error={actionError}
-              onRelayUrlChange={setSelfHostedRelayUrl}
-              onBack={returnToWorkspaceHome}
-              onChiefHosted={() => void createOnChiefHosted()}
-              onSelfHosted={() => void createOnSelfHosted()}
-            />
-          ) : mode === "join" ? (
-            <button
-              type="button"
-              onClick={returnToWorkspaceHome}
-              disabled={isWorking}
-              className="text-muted-foreground hover:text-foreground mb-8 flex w-fit items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
-            >
-              <ArrowLeft size={14} />
-              Back
-            </button>
+    <TooltipProvider delayDuration={250}>
+      <div className="bg-background text-foreground flex h-screen overflow-hidden">
+        <UserIndicator user={auth.user} onSignOut={() => auth.signOut()} />
+        <div className="bg-background flex min-w-0 flex-1 flex-col">
+          {mode === "create" || mode === "hosting" ? (
+            <WorkspaceProgress step={createStep} />
           ) : null}
+          <header data-tauri-drag-region className="h-[72px] shrink-0" />
+          <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-10">
+            <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center py-12">
+              {mode === "home" ? (
+                <WorkspaceHome
+                  onBack={
+                    canReturnToWorkspace
+                      ? () => void returnToExistingWorkspace()
+                      : undefined
+                  }
+                  onCreate={() => {
+                    recordOnboardingEvent("advanced", "workspace-home");
+                    setActionError(null);
+                    setCreateStep(0);
+                    setMode("create");
+                  }}
+                  onJoin={() => {
+                    setActionError(null);
+                    setMode("join");
+                  }}
+                />
+              ) : mode === "hosting" ? (
+                <WorkspaceHostingChoice
+                  relayUrl={selfHostedRelayUrl}
+                  localRelay={localRelay}
+                  working={isWorking}
+                  error={actionError}
+                  onRelayUrlChange={setSelfHostedRelayUrl}
+                  onBack={() => setMode("create")}
+                  onSelfHosted={() => void createOnSelfHosted()}
+                />
+              ) : mode === "join" ? (
+                <button
+                  type="button"
+                  onClick={returnToWorkspaceHome}
+                  disabled={isWorking}
+                  className="text-muted-foreground hover:text-foreground mb-8 flex w-fit items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
+                >
+                  <ArrowLeft size={14} />
+                  Back
+                </button>
+              ) : null}
 
-          {mode === "create" ? (
-            <CreateForm
-              name={name}
-              website={website}
-              provider={provider}
-              model={model}
-              selectedApps={selectedApps}
-              working={isWorking}
-              connected={relay.client !== null}
-              step={createStep}
-              onNameChange={setName}
-              onWebsiteChange={setWebsite}
-              onProviderChange={setProvider}
-              onModelChange={setModel}
-              onSelectedAppsChange={setSelectedApps}
-              onStepChange={setCreateStep}
-              onBackToHome={leaveCreateFlow}
-              onSubmit={createWorkspace}
-            />
-          ) : null}
+              {mode === "create" ? (
+                <CreateForm
+                  name={name}
+                  website={website}
+                  provider={provider}
+                  apiKey={apiKey}
+                  selectedApps={selectedApps}
+                  working={isWorking}
+                  connected={relay.client !== null}
+                  hosting={hosting}
+                  relayUrl={selectedRelayUrl}
+                  relayConnected={
+                    relay.client !== null &&
+                    new URL(selectedRelayUrl).origin === activeRelayUrl
+                  }
+                  error={actionError}
+                  step={createStep}
+                  onNameChange={setName}
+                  onWebsiteChange={setWebsite}
+                  onChiefCloud={() => void createOnChiefHosted()}
+                  onSelfHosted={() => {
+                    setMode("hosting");
+                  }}
+                  onProviderChange={(nextProvider) => {
+                    setProvider(nextProvider);
+                    setApiKey("");
+                  }}
+                  onApiKeyChange={setApiKey}
+                  onSelectedAppsChange={setSelectedApps}
+                  onStepChange={(nextStep) => {
+                    recordOnboardingEvent(
+                      "advanced",
+                      onboardingStage("create", createStep) ??
+                        "workspace-profile",
+                      {
+                        hosting,
+                        provider: provider ?? undefined,
+                        selectedAppCount: selectedApps.size,
+                      },
+                    );
+                    setCreateStep(nextStep);
+                  }}
+                  onBackToHome={leaveCreateFlow}
+                  onSubmit={createWorkspace}
+                />
+              ) : null}
 
-          {mode === "join" && foreignRelay ? (
-            <ForeignRelayInvite
-              relayUrl={foreignRelay.relayUrl}
-              working={isWorking}
-              error={actionError}
-              onCancel={() => {
-                setForeignRelay(null);
-                setActionError(null);
-              }}
-              onContinue={() => void connectToInviteRelay()}
-            />
-          ) : mode === "join" ? (
-            <JoinForm
-              invite={invite}
-              preview={invitePreview}
-              working={isWorking}
-              connected={relay.client !== null}
-              onInviteChange={(value) => {
-                setInvite(value);
-                setInvitePreview(null);
-                setForeignRelay(null);
-              }}
-              onPrepare={() => void prepareInvite()}
-              onJoin={() => void joinWorkspace()}
-            />
-          ) : null}
+              {mode === "join" && foreignRelay ? (
+                <ForeignRelayInvite
+                  relayUrl={foreignRelay.relayUrl}
+                  working={isWorking}
+                  error={actionError}
+                  onCancel={() => {
+                    setForeignRelay(null);
+                    setActionError(null);
+                  }}
+                  onContinue={() => void connectToInviteRelay()}
+                />
+              ) : mode === "join" ? (
+                <JoinForm
+                  invite={invite}
+                  preview={invitePreview}
+                  working={isWorking}
+                  connected={relay.client !== null}
+                  onInviteChange={(value) => {
+                    setInvite(value);
+                    setInvitePreview(null);
+                    setForeignRelay(null);
+                  }}
+                  onPrepare={() => void prepareInvite()}
+                  onJoin={() => void joinWorkspace()}
+                />
+              ) : null}
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
-  );
-}
-
-function WorkspaceHostingChoice({
-  relayUrl,
-  working,
-  error,
-  onRelayUrlChange,
-  onBack,
-  onChiefHosted,
-  onSelfHosted,
-}: {
-  relayUrl: string;
-  working: boolean;
-  error: string | null;
-  onRelayUrlChange: (value: string) => void;
-  onBack: () => void;
-  onChiefHosted: () => void;
-  onSelfHosted: () => void;
-}) {
-  const [selfHosted, setSelfHosted] = useState(false);
-  if (selfHosted) {
-    return (
-      <section>
-        <button
-          type="button"
-          onClick={() => setSelfHosted(false)}
-          disabled={working}
-          className="text-muted-foreground hover:text-foreground mb-8 flex items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
-        >
-          <ArrowLeft size={14} /> Back
-        </button>
-        <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-          Connect your relay
-        </h1>
-        <p className="text-muted-foreground mt-2 text-sm leading-6">
-          Deploy Chief on infrastructure you control, then connect this app to
-          its public address.
-        </p>
-
-        <ol className="mt-8 space-y-4">
-          <SelfHostingStep number="1">
-            Install Docker, Node 24 and pnpm on your server, then clone Chief.
-          </SelfHostingStep>
-          <SelfHostingStep number="2">
-            Run <InlineCode>pnpm self-host:init</InlineCode>, followed by{" "}
-            <InlineCode>pnpm self-host:up</InlineCode>.
-          </SelfHostingStep>
-          <SelfHostingStep number="3">
-            Confirm the relay health endpoint responds, then paste its public
-            HTTPS address below.
-          </SelfHostingStep>
-        </ol>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (isTauri()) void openUrl(selfHostingGuideUrl);
-            else
-              window.open(selfHostingGuideUrl, "_blank", "noopener,noreferrer");
-          }}
-          className="text-muted-foreground hover:text-foreground mt-5 inline-flex items-center gap-1.5 text-[13px] underline-offset-4 transition-colors hover:underline"
-        >
-          Read the self-hosting guide
-          <ArrowUpRight size={13} />
-        </button>
-
-        <div className="mt-8 border-t pt-6">
-          <label htmlFor="create-relay-url" className="text-[13px] font-medium">
-            Relay address
-          </label>
-          <Input
-            id="create-relay-url"
-            value={relayUrl}
-            onChange={(event) => onRelayUrlChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && relayUrl.trim()) onSelfHosted();
-            }}
-            placeholder="https://relay.example.com"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            className="mt-2"
-            disabled={working}
-            autoFocus
-          />
-          <div className="mt-4 flex justify-end">
-            <Button
-              type="button"
-              onClick={onSelfHosted}
-              disabled={working || !relayUrl.trim()}
-              loading={working}
-            >
-              Connect relay
-            </Button>
-          </div>
-        </div>
-        {error ? (
-          <p className="bg-destructive/5 text-destructive mt-4 rounded-lg px-3 py-2 text-xs leading-5">
-            {error}
-          </p>
-        ) : null}
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={working}
-        className="text-muted-foreground hover:text-foreground mb-8 flex items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
-      >
-        <ArrowLeft size={14} /> Back
-      </button>
-      <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-        Where should Chief run?
-      </h1>
-      <p className="text-muted-foreground mt-2 text-sm leading-6">
-        Choose managed hosting or connect infrastructure you control.
-      </p>
-      <div className="mt-8 space-y-2">
-        <WorkspaceAction
-          title="Chief hosted"
-          description="Ready to use. Chief manages the relay and updates"
-          onClick={onChiefHosted}
-          disabled={working}
-        />
-        <WorkspaceAction
-          title="Self-host"
-          description="Deploy Chief on your own server and connect it here"
-          onClick={() => setSelfHosted(true)}
-          disabled={working}
-        />
       </div>
-      {error ? (
-        <p className="bg-destructive/5 text-destructive mt-4 rounded-lg px-3 py-2 text-xs leading-5">
-          {error}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function SelfHostingStep({
-  number,
-  children,
-}: {
-  number: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <li className="flex gap-3 text-[13px] leading-5">
-      <span className="bg-muted text-muted-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
-        {number}
-      </span>
-      <span className="text-muted-foreground pt-0.5">{children}</span>
-    </li>
-  );
-}
-
-function InlineCode({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-[11px]">
-      {children}
-    </code>
-  );
-}
-
-function parseIncomingOrganizationInvitation(value: string | null) {
-  if (!value) return { invitation: null, error: null };
-  try {
-    return {
-      invitation: parseOrganizationInvitationUrl(value),
-      error: null,
-    };
-  } catch (error) {
-    return {
-      invitation: null,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-function parseWorkspaceInvite(value: string) {
-  const url = new URL(value.trim());
-  if (url.username || url.password || url.hash)
-    throw new Error("This invitation link is not valid.");
-  if (
-    ["chief:", "chief-mobile:", "chief-desktop:"].includes(url.protocol) &&
-    url.hostname === "join"
-  ) {
-    const relay = new URL(url.searchParams.get("relay") ?? "");
-    assertSafeRelayOrigin(relay);
-    return inviteParts(
-      url.searchParams.get("workspace") ?? "",
-      url.searchParams.get("code") ?? "",
-      relay.origin,
-    );
-  }
-  assertSafeRelayOrigin(url);
-  const parts = url.pathname.split("/").filter(Boolean);
-  if (parts.length !== 3 || parts[0] !== "invite") {
-    throw new Error("Paste a Chief workspace invitation link.");
-  }
-  return inviteParts(parts[1] ?? "", parts[2] ?? "", url.origin);
-}
-
-function inviteParts(workspaceId: string, secret: string, relayUrl: string) {
-  if (
-    !workspaceId.startsWith("workspace-") ||
-    !/^[A-Za-z0-9_-]{43,128}$/u.test(secret)
-  ) {
-    throw new Error("This invitation link is not valid.");
-  }
-  return { workspaceId, secret, relayUrl };
-}
-
-function assertSafeRelayOrigin(url: URL) {
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  if (
-    url.username ||
-    url.password ||
-    url.hash ||
-    (url.protocol !== "https:" && !(local && url.protocol === "http:"))
-  ) {
-    throw new Error("This invitation points to an unsafe relay address.");
-  }
-}
-
-function ForeignRelayInvite({
-  relayUrl,
-  working,
-  error,
-  onCancel,
-  onContinue,
-}: {
-  relayUrl: string;
-  working: boolean;
-  error: string | null;
-  onCancel: () => void;
-  onContinue: () => void;
-}) {
-  return (
-    <section>
-      <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-        Join this workspace?
-      </h1>
-      <p className="text-muted-foreground mt-2 text-sm leading-6">
-        This invitation is hosted outside your current Chief connection.
-      </p>
-      <div className="mt-8 rounded-xl border px-4 py-4">
-        <p className="text-sm font-medium">
-          Check the relay before you continue
-        </p>
-        <p className="text-muted-foreground mt-2 font-mono text-xs break-all">
-          {new URL(relayUrl).host}
-        </p>
-        <p className="text-muted-foreground mt-3 text-xs leading-5">
-          Chief will verify this relay and ask you to authenticate with its
-          account issuer. Your other relay connections stay on this device.
-        </p>
-      </div>
-      {error ? <p className="text-destructive mt-4 text-xs">{error}</p> : null}
-      <div className="mt-6 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={working}
-          className="text-muted-foreground hover:text-foreground px-3 py-2 text-sm"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={working}
-          className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {working ? "Checking relay…" : "Continue"}
-        </button>
-      </div>
-    </section>
+    </TooltipProvider>
   );
 }

@@ -1,21 +1,72 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { WorkspaceSnapshot } from "@chief/relay-contracts";
-import { conversationMessageSchema } from "@chief/relay-contracts";
+import type { MessageComponent } from "@chief/relay-contracts";
+import {
+  conversationMessageSchema,
+  workspaceSnapshotSchema,
+} from "@chief/relay-contracts";
 
 import {
   agentRunEvent,
+  browserRuntimeEvent,
   isAgentActivityProjection,
   toChannelEvents,
   toChiefMessage,
 } from "../src/lib/relay-runtime-mappers.ts";
 
-const snapshot = {
-  agents: [{ id: "advertising", name: "Advertising" }],
-} as WorkspaceSnapshot;
+const snapshot = workspaceSnapshotSchema.parse({
+  id: "workspace-a",
+  name: "Acme",
+  website: "",
+  selectedApps: [],
+  runtime: "cloud",
+  imageURL: null,
+  onboardingComplete: true,
+  conversations: [],
+  agents: [
+    {
+      id: "advertising",
+      name: "Advertising",
+      role: "Paid Acquisition",
+      status: "idle",
+    },
+  ],
+  projects: [],
+  createdAt: "2026-08-22T00:00:00.000Z",
+});
 
-function message(components: Record<string, unknown>[], body = "") {
+void test("hosted browser activity opens the existing browser UI stream", () => {
+  const activity = message([
+    {
+      id: "browser-1",
+      kind: "browser",
+      version: 1,
+      payload: {
+        browserRunId: "job-1",
+        status: "active",
+        url: "https://example.com/",
+        streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
+        expiresAt: "2026-08-22T01:00:00.000Z",
+        runId: "job-1",
+        jobId: "job-1",
+      },
+    },
+  ]);
+
+  assert.equal(isAgentActivityProjection(activity), true);
+  assert.deepEqual(browserRuntimeEvent(activity), {
+    type: "browserNavigate",
+    browserRunId: "job-1",
+    workspaceId: "workspace-a",
+    conversationId: "marketing",
+    anchorMessageId: "activity-1",
+    url: "https://example.com/",
+    streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
+  });
+});
+
+function message(components: MessageComponent[], body = "") {
   return conversationMessageSchema.parse({
     id: body ? "message-1" : "activity-1",
     workspaceId: "workspace-a",
@@ -65,6 +116,47 @@ void test("authored agent replies remain channel events", () => {
   assert.equal(toChannelEvents(reply, snapshot, null).length, 1);
 });
 
+void test("relay membership components retain their channel action", () => {
+  const membership = conversationMessageSchema.parse({
+    id: "membership-1",
+    workspaceId: "workspace-a",
+    conversationId: "mission-control",
+    author: { kind: "system", id: "chief-relay" },
+    body: "Chief added Marketer and Prospector to the channel.",
+    components: [
+      {
+        id: "membership-component-1",
+        kind: "channel-action",
+        version: 1,
+        payload: {
+          type: "member-added",
+          actorId: "chief",
+          actorName: "Chief",
+          actorType: "agent",
+          targetId: "brand",
+          targetKind: "agent",
+          targetName: "Marketer",
+          targetIds: "brand,prospector",
+          targetNames: "Marketer,Prospector",
+          agentIds: "brand,prospector",
+          userIds: "",
+        },
+      },
+    ],
+    createdAt: "2026-08-22T00:00:00.000Z",
+    sequence: 2,
+  });
+
+  assert.deepEqual(toChiefMessage(membership).metadata?.channelAction, {
+    type: "member-added",
+    actorId: "chief",
+    actorName: "Chief",
+    actorType: "agent",
+    agentIds: ["brand", "prospector"],
+    userIds: [],
+  });
+});
+
 void test("durable activity errors terminate the working indicator", () => {
   const failure = message([
     {
@@ -82,6 +174,9 @@ void test("durable activity errors terminate the working indicator", () => {
 
   assert.deepEqual(agentRunEvent(failure), {
     type: "error",
+    agentId: "advertising",
+    code: "agent_run_failed",
+    title: "Run interrupted",
     message: "The relay write failed.",
   });
 });

@@ -1,4 +1,7 @@
-import type { AgentActivityComponent } from "@chief/relay-contracts";
+import type {
+  AgentActivityComponent,
+  JsonObject,
+} from "@chief/relay-contracts";
 
 interface ActivityDiagnostic {
   workspaceId: string;
@@ -13,7 +16,7 @@ interface ActivityDiagnostic {
 export function recordRelayActivity(
   phase: "persisted" | "broadcast",
   diagnostic: ActivityDiagnostic,
-  result: { created: boolean; event: Record<string, unknown> },
+  result: { created: boolean; event: JsonObject },
 ) {
   const { component, ...scope } = diagnostic;
   console.info(

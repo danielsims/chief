@@ -1,19 +1,23 @@
 import { z } from "zod";
 
+import { normalizedChannelMentions } from "@chief/agent-runtime/channel-message-mentions";
 import {
   agentIdSchema,
+  channelMemberAddCommandSchema,
   conversationMessageSchema,
-  pluginActionPayloadSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
+import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 
 const dispatchMessageSchema = z
   .object({
     message: conversationMessageSchema,
     replyAgentId: agentIdSchema.optional(),
+    workflowId: z.string().trim().min(1).max(128).optional(),
   })
   .strict();
 
@@ -27,18 +31,26 @@ export async function dispatchWorkspaceMessage(
   request: Request,
 ) {
   const context = readTrustedContext(request);
-  if (context.principal.kind !== "user") {
+  if (context.principal.kind === "service") {
     return json({ agentIds: [] });
   }
 
-  const { message, replyAgentId } = dispatchMessageSchema.parse(
-    await parseJson(request),
-  );
+  const {
+    message,
+    replyAgentId,
+    workflowId = message.id,
+  } = dispatchMessageSchema.parse(await parseJson(request));
+  const authorMatchesPrincipal =
+    (context.principal.kind === "user" &&
+      message.author.kind === "user" &&
+      message.author.id === context.principal.userId) ||
+    (context.principal.kind === "agent" &&
+      message.author.kind === "agent" &&
+      message.author.id === context.principal.agentId);
   if (
     message.workspaceId !== context.workspaceId ||
     message.conversationId !== context.conversationId ||
-    message.author.kind !== "user" ||
-    message.author.id !== context.principal.userId
+    !authorMatchesPrincipal
   ) {
     throw new HttpError(
       409,
@@ -54,12 +66,26 @@ export async function dispatchWorkspaceMessage(
     message.conversationId,
     context.principal,
   );
+  const mentions = normalizedChannelMentions({
+    availableAgentIds: store.workspaceAgentIds(),
+    content: message.body,
+    explicitMentions: message.mentions,
+  });
+  await addMentionedAgentsToChannel({
+    context,
+    conversationId: message.conversationId,
+    mentions,
+    messageId: message.id,
+    store,
+  });
   const agentIds = eligibleAgentIds(
     store,
     channel,
-    message.mentions,
+    mentions,
     replyAgentId,
+    context.principal.kind === "agent" ? context.principal.agentId : undefined,
   );
+  const threadRootId = owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
 
   await Promise.all(
@@ -78,11 +104,10 @@ export async function dispatchWorkspaceMessage(
           payload: {
             conversationId: message.conversationId,
             messageId: message.id,
-            ...(message.threadRootId
-              ? { threadRootId: message.threadRootId }
-              : {}),
-            mentions: message.mentions,
-            instruction: dispatchedInstruction(message, agentId),
+            workflowId,
+            ...(threadRootId ? { threadRootId } : undefined),
+            mentions,
+            instruction: dispatchedInstruction(message),
           },
           availableAt: now,
         },
@@ -94,7 +119,10 @@ export async function dispatchWorkspaceMessage(
         withTrustedContext(
           new Request("https://agent.internal/enqueue", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              "x-chief-workflow-id": workflowId,
+            },
             body: JSON.stringify(command),
           }),
           {
@@ -104,7 +132,9 @@ export async function dispatchWorkspaceMessage(
           },
         ),
       );
-      if (!response.ok) {
+      const accepted = response.ok;
+      await releaseInternalResponse(response);
+      if (!accepted) {
         throw new HttpError(
           502,
           "agent_enqueue_failed",
@@ -117,26 +147,59 @@ export async function dispatchWorkspaceMessage(
   return json({ agentIds });
 }
 
+async function addMentionedAgentsToChannel(input: {
+  context: ReturnType<typeof readTrustedContext>;
+  conversationId: string;
+  mentions: readonly string[];
+  messageId: string;
+  store: WorkspaceChannelStore;
+}) {
+  const missing = input.mentions.filter(
+    (agentId) =>
+      input.store.memberRole("agent", agentId) &&
+      !input.store.channelMembership(input.conversationId, "agent", agentId),
+  );
+  if (missing.length === 0) return;
+  const commandId = await deterministicUuid(
+    `${input.context.workspaceId}:${input.messageId}:mention-membership`,
+  );
+  const command = channelMemberAddCommandSchema.parse({
+    commandId,
+    protocolVersion: 1,
+    occurredAt: new Date().toISOString(),
+    payload: {
+      conversationId: input.conversationId,
+      members: missing.map((principalId) => ({
+        kind: "agent" as const,
+        principalId,
+      })),
+    },
+  });
+  await new WorkspaceChannelMembership(input.store).channelsMembersAdd(
+    new Request("https://workspace.internal/channels", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    }),
+    input.context,
+    true,
+  );
+}
+
+function owningThreadRoot(
+  channelKind: "channel" | "direct",
+  message: z.infer<typeof conversationMessageSchema>,
+  mentions: readonly string[],
+) {
+  if (message.threadRootId) return message.threadRootId;
+  if (channelKind === "channel" && mentions.length > 0) return message.id;
+  return undefined;
+}
+
 function dispatchedInstruction(
   message: z.infer<typeof conversationMessageSchema>,
-  agentId: string,
 ) {
-  const action = message.components.flatMap((component) => {
-    if (component.kind !== "plugin.action") return [];
-    const parsed = pluginActionPayloadSchema.safeParse(component.payload);
-    return parsed.success && parsed.data.targetAgentId === agentId
-      ? [parsed.data]
-      : [];
-  })[0];
-  if (!action) return message.body;
-  const placement = `conversationId ${action.conversationId}${action.threadRootId ? ` and threadRootId ${action.threadRootId}` : ""}`;
-  if (action.action === "uninstall") {
-    return `The user explicitly approved disconnecting ${action.pluginName}. Call plugins_uninstall with pluginId ${action.pluginId}, then call plugins_recommend in ${placement} with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. Do not claim success without the tool results.`;
-  }
-  if (action.action === "authorize") {
-    return `The user explicitly approved authorizing ${action.pluginName}. Call plugins_authorize with pluginId ${action.pluginId}, ${placement}, and idempotencyKey ${message.id}-plugin-authorization. If it connects immediately, call plugins_recommend in the same placement with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. The durable authorization card is the only acceptable sign-in handoff.`;
-  }
-  return `The user explicitly approved installing and authorizing ${action.pluginName}. Call plugins_install with pluginId ${action.pluginId} and trusted true. Then call plugins_authorize with the same pluginId, ${placement}, and idempotencyKey ${message.id}-plugin-authorization. If it connects immediately, call plugins_recommend in the same placement with pluginIds [${action.pluginId}] and idempotencyKey ${message.id}-plugin-status. Do not claim success without the tool results.`;
+  return message.body;
 }
 
 function eligibleAgentIds(
@@ -144,6 +207,7 @@ function eligibleAgentIds(
   channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
   mentions: readonly string[],
   replyAgentId?: string,
+  sourceAgentId?: string,
 ) {
   const candidates =
     channel.kind === "direct"
@@ -152,9 +216,11 @@ function eligibleAgentIds(
           .filter((member) => member.kind === "agent")
           .map((member) => member.principalId)
       : [...mentions, ...(replyAgentId ? [replyAgentId] : [])];
-  return [...new Set(candidates)].flatMap((value) => {
+  const ready: string[] = [];
+  for (const value of new Set(candidates)) {
+    if (value === sourceAgentId) continue;
     const parsed = agentIdSchema.safeParse(value);
-    if (!parsed.success || !store.memberRole("agent", parsed.data)) return [];
+    if (!parsed.success || !store.memberRole("agent", parsed.data)) continue;
     if (
       Number(channel.is_private) === 1 &&
       !store.channelMembership(
@@ -163,10 +229,13 @@ function eligibleAgentIds(
         parsed.data,
       )
     ) {
-      return [];
+      continue;
     }
-    return store.agentConfiguration(parsed.data).enabled ? [parsed.data] : [];
-  });
+    const config = store.agentConfiguration(parsed.data);
+    if (!config.enabled) continue;
+    ready.push(parsed.data);
+  }
+  return ready;
 }
 
 async function deterministicUuid(value: string) {

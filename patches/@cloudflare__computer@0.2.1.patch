@@ -1,0 +1,32 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 4aeb610a4c38de18c8c1be38a6424094f65df4d9..25244d6ceae9d70b4b7dab0038805e7571ee9bc6 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -341,7 +341,7 @@ declare class WorkspaceStub extends RpcTarget {
+ //#region src/with-workspace.d.ts
+ declare const WORKSPACE: unique symbol;
+ interface WorkspaceStubHost {
+-  __getWorkspaceStub(): Promise<WorkspaceStub>;
++  __getWorkspaceStub(): Promise<unknown>;
+ }
+ interface WorkspaceLocalHost {
+   [WORKSPACE]: Workspace;
+diff --git a/dist/shared-DDTBl1w_.d.ts b/dist/shared-DDTBl1w_.d.ts
+index 63ff683ceb11d2b3d3dc7cae3403401c7b4eae25..9ca4501567bfd56b102862949f8905495e6206a0 100644
+--- a/dist/shared-DDTBl1w_.d.ts
++++ b/dist/shared-DDTBl1w_.d.ts
+@@ -1,11 +1,12 @@
+ import { EventEmitter } from "node:events";
+ 
+ //#region ../dofs/dist/types.d.ts
+-interface SQLCursorLike<Row extends object = Record<string, unknown>> {
++type SQLStorageValueLike = ArrayBuffer | string | number | null;
++interface SQLCursorLike<Row extends Record<string, SQLStorageValueLike> = Record<string, SQLStorageValueLike>> {
+   toArray(): Row[];
+ }
+ interface SQLStorageLike {
+-  exec<Row extends object = Record<string, unknown>>(query: string, ...bindings: unknown[]): SQLCursorLike<Row>;
++  exec<Row extends Record<string, SQLStorageValueLike> = Record<string, SQLStorageValueLike>>(query: string, ...bindings: SQLStorageValueLike[]): SQLCursorLike<Row>;
+ }
+ interface DurableObjectStorageLike {
+   sql: SQLStorageLike;

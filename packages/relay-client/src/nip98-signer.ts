@@ -2,6 +2,8 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils.js";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 const NIP98_KIND = 27_235;
 
 export function nip98PublicKey(secretKey: string | Uint8Array) {
@@ -48,7 +50,7 @@ export function createNip98Authorization(
 }
 
 function secretBytes(value: string | Uint8Array) {
-  const bytes = typeof value === "string" ? hexToBytes(value) : value;
+  const bytes = isJsonString(value) ? hexToBytes(value) : value;
   if (bytes.length !== 32) throw new Error("Agent identity must be 32 bytes.");
   return bytes;
 }

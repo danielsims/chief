@@ -12,10 +12,12 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
-import type { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
@@ -57,10 +59,8 @@ type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
 
 function activityAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
     : agentId;
 }
 
@@ -82,7 +82,6 @@ export function ChiefChatAuxiliaryPanels({
   imageParts,
   props,
   respondingAgentFor,
-  pluginActionContextFor,
   threadBlocks,
   timeline,
 }: {
@@ -106,9 +105,6 @@ export function ChiefChatAuxiliaryPanels({
   respondingAgentFor: (
     message: ChiefUIMessage,
   ) => { id: WorkspaceAgentId; name: string; role: string } | undefined;
-  pluginActionContextFor: ReturnType<
-    typeof useChiefChatPresentation
-  >["pluginActionContextFor"];
   threadBlocks: (message: ChiefUIMessage) => ContentBlock[];
   timeline: Timeline;
 }) {
@@ -395,7 +391,6 @@ export function ChiefChatAuxiliaryPanels({
                       channelReferences={channelReferences}
                       onOpenChannel={onOpenChannel}
                       onOpenTask={onOpenChild}
-                      pluginActionContext={pluginActionContextFor(message)}
                     />
                   </ChiefMessage>
                 );
@@ -483,7 +478,6 @@ export function ChiefChatAuxiliaryPanels({
       blocks={currentTurnBlocks}
       error={controls.error}
       previousTurns={previousActivityTurns}
-      agentLabel={activityAgentLabel}
       running={controls.status === "running"}
       tasks={childSessions}
       onClose={() => setActivityOpen(false)}
@@ -493,8 +487,7 @@ export function ChiefChatAuxiliaryPanels({
   ) : null;
 }
 
-function messageText(message: ChiefUIMessage) {
-  return messageBlocks(message)
+const messageText = (message: ChiefUIMessage) =>
+  messageBlocks(message)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
-}

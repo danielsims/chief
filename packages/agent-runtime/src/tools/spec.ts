@@ -1,14 +1,12 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { McpServerSpec } from "../types.js";
 import type { ExecutorWorkspace } from "./control-plane.js";
 
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+const moduleDirectory = import.meta.dirname;
 
 export function executorBinary(): string {
   if (process.env.CHIEF_EXECUTOR_BINARY) {
@@ -34,23 +32,21 @@ function executorHttpEndpoint(
   elicitationMode: "browser" | "model",
 ): { url: string; headers: Record<string, string> } | null {
   try {
-    const manifest = JSON.parse(
+    const manifest: unknown = JSON.parse(
       readFileSync(
         join(workspace.dataDir, "server-control", "server.json"),
         "utf8",
       ),
-    ) as {
-      connection?: {
-        origin?: string;
-        auth?: { kind?: string; token?: string };
-      };
-    };
-    const origin = manifest.connection?.origin;
+    );
+    if (!isJsonObject(manifest) || !isJsonObject(manifest.connection)) {
+      return null;
+    }
+    const { origin, auth } = manifest.connection;
     const token =
-      manifest.connection?.auth?.kind === "bearer"
-        ? manifest.connection.auth.token
+      isJsonObject(auth) && auth.kind === "bearer" && isJsonString(auth.token)
+        ? auth.token
         : undefined;
-    if (!origin || !token) return null;
+    if (!isJsonString(origin) || !token) return null;
     const url = new URL("/mcp", origin);
     url.searchParams.set("elicitation_mode", elicitationMode);
     return {

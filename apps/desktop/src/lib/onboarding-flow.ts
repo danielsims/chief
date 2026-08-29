@@ -1,20 +1,23 @@
-export type OnboardingStep =
-  | "mode"
-  | "inference"
-  | "health"
-  | "context"
-  | "brand"
-  | "socials"
-  | "selling"
-  | "audience"
-  | "success"
-  | "time"
-  | "monitoring"
-  | "plugins"
-  | "automation"
-  | "finish";
+const onboardingStepValues = [
+  "mode",
+  "inference",
+  "health",
+  "context",
+  "brand",
+  "socials",
+  "selling",
+  "audience",
+  "success",
+  "time",
+  "monitoring",
+  "plugins",
+  "automation",
+  "finish",
+] as const;
 
-export const ONBOARDING_STEPS: OnboardingStep[] = [
+export type OnboardingStep = (typeof onboardingStepValues)[number];
+
+export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   "mode",
   "inference",
   "health",
@@ -23,10 +26,14 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   "finish",
 ];
 
+const onboardingSteps = new Set<string>(ONBOARDING_STEPS);
+
+export function isOnboardingStep(step: string): step is OnboardingStep {
+  return onboardingSteps.has(step);
+}
+
 export function resumableOnboardingStep(step: string): OnboardingStep {
-  if (ONBOARDING_STEPS.includes(step as OnboardingStep)) {
-    return step as OnboardingStep;
-  }
+  if (isOnboardingStep(step)) return step;
   if (step === "automation") return "finish";
   return "plugins";
 }
@@ -34,12 +41,3 @@ export function resumableOnboardingStep(step: string): OnboardingStep {
 export function nextOnboardingStep(step: OnboardingStep) {
   return ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1] ?? "finish";
 }
-
-export const LOCAL_ONBOARDING_FALLBACK = {
-  workspaceMode: "local",
-  providerMode: "local",
-  provider: null,
-  deploymentProvider: null,
-  cloudDeploymentUrl: "",
-  step: "inference",
-} as const;

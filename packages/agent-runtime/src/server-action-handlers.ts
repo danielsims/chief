@@ -25,7 +25,7 @@ type ExpandMessage = Extract<
 type Authorize<M extends ResolveMessage | ExpandMessage> = (
   workspaceId: string,
   capability: M["executorCapability"],
-) => Promise<unknown>;
+) => Promise<void>;
 
 export async function handleResolveActionRequest({
   authorizeWorkspace,
@@ -51,7 +51,7 @@ export async function handleResolveActionRequest({
   manager: SessionManager;
   msg: ResolveMessage;
   send: (message: ServerMessage) => void;
-}) {
+}): Promise<void> {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
   const action = await manager.actionItem(msg.workspaceId, msg.actionItemId);
   if (action?.status !== "open" || action.request?.id !== msg.requestId) {

@@ -105,7 +105,6 @@ export function ChiefChat({
     browserRuns,
     browserSessions,
     channelResolved,
-    chatReady,
     childSessions,
     cloudOrganizationId,
     controls,
@@ -202,7 +201,6 @@ export function ChiefChat({
     activeThreadSummary,
     controlsForMessage,
     imageParts,
-    pluginActionContextFor,
     respondingAgentFor,
     threadBlocks,
     visibleConversationBlocks,
@@ -223,7 +221,7 @@ export function ChiefChat({
     <>
       {controls.error && !controls.errorAcknowledged ? (
         <ChatErrorStatus
-          key={controls.error}
+          key={`${controls.error.code ?? "runtime"}:${controls.error.message}`}
           onOpen={() => {
             dismissError();
             setActivityOpen(true);
@@ -257,7 +255,7 @@ export function ChiefChat({
               {!channelResolved && !isNew && !composerOpen ? (
                 <ChatSkeleton />
               ) : null}
-              {(chatReady || isNew) &&
+              {channelResolved &&
               !composerOpen &&
               messages.length === 0 &&
               !showOptimisticInitialPrompt ? (
@@ -299,6 +297,7 @@ export function ChiefChat({
                       return (
                         <ChannelMembershipMessage
                           action={message.metadata.channelAction}
+                          currentUserId={currentUser?.id}
                           timestamp={message.metadata.createdAt}
                           userImage={userAuthor.image}
                         />
@@ -352,7 +351,6 @@ export function ChiefChat({
                           channelReferences={channelReferences}
                           onOpenChannel={onOpenChannel}
                           onOpenTask={onOpenChild}
-                          pluginActionContext={pluginActionContextFor(message)}
                         />
                       </ChiefMessage>
                     );
@@ -490,7 +488,6 @@ export function ChiefChat({
             profileOpen,
           }}
           respondingAgentFor={respondingAgentFor}
-          pluginActionContextFor={pluginActionContextFor}
           threadBlocks={threadBlocks}
           timeline={timelineState}
         />

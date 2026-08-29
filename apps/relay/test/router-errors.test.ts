@@ -1,8 +1,8 @@
 import { createExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import worker from "../src/index";
+import { relayTestEnv } from "./helpers";
 
 describe("router error boundary", () => {
   it("returns a relay error when device binding authentication is malformed", async () => {
@@ -15,7 +15,7 @@ describe("router error boundary", () => {
         },
         body: JSON.stringify({ accountToken: `chief_at_${"a".repeat(34)}` }),
       }),
-      env as unknown as Parameters<typeof worker.fetch>[1],
+      relayTestEnv(),
       createExecutionContext(),
     );
 

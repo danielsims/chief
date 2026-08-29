@@ -1,4 +1,10 @@
 import type { ChannelWorkstream } from "@chief/channel-api";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 export class ChannelApiFailure extends Error {
   constructor(
@@ -14,25 +20,33 @@ export function fail(message: string, status: number, code: string): never {
   throw new ChannelApiFailure(message, status, code);
 }
 
-export function textValue(input: unknown, name: string, maximum: number) {
-  if (typeof input !== "string" || !input.trim()) {
+export function textValue(
+  input: JsonValue | undefined,
+  name: string,
+  maximum: number,
+) {
+  if (!isJsonString(input) || !input.trim()) {
     fail(`${name} is required.`, 400, "invalid_input");
   }
   return input.trim().slice(0, maximum);
 }
 
-export function optionalText(input: unknown, name: string, maximum: number) {
+export function optionalText(
+  input: JsonValue | undefined,
+  name: string,
+  maximum: number,
+) {
   if (input === undefined) return undefined;
-  if (typeof input !== "string") {
+  if (!isJsonString(input)) {
     fail(`${name} must be a string.`, 400, "invalid_input");
   }
   return input.trim().slice(0, maximum);
 }
 
-export function expectedVersion(body: Record<string, unknown>) {
+export function expectedVersion(body: JsonObject) {
   if (body.expectedVersion === undefined) return undefined;
   if (
-    typeof body.expectedVersion !== "number" ||
+    !isJsonNumber(body.expectedVersion) ||
     !Number.isInteger(body.expectedVersion) ||
     body.expectedVersion < 1
   ) {
@@ -48,23 +62,22 @@ export function booleanQuery(url: URL, name: string) {
 }
 
 export function workstreamInput(
-  input: unknown,
+  input: JsonValue | undefined,
   fallback?: ChannelWorkstream,
 ): ChannelWorkstream | undefined {
   if (input === undefined) return fallback;
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+  if (!input || !isJsonObject(input) || Array.isArray(input)) {
     fail("workstream must be an object.", 400, "invalid_input");
   }
-  const raw = input as Record<string, unknown>;
-  const allowedStatuses = [
-    "planned",
-    "active",
-    "review",
-    "complete",
-    "cancelled",
-  ];
+  const raw = input;
   const status = raw.status ?? fallback?.status ?? "planned";
-  if (typeof status !== "string" || !allowedStatuses.includes(status)) {
+  if (
+    status !== "planned" &&
+    status !== "active" &&
+    status !== "review" &&
+    status !== "complete" &&
+    status !== "cancelled"
+  ) {
     fail("workstream.status is invalid.", 400, "invalid_input");
   }
   const pullRequestUrls =
@@ -84,7 +97,7 @@ export function workstreamInput(
     return url;
   });
   return {
-    status: status as ChannelWorkstream["status"],
+    status,
     repository:
       optionalText(raw.repository, "workstream.repository", 500) ??
       fallback?.repository,
@@ -98,7 +111,7 @@ export function workstreamInput(
 }
 
 export function validatedAgentIds(
-  input: unknown,
+  input: JsonValue | undefined,
   availableAgentIds: readonly string[],
   required: boolean,
 ) {

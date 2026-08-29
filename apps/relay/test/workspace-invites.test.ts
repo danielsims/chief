@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   ensureChiefOrganization,
   ensureChiefOrganizationMember,
@@ -211,7 +212,7 @@ describe("workspace invites", () => {
   });
 });
 
-function jsonRequest(body: unknown) {
+function jsonRequest(body: JsonObject) {
   return new Request("https://relay.test", {
     method: "POST",
     headers: { "content-type": "application/json" },

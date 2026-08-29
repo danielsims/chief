@@ -1,3 +1,7 @@
+import { isJsonNumber } from "@chief/relay-contracts";
+
+import type { RelaySocket } from "./relay-client-options";
+
 export const relayReconnectPolicy = {
   baseDelayMs: 1_000,
   maxDelayMs: 30_000,
@@ -6,10 +10,10 @@ export const relayReconnectPolicy = {
 
 export function isTerminalSubscriptionError(error: Error) {
   const status = "status" in error ? error.status : undefined;
-  return typeof status === "number" && [400, 401, 403, 404].includes(status);
+  return isJsonNumber(status) && [400, 401, 403, 404].includes(status);
 }
 
-export function waitForSocketOpen(socket: WebSocket) {
+export function waitForSocketOpen(socket: RelaySocket) {
   if (socket.readyState === 1) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
@@ -21,6 +25,6 @@ export function waitForSocketOpen(socket: WebSocket) {
   });
 }
 
-export function asRelayError(value: unknown) {
+export function asRelayError(value: Error | string) {
   return value instanceof Error ? value : new Error(String(value));
 }

@@ -1,13 +1,9 @@
 import type { z } from "zod";
 
 import type {
-  AppendMessageCommand,
-  AppendMessageResult,
   ConversationEvent,
   ConversationMessage,
-  MessageAuthor,
   Principal,
-  WorkspaceId,
 } from "@chief/relay-contracts";
 import {
   appendMessageResultSchema,
@@ -20,6 +16,13 @@ import {
 
 import type { UpsertActivityInput } from "./conversation-activity-store";
 import type { EventRow, MessageRow } from "./conversation-rows";
+import type {
+  AppendInput,
+  ConversationStore,
+  DeleteInput,
+  EditInput,
+  ReactInput,
+} from "./conversation-store-types";
 import { upsertAgentActivity } from "./conversation-activity-store";
 import {
   escapeLike,
@@ -31,85 +34,10 @@ import { initializeConversationStorage } from "./conversation-schema";
 import { HttpError } from "./http";
 import { consumeSocketTicket, createSocketTicket } from "./socket-ticket-store";
 
-interface AppendInput {
-  command: AppendMessageCommand;
-  workspaceId: WorkspaceId;
-  author: MessageAuthor;
-  actor: Principal;
-}
-
-interface ReactInput {
-  messageId: string;
-  emoji: string;
-  pubkey: string;
-  add: boolean;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
-interface EditInput {
-  messageId: string;
-  body: string;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
-interface DeleteInput {
-  messageId: string;
-  actor: Principal;
-  workspaceId: WorkspaceId;
-  correlationId: string;
-}
-
-type StoredAppend = AppendMessageResult & { event: Record<string, unknown> };
-
-export interface ConversationStore {
-  append(input: AppendInput): StoredAppend;
-  getMessage(messageId: string): ConversationMessage | null;
-  list(
-    after: number,
-    limit: number,
-    query?: string,
-  ): {
-    messages: ConversationMessage[];
-    nextSequence: number | null;
-  };
-  replies(
-    rootId: string,
-    after: number,
-    limit: number,
-  ): {
-    messages: ConversationMessage[];
-    nextSequence: number | null;
-  };
-  react(input: ReactInput): {
-    changed: boolean;
-    result: z.infer<typeof reactToMessageResultSchema>;
-    event: Record<string, unknown> | null;
-  };
-  edit(input: EditInput): {
-    message: ConversationMessage;
-    event: Record<string, unknown> | null;
-  };
-  upsertActivity(input: UpsertActivityInput): {
-    created: boolean;
-    message: ConversationMessage;
-    event: Record<string, unknown>;
-  };
-  delete(input: DeleteInput): {
-    message: ConversationMessage;
-    event: Record<string, unknown> | null;
-  };
-  listEvents(
-    after: number,
-    limit: number,
-  ): {
-    events: ConversationEvent[];
-    nextSequence: number | null;
-  };
-}
+const storedAppendSchema = appendMessageResultSchema.extend({
+  event: conversationEventSchema,
+});
+type StoredAppend = z.infer<typeof storedAppendSchema>;
 
 export class SqlConversationStore implements ConversationStore {
   constructor(private readonly storage: DurableObjectStorage) {}
@@ -135,7 +63,7 @@ export class SqlConversationStore implements ConversationStore {
         ),
       );
       if (prior) {
-        const stored = JSON.parse(prior.result_json) as StoredAppend;
+        const stored = storedAppendSchema.parse(JSON.parse(prior.result_json));
         return { ...stored, duplicate: true };
       }
 
@@ -162,7 +90,7 @@ export class SqlConversationStore implements ConversationStore {
         createdAt,
         sequence: counter.value,
       } satisfies ConversationMessage;
-      const event = {
+      const event = conversationEventSchema.parse({
         eventId: crypto.randomUUID(),
         sequence: counter.value,
         protocolVersion: 1,
@@ -174,7 +102,7 @@ export class SqlConversationStore implements ConversationStore {
         causationId: input.command.commandId,
         occurredAt: createdAt,
         payload: { message },
-      };
+      });
       const result = appendMessageResultSchema.parse({
         duplicate: false,
         message,
@@ -222,7 +150,7 @@ export class SqlConversationStore implements ConversationStore {
         messageId,
       ),
     );
-    return row ? (toMessage(row) as unknown as ConversationMessage) : null;
+    return row ? toMessage(row) : null;
   }
 
   list(after: number, limit: number, query?: string) {
@@ -248,6 +176,19 @@ export class SqlConversationStore implements ConversationStore {
     });
   }
 
+  recent(limit: number) {
+    const rows = [
+      ...this.storage.sql.exec<MessageRow>(
+        "SELECT * FROM messages ORDER BY sequence DESC LIMIT ?",
+        limit,
+      ),
+    ];
+    return messagePageSchema.parse({
+      messages: rows.reverse().map(toMessage),
+      nextSequence: null,
+    });
+  }
+
   replies(rootId: string, after: number, limit: number) {
     const rows = [
       ...this.storage.sql.exec<MessageRow>(
@@ -266,6 +207,26 @@ export class SqlConversationStore implements ConversationStore {
       messages,
       nextSequence: hasMore ? messages.at(-1)?.sequence : null,
     });
+  }
+
+  history(threadRootId: string | undefined, limit: number) {
+    const rows = [
+      ...this.storage.sql.exec<MessageRow>(
+        threadRootId
+          ? `SELECT * FROM messages
+             WHERE deleted = 0
+               AND trim(body) <> ''
+               AND (message_id = ? OR thread_root_id = ?)
+             ORDER BY sequence DESC LIMIT ?`
+          : `SELECT * FROM messages
+             WHERE deleted = 0
+               AND trim(body) <> ''
+               AND thread_root_id IS NULL
+             ORDER BY sequence DESC LIMIT ?`,
+        ...(threadRootId ? [threadRootId, threadRootId, limit] : [limit]),
+      ),
+    ];
+    return rows.reverse().map(toMessage);
   }
 
   react(input: ReactInput) {
@@ -319,11 +280,11 @@ export class SqlConversationStore implements ConversationStore {
       });
       const result = reactToMessageResultSchema.parse({
         add: input.add,
-        message: updated as unknown as ConversationMessage,
+        message: updated,
       });
-      let event: Record<string, unknown> | null = null;
+      let event: ConversationEvent | null = null;
       if (changed) {
-        event = {
+        event = conversationEventSchema.parse({
           eventId: crypto.randomUUID(),
           sequence: 0,
           protocolVersion: 1,
@@ -335,7 +296,7 @@ export class SqlConversationStore implements ConversationStore {
           causationId: input.correlationId,
           occurredAt: new Date().toISOString(),
           payload: { message: updated },
-        };
+        });
         this.storage.sql.exec(
           "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
           this.nextEventSequence(),
@@ -362,7 +323,7 @@ export class SqlConversationStore implements ConversationStore {
           "The message was not found.",
         );
       }
-      const previous = toMessage(row) as ConversationMessage;
+      const previous = toMessage(row);
       if (previous.body === input.body && previous.edited) {
         return { message: previous, event: null };
       }
@@ -377,7 +338,7 @@ export class SqlConversationStore implements ConversationStore {
         updated.body,
         input.messageId,
       );
-      const event = {
+      const event = conversationEventSchema.parse({
         eventId: crypto.randomUUID(),
         sequence: this.nextEventSequence(),
         protocolVersion: 1,
@@ -389,7 +350,7 @@ export class SqlConversationStore implements ConversationStore {
         causationId: input.correlationId,
         occurredAt: new Date().toISOString(),
         payload: { message: updated },
-      };
+      });
       this.storage.sql.exec(
         "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
         event.sequence,
@@ -421,7 +382,7 @@ export class SqlConversationStore implements ConversationStore {
           "The message was not found.",
         );
       }
-      const previous = toMessage(row) as ConversationMessage;
+      const previous = toMessage(row);
       if (previous.deleted) return { message: previous, event: null };
       const updated = conversationMessageSchema.parse({
         ...previous,
@@ -434,7 +395,7 @@ export class SqlConversationStore implements ConversationStore {
         updated.body,
         input.messageId,
       );
-      const event = {
+      const event = conversationEventSchema.parse({
         eventId: crypto.randomUUID(),
         sequence: this.nextEventSequence(),
         protocolVersion: 1,
@@ -446,7 +407,7 @@ export class SqlConversationStore implements ConversationStore {
         causationId: input.correlationId,
         occurredAt: new Date().toISOString(),
         payload: { message: updated },
-      };
+      });
       this.storage.sql.exec(
         "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
         event.sequence,

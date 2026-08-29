@@ -14,6 +14,8 @@ export interface ShimmerProps {
   spread?: number;
 }
 
+type ShimmerStyle = CSSProperties & { "--shimmer-spread": string };
+
 /**
  * Vercel AI Elements-style text shimmer for concise in-progress labels.
  * The text keeps its inherited typography while a single linear highlight
@@ -42,7 +44,7 @@ function ShimmerComponent({
       "--shimmer-spread": `${dynamicSpread}px`,
       backgroundImage:
         "var(--shimmer-bg), linear-gradient(var(--muted-foreground), var(--muted-foreground))",
-    } as CSSProperties,
+    } satisfies ShimmerStyle,
     transition: {
       duration,
       ease: "linear" as const,

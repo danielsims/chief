@@ -10,10 +10,61 @@ import {
   eventEnvelopeSchema,
   executionLeaseSchema,
   messageComponentSchema,
+  provisionWorkspaceCommandSchema,
   relativeExecutionPathSchema,
   relayDiscoverySchema,
 } from "../src/index";
 import { createRelayOpenApiDocument } from "../src/openapi";
+
+const workspaceProvision = (runtime: "phone" | "cloud") => ({
+  workspace: {
+    commandId: "9b15b985-1a51-4c69-bc39-a941db4f7754",
+    name: "Chief",
+    website: "https://heychief.sh",
+    runtime,
+    inferenceProvider: runtime === "phone" ? "onDevice" : "openCodeGo",
+    inferenceModel: runtime === "phone" ? "gemma-4-e2b" : "auto",
+    selectedApps: [],
+  },
+  secrets: {},
+});
+
+void test("phone workspaces can keep inference entirely on device", () => {
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse(workspaceProvision("phone"))
+      .success,
+    true,
+  );
+});
+
+void test("hosted workspaces require a relay-owned inference credential", () => {
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse(workspaceProvision("cloud"))
+      .success,
+    false,
+  );
+});
+
+void test("hosted workspaces accept a workspace-scoped Vercel AI Gateway credential", () => {
+  const input = workspaceProvision("cloud");
+  input.workspace.inferenceProvider = "vercelAiGateway";
+  input.workspace.inferenceModel = "deepseek/deepseek-v4-flash";
+
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      secrets: { vercelAiGateway: "workspace-gateway-key" },
+    }).success,
+    true,
+  );
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      secrets: { opencode: "wrong-provider-key" },
+    }).success,
+    false,
+  );
+});
 
 void test("public commands reject attempts to inject a trusted actor", () => {
   const result = appendMessageCommandSchema.safeParse({
@@ -192,10 +243,34 @@ void test("plugin authorization components reject unsafe callback URLs", () => {
   );
 });
 
+void test("plugin authorization components accept generic OAuth clients", () => {
+  const component = {
+    id: "plugin-auth-1",
+    kind: "plugin.authorization",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "analytics",
+      agentId: "analyst",
+      pluginId: "analytics",
+      pluginName: "Analytics",
+      description: "Authorize analytics administration.",
+      provider: "analytics.example.com",
+      kind: "plugin_oauth_client",
+      serverName: "analytics-mcp",
+      callbackUrl: "http://127.0.0.1:4318/plugins/oauth/callback",
+      status: "client_configuration_required",
+    },
+  } as const;
+
+  assert.equal(messageComponentSchema.safeParse(component).success, true);
+});
+
 void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
     protocol: "chief-relay",
     protocolVersion: 1,
+    relayId: "relay_test",
     deployment: "cloudflare-byoc",
     apiBaseUrl: "https://relay.example.com/v1",
     websocketUrl: "wss://relay.example.com/v1/connect",
@@ -205,6 +280,7 @@ void test("relay discovery is portable across hosting providers", () => {
       scheme: "NIP-98",
       signingAlgorithm: "secp256k1-schnorr",
       accountIssuer: "https://relay.example.com/api/auth",
+      methods: ["email-password", "google"],
     },
   });
 
@@ -213,6 +289,10 @@ void test("relay discovery is portable across hosting providers", () => {
     discovery.authentication.accountIssuer,
     "https://relay.example.com/api/auth",
   );
+  assert.deepEqual(discovery.authentication.methods, [
+    "email-password",
+    "google",
+  ]);
 });
 
 void test("OpenAPI documents idempotent message append", () => {

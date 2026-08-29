@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { BrandMark } from "./brand-mark";
 
 const flowPaths = [
@@ -158,9 +160,11 @@ export function WorkChannels() {
           >
             <header>
               <span className="flow-destination-icon">
-                <img
+                <Image
                   src={`https://integrations.sh/logo/${destination.domain}`}
                   alt=""
+                  width={32}
+                  height={32}
                 />
               </span>
               <span className="flow-destination-name">

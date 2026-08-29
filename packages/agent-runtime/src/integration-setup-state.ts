@@ -1,3 +1,5 @@
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 export interface ActiveIntegrationSetup {
   attemptId: string;
   domain: string;
@@ -73,19 +75,14 @@ export class IntegrationSetupRegistry {
   }
 }
 
-export function completedSetupResult(text: string) {
+export function completedSetupResult(text: string): string | null {
   for (const line of text.split("\n")) {
     const marker = "CHIEF_SETUP_RESULT ";
     if (!line.startsWith(marker)) continue;
     try {
-      const result = JSON.parse(line.slice(marker.length)) as {
-        provider?: unknown;
-        status?: unknown;
-      };
-      if (
-        result.status === "connected" &&
-        typeof result.provider === "string"
-      ) {
+      const result = parseJsonObject(JSON.parse(line.slice(marker.length)));
+      if (!result) return null;
+      if (result.status === "connected" && isJsonString(result.provider)) {
         return result.provider;
       }
     } catch {

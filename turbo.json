@@ -2,12 +2,12 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "globalEnv": [
+    "AGENT_BROWSER_SOCKET_DIR",
     "AUTH_*",
     "BASE_URL",
     "CHIEF_*",
     "CLOUDFLARE_*",
     "CODEX_PATH",
-    "CONVEX_SITE_URL",
     "DEV",
     "EXECUTOR_*",
     "GOOGLE_*",
@@ -17,6 +17,7 @@
     "OPENCODE_PATH",
     "STRIPE_*",
     "TAURI_*",
+    "VERCEL",
     "VITE_*",
     "WORKSPACE_MODEL",
     "XDG_CACHE_HOME"
@@ -49,8 +50,7 @@
       "outputs": [".cache/.prettiercache"]
     },
     "lint": {
-      "dependsOn": ["topo", "^build"],
-      "outputs": [".cache/.eslintcache"]
+      "outputs": []
     },
     "test": {
       "dependsOn": ["topo", "^build"],

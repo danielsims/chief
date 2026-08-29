@@ -84,7 +84,7 @@ export class AgentSessionCapabilityRegistry {
       workspaceId: input.workspaceId,
       agentId: input.agentId,
       sessionId: input.sessionId,
-      ...(localToolPermissions ? { localToolPermissions } : {}),
+      ...(localToolPermissions ? { localToolPermissions } : undefined),
       expiresAt,
     });
     return token;

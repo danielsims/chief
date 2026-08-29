@@ -1,11 +1,11 @@
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { createExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -13,6 +13,7 @@ import {
 import worker from "../src/index";
 import { computeNostrEventId, sha256PayloadTag } from "../src/nip98";
 import { createManagedWorkspace } from "../src/workspace-authority";
+import { relayTestEnv } from "./helpers";
 
 // A fixed 32-byte secret key so the signed identity is deterministic.
 const secretKey = schnorr.utils.randomSecretKey();
@@ -140,9 +141,8 @@ describe("attachment upload and read", () => {
     });
   });
 });
-
 async function setup() {
-  const relay = env as unknown as Parameters<typeof createManagedWorkspace>[0];
+  const relay = relayTestEnv();
   const command = createWorkspaceCommandSchema.parse({
     commandId: crypto.randomUUID(),
     name: "Attachment test",
@@ -152,7 +152,14 @@ async function setup() {
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
-  const created = await createManagedWorkspace(relay, ownerIdentity, command);
+  const created = await createManagedWorkspace(
+    relay,
+    ownerIdentity,
+    provisionWorkspaceCommandSchema.parse({
+      workspace: command,
+      secrets: { opencode: "test-opencode-key" },
+    }),
+  );
   const snapshot = workspaceSnapshotSchema.parse(await created.json());
   return { workspaceId: snapshot.id };
 }
@@ -179,5 +186,5 @@ function signedRequest(url: string, method: string, body?: string) {
 }
 
 function relayEnv(): Parameters<typeof worker.fetch>[1] {
-  return env as unknown as Parameters<typeof worker.fetch>[1];
+  return relayTestEnv();
 }

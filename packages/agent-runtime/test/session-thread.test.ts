@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import type { AgentDefinition, AgentEvent } from "../src/types.js";
+import type { AgentDefinition } from "../src/types.js";
+import { BaseDriver } from "../src/drivers/base.js";
 import { AgentSession } from "../src/session.js";
 
 const cmo: AgentDefinition = {
@@ -14,6 +14,28 @@ const cmo: AgentDefinition = {
 };
 const tinyPng =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+class TestDriver extends BaseDriver {
+  readonly prompts: string[] = [];
+  onPrompt: (() => void) | undefined;
+  start() {
+    return Promise.resolve();
+  }
+  sendPromptOnce(prompt: string) {
+    this.prompts.push(prompt);
+    this.onPrompt?.();
+    return Promise.resolve();
+  }
+  restart() {
+    return Promise.resolve();
+  }
+  interrupt() {
+    return Promise.resolve();
+  }
+  stop() {
+    return Promise.resolve();
+  }
+}
 void test("recorded channel membership retains its durable UI action", () => {
   const session = new AgentSession(cmo, "chat", {
     driver: "codex",
@@ -79,20 +101,18 @@ void test("a host-owned document keeps its exact channel thread", () => {
 });
 
 void test("an attached image is materialized for the agent to inspect", async () => {
-  const session = new AgentSession(cmo, "image-chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async (prompt: string) => {
-      prompts.push(prompt);
-      await Promise.resolve();
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "image-chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
     },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+    [],
+    driver,
+  );
   await session.start("/tmp");
 
   await session.sendPrompt("What is this?", "image-message", true, {
@@ -102,9 +122,9 @@ void test("an attached image is materialized for the agent to inspect", async ()
     ],
   });
 
-  assert.match(prompts[0] ?? "", /inspect these files/u);
+  assert.match(driver.prompts[0] ?? "", /inspect these files/u);
   assert.match(
-    prompts[0] ?? "",
+    driver.prompts[0] ?? "",
     /reference\.png: \/tmp\/\.message-attachments\/.*\.png/u,
   );
   const event = session.events.at(-1);
@@ -113,23 +133,21 @@ void test("an attached image is materialized for the agent to inspect", async ()
 });
 
 void test("a later agent reply receives images from the current thread", async () => {
-  const session = new AgentSession(cmo, "thread-image-chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "thread-image-chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
   session.recordUserMessage("What is this?", "thread-root", {
     attachments: [{ name: "thread.png", mediaType: "image/png", url: tinyPng }],
   });
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async (prompt: string) => {
-      prompts.push(prompt);
-      await Promise.resolve();
-    },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
   await session.start("/tmp");
 
   await session.sendPrompt("@Chief please take a look", "thread-reply", true, {
@@ -137,20 +155,27 @@ void test("a later agent reply receives images from the current thread", async (
     mentions: ["chief"],
   });
 
-  assert.match(prompts[0] ?? "", /Current channel thread context/u);
+  assert.match(driver.prompts[0] ?? "", /Current channel thread context/u);
   assert.match(
-    prompts[0] ?? "",
+    driver.prompts[0] ?? "",
     /thread\.png: \/tmp\/\.message-attachments\/.*\.png/u,
   );
-  assert.match(prompts[0] ?? "", /What is this\?/u);
+  assert.match(driver.prompts[0] ?? "", /What is this\?/u);
 });
 
 void test("a newly addressed channel thread receives the recent shared channel context", async () => {
-  const session = new AgentSession(cmo, "channel-context-chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "channel-context-chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
   session.recordUserMessage(
     "The app still crashes whenever the agent opens its browser.",
     "previous-channel-message",
@@ -160,15 +185,6 @@ void test("a newly addressed channel thread receives the recent shared channel c
     "addressed-thread-root",
     { mentions: ["chief"] },
   );
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: async (prompt: string) => {
-      prompts.push(prompt);
-      await Promise.resolve();
-    },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
   await session.start("/tmp");
 
   await session.sendPrompt(
@@ -181,28 +197,25 @@ void test("a newly addressed channel thread receives the recent shared channel c
     },
   );
 
-  assert.match(prompts[0] ?? "", /Recent shared channel context/u);
-  assert.match(prompts[0] ?? "", /still crashes whenever/u);
-  assert.match(prompts[0] ?? "", /Current channel thread context/u);
-  assert.match(prompts[0] ?? "", /see my last message/u);
+  assert.match(driver.prompts[0] ?? "", /Recent shared channel context/u);
+  assert.match(driver.prompts[0] ?? "", /still crashes whenever/u);
+  assert.match(driver.prompts[0] ?? "", /Current channel thread context/u);
+  assert.match(driver.prompts[0] ?? "", /see my last message/u);
 });
 
 void test("the thread anchor survives a driver exit via the persisted getter", async () => {
-  const session = new AgentSession(cmo, "thread-anchor-chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = new EventEmitter() as EventEmitter & {
-    start: () => Promise<void>;
-    sendPrompt: (prompt: string) => Promise<void>;
-  };
-  driver.start = async () => Promise.resolve();
-  driver.sendPrompt = async (prompt: string) => {
-    void prompt;
-    await Promise.resolve();
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "thread-anchor-chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
   await session.start("/tmp");
 
   // First turn anchors the session to a thread.
@@ -222,27 +235,25 @@ void test("the thread anchor survives a driver exit via the persisted getter", a
 });
 
 void test("an approval stays with the channel thread that requested it", async () => {
-  const session = new AgentSession(cmo, "thread-approval-chat", {
-    driver: "codex",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
-  driver.sendPrompt = () => {
+  const driver = new TestDriver();
+  const session = new AgentSession(
+    cmo,
+    "thread-approval-chat",
+    {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+    },
+    [],
+    driver,
+  );
+  driver.onPrompt = () => {
     driver.emit("event", {
       type: "permission",
       requestId: "approval-1",
       toolName: "GitHub",
       input: { message: "Connect GitHub" },
     });
-    return Promise.resolve();
   };
 
   await session.sendPrompt("Review the repo", "thread-message", true, {

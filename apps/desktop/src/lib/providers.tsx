@@ -20,5 +20,5 @@ export const PROVIDER_META: Record<Provider, ProviderMeta> = {
   // Codex has no dedicated mark we ship; the OpenAI logo is the recognizable one.
   codex: { label: "Codex", Icon: OpenAI, location: "Local" },
   opencode: { label: "OpenCode", Icon: OpenCode, location: "Local" },
-  remote: { label: "Cloud", Icon: Cloud, location: "Deployed" },
+  remote: { label: "OpenCode", Icon: Cloud, location: "Deployed" },
 };

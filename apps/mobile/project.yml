@@ -6,7 +6,8 @@ options:
   createIntermediateGroups: true
 packages:
   P256K:
-    path: Chief/Vendored/swift-secp256k1
+    url: https://github.com/21-DOT-DEV/swift-secp256k1.git
+    exactVersion: 0.21.1
   BrowserUI:
     path: ../../../browser-ui
   MCP:

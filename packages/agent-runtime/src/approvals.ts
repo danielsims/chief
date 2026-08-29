@@ -1,3 +1,6 @@
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString } from "@chief/relay-contracts";
+
 /**
  * Approval policy: which tool calls run without asking and which need the
  * user's explicit approval. Follows the executor.sh semantics: reads and
@@ -76,12 +79,10 @@ function isSafeShellCommand(command: string): boolean {
 
 export function evaluateToolUse(
   toolName: string,
-  input: unknown,
+  input: JsonObject,
   cwd: string,
 ): ApprovalDecision {
   if (READ_ONLY_TOOLS.has(toolName)) return "allow";
-
-  const i = (input ?? {}) as Record<string, unknown>;
 
   // File edits inside the agent's own working directory are workspace-scoped
   // and reversible; edits anywhere else on the machine need approval.
@@ -90,12 +91,12 @@ export function evaluateToolUse(
     toolName === "Write" ||
     toolName === "NotebookEdit"
   ) {
-    const path = typeof i.file_path === "string" ? i.file_path : "";
+    const path = isJsonString(input.file_path) ? input.file_path : "";
     return path.startsWith(cwd) ? "allow" : "ask";
   }
 
   if (toolName === "Bash" || toolName === "bash") {
-    const command = typeof i.command === "string" ? i.command : "";
+    const command = isJsonString(input.command) ? input.command : "";
     return isSafeShellCommand(command) ? "allow" : "ask";
   }
 

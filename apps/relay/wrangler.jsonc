@@ -10,7 +10,6 @@
       { "name": "ACCOUNTS", "class_name": "AccountObject" },
       { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
       { "name": "AGENTS", "class_name": "AgentObject" },
-      { "name": "METRICS", "class_name": "AnalyticsObject" },
     ],
   },
   "migrations": [
@@ -38,6 +37,10 @@
       "tag": "v5",
       "deleted_classes": ["IdentityObject"],
     },
+    {
+      "tag": "v6",
+      "deleted_classes": ["AnalyticsObject"],
+    },
   ],
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
@@ -50,7 +53,7 @@
       "migrations_dir": "../../packages/auth/migrations",
     },
   ],
-  "ai": { "binding": "AI" },
+  "browser": { "binding": "BROWSER" },
   "ratelimits": [
     {
       "name": "EDGE_REQUEST_RATE_LIMITER",
@@ -79,13 +82,29 @@
     },
   ],
   "vars": {
+    "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",
     "RELAY_DEPLOYMENT": "chief-cloud",
+    // Full OTLP exporters use interval fibers and outbound I/O. Keep them out
+    // of production Durable Objects so idle objects can hibernate after 10s.
+    // The self-host observability profile enables full telemetry explicitly.
+    "RELAY_TELEMETRY_MODE": "errors",
+    "RELAY_TELEMETRY_INCLUDE_CONTENT": "false",
     "HOSTED_CELL_ENABLED": "true",
-    "HOSTED_CELL_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "HOSTED_AGENT_COMPACTION_RATIO": "0.75",
     "ACCOUNT_IDENTITY_MODE": "chief-account",
     "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
   },
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+    },
+  },
 }

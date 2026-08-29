@@ -15,7 +15,7 @@ Install the prerequisites and dependencies described in the
 [README](./README.md), then start the services in separate terminals:
 
 ```bash
-pnpm --filter @chief/backend dev
+pnpm relay:dev
 pnpm dev
 pnpm desktop
 ```

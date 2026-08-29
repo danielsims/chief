@@ -345,10 +345,17 @@ export function useAgentPreferences(workspaceId: string | null) {
     () => !(workspaceId && preferencesCache.has(workspaceId)),
   );
   const preferencesWorkspaceRef = useRef<string | null>(workspaceId);
+  const pendingSavesRef = useRef(new Set<string>());
+  const [saveState, setSaveState] = useState<{
+    saving: boolean;
+    error: string | null;
+  }>({ saving: false, error: null });
 
   useEffect(() => {
     if (preferencesWorkspaceRef.current !== workspaceId) {
       preferencesWorkspaceRef.current = workspaceId;
+      pendingSavesRef.current.clear();
+      setSaveState({ saving: false, error: null });
       const cached = workspaceId
         ? preferencesCache.get(workspaceId)
         : undefined;
@@ -368,9 +375,33 @@ export function useAgentPreferences(workspaceId: string | null) {
         message.type === "agentPreferences" &&
         message.workspaceId === workspaceId
       ) {
+        if (
+          message.requestId &&
+          pendingSavesRef.current.delete(message.requestId)
+        ) {
+          setSaveState((current) => ({
+            saving: pendingSavesRef.current.size > 0,
+            error: current.error,
+          }));
+        }
         preferencesCache.set(workspaceId, message.preferences);
         setPreferences(message.preferences);
         setLoading(false);
+      }
+      if (
+        message.type === "error" &&
+        message.requestId &&
+        pendingSavesRef.current.delete(message.requestId)
+      ) {
+        setSaveState({
+          saving: pendingSavesRef.current.size > 0,
+          error: message.message,
+        });
+        client.send({
+          type: "listAgentPreferences",
+          workspaceId,
+          executorCapability: capability,
+        });
       }
     });
     client.send({
@@ -395,13 +426,17 @@ export function useAgentPreferences(workspaceId: string | null) {
       preferencesCache.set(workspaceId, next);
       return next;
     });
+    const requestId = crypto.randomUUID();
+    pendingSavesRef.current.add(requestId);
+    setSaveState({ saving: true, error: null });
     client.send({
       type: "saveAgentPreference",
+      requestId,
       workspaceId,
       preference,
       executorCapability: capability,
     });
   };
 
-  return { preferences, loading, save };
+  return { preferences, loading, save, ...saveState };
 }

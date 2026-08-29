@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { cn } from "@chief/ui/lib/utils";
 
@@ -40,14 +40,29 @@ export function ProviderLogo({
   label: string;
   className?: string;
 }) {
+  return (
+    <ProviderLogoImage
+      key={domain}
+      domain={domain}
+      label={label}
+      className={className}
+    />
+  );
+}
+
+function ProviderLogoImage({
+  domain,
+  label,
+  className,
+}: {
+  domain: string;
+  label: string;
+  className?: string;
+}) {
   const [failed, setFailed] = useState(false);
   const [lightBacking, setLightBacking] = useState(
     () => lightBackingCache.get(domain) ?? false,
   );
-  useEffect(() => {
-    setFailed(false);
-    setLightBacking(lightBackingCache.get(domain) ?? false);
-  }, [domain]);
   const isGoogle =
     domain === "google.com" ||
     domain === "workspace.google.com" ||

@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChiefUIMessage, SessionRecord } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { useChannelReadState } from "../../lib/channel-read-state-context";
 import type { useRuntime } from "../../lib/runtime";
@@ -31,7 +32,7 @@ function taskThreadRootId(
   const explicitRoot =
     task.triggerContext?.threadRootId ??
     task.triggerContext?.originThreadRootId;
-  if (typeof explicitRoot === "string") return explicitRoot;
+  if (isJsonString(explicitRoot)) return explicitRoot;
   const ownerId = owners.get(task.id);
   return ownerId
     ? messages.find((message) => message.id === ownerId)?.metadata?.threadRootId
@@ -146,7 +147,7 @@ export function useChiefChatTimeline({
         task.triggerContext?.originThreadRootId,
       ];
       for (const rootId of rootIds) {
-        if (typeof rootId !== "string") continue;
+        if (!isJsonString(rootId)) continue;
         const current = specialists.get(rootId);
         if (!current || task.updatedAt >= current.updatedAt) {
           specialists.set(rootId, task);
@@ -162,7 +163,7 @@ export function useChiefChatTimeline({
     ? messages.find((message) => message.id === activeChildOwnerId)
     : undefined;
   const activeChildThreadRootId =
-    (typeof activeChild?.triggerContext?.threadRootId === "string"
+    (isJsonString(activeChild?.triggerContext?.threadRootId)
       ? activeChild.triggerContext.threadRootId
       : activeChildOwner?.metadata?.threadRootId) ?? threadRootId;
   const threadReplies = useMemo(() => {

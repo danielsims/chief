@@ -1,10 +1,51 @@
 import { createHash } from "node:crypto";
 
-import type { SessionManager } from "./manager.js";
 import type { AgentEvent, DriverType } from "./types.js";
 
 export type SpecialistOutcome =
   { status: "completed"; result: string } | { status: "failed"; error: string };
+
+export interface SpecialistOutcomeManager {
+  finishChildChat(
+    workspaceId: string,
+    sessionId: string,
+    outcome: SpecialistOutcome,
+  ): void | Promise<void>;
+  waitForChatPersistence(workspaceId: string, sessionId: string): Promise<void>;
+  raiseActionItem(
+    workspaceId: string,
+    action: {
+      id: string;
+      agentId: string;
+      title: string;
+      reason: string;
+      sourceId: string;
+      status: "open";
+      createdAt: number;
+    },
+  ): void | Promise<void>;
+  dismissActionItem(
+    workspaceId: string,
+    actionId: string,
+  ): void | Promise<void>;
+  store: {
+    listBrowserRuns(
+      workspaceId: string,
+    ): Promise<readonly { conversationId: string; status: string }[]>;
+    listActionItems(
+      workspaceId: string,
+    ): Promise<readonly { id: string; agentId: string; sourceId?: string }[]>;
+    chatRecord(
+      workspaceId: string,
+      sessionId: string,
+    ): Promise<{ title: string } | null>;
+    updateChatState(
+      workspaceId: string,
+      sessionId: string,
+      state: { status: "waiting"; summary: string },
+    ): boolean | void | Promise<boolean | void>;
+  };
+}
 
 export function terminalSpecialistOutcome(
   events: readonly AgentEvent[],
@@ -91,7 +132,7 @@ function setupAttentionId(workspaceId: string, sessionId: string) {
 }
 
 async function syncSetupAttention(input: {
-  manager: SessionManager;
+  manager: SpecialistOutcomeManager;
   workspaceId: string;
   sessionId: string;
   waitingForUser: boolean;
@@ -105,9 +146,9 @@ async function syncSetupAttention(input: {
   );
   if (!input.waitingForUser) {
     await Promise.all(
-      sessionActions.map((action) =>
-        input.manager.dismissActionItem(input.workspaceId, action.id),
-      ),
+      sessionActions.map(async (action) => {
+        await input.manager.dismissActionItem(input.workspaceId, action.id);
+      }),
     );
     return;
   }
@@ -130,7 +171,7 @@ async function syncSetupAttention(input: {
 }
 
 export async function persistSpecialistOutcomeState(input: {
-  manager: SessionManager;
+  manager: SpecialistOutcomeManager;
   workspaceId: string;
   sessionId: string;
   agentId: string;

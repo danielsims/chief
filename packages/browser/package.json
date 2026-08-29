@@ -4,10 +4,7 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "exports": {
-    ".": "./src/index.ts",
-    "./node": "./src/node.ts",
-    "./react": "./src/react.tsx",
-    "./surface": "./src/surface.tsx"
+    "./node": "./src/node.ts"
   },
   "publishConfig": {
     "access": "public"
@@ -15,25 +12,18 @@
   "scripts": {
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint packages/browser",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "agent-browser": "0.32.3"
   },
-  "peerDependencies": {
-    "react": ">=19"
-  },
   "devDependencies": {
-    "@chief/eslint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@types/node": "catalog:",
-    "@types/react": "catalog:",
-    "eslint": "catalog:",
     "prettier": "catalog:",
-    "react": "^19.1.0",
     "tsx": "^4.20.3",
     "typescript": "catalog:"
   },

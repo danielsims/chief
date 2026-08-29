@@ -10,17 +10,18 @@ import {
 import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
+import { TooltipProvider } from "@chief/ui/components/tooltip";
 
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
+import { RelayConnectionDialog } from "./components/relay-connection-control";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
-import { ConvexClientProvider } from "./lib/convex";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -40,6 +41,7 @@ import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
+import { AgentsSettings } from "./pages/settings/agents";
 import { AppearanceSettings } from "./pages/settings/appearance";
 import { ConnectionSettings } from "./pages/settings/connection";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
@@ -66,6 +68,11 @@ const PluginsPagePreview = lazy(() =>
 const ProjectsPage = lazy(() =>
   import("./pages/projects").then((module) => ({
     default: module.ProjectsPage,
+  })),
+);
+const MachinesPage = lazy(() =>
+  import("./pages/machines").then((module) => ({
+    default: module.MachinesPage,
   })),
 );
 
@@ -130,21 +137,41 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 
 function RelayUnavailableState() {
   const relay = useRelaySession();
+  const { signOut } = useAuth();
   return (
-    <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <section className="bg-card w-full max-w-md rounded-xl border p-8">
-        <PageTitle>Workspace unavailable</PageTitle>
-        <p className="text-muted-foreground mt-3 text-sm leading-6">
-          Chief can’t connect to the server that runs this workspace. Go back
-          and use another workspace until it’s online again.
-        </p>
-        <div className="mt-6">
-          <Button onClick={() => void relay.returnToPreviousWorkspace()}>
-            Back
-          </Button>
-        </div>
-      </section>
-    </main>
+    <TooltipProvider delayDuration={250}>
+      <div className="bg-background text-foreground flex h-dvh overflow-hidden">
+        <main className="bg-background flex min-w-0 flex-1 items-center justify-center px-6">
+          <section className="bg-card w-full max-w-md rounded-xl border p-8">
+            <PageTitle>Workspace unavailable</PageTitle>
+            <p className="text-muted-foreground mt-3 text-sm leading-6">
+              {relay.error}
+            </p>
+            <p className="text-muted-foreground mt-3 text-xs leading-5">
+              Connect to another relay or go back. Workspaces remain stored on
+              the relay where you created them.
+            </p>
+            <div className="mt-6 flex gap-2">
+              <RelayConnectionDialog>
+                <Button>Change relay</Button>
+              </RelayConnectionDialog>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (relay.recoveryWorkspace) {
+                    void relay.returnToPreviousWorkspace();
+                    return;
+                  }
+                  signOut();
+                }}
+              >
+                {relay.recoveryWorkspace ? "Back" : "Disconnect"}
+              </Button>
+            </div>
+          </section>
+        </main>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -156,7 +183,7 @@ class AppErrorBoundary extends Component<
   },
   { error: Error | null }
 > {
-  state = { error: null as Error | null };
+  state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -295,6 +322,10 @@ function AuthenticatedApp() {
                       />
                       <Route path="agents" element={<AgentsPage />} />
                       <Route
+                        path="machines"
+                        element={<Navigate to="/settings/machines" replace />}
+                      />
+                      <Route
                         path="projects/:projectId?"
                         element={
                           <Suspense fallback={null}>
@@ -338,6 +369,7 @@ function AuthenticatedApp() {
                           path="notifications"
                           element={<NotificationsSettings />}
                         />
+                        <Route path="agents" element={<AgentsSettings />} />
                         <Route
                           path="diagnostics"
                           element={<DiagnosticsSettings />}
@@ -345,6 +377,14 @@ function AuthenticatedApp() {
                         <Route
                           path="environment"
                           element={<EnvironmentSettings />}
+                        />
+                        <Route
+                          path="machines"
+                          element={
+                            <Suspense fallback={null}>
+                              <MachinesPage />
+                            </Suspense>
+                          }
                         />
                         <Route
                           path="integrations/*"
@@ -373,11 +413,9 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <AuthSessionBoundary>
-            <ConvexClientProvider>
-              <RelaySessionProvider>
-                <AuthenticatedApp />
-              </RelaySessionProvider>
-            </ConvexClientProvider>
+            <RelaySessionProvider>
+              <AuthenticatedApp />
+            </RelaySessionProvider>
           </AuthSessionBoundary>
         </AuthProvider>
       </ThemeProvider>

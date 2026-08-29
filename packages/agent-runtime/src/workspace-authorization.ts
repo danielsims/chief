@@ -46,15 +46,11 @@ export function capabilityWhoamiUrl(
       base.hostname === "localhost" ||
       base.hostname === "127.0.0.1" ||
       base.hostname === "[::1]";
-    const convexSite =
-      base.protocol === "https:" &&
-      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.convex\.site$/i.test(base.hostname);
-    if (
-      !convexSite &&
-      !(localhost && environment.CHIEF_ALLOW_LOCAL_CAPABILITY_ENDPOINT === "1")
-    ) {
+    if (!(
+      localhost && environment.CHIEF_ALLOW_LOCAL_CAPABILITY_ENDPOINT === "1"
+    )) {
       throw new Error(
-        "Workspace capability endpoint must be a hosted https://<deployment>.convex.site origin.",
+        "Configure CHIEF_AGENT_TOOLS_ORIGIN before using a hosted workspace capability endpoint.",
       );
     }
   }

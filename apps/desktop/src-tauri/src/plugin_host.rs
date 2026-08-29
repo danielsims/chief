@@ -61,6 +61,9 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
             packaged: true,
         });
     }
+    if !cfg!(debug_assertions) {
+        return Err("Chief's plugin runtime is not installed on this Mac.".to_string());
+    }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../packages/agent-runtime")
         .canonicalize()

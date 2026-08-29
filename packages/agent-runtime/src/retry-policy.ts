@@ -1,3 +1,5 @@
+import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+
 import type { RecurringWorkRecord } from "./types.js";
 
 export const TRANSIENT_RETRY_DELAY_MS = 30_000;
@@ -7,7 +9,7 @@ const WORK_RETRY_MESSAGE =
 const RETRY_EXHAUSTED_MESSAGE =
   "Chief's local runtime did not recover after one automatic retry. Nothing external was changed.";
 
-function errorChain(error: unknown) {
+function errorChain<TError>(error: TError): string {
   const messages: string[] = [];
   let current: unknown = error;
   for (let depth = 0; current && depth < 5; depth += 1) {
@@ -16,7 +18,7 @@ function errorChain(error: unknown) {
       current = current.cause;
     } else {
       messages.push(
-        typeof current === "string" || typeof current === "number"
+        isJsonString(current) || isJsonNumber(current)
           ? `${current}`
           : "Unknown runtime error",
       );
@@ -26,18 +28,20 @@ function errorChain(error: unknown) {
   return messages.join(" ");
 }
 
-export function isTransientRuntimeError(error: unknown) {
+export function isTransientRuntimeError<TError>(error: TError): boolean {
   return /SQLITE_BUSY|database is locked|cannot commit transaction|RPC timeout|initialize timed out|ECONNRESET|ETIMEDOUT/i.test(
     errorChain(error),
   );
 }
 
-export function isAutomaticRetrySummary(summary: string | null | undefined) {
+export function isAutomaticRetrySummary(
+  summary: string | null | undefined,
+): boolean {
   return summary === WORK_RETRY_MESSAGE;
 }
 
-export function transientRetryOutcome(
-  error: unknown,
+export function transientRetryOutcome<TError>(
+  error: TError,
   work: Pick<RecurringWorkRecord, "lastSummary">,
 ) {
   const transient = isTransientRuntimeError(error);

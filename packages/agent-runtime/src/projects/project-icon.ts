@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 const MAX_ICON_BYTES = 512 * 1024;
 const MAX_SCAN_DEPTH = 4;
 const MAX_SCANNED_ENTRIES = 2_000;
@@ -113,7 +115,7 @@ export function projectIconDataUrl(repositoryPath: string, revision?: string) {
     iconCache.set(key, cached);
     if (iconCache.size > MAX_ICON_CACHE_ENTRIES) {
       const oldest = iconCache.keys().next().value;
-      if (typeof oldest === "string") iconCache.delete(oldest);
+      if (isJsonString(oldest)) iconCache.delete(oldest);
     }
   }
   return cached;

@@ -1,6 +1,7 @@
 import type { ConversationEvent, RelayDiscovery } from "@chief/relay-contracts";
 import { conversationEventSchema } from "@chief/relay-contracts";
 
+import type { RelaySocket } from "./relay-client-options";
 import {
   asRelayError,
   isTerminalSubscriptionError,
@@ -20,7 +21,7 @@ export async function openRelayWorkspaceSubscription(input: {
   after?: number;
   discovery: () => Promise<RelayDiscovery>;
   createTicket: () => Promise<{ ticket: string; cursor: number }>;
-  createWebSocket: (url: string) => WebSocket;
+  createWebSocket: (url: string) => RelaySocket;
   onEvent: (event: ConversationEvent) => void;
   onError?: (error: Error) => void;
 }): Promise<RelayWorkspaceSubscription> {
@@ -32,14 +33,14 @@ export async function openRelayWorkspaceSubscription(input: {
   let reconnectDelay: number = relayReconnectPolicy.baseDelayMs;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
-  let activeSocket: WebSocket | null = null;
+  let activeSocket: RelaySocket | null = null;
 
   const clearStabilityTimer = () => {
     if (!stabilityTimer) return;
     clearTimeout(stabilityTimer);
     stabilityTimer = null;
   };
-  const sendSubscription = (socket: WebSocket) => {
+  const sendSubscription = (socket: RelaySocket) => {
     socket.send(
       JSON.stringify({
         type: "workspace.subscribe",
@@ -57,8 +58,10 @@ export async function openRelayWorkspaceSubscription(input: {
     );
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void openSocket().catch((error: unknown) => {
-        const cause = asRelayError(error);
+      void openSocket().catch((error: Error) => {
+        const cause = asRelayError(
+          error instanceof Error ? error : String(error),
+        );
         input.onError?.(cause);
         if (isTerminalSubscriptionError(cause)) {
           closed = true;
@@ -92,7 +95,9 @@ export async function openRelayWorkspaceSubscription(input: {
         cursor = event.sequence;
         input.onEvent(event);
       } catch (error) {
-        input.onError?.(asRelayError(error));
+        input.onError?.(
+          asRelayError(error instanceof Error ? error : String(error)),
+        );
       }
     });
     socket.addEventListener("error", () => {

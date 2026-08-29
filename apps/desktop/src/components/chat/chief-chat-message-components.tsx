@@ -8,8 +8,9 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
-import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import type { ConversationProfileSelection } from "./conversation-profile";
@@ -18,7 +19,10 @@ import {
   channelMembershipTargetNames,
   formatMembershipTargets,
 } from "../../lib/channel-actions";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { MessageTimestamp } from "./chat-date-time";
 import { Blocks } from "./message-blocks";
@@ -40,7 +44,6 @@ const MessageBlocksContent = memo(
     channelReferences,
     onOpenChannel,
     onOpenTask,
-    pluginActionContext,
   }: {
     message: ChiefUIMessage;
     filter: (message: ChiefUIMessage) => ContentBlock[];
@@ -53,7 +56,6 @@ const MessageBlocksContent = memo(
     channelReferences?: readonly ChannelReferenceTarget[];
     onOpenChannel?: (channelId: string) => void;
     onOpenTask?: (taskId: string) => void;
-    pluginActionContext?: RelayPluginActionContext;
   }) {
     const blocks = useMemo(() => filter(message), [filter, message]);
     return (
@@ -68,7 +70,6 @@ const MessageBlocksContent = memo(
         channelReferences={channelReferences}
         onOpenChannel={onOpenChannel}
         onOpenTask={onOpenTask}
-        pluginActionContext={pluginActionContext}
       />
     );
   },
@@ -83,7 +84,6 @@ const MessageBlocksContent = memo(
     if (prev.tasks !== next.tasks) return false;
     if (prev.taskOwners !== next.taskOwners) return false;
     if (prev.onOpenTask !== next.onOpenTask) return false;
-    if (prev.pluginActionContext !== next.pluginActionContext) return false;
     return true;
   },
 );
@@ -194,21 +194,21 @@ function browserOpenBlockIn(
   );
 }
 
-function browserToolCode(input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
-  const candidate = (input as Record<string, unknown>).code;
-  if (typeof candidate === "string") {
+function browserToolCode(input: JsonValue | undefined): string | null {
+  if (!input || !isJsonObject(input)) return null;
+  const candidate = input.code;
+  if (isJsonString(candidate)) {
     if (candidate.includes("tools.") || candidate.includes('tools["')) {
       return candidate;
     }
     return null;
   }
-  if (candidate && typeof candidate === "object") {
+  if (candidate && isJsonObject(candidate)) {
     const nested = browserToolCode(candidate);
     if (nested !== null) return nested;
   }
-  for (const value of Object.values(input as Record<string, unknown>)) {
-    if (typeof value !== "string") continue;
+  for (const value of Object.values(input)) {
+    if (!isJsonString(value)) continue;
     if (value.includes("tools.") || value.includes('tools["')) return value;
     const nested = browserToolCode(value);
     if (nested !== null) return nested;
@@ -237,7 +237,7 @@ function ChiefMessage({
   metadata?: ReactNode;
   timestamp?: number;
 }) {
-  const identity = agent ?? {
+  const identity: { name: string; role: string } = agent ?? {
     name: "Chief",
     role: "Workspace Lead",
   };
@@ -290,17 +290,24 @@ function ChiefMessage({
 
 function ChannelMembershipMessage({
   action,
+  currentUserId,
   userImage,
   timestamp,
 }: {
   action: NonNullable<ChiefMessageMetadata["channelAction"]>;
+  currentUserId?: string;
   userImage?: string;
   timestamp?: number;
 }) {
-  const targetNames = channelMembershipTargetNames(action, (agentId) => {
-    if (!Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)) return agentId;
-    return WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].name;
-  });
+  const targetNames = channelMembershipTargetNames(
+    action,
+    (agentId) => {
+      return isWorkspaceAgentId(agentId)
+        ? WORKSPACE_AGENT_IDENTITIES[agentId].name
+        : agentId;
+    },
+    currentUserId,
+  );
   const actorIsAgent = action.actorType === "agent";
   return (
     <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">

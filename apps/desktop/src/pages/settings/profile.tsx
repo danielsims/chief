@@ -46,8 +46,8 @@ export function ProfileSettings() {
     setImageError(null);
     try {
       if (!client) throw new Error("Chief is not connected to the relay.");
-      await updateProfileImage(null);
       await removeImageAsset("profile", client);
+      await updateProfileImage(null);
     } catch (error) {
       setImageError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -167,7 +167,7 @@ export function ProfileSettings() {
           <p className="text-muted-foreground text-xs">
             Signing out keeps local data on this machine.
           </p>
-          <Button variant="outline" size="sm" onClick={signOut}>
+          <Button variant="outline" size="sm" onClick={() => signOut()}>
             Sign out
           </Button>
         </div>

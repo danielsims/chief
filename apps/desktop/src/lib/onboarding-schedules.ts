@@ -1,7 +1,14 @@
 import type { OnboardingSchedule } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import { onboardingScopedId } from "./onboarding-ids";
-import { getPlaybook, playbookInstructions } from "./playbooks";
+import { getPlaybook, playbookInstructions } from "./playbook-prompts";
 
 export interface StarterScheduleItem {
   playbookId: string;
@@ -104,10 +111,10 @@ export function buildOnboardingSchedules(
 }
 
 export function onboardingSchedulePlanFromMetadata(
-  value: unknown,
+  value: JsonValue,
 ): StarterSchedulePlan | null {
-  if (!value || typeof value !== "object") return null;
-  const automation = value as Partial<StarterSchedulePlan>;
+  if (!isJsonObject(value)) return null;
+  const automation = value;
   if (
     automation.mode !== "automatic" &&
     automation.mode !== "review" &&
@@ -115,24 +122,24 @@ export function onboardingSchedulePlanFromMetadata(
   ) {
     return null;
   }
-  if (typeof automation.timezone !== "string" || !automation.timezone) {
+  if (!isJsonString(automation.timezone) || !automation.timezone) {
     return null;
   }
   if (!Array.isArray(automation.plan)) return null;
   const plan = automation.plan.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const candidate = item as unknown as Record<string, unknown>;
+    if (!isJsonObject(item)) return [];
+    const candidate = item;
     const frequency =
       candidate.frequency === "weekdays" ? "daily" : candidate.frequency;
     if (
-      typeof candidate.playbookId !== "string" ||
-      typeof candidate.title !== "string" ||
-      typeof candidate.agentId !== "string" ||
-      typeof candidate.purpose !== "string" ||
-      typeof candidate.enabled !== "boolean" ||
+      !isJsonString(candidate.playbookId) ||
+      !isJsonString(candidate.title) ||
+      !isJsonString(candidate.agentId) ||
+      !isJsonString(candidate.purpose) ||
+      !isJsonBoolean(candidate.enabled) ||
       (frequency !== "daily" && frequency !== "weekly") ||
-      typeof candidate.day !== "number" ||
-      typeof candidate.time !== "string"
+      !isJsonNumber(candidate.day) ||
+      !isJsonString(candidate.time)
     ) {
       return [];
     }

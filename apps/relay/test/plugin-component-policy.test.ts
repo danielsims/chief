@@ -7,6 +7,8 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { normalizeAgentMessageBody } from "../src/agent-message-publisher";
+import { hostedPluginPlacement } from "../src/hosted-agent-plugin-tools";
 import { validatePluginComponentPlacement } from "../src/plugin-component-policy";
 import { hexKey } from "./helpers";
 
@@ -49,22 +51,25 @@ function recommendation() {
   };
 }
 
-function action() {
-  return {
-    kind: "plugin.action",
-    payload: {
-      workspaceId,
-      conversationId,
-      targetAgentId: agentId,
-      recommendationId: "plugin-recommendation-1",
-      pluginId: "google-ads",
-      pluginName: "Google Ads",
-      action: "install",
-    },
-  };
-}
-
 describe("plugin component policy", () => {
+  it("keeps a hosted recommendation in the conversation and thread that invoked it", () => {
+    expect(
+      hostedPluginPlacement(
+        {
+          conversationId: "direct-chief",
+          threadRootId: "thread-1",
+        },
+        { channelId: "mission-control" },
+      ),
+    ).toEqual({ conversationId: "direct-chief", threadRootId: "thread-1" });
+  });
+
+  it("removes em dashes at the shared agent publication boundary", () => {
+    expect(normalizeAgentMessageBody("On it — I'll get oriented.")).toBe(
+      "On it, I'll get oriented.",
+    );
+  });
+
   it("allows the owning agent to publish a scoped recommendation", () => {
     expect(() =>
       validatePluginComponentPlacement(
@@ -85,29 +90,5 @@ describe("plugin component policy", () => {
         conversationId,
       ),
     ).toThrowError(/owning agent/u);
-  });
-
-  it("requires a user and exact relay scope for actions", () => {
-    expect(() =>
-      validatePluginComponentPlacement(
-        [action()],
-        agent,
-        workspaceId,
-        conversationId,
-      ),
-    ).toThrowError(/workspace user/u);
-    expect(() =>
-      validatePluginComponentPlacement(
-        [
-          {
-            ...action(),
-            payload: { ...action().payload, conversationId: "other" },
-          },
-        ],
-        user,
-        workspaceId,
-        conversationId,
-      ),
-    ).toThrowError(/relay placement/u);
   });
 });

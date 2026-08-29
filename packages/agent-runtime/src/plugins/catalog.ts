@@ -14,6 +14,8 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { AgentPluginSummary } from "@chief/plugin-api";
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type {
   PluginCatalogSnapshot,
@@ -99,24 +101,26 @@ async function exists(path: string) {
   }
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function portableLegacyServer(spec: Record<string, unknown>) {
-  if (typeof spec.url === "string") {
+function portableLegacyServer(spec: JsonObject): JsonObject | undefined {
+  if (isJsonString(spec.url)) {
+    const headers = parseJsonObject(spec.headers);
     return {
       type: spec.type === "sse" ? "sse" : "streamable-http",
       url: spec.url,
-      ...(spec.headers === undefined ? {} : { headers: spec.headers }),
+      ...(headers ? { headers } : undefined),
     };
   }
+  if (!isJsonString(spec.command)) return undefined;
+  const args = Array.isArray(spec.args)
+    ? spec.args.flatMap((item) => (isJsonString(item) ? [item] : []))
+    : undefined;
+  const env = parseJsonObject(spec.env);
   return {
     type: "stdio",
     command: spec.command,
-    ...(spec.args === undefined ? {} : { args: spec.args }),
-    ...(spec.env === undefined ? {} : { env: spec.env }),
-    ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
+    ...(args ? { args } : undefined),
+    ...(env ? { env } : undefined),
+    ...(isJsonString(spec.cwd) ? { cwd: spec.cwd } : undefined),
   };
 }
 
@@ -132,9 +136,9 @@ async function normalizeLegacySkills(root: string) {
       source,
     );
     if (!match) continue;
-    const metadata = parse(match[1] ?? "") as unknown;
-    if (!record(metadata)) continue;
-    const portable: Record<string, unknown> = {};
+    const metadata = parseJsonObject(parse(match[1] ?? ""));
+    if (!metadata) continue;
+    const portable: JsonObject = {};
     for (const key of [
       "name",
       "description",
@@ -142,12 +146,13 @@ async function normalizeLegacySkills(root: string) {
       "compatibility",
       "allowed-tools",
     ]) {
-      if (typeof metadata[key] === "string") portable[key] = metadata[key];
+      if (isJsonString(metadata[key])) portable[key] = metadata[key];
     }
-    if (record(metadata.metadata)) {
+    const nestedMetadata = parseJsonObject(metadata.metadata);
+    if (nestedMetadata) {
       const strings = Object.fromEntries(
-        Object.entries(metadata.metadata).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
+        Object.entries(nestedMetadata).filter(
+          (entry): entry is [string, string] => isJsonString(entry[1]),
         ),
       );
       if (Object.keys(strings).length > 0) portable.metadata = strings;
@@ -179,13 +184,16 @@ export async function normalizeLegacyPackage(
       throw new Error(
         "Package has no portable or recognized legacy plugin manifest.",
       );
-    const legacyManifest = JSON.parse(
+    const rawManifest: unknown = JSON.parse(
       await readFile(join(root, legacyPath), "utf8"),
-    ) as Record<string, unknown>;
-    const description =
-      typeof legacyManifest.description === "string"
-        ? legacyManifest.description
-        : undefined;
+    );
+    const legacyManifest = parseJsonObject(rawManifest);
+    if (!legacyManifest) {
+      throw new Error("Legacy plugin manifest must contain a JSON object.");
+    }
+    const description = isJsonString(legacyManifest.description)
+      ? legacyManifest.description
+      : undefined;
     await writeFile(
       manifestPath,
       `${JSON.stringify({ $schema: PLUGIN_SCHEMA, name: fallbackName, description }, null, 2)}\n`,
@@ -196,14 +204,15 @@ export async function normalizeLegacyPackage(
   const portableMcp = join(root, "mcp.json");
   const legacyMcp = join(root, ".mcp.json");
   if (!(await exists(portableMcp)) && (await exists(legacyMcp))) {
-    const parsed = JSON.parse(await readFile(legacyMcp, "utf8")) as {
-      mcpServers?: Record<string, Record<string, unknown>>;
-    };
+    const rawMcp: unknown = JSON.parse(await readFile(legacyMcp, "utf8"));
+    const parsed = parseJsonObject(rawMcp);
+    const legacyServers = parseJsonObject(parsed?.mcpServers) ?? {};
     const servers = Object.fromEntries(
-      Object.entries(parsed.mcpServers ?? {}).map(([name, spec]) => [
-        name,
-        portableLegacyServer(spec),
-      ]),
+      Object.entries(legacyServers).flatMap(([name, value]) => {
+        const spec = parseJsonObject(value);
+        const server = spec ? portableLegacyServer(spec) : undefined;
+        return server ? [[name, server]] : [];
+      }),
     );
     await writeFile(
       portableMcp,
@@ -216,12 +225,11 @@ export async function normalizeLegacyPackage(
 
 async function materializeDiscoveredPackage(
   root: string,
-  entry: RemotePluginCatalogEntry & {
-    source: { type: "discovery"; registry: string; domain: string };
-  },
+  entry: RemotePluginCatalogEntry,
+  source: Extract<RemotePluginCatalogEntry["source"], { type: "discovery" }>,
 ) {
   const response = await fetch(
-    `https://integrations.sh/api/${encodeURIComponent(entry.source.domain)}/surface`,
+    `https://integrations.sh/api/${encodeURIComponent(source.domain)}/surface`,
     {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
@@ -229,14 +237,14 @@ async function materializeDiscoveredPackage(
   );
   if (!response.ok)
     throw new Error(`Could not resolve ${entry.name}'s discovered endpoint.`);
-  const document = (await response.json()) as {
-    surfaces?: { type?: string; url?: string; name?: string }[];
-  };
-  const surface = document.surfaces?.find(
-    (candidate) =>
-      candidate.type === "mcp" && typeof candidate.url === "string",
-  );
-  if (!surface?.url)
+  const rawDocument: unknown = await response.json();
+  const document = parseJsonObject(rawDocument);
+  const surfaces = Array.isArray(document?.surfaces) ? document.surfaces : [];
+  const surface = surfaces.flatMap((candidate) => {
+    const item = parseJsonObject(candidate);
+    return item?.type === "mcp" && isJsonString(item.url) ? [item] : [];
+  })[0];
+  if (!surface || !isJsonString(surface.url))
     throw new Error(
       `${entry.name} does not publish a connectable MCP endpoint.`,
     );
@@ -281,13 +289,11 @@ async function materializeDiscoveredPackage(
 
 async function clonePinnedPackage(
   temporary: string,
-  entry: RemotePluginCatalogEntry & {
-    source: { type: "git"; url: string; sha: string; path?: string };
-  },
+  source: Extract<RemotePluginCatalogEntry["source"], { type: "git" }>,
 ) {
   if (
     !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(
-      entry.source.url,
+      source.url,
     )
   ) {
     throw new Error("Only pinned HTTPS GitHub plugin sources are supported.");
@@ -299,7 +305,7 @@ async function clonePinnedPackage(
     "remote",
     "add",
     "origin",
-    entry.source.url,
+    source.url,
   ]);
   await execFileAsync("git", [
     "-C",
@@ -308,7 +314,7 @@ async function clonePinnedPackage(
     "--quiet",
     "--depth=1",
     "origin",
-    entry.source.sha,
+    source.sha,
   ]);
   await execFileAsync("git", [
     "-C",
@@ -320,11 +326,9 @@ async function clonePinnedPackage(
   const actualSha = (
     await execFileAsync("git", ["-C", temporary, "rev-parse", "HEAD"])
   ).stdout.trim();
-  if (actualSha !== entry.source.sha)
+  if (actualSha !== source.sha)
     throw new Error("Fetched plugin does not match its pinned commit.");
-  const sourceRoot = entry.source.path
-    ? resolve(temporary, entry.source.path)
-    : temporary;
+  const sourceRoot = source.path ? resolve(temporary, source.path) : temporary;
   if (relative(temporary, sourceRoot).startsWith(".."))
     throw new Error("Plugin package path escapes its repository.");
   return sourceRoot;
@@ -348,20 +352,10 @@ export async function installCatalogPlugin(
   try {
     let sourceRoot: string;
     if (entry.source.type === "discovery") {
-      await materializeDiscoveredPackage(
-        temporary,
-        entry as typeof entry & {
-          source: { type: "discovery"; registry: string; domain: string };
-        },
-      );
+      await materializeDiscoveredPackage(temporary, entry, entry.source);
       sourceRoot = temporary;
     } else if (entry.source.type === "git") {
-      sourceRoot = await clonePinnedPackage(
-        temporary,
-        entry as typeof entry & {
-          source: { type: "git"; url: string; sha: string; path?: string };
-        },
-      );
+      sourceRoot = await clonePinnedPackage(temporary, entry.source);
     } else {
       sourceRoot = entry.source.path;
     }

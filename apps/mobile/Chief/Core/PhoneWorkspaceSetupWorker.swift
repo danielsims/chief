@@ -19,7 +19,7 @@ actor PhoneWorkspaceSetupWorker {
     guard draft.runtime == .phone else { return }
     let supported: Bool
     switch draft.inferenceProvider {
-    case .openCodeGo:
+    case .openCodeGo, .vercelAiGateway:
       supported = true
     #if DEBUG
       case .codexBridge:
@@ -46,7 +46,7 @@ actor PhoneWorkspaceSetupWorker {
       // Mission Control is already on screen. Keep the opening arrival quick,
       // then let Chief perform the complete kickoff as one durable cell turn.
       try await Task.sleep(for: .milliseconds(100))
-      let host = ChiefOpenCodeAgentHost(
+      let host = ChiefAgentHost(
         relay: relay,
         credentials: credentials,
         onActivity: onActivity

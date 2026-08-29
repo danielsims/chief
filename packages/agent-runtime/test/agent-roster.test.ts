@@ -33,15 +33,14 @@ void test("every agent receives the mission-cell operating model", () => {
       /always write a known workspace channel as its/u,
     );
     assert.match(instructions, /#channel-slug/u);
-    assert.match(instructions, /localTools\.pluginsList/u);
+    assert.match(instructions, /plugin tools\s+available in its runtime/u);
     assert.match(
       instructions,
-      /MUST call\s+localTools\.channelsReactionsAdd with 👀 before the first work tool/u,
+      /MUST use the available channel\s+reaction tool to add 👀 before the first work tool/u,
     );
-    assert.match(
-      instructions,
-      /send the confirmation with\s+localTools\.channelsMessagesPost/u,
-    );
+    assert.match(instructions, /Do not post a generic acknowledgement/u);
+    assert.doesNotMatch(instructions, /send the confirmation/u);
+    assert.doesNotMatch(instructions, /localTools\.pluginsList/u);
     assert.match(instructions, /primary job is to advance the user's outcome/u);
     assert.match(instructions, /last-resort handoff/u);
     assert.match(

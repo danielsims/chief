@@ -7,7 +7,7 @@ import { sha256PayloadTag, verifyNip98Auth } from "./nip98";
  * Authenticates relay requests with NIP-98 nostr HTTP auth. There is no issuer,
  * JWKS, or external identity provider: the secp256k1 Schnorr signature over a
  * kind-27235 event proves possession of the private key whose public key is the
- * caller's identity. Convex is not part of the runtime path.
+ * caller's identity. Authentication remains part of the relay runtime.
  */
 export class RelayAuthenticator {
   authenticate(

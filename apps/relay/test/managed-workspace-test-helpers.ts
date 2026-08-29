@@ -1,6 +1,10 @@
 import { expect } from "vitest";
 
-import type { agentIdSchema, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  agentIdSchema,
+  JsonObject,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import { appendMessageCommandSchema } from "@chief/relay-contracts";
 
 import type { createManagedWorkspace } from "../src/workspace-authority";
@@ -24,7 +28,7 @@ export async function performChiefDelegation(input: {
     id: string;
     kind: "tool";
     version: 1;
-    payload: Record<string, unknown>;
+    payload: JsonObject;
   }> = [];
   const post = async (body: string) => {
     const messageId = crypto.randomUUID();
@@ -123,8 +127,8 @@ export async function performChiefDelegation(input: {
 
 function toolComponent(
   name: string,
-  toolInput: Record<string, unknown>,
-  output: Record<string, unknown>,
+  toolInput: JsonObject,
+  output: JsonObject,
 ) {
   return {
     id: crypto.randomUUID(),

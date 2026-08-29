@@ -1,13 +1,15 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
-import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentActivityPresence } from "./agent-activity-presence";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
 
 function activityColor(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].color
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
     : "currentColor";
 }
 

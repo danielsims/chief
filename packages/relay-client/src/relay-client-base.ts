@@ -4,6 +4,8 @@ import type {
   ChannelDetail,
   ChannelRecord,
   CreateWorkspaceCommand,
+  JsonValue,
+  OnboardingTelemetryEvent,
   Prospect,
   RelayDiscovery,
   RelayProject,
@@ -29,7 +31,11 @@ import {
   channelMemberAddCommandSchema,
   conversationIdSchema,
   imageAssetDeleteResultSchema,
+  isJsonString,
+  onboardingTelemetryEventSchema,
+  onboardingTelemetryReceiptSchema,
   organizationWorkspaceJoinResultSchema,
+  parseJsonValue,
   prospectSaveSchema,
   prospectSchema,
   prospectsResultSchema,
@@ -52,14 +58,14 @@ import {
   workspaceSwitchResultSchema,
 } from "@chief/relay-contracts";
 
-import type { RelayClientOptions } from "./relay-client-options";
+import type { RelayClientOptions, RelaySocket } from "./relay-client-options";
 import { normalizedRelayOrigin, RelayClientError } from "./relay-client-error";
 
 export class RelayClientBase {
   readonly workspaceId: WorkspaceId | null;
   protected readonly relayUrl: string;
   private readonly fetcher: typeof globalThis.fetch;
-  protected readonly createWebSocket: (url: string) => WebSocket;
+  protected readonly createWebSocket: (url: string) => RelaySocket;
   private discoveryRequest: Promise<RelayDiscovery> | null = null;
 
   constructor(protected readonly options: RelayClientOptions) {
@@ -87,23 +93,18 @@ export class RelayClientBase {
       workspaceSnapshotSchema,
     );
   }
-
   async uploadProfileImage(input: AttachmentUploadPayload) {
     return this.uploadImage(new URL("/v1/me/avatar", this.relayUrl), input);
   }
-
   async deleteProfileImage() {
     return this.deleteImage(new URL("/v1/me/avatar", this.relayUrl));
   }
-
   async uploadWorkspaceImage(input: AttachmentUploadPayload) {
     return this.uploadImage(this.workspaceUrl("logo"), input);
   }
-
   async deleteWorkspaceImage() {
     return this.deleteImage(this.workspaceUrl("logo"));
   }
-
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     return (
       await this.fetchJson(
@@ -112,8 +113,11 @@ export class RelayClientBase {
       )
     ).workspaces;
   }
-
-  async createWorkspace(command: CreateWorkspaceCommand) {
+  async createWorkspace(command: CreateWorkspaceCommand, credential: string) {
+    const secrets =
+      command.inferenceProvider === "vercelAiGateway"
+        ? { vercelAiGateway: credential }
+        : { opencode: credential };
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
       workspaceSnapshotSchema,
@@ -121,11 +125,22 @@ export class RelayClientBase {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(command),
+        body: JSON.stringify({ workspace: command, secrets }),
       },
     );
   }
-
+  async recordOnboardingEvent(event: OnboardingTelemetryEvent) {
+    return await this.fetchJson(
+      new URL("/v1/onboarding/events", this.relayUrl),
+      onboardingTelemetryReceiptSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(onboardingTelemetryEventSchema.parse(event)),
+      },
+    );
+  }
   async switchWorkspace(workspaceId: WorkspaceId | string) {
     const id = workspaceIdSchema.parse(workspaceId);
     return await this.fetchJson(
@@ -135,7 +150,6 @@ export class RelayClientBase {
       { method: "POST" },
     );
   }
-
   async deleteWorkspace(workspaceId: WorkspaceId | string) {
     const id = workspaceIdSchema.parse(workspaceId);
     return await this.fetchJson(
@@ -407,7 +421,9 @@ export class RelayClientBase {
     ).prospects;
   }
 
-  async saveProspect(input: unknown): Promise<Prospect> {
+  async saveProspect(
+    input: Parameters<typeof prospectSaveSchema.parse>[0],
+  ): Promise<Prospect> {
     return await this.fetchJson(
       this.workspaceUrl("data/prospects"),
       // The relay returns the saved prospect record directly.
@@ -462,13 +478,17 @@ export class RelayClientBase {
 
   protected async fetchJson<T>(
     url: URL | string,
-    schema: { parse: (value: unknown) => T },
+    schema: {
+      parse: (value: JsonValue) => T;
+    },
     authenticated = true,
     init: RequestInit = {},
   ) {
     const response = await this.fetchResponse(url, authenticated, init);
     if (!response.ok) throw await RelayClientError.fromResponse(response);
-    return schema.parse(await response.json());
+    const value = parseJsonValue(await response.json());
+    if (value === undefined) throw new Error("Relay returned invalid JSON.");
+    return schema.parse(value);
   }
 
   protected async fetchResponse(
@@ -479,7 +499,7 @@ export class RelayClientBase {
     const headers = new Headers(init.headers);
     if (authenticated) {
       const method = init.method?.toUpperCase() ?? "GET";
-      const body = typeof init.body === "string" ? init.body : "";
+      const body = isJsonString(init.body) ? init.body : "";
       if (!this.options.getAuthorization) {
         throw new Error("Relay authorization is not configured.");
       }

@@ -57,8 +57,7 @@ export class WorkspaceLiveStore {
     );
   }
 
-  publish(value: unknown): ConversationEvent {
-    const source = conversationEventSchema.parse(value);
+  publish(source: ConversationEvent): ConversationEvent {
     const conversationId = source.payload.message.conversationId;
     return this.storage.transactionSync(() => {
       const row = firstRow<{ value: number }>(
@@ -121,5 +120,6 @@ export class WorkspaceLiveStore {
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

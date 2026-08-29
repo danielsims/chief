@@ -51,11 +51,13 @@ export function preloadWorkspaceOnboardingApps() {
 export function ProviderOption({
   icon,
   label,
+  detail,
   selected,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  detail?: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -63,10 +65,15 @@ export function ProviderOption({
     <button
       type="button"
       onClick={onClick}
-      className={`hover:border-foreground/60 flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl border p-3 transition-colors ${selected ? "border-foreground bg-muted" : "bg-background"}`}
+      className={`hover:border-foreground/60 flex flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors ${detail ? "min-h-32" : "min-h-24"} ${selected ? "border-foreground bg-muted" : "bg-background"}`}
     >
       {icon}
       <span className="text-sm font-medium">{label}</span>
+      {detail ? (
+        <span className="text-muted-foreground text-xs leading-5">
+          {detail}
+        </span>
+      ) : null}
     </button>
   );
 }

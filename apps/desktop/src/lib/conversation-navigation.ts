@@ -1,3 +1,6 @@
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString } from "@chief/relay-contracts";
+
 /** Keeps the owning thread durable while nested conversation panels open. */
 export function withConversationThread(
   current: URLSearchParams,
@@ -36,7 +39,7 @@ export function withOwnedConversationChild(
   child: {
     id: string;
     parentId?: string;
-    triggerContext?: Record<string, unknown>;
+    triggerContext?: JsonObject;
   },
   channels: readonly {
     id: string;
@@ -65,7 +68,7 @@ export function withOwnedConversationChild(
     next.set("chat", parentId);
   }
   const threadRootId = child.triggerContext?.threadRootId;
-  if (typeof threadRootId === "string" && threadRootId) {
+  if (isJsonString(threadRootId) && threadRootId) {
     next.set("thread", threadRootId);
   } else {
     next.delete("thread");
@@ -81,7 +84,7 @@ export function withResolvedConversationChild(
   sessions: readonly {
     id: string;
     parentId?: string;
-    triggerContext?: Record<string, unknown>;
+    triggerContext?: JsonObject;
   }[],
   channels: readonly {
     id: string;

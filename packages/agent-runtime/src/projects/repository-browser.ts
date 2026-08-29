@@ -197,7 +197,9 @@ function parseTree(output: string, path: string) {
           : objectType === "commit"
             ? "submodule"
             : "file",
-      ...(objectSize && objectSize !== "-" ? { size: Number(objectSize) } : {}),
+      ...(objectSize && objectSize !== "-"
+        ? { size: Number(objectSize) }
+        : undefined),
     });
     if (entries.length >= MAX_ENTRIES) break;
   }
@@ -221,7 +223,7 @@ async function textObject(
   return {
     path: "",
     size,
-    ...(binary ? {} : { content: buffer.toString("utf8") }),
+    ...(binary ? undefined : { content: buffer.toString("utf8") }),
     binary,
     truncated: false,
   };
@@ -397,7 +399,7 @@ export async function browseRepository(
       ref,
       path,
       kind: "file",
-      ...(commit ? { latestCommit: commit } : {}),
+      ...(commit ? { latestCommit: commit } : undefined),
       commits,
       entries: [],
       contributors: projectContributors,
@@ -413,7 +415,7 @@ export async function browseRepository(
     ...entry,
     ...(pathCommits.get(entry.path)
       ? { lastCommit: pathCommits.get(entry.path) }
-      : {}),
+      : undefined),
   }));
   const readme = await readmeSnapshot(repositoryPath, ref, path, entries);
   return {
@@ -421,11 +423,11 @@ export async function browseRepository(
     ref,
     path,
     kind: "tree",
-    ...(commit ? { latestCommit: commit } : {}),
+    ...(commit ? { latestCommit: commit } : undefined),
     commits,
     entries,
     contributors: projectContributors,
-    ...(readme ? { readme } : {}),
+    ...(readme ? { readme } : undefined),
   };
 }
 

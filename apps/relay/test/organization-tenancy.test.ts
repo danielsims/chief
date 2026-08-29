@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,9 +8,11 @@ import {
   updateChiefOrganizationMemberRole,
 } from "@chief/auth/d1-organizations";
 
+import { relayTestEnv } from "./helpers";
+
 describe("workspace organization tenancy", () => {
   it("uses the workspace id as the organization id and isolates memberships", async () => {
-    const database = (env as unknown as Env).AUTH_DB;
+    const database = relayTestEnv().AUTH_DB;
     const suffix = crypto.randomUUID();
     const ownerUserId = `owner-${suffix}`;
     const memberUserId = `member-${suffix}`;

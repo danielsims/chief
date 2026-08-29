@@ -1,103 +1,30 @@
-/* eslint-disable max-lines */
+import { ArrowRight, Check, LoaderCircle } from "lucide-react";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  LoaderCircle,
-} from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useNavigate } from "react-router";
-
-import type {
-  ActionItem,
-  AnalyticsDataset,
-  AnalyticsDatasetPeriod,
-  SessionRecord,
-} from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { ComposerImageAttachment } from "../components/chat/composer-image-attachments";
-import type { OverviewAction } from "../components/overview-presentation";
-import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { AttentionPill } from "../components/attention-pill";
 import { ChatComposer } from "../components/chat/chat-composer";
-import { createComposerHandoff } from "../components/chat/composer-handoff";
 import { InputRequestSection } from "../components/integrations/input-request-section";
 import { OverviewActionContextLink } from "../components/overview-action-context-link";
 import {
-  AnalyticsChart,
-  formatNumber,
   OverviewActionPagination,
   overviewButton,
-  Trend,
   WorkspaceIndicator,
   WorkspaceLearningCard,
 } from "../components/overview-presentation";
 import { PageTitle } from "../components/page-title";
-import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
-import { useAuth } from "../lib/auth/auth-context";
 import { actionAttentionTarget } from "../lib/channel-action-items";
-import { useChiefNavigation } from "../lib/chief-navigation-context";
+import { isGoogleAnalyticsConnectionAction } from "../lib/integration-setup";
+import { isOnboardingEngineeringAction } from "../lib/onboarding-engineering";
+import { resolvedChannelChatId } from "../lib/workspace-channels";
 import {
-  isDeploymentRecoveryAction,
-  localChiefPreference,
-} from "../lib/deployment-recovery";
-import {
-  isQuestionActionRequest,
-  simpleDecisionQuestion,
-} from "../lib/input-request-presentation";
-import {
-  findPendingInputRequest,
-  integrationSetupChannelPath,
-  isConnectionAction,
-  isGoogleAnalyticsConnectionAction,
-  isOnboardingGoogleAnalyticsAction,
-} from "../lib/integration-setup";
-import { useLocalIntegrationStatus } from "../lib/local-integration-status";
-import {
-  isOnboardingEngineeringAction,
-  onboardingEngineeringSetup,
-} from "../lib/onboarding-engineering";
-import { useRelaySession } from "../lib/relay-session";
-import {
-  useAgentPreferences,
-  useLocalChats,
-  useObservedChat,
-  useWorkspaceChannels,
-  useWorkspaceData,
-} from "../lib/runtime";
-import {
-  actionConversation,
-  directMessageAgentIdFromChatId,
-  resolvedChannelChatId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../lib/workspace-channels";
-
-const AGENT_NAMES: Record<string, string> = {
-  ads: "Ads Manager",
-  analyst: "Analyst",
-  brand: "Marketer",
-  chief: "Chief",
-  content: "Content Writer",
-  engineer: "Engineer",
-  prospector: "Prospector",
-  setup: "Setup",
-};
-
-const LEARNING_ACTION_ID = "workspace-onboarding";
-
-const OVERVIEW_MENTION_CANDIDATES = Object.entries(WORKSPACE_AGENT_IDENTITIES)
-  .filter(([id]) => id !== "setup")
-  .map(([id, identity]) => ({
-    id,
-    ...identity,
-    member: id === "chief",
-  }));
+  DASHBOARD_AGENT_NAMES,
+  DASHBOARD_MENTION_CANDIDATES,
+} from "./dashboard-constants";
+import { DashboardSidePanels } from "./dashboard-side-panels";
+import { DashboardTaskInput } from "./dashboard-task-input";
+import { useDashboardController } from "./use-dashboard-controller";
 
 const overviewSurface =
   "bg-card rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),inset_0_1px_0_rgba(255,255,255,0.045),0_8px_24px_rgba(0,0,0,0.025)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055),inset_0_1px_0_rgba(255,255,255,0.035)]";
@@ -109,707 +36,52 @@ function greeting(now: number) {
   return "Good evening";
 }
 
-interface AnalyticsSlide {
-  id: string;
-  title: string;
-  value: string;
-  label: string;
-  trend: number | null;
-  points: { x: string; value: number }[] | null;
-}
-
-interface AgentWorkTimelineItem {
-  id: string;
-  kind: "active" | "upcoming";
-  timestamp: number;
-  timezone: string;
-  title: string;
-  agentId: string;
-  taskCount?: number;
-  onceAt?: number;
-  parentId?: string;
-  childId?: string;
-  status?: SessionRecord["status"];
-}
-
-function OverviewTaskInput({ task }: { task: SessionRecord }) {
-  const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const { messages, provideInput, chatReady } = useObservedChat(
-    task.id,
-    task.scheduleId,
-  );
-  const pendingInput = useMemo(
-    () => findPendingInputRequest(messages, answeredInputs),
-    [answeredInputs, messages],
-  );
-
-  if (!chatReady) {
-    return (
-      <p className="text-muted-foreground mt-4 animate-pulse text-xs">
-        Loading the task request…
-      </p>
-    );
-  }
-  if (!pendingInput) return null;
-
-  return (
-    <div className="mt-5 w-full max-w-[620px]">
-      <InputRequestSection
-        request={pendingInput}
-        embedded
-        compactDecision={isQuestionActionRequest(pendingInput)}
-        compactDecisionAgentName={
-          isQuestionActionRequest(pendingInput)
-            ? (AGENT_NAMES[task.agent] ?? task.agent)
-            : undefined
-        }
-        onSubmit={(request, values) => {
-          provideInput(request, values);
-          setAnsweredInputs((current) => new Set(current).add(request.id));
-        }}
-      />
-    </div>
-  );
-}
-
-function percentageChange(current?: number, previous?: number) {
-  if (current === undefined || previous === undefined || previous <= 0) {
-    return null;
-  }
-  return ((current - previous) / previous) * 100;
-}
-
-function normalizedMetricKey(value: unknown) {
-  return typeof value === "string"
-    ? value.toLowerCase().replace(/[^a-z0-9]/g, "")
-    : "";
-}
-
-function metricLabel(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim()
-    ? value.toLowerCase()
-    : fallback;
-}
-
-function periodMetric(
-  period: AnalyticsDatasetPeriod | undefined,
-  candidates: string[],
-) {
-  const accepted = new Set(candidates.map(normalizedMetricKey));
-  return period?.values.find((item) =>
-    accepted.has(normalizedMetricKey(item.metric)),
-  )?.value;
-}
-
-function trendTitle(label: string, trend: number | null, hasData: boolean) {
-  if (!hasData) return `${label} will appear after the first report.`;
-  if (trend === null) return `${label} has a new baseline.`;
-  if (trend > 2) return `${label} is moving in the right direction.`;
-  if (trend < -2) return `${label} needs a closer look.`;
-  return `${label} is holding steady.`;
-}
-
-function chartPoints(points: { x: string; value: number }[]) {
-  return points.length < 2 ? null : points;
-}
-
-function dayKey(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone: timezone,
-  }).format(date);
-}
-
-function scheduleDate(timestamp: number, timezone: string, now: number) {
-  const date = new Date(timestamp);
-  const today = dayKey(new Date(now), timezone);
-  const tomorrow = dayKey(new Date(now + 86_400_000), timezone);
-  const target = dayKey(date, timezone);
-  const day =
-    target === today
-      ? "Today"
-      : target === tomorrow
-        ? "Tomorrow"
-        : new Intl.DateTimeFormat(undefined, {
-            weekday: "short",
-            timeZone: timezone,
-          }).format(date);
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: timezone,
-  }).format(date);
-  return { day, time };
-}
-
 export function DashboardPage() {
-  const navigate = useNavigate();
-  const chiefNavigation = useChiefNavigation();
-  const prefersReducedMotion = useReducedMotion();
-  const [ask, setAsk] = useState("");
-  const [askAttachments, setAskAttachments] = useState<
-    ComposerImageAttachment[]
-  >([]);
-  const { cloudOrganizationId, user } = useAuth();
-  const { snapshot } = useRelaySession();
-  const localChats = useLocalChats(cloudOrganizationId);
-  const organization = useMemo<AuthOrganization | null>(
-    () =>
-      snapshot
-        ? {
-            id: snapshot.id,
-            name: snapshot.name,
-            slug: snapshot.id,
-            logo: snapshot.imageURL,
-            metadata: { websiteUrl: snapshot.website },
-          }
-        : null,
-    [snapshot],
-  );
-  const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
-  const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
-  const [analyticsIndex, setAnalyticsIndex] = useState(0);
-  const [analyticsPaused, setAnalyticsPaused] = useState(false);
-  const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const workspaceChannels = useWorkspaceChannels();
-  const { integrations: localIntegrations } = useLocalIntegrationStatus();
-  const datasets = workspaceData.loading
-    ? undefined
-    : workspaceData.analyticsDatasets.filter(
-        (dataset) => dataset.key === "overview",
-      );
-  const agentPreferences = useAgentPreferences(cloudOrganizationId);
-
-  const agentSchedules = workspaceData.recurringWork.filter(
-    (work) =>
-      work.onceAt === undefined &&
-      (work.status === "active" || work.status === "draft"),
-  );
-  const newProspects = workspaceData.prospects.filter(
-    (prospect) => prospect.status === "new",
-  ).length;
-  const analytics = datasets?.reduce<AnalyticsDataset | undefined>(
-    (latest, dataset) =>
-      !latest || dataset.capturedAt > latest.capturedAt ? dataset : latest,
-    undefined,
-  );
-  const analytics30 =
-    analytics?.periods.find((period) => period.key === "30d") ??
-    analytics?.periods.find((period) => period.key === "current") ??
-    analytics?.periods[0];
-  const previous30 =
-    analytics?.periods.find(
-      (period) => period.key === "previous30d" || period.key === "previous",
-    ) ?? analytics?.periods.find((period) => period !== analytics30);
-  const scheduleById = useMemo(
-    () => new Map(workspaceData.recurringWork.map((work) => [work.id, work])),
-    [workspaceData.recurringWork],
-  );
-  const privateTasksById = useMemo(
-    () =>
-      new Map(
-        workspaceData.activity
-          .filter(
-            (session) =>
-              session.kind === "task" && session.visibility === "private",
-          )
-          .map((session) => [session.id, session]),
-      ),
-    [workspaceData.activity],
-  );
-  const engineeringSetup = useMemo(
-    () =>
-      onboardingEngineeringSetup(
-        cloudOrganizationId,
-        organization,
-        localIntegrations,
-      ),
-    [cloudOrganizationId, localIntegrations, organization],
-  );
-  const nextEngineeringIntegration = engineeringSetup.nextIntegration;
-  const actions = useMemo(() => {
-    const tracked = workspaceData.actionItems.filter(
-      (action) => action.status === "open",
-    );
-    const additions: ActionItem[] = [];
-    if (
-      engineeringSetup.action &&
-      !tracked.some(isOnboardingEngineeringAction)
-    ) {
-      additions.push(engineeringSetup.action);
-    }
-    return [...additions, ...tracked];
-  }, [engineeringSetup.action, workspaceData.actionItems]);
-  const preparationRoot = workspaceData.activity.find(
-    (session) =>
-      (session.id.startsWith("workspace-kickoff-") ||
-        session.id.endsWith(
-          `:${workspaceData.waysOfWorking.missionControlChannelId}`,
-        ) ||
-        session.title === "Initial business review" ||
-        session.title === "Getting started") &&
-      session.kind === "conversation" &&
-      session.visibility === "user",
-  );
-  const preparationChildren = useMemo(
-    () =>
-      preparationRoot
-        ? workspaceData.activity.filter(
-            (session) =>
-              session.parentId === preparationRoot.id &&
-              session.kind === "task" &&
-              session.visibility === "private" &&
-              !session.scheduleId,
-          )
-        : [],
-    [preparationRoot, workspaceData.activity],
-  );
-  const preparationActive = Boolean(
-    preparationRoot &&
-    [preparationRoot, ...preparationChildren].some(
-      (session) =>
-        (session.status === "running" || session.status === "waiting") &&
-        workspaceData.now - session.updatedAt < 10 * 60_000,
-    ),
-  );
-  const onboardingOpenedAt = cloudOrganizationId
-    ? Number(sessionStorage.getItem(`chief:onboarding:${cloudOrganizationId}`))
-    : Number.NaN;
-  const onboardingPending = Boolean(
-    Number.isFinite(onboardingOpenedAt) &&
-    workspaceData.now - onboardingOpenedAt < 10 * 60_000 &&
-    (!preparationRoot || preparationRoot.status === "idle"),
-  );
-  const showLearningCard = onboardingPending || preparationActive;
-  const overviewActions = useMemo<OverviewAction[]>(
-    () => [
-      ...(showLearningCard
-        ? [
-            {
-              id: LEARNING_ACTION_ID,
-              title: "Finish setting up with Chief",
-              agentId: "chief",
-            },
-          ]
-        : []),
-      ...actions.map((action) => ({
-        id: action.id,
-        title: action.title,
-        agentId: action.agentId,
-        action,
-      })),
-    ],
-    [actions, showLearningCard],
-  );
-  useEffect(() => {
-    if (
-      cloudOrganizationId &&
-      preparationRoot &&
-      preparationRoot.status !== "idle" &&
-      preparationChildren.length > 0
-    ) {
-      sessionStorage.removeItem(`chief:onboarding:${cloudOrganizationId}`);
-    }
-  }, [cloudOrganizationId, preparationChildren.length, preparationRoot]);
-  const requestedOverviewActionIndex = selectedActionId
-    ? overviewActions.findIndex((item) => item.id === selectedActionId)
-    : 0;
-  const resolvedOverviewActionIndex = Math.max(0, requestedOverviewActionIndex);
-  const selectedOverviewAction = overviewActions[resolvedOverviewActionIndex];
-  const learningSelected = selectedOverviewAction?.id === LEARNING_ACTION_ID;
-  const currentAction = selectedOverviewAction?.action;
-  const simpleDecision = simpleDecisionQuestion(currentAction?.request);
-  const questionAction = isQuestionActionRequest(currentAction?.request);
-  const currentActionTarget = currentAction
-    ? actionAttentionTarget({
-        action: currentAction,
-        sessions: workspaceData.activity,
-        recurringWork: workspaceData.recurringWork,
-      })
-    : null;
-  const currentActionChannel = currentActionTarget
-    ? workspaceChannels.channels.find(
-        (channel) => channel.id === currentActionTarget.channelId,
-      )
-    : null;
-  const currentActionDirectAgentId = directMessageAgentIdFromChatId(
-    currentAction?.sourceId ?? null,
-  );
-  const deploymentRecovery = isDeploymentRecoveryAction(currentAction);
-  const currentActionTask = currentAction?.sourceId
-    ? privateTasksById.get(currentAction.sourceId)
-    : undefined;
-  const currentActionInProgress = currentActionTask?.status === "running";
-  const currentActionBlocked = Boolean(
-    currentActionTask?.scheduleId && currentActionTask.blockedTools?.length,
-  );
-  const currentActionFailed = Boolean(
-    currentActionTask?.scheduleId && currentActionTask.status === "failed",
-  );
-  const agentWorkTimeline = useMemo<AgentWorkTimelineItem[]>(() => {
-    const activeTasks = workspaceData.activity.filter(
-      (session) =>
-        session.kind === "task" &&
-        session.visibility === "private" &&
-        session.status === "running" &&
-        workspaceData.now - session.updatedAt < 10 * 60_000 &&
-        (!preparationActive || session.parentId !== preparationRoot?.id),
-    );
-    const firstActiveTask = activeTasks.reduce<SessionRecord | undefined>(
-      (earliest, task) =>
-        !earliest ||
-        (task.startedAt ?? task.createdAt) <
-          (earliest.startedAt ?? earliest.createdAt)
-          ? task
-          : earliest,
-      undefined,
-    );
-    const scheduledActive = firstActiveTask
-      ? [
-          {
-            id: "active-work",
-            kind: "active" as const,
-            timestamp: firstActiveTask.startedAt ?? firstActiveTask.createdAt,
-            timezone: firstActiveTask.scheduleId
-              ? (scheduleById.get(firstActiveTask.scheduleId)?.timezone ??
-                Intl.DateTimeFormat().resolvedOptions().timeZone)
-              : Intl.DateTimeFormat().resolvedOptions().timeZone,
-            title: "Chief is working",
-            agentId: "chief",
-            taskCount: activeTasks.length,
-            parentId: firstActiveTask.parentId,
-            status: firstActiveTask.status,
-          },
-        ]
-      : [];
-    const preparation =
-      preparationActive && preparationRoot
-        ? [preparationRoot, ...preparationChildren].map((session) => ({
-            id: `preparation-${session.id}`,
-            kind: "active" as const,
-            timestamp: session.startedAt ?? session.createdAt,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            title:
-              session.id === preparationRoot.id
-                ? "Learning your business"
-                : session.title,
-            agentId: session.agent,
-            parentId: session.parentId ?? session.id,
-            childId: session.parentId ? session.id : undefined,
-            status: session.status,
-          }))
-        : [];
-    const upcoming = workspaceData.recurringWork
-      .filter((work) => work.status === "active" || work.status === "draft")
-      .flatMap((work) => {
-        return work.nextAt && work.nextAt > workspaceData.now
-          ? [
-              {
-                id: `upcoming-${work.id}`,
-                kind: "upcoming" as const,
-                timestamp: work.nextAt,
-                timezone: work.timezone,
-                title: work.title,
-                agentId: work.agentId,
-                onceAt: work.onceAt,
-              },
-            ]
-          : [];
-      })
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .slice(0, 6);
-
-    return [...preparation, ...scheduledActive, ...upcoming];
-  }, [
-    preparationActive,
-    preparationChildren,
-    preparationRoot,
-    scheduleById,
-    workspaceData.activity,
-    workspaceData.now,
-    workspaceData.recurringWork,
-  ]);
-  const analyticsSlides = useMemo<AnalyticsSlide[]>(() => {
-    const currentTraffic = periodMetric(analytics30, [
-      "activeUsers",
-      "users",
-      "sessions",
-    ]);
-    const previousTraffic = periodMetric(previous30, [
-      "activeUsers",
-      "users",
-      "sessions",
-    ]);
-    const currentSignups = periodMetric(analytics30, [
-      "conversions",
-      "keyEvents",
-      "signups",
-    ]);
-    const previousSignups = periodMetric(previous30, [
-      "conversions",
-      "keyEvents",
-      "signups",
-    ]);
-    const trafficTrend = percentageChange(currentTraffic, previousTraffic);
-    const signupTrend = percentageChange(currentSignups, previousSignups);
-    const hasTraffic = currentTraffic !== undefined;
-    const hasSignups = currentSignups !== undefined;
-    const trafficMetric = analytics?.metrics.find((metric) =>
-      ["activeusers", "users", "sessions"].includes(
-        normalizedMetricKey(metric.key),
-      ),
-    );
-    const signupMetric = analytics?.metrics.find((metric) =>
-      ["conversions", "keyevents", "signups"].includes(
-        normalizedMetricKey(metric.key),
-      ),
-    );
-    const trafficSeries = analytics?.series?.find((series) =>
-      ["activeusers", "users", "sessions"].includes(
-        normalizedMetricKey(series.metric || series.id || series.label),
-      ),
-    );
-    return [
-      {
-        id: "traffic",
-        title: trendTitle("Traffic", trafficTrend, hasTraffic),
-        value: datasets === undefined ? "—" : formatNumber(currentTraffic ?? 0),
-        label: metricLabel(trafficMetric?.label, "traffic"),
-        trend: trafficTrend,
-        points: chartPoints((trafficSeries?.points ?? []).slice(-14)),
-      },
-      {
-        id: "signups",
-        title: trendTitle("Signups", signupTrend, hasSignups),
-        value: datasets === undefined ? "—" : formatNumber(currentSignups ?? 0),
-        label: metricLabel(signupMetric?.label, "tracked conversions"),
-        trend: signupTrend,
-        points:
-          currentSignups !== undefined && previousSignups !== undefined
-            ? chartPoints([
-                {
-                  x: previous30?.label ?? "Previous period",
-                  value: previousSignups,
-                },
-                {
-                  x: analytics30?.label ?? "Current period",
-                  value: currentSignups,
-                },
-              ])
-            : null,
-      },
-      {
-        id: "prospects",
-        title:
-          newProspects > 0
-            ? "New buying signals are ready to review."
-            : "Prospecting is quiet right now.",
-        value: workspaceData.loading ? "—" : formatNumber(newProspects),
-        label: "new prospects",
-        trend: null,
-        points: null,
-      },
-    ];
-  }, [
-    analytics,
-    analytics30,
-    newProspects,
-    previous30,
-    datasets,
-    workspaceData.loading,
-  ]);
-
-  useEffect(() => {
-    if (analyticsPaused || prefersReducedMotion || analyticsSlides.length < 2) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setAnalyticsIndex((current) => (current + 1) % analyticsSlides.length);
-    }, 8_000);
-    return () => window.clearTimeout(timer);
-  }, [
+  const {
+    activeAnalyticsSlide,
+    agentSchedules,
+    agentWorkTimeline,
     analyticsIndex,
-    analyticsPaused,
-    analyticsSlides.length,
+    analyticsSlides,
+    ask,
+    askAttachments,
+    chiefNavigation,
+    cloudOrganizationId,
+    continuingChatId,
+    currentAction,
+    currentActionBlocked,
+    currentActionChannel,
+    currentActionDirectAgentId,
+    currentActionFailed,
+    currentActionInProgress,
+    currentActionTarget,
+    currentActionTask,
+    firstName,
+    learningSelected,
+    localChats,
+    moveAction,
+    moveAnalytics,
+    navigate,
+    nextEngineeringIntegration,
+    openAction,
+    organization,
+    overviewActions,
     prefersReducedMotion,
-  ]);
-  useEffect(() => {
-    if (!currentAction || currentActionInProgress) return;
-    const dismissWithKeyboard = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        event.repeat ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        event.key.toLowerCase() !== "e" ||
-        target?.isContentEditable ||
-        target?.matches("input, textarea, select")
-      ) {
-        return;
-      }
-      event.preventDefault();
-      workspaceData.dismissActionItem(currentAction.id);
-    };
-    window.addEventListener("keydown", dismissWithKeyboard);
-    return () => window.removeEventListener("keydown", dismissWithKeyboard);
-  }, [currentAction, currentActionInProgress, workspaceData]);
-
-  const moveAnalytics = (direction: number) => {
-    setAnalyticsIndex(
-      (current) =>
-        (current + direction + analyticsSlides.length) % analyticsSlides.length,
-    );
-  };
-
-  const selectAnalytics = (index: number) => {
-    if (index === analyticsIndex) return;
-    setAnalyticsIndex(index);
-  };
-
-  const moveAction = (direction: number) => {
-    if (overviewActions.length < 2) return;
-    setSelectedActionId(
-      overviewActions[
-        (resolvedOverviewActionIndex + direction + overviewActions.length) %
-          overviewActions.length
-      ]?.id ?? null,
-    );
-  };
-
-  const openAction = (action = currentAction) => {
-    if (!action) return;
-    if (
-      isOnboardingEngineeringAction(action) &&
-      nextEngineeringIntegration &&
-      cloudOrganizationId
-    ) {
-      localStorage.setItem(
-        `chief:integration-setup:${nextEngineeringIntegration.domain}`,
-        "active",
-      );
-      void navigate(
-        integrationSetupChannelPath(nextEngineeringIntegration, action.id),
-      );
-      return;
-    }
-    if (
-      isGoogleAnalyticsConnectionAction(action) &&
-      isOnboardingGoogleAnalyticsAction(action.id)
-    ) {
-      void navigate(
-        integrationSetupChannelPath(
-          { domain: "analytics.googleapis.com", name: "Google Analytics" },
-          action.id,
-        ),
-      );
-      return;
-    }
-    if (isGoogleAnalyticsConnectionAction(action)) {
-      localStorage.setItem(
-        "chief:integration-setup:analytics.googleapis.com",
-        "active",
-      );
-      void navigate("/analytics");
-      return;
-    }
-    if (action.sourceId === "agent-chief") {
-      void navigate("/agents");
-      return;
-    }
-    if (isConnectionAction(action)) {
-      const prompt =
-        `@Setup, help me complete “${action.title}” here with Chief. ${action.reason.trim()}`.trim();
-      const params = new URLSearchParams({
-        channel: workspaceData.waysOfWorking.missionControlChannelId,
-        prompt,
-      });
-      void navigate(`/conversations?${params.toString()}`);
-      return;
-    }
-    if (
-      privateTasksById.get(action.sourceId ?? "")?.scheduleId ||
-      action.sourceId?.startsWith("automation-")
-    ) {
-      void navigate("/schedule");
-      return;
-    }
-    const prompt =
-      `Please action “${action.title}”. ${action.reason.trim()}`.trim();
-    const destination = actionConversation({
-      ...action,
-      missionControlChannelId:
-        workspaceData.waysOfWorking.missionControlChannelId,
-    });
-    const params = new URLSearchParams({ prompt });
-    params.set(destination.kind, destination.id);
-    void navigate(`/conversations?${params.toString()}`);
-  };
-
-  const resolveAction = () => {
-    if (deploymentRecovery) return;
-    if (
-      currentActionBlocked &&
-      currentActionTask?.scheduleId &&
-      currentActionTask.blockedTools
-    ) {
-      workspaceData.expandRecurringWorkGrant(
-        currentActionTask.scheduleId,
-        currentActionTask.blockedTools,
-        true,
-      );
-      return;
-    }
-    if (currentActionFailed && currentActionTask?.scheduleId) {
-      workspaceData.runRecurringWorkNow(currentActionTask.scheduleId);
-      return;
-    }
-    openAction();
-  };
-
-  const useCodexLocally = () => {
-    if (!cloudOrganizationId || !currentAction) return;
-    const existing = agentPreferences.preferences.find(
-      (preference) => preference.agentId === "chief",
-    );
-    setWorkspaceProvider(cloudOrganizationId, "codex");
-    setAgentOverride(cloudOrganizationId, "chief", {
-      driver: "codex",
-      model: undefined,
-      enabled: true,
-    });
-    agentPreferences.save(localChiefPreference(existing));
-    workspaceData.dismissActionItem(currentAction.id);
-  };
-
-  const submit = () => {
-    const text = ask.trim();
-    if (!text && askAttachments.length === 0) return;
-    const handoff = createComposerHandoff({
-      text,
-      attachments: askAttachments,
-    });
-    const params = new URLSearchParams({
-      dm: "chief",
-      handoff,
-    });
-    void navigate(`/conversations?${params.toString()}`);
-  };
-
-  const profileFirstName = user?.name.trim().split(/\s+/)[0];
-  const firstName = profileFirstName ?? "there";
-  const preparingWorkspace =
-    workspaceData.loading ||
-    onboardingPending ||
-    preparationActive ||
-    Boolean(continuingChatId);
-  const activeAnalyticsSlide =
-    analyticsSlides[analyticsIndex] ?? analyticsSlides[0];
-
+    preparingWorkspace,
+    questionAction,
+    resolveAction,
+    resolvedOverviewActionIndex,
+    selectAnalytics,
+    setAnalyticsPaused,
+    setAsk,
+    setAskAttachments,
+    setContinuingChatId,
+    setSelectedActionId,
+    simpleDecision,
+    submit,
+    user,
+    workspaceData,
+  } = useDashboardController();
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-[1120px] flex-col overflow-hidden pt-3 pb-[176px] max-[760px]:h-auto max-[760px]:overflow-visible max-[760px]:pb-[250px]">
       <div className="flex min-h-0 flex-1 flex-col justify-center pt-6">
@@ -871,7 +143,7 @@ export function DashboardPage() {
                       ) : null}
                       <span className="grid gap-0.5">
                         <strong className="text-[12px] font-medium">
-                          {AGENT_NAMES[currentAction.agentId] ??
+                          {DASHBOARD_AGENT_NAMES[currentAction.agentId] ??
                             currentAction.agentId}
                         </strong>
                         <small className="text-muted-foreground text-[10px]">
@@ -933,21 +205,21 @@ export function DashboardPage() {
                         : "text-[clamp(23px,2.7vw,33px)] leading-[1.1] tracking-[-0.035em]",
                     )}
                   >
-                    {deploymentRecovery
-                      ? "Connect Chief"
-                      : (simpleDecision?.question ?? currentAction.title)}
+                    {simpleDecision?.question ?? currentAction.title}
                   </h2>
                   {!questionAction ? (
                     <p className="text-muted-foreground mt-3 line-clamp-2 max-w-[560px] text-[13px] leading-6">
-                      {deploymentRecovery
-                        ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
-                        : currentAction.reason.trim() ||
-                          "This action needs your review."}
+                      {currentAction.reason.trim() ||
+                        "This action needs your review."}
                     </p>
                   ) : null}
                   {currentActionTask?.status === "needs_approval" ? (
-                    <OverviewTaskInput
+                    <DashboardTaskInput
                       key={currentActionTask.id}
+                      agentName={
+                        DASHBOARD_AGENT_NAMES[currentActionTask.agent] ??
+                        currentActionTask.agent
+                      }
                       task={currentActionTask}
                     />
                   ) : null}
@@ -968,7 +240,7 @@ export function DashboardPage() {
                         compactDecision={questionAction}
                         compactDecisionAgentName={
                           questionAction
-                            ? (AGENT_NAMES[currentAction.agentId] ??
+                            ? (DASHBOARD_AGENT_NAMES[currentAction.agentId] ??
                               currentAction.agentId)
                             : undefined
                         }
@@ -1041,28 +313,8 @@ export function DashboardPage() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    {deploymentRecovery ? (
-                      <>
-                        <button
-                          className={cn(
-                            overviewButton,
-                            "bg-foreground text-background hover:bg-foreground/90",
-                          )}
-                          type="button"
-                          onClick={useCodexLocally}
-                        >
-                          Use Chief on this Mac
-                        </button>
-                        <button
-                          className={overviewButton}
-                          type="button"
-                          onClick={() => navigate("/agents?view=deploy")}
-                        >
-                          Deploy Chief
-                        </button>
-                      </>
-                    ) : isGoogleAnalyticsConnectionAction(currentAction) ||
-                      isOnboardingEngineeringAction(currentAction) ? (
+                    {isGoogleAnalyticsConnectionAction(currentAction) ||
+                    isOnboardingEngineeringAction(currentAction) ? (
                       <button
                         className={cn(
                           overviewButton,
@@ -1194,7 +446,7 @@ export function DashboardPage() {
                       {item.title}
                     </strong>
                     <small className="truncate text-right text-[10px] max-[930px]:hidden">
-                      {AGENT_NAMES[item.agentId] ?? item.agentId}
+                      {DASHBOARD_AGENT_NAMES[item.agentId] ?? item.agentId}
                     </small>
                   </button>
                 ))}
@@ -1202,243 +454,20 @@ export function DashboardPage() {
             ) : null}
           </section>
 
-          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(210px,0.85fr)_minmax(270px,1.15fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
-            <section
-              aria-label="Workspace analytics"
-              className={cn(
-                overviewSurface,
-                "relative min-w-0 overflow-visible",
-              )}
-              onBlurCapture={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) {
-                  setAnalyticsPaused(false);
-                }
-              }}
-              onFocusCapture={() => setAnalyticsPaused(true)}
-              onMouseEnter={() => setAnalyticsPaused(true)}
-              onMouseLeave={() => setAnalyticsPaused(false)}
-            >
-              <AnimatePresence initial={false} mode="wait">
-                {activeAnalyticsSlide ? (
-                  <motion.article
-                    animate={{ opacity: 1, x: 0 }}
-                    className="absolute inset-0 cursor-pointer p-5 outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]"
-                    exit={{ opacity: 0, x: prefersReducedMotion ? 0 : -8 }}
-                    initial={{ opacity: 0, x: prefersReducedMotion ? 0 : 8 }}
-                    key={activeAnalyticsSlide.id}
-                    onClick={() => navigate("/analytics")}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      void navigate("/analytics");
-                    }}
-                    role="link"
-                    tabIndex={0}
-                    transition={{
-                      duration: prefersReducedMotion ? 0 : 0.28,
-                      ease: [0.22, 1, 0.36, 1],
-                    }}
-                  >
-                    <h2 className="mt-10 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
-                      {activeAnalyticsSlide.title}
-                    </h2>
-                    <div className="mt-4 flex items-baseline gap-2">
-                      <strong className="text-[22px] font-medium">
-                        {activeAnalyticsSlide.value}
-                      </strong>
-                      <span className="text-muted-foreground text-[10px]">
-                        {activeAnalyticsSlide.label}
-                      </span>
-                      <Trend value={activeAnalyticsSlide.trend} />
-                    </div>
-                    {activeAnalyticsSlide.points ? (
-                      <AnalyticsChart
-                        label={activeAnalyticsSlide.label}
-                        points={activeAnalyticsSlide.points}
-                        reduceMotion={Boolean(prefersReducedMotion)}
-                      />
-                    ) : null}
-                  </motion.article>
-                ) : null}
-              </AnimatePresence>
-              <div className="absolute right-3 bottom-2 z-[3] flex items-center gap-2">
-                <button
-                  aria-label="Previous analytics card"
-                  onClick={() => moveAnalytics(-1)}
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span aria-label="Analytics cards" className="flex gap-1">
-                  {analyticsSlides.map((slide, index) => (
-                    <button
-                      aria-label={`Show ${slide.label}`}
-                      aria-pressed={index === analyticsIndex}
-                      key={slide.id}
-                      onClick={() => selectAnalytics(index)}
-                      type="button"
-                      className="grid h-3 w-3 place-items-center"
-                    >
-                      <i
-                        className={cn(
-                          "bg-border block h-0.5 w-3 rounded-full",
-                          index === analyticsIndex && "bg-foreground",
-                        )}
-                      />
-                    </button>
-                  ))}
-                </span>
-                <button
-                  aria-label="Next analytics card"
-                  onClick={() => moveAnalytics(1)}
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            </section>
-
-            <section
-              className={cn(
-                overviewSurface,
-                "relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4",
-              )}
-              aria-label="Upcoming work"
-            >
-              <header className="flex shrink-0 items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-[13px] leading-4 font-semibold">
-                    Upcoming work
-                  </h2>
-                  <p className="text-muted-foreground mt-0.5 truncate text-[11px] leading-4 font-normal">
-                    Scheduled and in progress
-                  </p>
-                </div>
-                <button
-                  aria-label="Open schedule"
-                  className="border-border/60 text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground grid size-8 shrink-0 place-items-center rounded-lg border transition-colors"
-                  onClick={() => navigate("/schedule")}
-                  title="Open schedule"
-                  type="button"
-                >
-                  <CalendarDays size={14} />
-                </button>
-              </header>
-              <div className="mt-2 min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1">
-                {agentWorkTimeline.length > 0 ? (
-                  <div className="relative py-1">
-                    {agentWorkTimeline.map((item, index) => {
-                      const when = scheduleDate(
-                        item.timestamp,
-                        item.timezone,
-                        workspaceData.now,
-                      );
-                      const state =
-                        item.kind === "active"
-                          ? item.status === "completed"
-                            ? "Complete"
-                            : item.status === "failed"
-                              ? "Needs attention"
-                              : item.status === "waiting"
-                                ? "Waiting for input"
-                                : item.childId
-                                  ? "Specialist working"
-                                  : item.taskCount
-                                    ? `${item.taskCount} ${item.taskCount === 1 ? "task" : "tasks"} in progress`
-                                    : "Working now"
-                          : item.onceAt === undefined
-                            ? "Scheduled"
-                            : "One-time task";
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() =>
-                            navigate(
-                              item.kind === "active"
-                                ? item.parentId
-                                  ? `/conversations?chat=${encodeURIComponent(item.parentId)}${item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
-                                  : "/conversations"
-                                : "/schedule",
-                            )
-                          }
-                          type="button"
-                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[52px_20px_minmax(0,1fr)_12px] items-center gap-x-0 rounded-lg px-1 text-left transition-colors"
-                        >
-                          <time className="grid min-w-0 gap-0.5">
-                            <strong className="text-foreground/85 text-[11px] leading-4 font-semibold">
-                              {item.kind === "active" ? "Now" : when.day}
-                            </strong>
-                            <span className="text-muted-foreground text-[11px] leading-4 font-normal">
-                              {when.time}
-                            </span>
-                          </time>
-                          <span
-                            className={cn(
-                              "before:bg-foreground/[0.1] relative grid h-full min-h-12 place-items-center before:absolute before:left-[calc(50%-0.5px)] before:w-px",
-                              index === 0 ? "before:top-1/2" : "before:top-0",
-                              index === agentWorkTimeline.length - 1
-                                ? "before:bottom-1/2"
-                                : "before:bottom-0",
-                            )}
-                          >
-                            <i
-                              className={cn(
-                                "bg-muted-foreground/60 relative z-[1] grid size-2 place-items-center rounded-full shadow-[0_0_0_3px_var(--card)]",
-                                (item.kind === "upcoming" ||
-                                  item.status === "completed" ||
-                                  item.status === "waiting") &&
-                                  "bg-emerald-500",
-                                item.status === "failed" && "bg-red-500",
-                                item.kind === "active" &&
-                                  item.status === "running" &&
-                                  "bg-card text-foreground size-4",
-                              )}
-                            >
-                              {item.kind === "active" &&
-                              item.status === "running" ? (
-                                <LoaderCircle
-                                  aria-hidden
-                                  className="animate-spin"
-                                  size={10}
-                                />
-                              ) : null}
-                            </i>
-                          </span>
-                          <span className="grid min-w-0 gap-0.5">
-                            <strong className="truncate text-[11px] leading-4 font-semibold">
-                              {item.title}
-                            </strong>
-                            <small className="text-muted-foreground truncate text-[11px] leading-4 font-normal">
-                              {state} ·{" "}
-                              {AGENT_NAMES[item.agentId] ?? item.agentId}
-                            </small>
-                          </span>
-                          <ArrowRight
-                            aria-hidden
-                            className="text-muted-foreground/60"
-                            size={10}
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-muted-foreground flex min-h-36 items-center justify-center text-center">
-                    <span className="grid gap-1">
-                      <strong className="text-foreground text-[11px] font-medium">
-                        No upcoming work
-                      </strong>
-                      <small className="text-[10px]">
-                        Your schedule is clear.
-                      </small>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </section>
-          </aside>
+          <DashboardSidePanels
+            activeAnalyticsSlide={activeAnalyticsSlide}
+            agentName={(agentId) => DASHBOARD_AGENT_NAMES[agentId] ?? agentId}
+            agentWorkTimeline={agentWorkTimeline}
+            analyticsIndex={analyticsIndex}
+            analyticsSlides={analyticsSlides}
+            moveAnalytics={moveAnalytics}
+            navigate={navigate}
+            prefersReducedMotion={prefersReducedMotion}
+            selectAnalytics={selectAnalytics}
+            setAnalyticsPaused={setAnalyticsPaused}
+            surfaceClassName={overviewSurface}
+            workspaceData={workspaceData}
+          />
         </section>
       </div>
 
@@ -1450,7 +479,7 @@ export function DashboardPage() {
           onSubmit={submit}
           imageAttachments={askAttachments}
           onImageAttachmentsChange={setAskAttachments}
-          mentionCandidates={OVERVIEW_MENTION_CANDIDATES}
+          mentionCandidates={DASHBOARD_MENTION_CANDIDATES}
           showExecutionControls={false}
         />
       </div>

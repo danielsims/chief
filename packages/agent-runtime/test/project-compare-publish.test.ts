@@ -57,7 +57,7 @@ function fixture(broker?: CredentialBroker) {
     authorization: new ProjectAuthorizationService(projectStore.grants, () => [
       operator,
     ]),
-    ...(broker ? { broker } : {}),
+    ...(broker ? { broker } : undefined),
   });
   return { directory, repository, remote, service, store, projectStore };
 }
@@ -79,7 +79,7 @@ async function grant(
     principalType: principal.type,
     principalId: principal.id,
     capability,
-    ...(constraintJson ? { constraintJson } : {}),
+    ...(constraintJson ? { constraintJson } : undefined),
     createdAt: now,
     updatedAt: now,
   });

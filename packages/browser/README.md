@@ -1,11 +1,8 @@
 # @chief/browser
 
-A reusable pair-browsing primitive for applications where a human and an AI
-agent need to operate the same visible browser session.
-
-The browser is deliberately a light bulb, not the intelligence. Chief, Codex,
-Claude Code, Executor, a remote agent, or the human can provide the electricity.
-This package only keeps them attached to one real browser.
+Typed Node.js control of `agent-browser` sessions used by Chief runtimes.
+Browser presentation, stream protocol handling, and human input belong to
+`@browser-ui/react`.
 
 ## Why this package is small
 
@@ -14,15 +11,9 @@ the native Rust daemon, Chrome DevTools Protocol control, named and restorable
 sessions, accessibility snapshots and refs, downloads, and a bidirectional
 WebSocket stream. This package does not reimplement any of them.
 
-It adds two host-facing pieces:
-
-- `@chief/browser/node` — a typed session client around the official CLI.
-- `@chief/browser/react` — a visible viewport that renders stream frames and
-  forwards human mouse, wheel, and keyboard input to that same session.
-
-Neither side owns exclusive control. An agent can click through the CLI while
-the human watches; the human can immediately take over in the viewport; the
-agent can continue from the resulting page state.
+It adds one host-facing piece: `@chief/browser/node`, a typed session client
+around the official CLI. The UI can observe and operate the same named session
+through `@browser-ui/react` without making this package depend on React.
 
 ## Node host
 
@@ -66,34 +57,6 @@ work by spawning a second headed Chrome creates two competing browser surfaces.
 The human can still use an existing provider session, or select the provider's
 password or other sign-in method in the embedded viewport. Chief never reads,
 fills, or places those authentication values in agent context.
-
-## React viewport
-
-```tsx
-import { AgentBrowserViewport } from "@chief/browser/react";
-
-<AgentBrowserViewport
-  streamUrl={streamUrl}
-  className="h-full w-full bg-black"
-  onViewportResize={(width, height) => resizeBrowser(width, height)}
-/>;
-```
-
-`@chief/browser/surface` exports `BrowserSurface`, the transport-neutral visual
-primitive. It accepts any stream renderer as `children`, plus host-owned
-`overlay` and loading content.
-Chief composes its operating glow and control pill there; those visuals do not
-know about agent-browser, WebSockets, Google, or any agent runtime.
-
-The viewport also accepts an optional `{ type: "cursor", cursor: "pointer" }`
-stream message for providers that expose remote cursor semantics. The current
-agent-browser JPEG stream does not publish DOM cursor metadata, so Chief does
-not fake it with continuous page inspection or force an inaccurate cursor.
-
-The viewport reconnects a dropped WebSocket with bounded backoff while keeping
-the last frame visible. Mouse presses are balanced on pointer cancellation,
-lost capture, app blur, visibility changes and stream reconnection so the
-remote browser cannot remain stuck in a button-down state.
 
 ## Authentication handoff
 

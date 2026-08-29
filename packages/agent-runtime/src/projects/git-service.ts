@@ -49,11 +49,11 @@ export class ProjectGitService extends ProjectServiceBase {
     } = {},
   ) {
     super(persistence, {
-      ...(options.root ? { root: options.root } : {}),
+      ...(options.root ? { root: options.root } : undefined),
       ...(options.authorization
         ? { authorization: options.authorization }
-        : {}),
-      ...(options.broker ? { broker: options.broker } : {}),
+        : undefined),
+      ...(options.broker ? { broker: options.broker } : undefined),
     });
     this.checkouts = new ProjectCheckoutService(persistence, options);
     this.administration = new ProjectAdministrationService(
@@ -91,15 +91,15 @@ export class ProjectGitService extends ProjectServiceBase {
           name: input?.name?.trim() ? input.name.trim() : basename(root),
           ...(input?.description?.trim()
             ? { description: input.description.trim() }
-            : {}),
+            : undefined),
           repositoryKind: "attached",
           providerId: provider.id,
           ...(provider.canonicalRemoteUrl
             ? { canonicalRemoteUrl: provider.canonicalRemoteUrl }
-            : {}),
+            : undefined),
           ...(provider.repositoryWebUrl
             ? { repositoryWebUrl: provider.repositoryWebUrl }
-            : {}),
+            : undefined),
           defaultBranch: await repositoryDefaultBranch(root),
           createdAt: now,
           updatedAt: now,
@@ -169,15 +169,15 @@ export class ProjectGitService extends ProjectServiceBase {
           name,
           ...(input?.description?.trim()
             ? { description: input.description.trim() }
-            : {}),
+            : undefined),
           repositoryKind: "cloned",
           providerId: provider.id,
           ...(provider.canonicalRemoteUrl
             ? { canonicalRemoteUrl: provider.canonicalRemoteUrl }
-            : {}),
+            : undefined),
           ...(provider.repositoryWebUrl
             ? { repositoryWebUrl: provider.repositoryWebUrl }
-            : {}),
+            : undefined),
           defaultBranch: await repositoryDefaultBranch(root),
           createdAt: now,
           updatedAt: now,
@@ -377,7 +377,7 @@ export class ProjectGitService extends ProjectServiceBase {
     const pullRequest = await adapter.createPullRequest(organizationId, {
       repositoryId,
       title: input.title,
-      ...(input.description ? { description: input.description } : {}),
+      ...(input.description ? { description: input.description } : undefined),
       headBranch: input.headBranch,
       baseBranch: input.baseBranch,
     });

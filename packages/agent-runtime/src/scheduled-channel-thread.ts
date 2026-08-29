@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { JsonObject } from "@chief/relay-contracts";
+
 import type { ChannelEvent } from "./channel-types.js";
 import type { SessionManager } from "./manager.js";
 import type { AgentSession } from "./session.js";
@@ -18,6 +20,43 @@ import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
+type ScheduledThreadStore = Pick<
+  ReturnType<SessionManager["store"]["channelStore"]>,
+  "appendEvent" | "list"
+>;
+
+export interface ScheduledChannelStoreManager {
+  store: { channelStore(): ScheduledThreadStore };
+}
+
+export type ScheduledChannelRunManager = ScheduledChannelStoreManager &
+  Pick<SessionManager, "acquireExecutionWhenAvailable">;
+
+export interface ScheduledChannelWorkManager extends Pick<
+  SessionManager,
+  "acquireExecutionWhenAvailable" | "agentPreference" | "ensureRootChat"
+> {
+  store: {
+    channelStore(): ScheduledThreadStore &
+      Pick<ReturnType<SessionManager["store"]["channelStore"]>, "get">;
+  };
+}
+
+export interface ScheduledChannelSession {
+  on(event: "event", listener: (event: AgentEvent) => void): void;
+  off(event: "event", listener: (event: AgentEvent) => void): void;
+  sendPrompt(
+    text: string,
+    messageId: string | undefined,
+    record: boolean,
+    context: {
+      threadRootId: string;
+      mentions: string[];
+      privateInstructions: string;
+    },
+  ): Promise<boolean | void>;
+}
+
 export interface ScheduledChannelThread {
   agentId: string;
   channelId: string;
@@ -33,7 +72,7 @@ export interface ScheduledChannelThread {
 export class ScheduledChannelUnavailableError extends Error {}
 
 async function scheduledChannel(
-  manager: SessionManager,
+  manager: ScheduledChannelStoreManager,
   workspaceId: string,
   work: RecurringWorkRecord,
 ) {
@@ -67,7 +106,7 @@ function threadInstructions(
   work: RecurringWorkRecord,
   channelId: string,
   threadRootId: string,
-  triggerContext?: Record<string, unknown>,
+  triggerContext?: JsonObject,
 ) {
   const heartbeatOutcome =
     work.operationKey === "chief-mission-control-heartbeat"
@@ -96,11 +135,11 @@ Operating rules:
 
 /** Posts the scheduled message that wakes an agent in its owning channel. */
 export async function beginScheduledChannelThread(
-  manager: SessionManager,
+  manager: ScheduledChannelStoreManager,
   workspaceId: string,
   work: RecurringWorkRecord,
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
-  triggerContext?: Record<string, unknown>,
+  triggerContext?: JsonObject,
 ): Promise<ScheduledChannelThread> {
   const channel = await scheduledChannel(manager, workspaceId, work);
   const assignedAgent = getAgent(work.agentId) ?? getAgent("chief");
@@ -140,7 +179,7 @@ export async function beginScheduledChannelThread(
 }
 
 async function appendFailure(
-  manager: SessionManager,
+  manager: ScheduledChannelStoreManager,
   workspaceId: string,
   thread: ScheduledChannelThread,
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
@@ -164,7 +203,9 @@ async function appendFailure(
 }
 
 /** Runs approved scheduled work as a normal turn in its channel thread. */
-export async function runScheduledChannelThread({
+export async function runScheduledChannelThread<
+  Session extends ScheduledChannelSession,
+>({
   bindSession,
   broadcast,
   ensureSession,
@@ -173,20 +214,16 @@ export async function runScheduledChannelThread({
   thread,
   workspaceId,
 }: {
-  bindSession: (
-    workspaceId: string,
-    chatId: string,
-    session: AgentSession,
-  ) => void;
+  bindSession: (workspaceId: string, chatId: string, session: Session) => void;
   broadcast: (workspaceId: string, event: ChannelEvent) => void;
-  ensureSession: (workspaceId: string, chatId: string) => Promise<AgentSession>;
-  manager: SessionManager;
+  ensureSession: (workspaceId: string, chatId: string) => Promise<Session>;
+  manager: ScheduledChannelRunManager;
   onSessionReady?: () => void;
   thread: ScheduledChannelThread;
   workspaceId: string;
 }) {
   let release: (() => void) | undefined;
-  let session: AgentSession | undefined;
+  let session: Session | undefined;
   let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
   let resolveTerminal: (() => void) | undefined;
   try {
@@ -201,7 +238,7 @@ export async function runScheduledChannelThread({
     const terminal = new Promise<void>((resolve) => {
       resolveTerminal = resolve;
     });
-    releaseOnTerminal = (event) => {
+    const terminalListener = (event: AgentEvent) => {
       if (
         event.type !== "result" &&
         event.type !== "error" &&
@@ -209,12 +246,13 @@ export async function runScheduledChannelThread({
       ) {
         return;
       }
-      session?.off("event", releaseOnTerminal as (event: AgentEvent) => void);
+      session?.off("event", terminalListener);
       release?.();
       release = undefined;
       resolveTerminal?.();
     };
-    session.on("event", releaseOnTerminal);
+    releaseOnTerminal = terminalListener;
+    session.on("event", terminalListener);
     await session.sendPrompt("", undefined, false, {
       threadRootId: thread.threadRootId,
       mentions: [thread.agentId],
@@ -246,10 +284,10 @@ export async function startScheduledChannelWork({
     session: AgentSession,
   ) => void;
   broadcast: (workspaceId: string, event: ChannelEvent) => void;
-  manager: SessionManager;
+  manager: ScheduledChannelWorkManager;
   onThread?: (thread: ScheduledChannelThread) => void;
   prepareWorkspaceTools: () => Promise<ExecutorWorkspace | null>;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   work: RecurringWorkRecord;
   workspaceId: string;
 }) {

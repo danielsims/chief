@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { initializeWorkspaceData } from "./workspace-data-store";
 import { initializeWorkspaceLive } from "./workspace-live-store";
@@ -27,6 +29,11 @@ export function initializeWorkspaceSchema(
       agent_id TEXT PRIMARY KEY,
       pubkey TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS secrets (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS channels (
       conversation_id TEXT PRIMARY KEY,
@@ -114,7 +121,7 @@ function migrateLegacyChannelSchema(storage: DurableObjectStorage) {
     storage.sql
       .exec<Record<string, SqlStorageValue>>("PRAGMA table_info(channels)")
       .toArray()
-      .map((column) => (typeof column.name === "string" ? column.name : "")),
+      .map((column) => (isJsonString(column.name) ? column.name : "")),
   );
   const add = (name: string, definition: string) => {
     if (existing.has(name)) return;

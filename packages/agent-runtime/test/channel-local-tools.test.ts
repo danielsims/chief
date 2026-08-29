@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+
 import type { ChannelEvent } from "../src/channel-types.js";
 import { handleChannelLocalTool } from "../src/channel-local-tools.js";
 import { LocalStore } from "../src/local-store.js";
@@ -11,7 +13,7 @@ import { LocalStore } from "../src/local-store.js";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-channel-local-tools-integration-test-key";
 
-function request(path: string, method: string, body?: unknown) {
+function request(path: string, method: string, body?: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -104,7 +106,6 @@ void test("agent channel tools provide a reversible feature workflow", async () 
     );
     assert.equal(events.length, 2);
     assert.deepEqual(pacedPosts, ["feature-sharing-review-ready"]);
-
     const archived = await handleChannelLocalTool(
       request(`/local-tools/channels/${channel.id}/archive`, "POST", {
         expectedVersion: 1,
@@ -208,11 +209,7 @@ void test("channel message commands project threads, edits, reactions, and tombs
     channelStore: store.channelStore(),
     availableAgentIds: ["chief", "engineer", "analyst"],
   };
-  const call = (
-    path: string,
-    method: string,
-    body: Record<string, unknown> = {},
-  ) =>
+  const call = (path: string, method: string, body: JsonObject = {}) =>
     handleChannelLocalTool(
       request(path, method, method === "GET" ? undefined : body),
       "workspace-a",
@@ -407,11 +404,7 @@ void test("channel membership, lifecycle, and policy commands remain conflict sa
     availableAgentIds: ["chief", "engineer", "analyst"],
     requestDeletion: () => Promise.resolve({ id: "owner-review" }),
   };
-  const call = (
-    path: string,
-    method: string,
-    body: Record<string, unknown> = {},
-  ) =>
+  const call = (path: string, method: string, body: JsonObject = {}) =>
     handleChannelLocalTool(
       request(path, method, method === "GET" ? undefined : body),
       "workspace-a",
