@@ -13,19 +13,22 @@ struct OnboardingView: View {
 
         Group {
           switch model.onboarding.step {
-          case 0: RuntimeStep(draft: $model.onboarding)
-          case 1:
+          case 0: CompanyStep(draft: $model.onboarding)
+          case 1: RuntimeStep(draft: $model.onboarding)
+          case 2:
             InferenceStep(
               draft: $model.onboarding,
               credential: $model.inferenceCredential
             )
-          case 2: CompanyStep(draft: $model.onboarding)
           default: AppsStep(draft: $model.onboarding)
           }
         }
         .frame(maxHeight: .infinity)
 
         VStack(spacing: 11) {
+          OnboardingProgressSegments(currentStep: model.onboarding.step)
+            .padding(.bottom, 5)
+
           Button {
             Haptics.heavy()
             if model.onboarding.step == stepCount - 1 {
@@ -52,10 +55,10 @@ struct OnboardingView: View {
               .foregroundStyle(ChiefTheme.secondary)
               .frame(height: 24)
               .buttonStyle(.plain)
-          } else if model.canCancelOnboarding {
-            Button("Cancel") {
+          } else {
+            Button("Back") {
               Haptics.medium()
-              model.cancelWorkspaceSetup()
+              model.showWorkspaceSetup()
             }
               .font(.system(size: 13, weight: .medium))
               .foregroundStyle(ChiefTheme.secondary)
@@ -84,6 +87,92 @@ struct OnboardingView: View {
       let plugins = await PluginCatalogClient.shared.preferredPlugins()
       await BrandLogoImage.prefetch(urls: plugins.compactMap(\.iconURL))
     }
+  }
+}
+
+struct WorkspaceSetupView: View {
+  @Environment(AppModel.self) private var model
+  @State private var joinSheetPresented = false
+
+  var body: some View {
+    ZStack {
+      ChiefTheme.background.ignoresSafeArea()
+      VStack(spacing: 0) {
+        OnboardingAccountIndicator()
+
+        VStack(alignment: .leading, spacing: 0) {
+          Spacer()
+
+          Text("Set up your workspace")
+            .font(.system(size: 30, weight: .regular, design: .rounded))
+            .tracking(-0.8)
+          Text("Start somewhere new or join a workspace shared with you.")
+            .font(.system(size: 15))
+            .foregroundStyle(ChiefTheme.secondary)
+            .padding(.top, 9)
+
+          VStack(spacing: 2) {
+            WorkspaceSetupAction(
+              title: "Create a workspace",
+              detail: "Start a new space for your agents and team"
+            ) {
+              Haptics.heavy()
+              model.beginWorkspaceSetup()
+            }
+            WorkspaceSetupAction(
+              title: "Join with an invitation",
+              detail: "Open a workspace someone shared with you"
+            ) {
+              Haptics.heavy()
+              joinSheetPresented = true
+            }
+          }
+          .padding(.top, 24)
+
+          Spacer()
+        }
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.bottom, 24)
+
+        if model.canReturnToWorkspace {
+          Button("Back") {
+            Haptics.light()
+            Task { await model.returnToWorkspaceFromSetup() }
+          }
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(ChiefTheme.secondary)
+          .frame(height: 24)
+          .buttonStyle(.plain)
+          .padding(.horizontal, ChiefTheme.pagePadding)
+          .padding(.bottom, 10)
+        }
+      }
+    }
+    .sheet(isPresented: $joinSheetPresented) { JoinWorkspaceSheet() }
+  }
+}
+
+private struct WorkspaceSetupAction: View {
+  let title: String
+  let detail: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(title)
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(.primary)
+        Text(detail)
+          .font(.system(size: 13))
+          .foregroundStyle(ChiefTheme.secondary)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 14)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
   }
 }
 
@@ -119,12 +208,33 @@ private struct OnboardingAccountIndicator: View {
 
 private struct RuntimeStep: View {
   @Binding var draft: OnboardingDraft
+  @Environment(AppModel.self) private var model
 
   var body: some View {
     OnboardingStepLayout(
       title: "Where should your agents run?",
-      detail: "Start on this iPhone or keep them available in Chief Cloud."
+      detail: "Keep them available in Chief Cloud or run them on this iPhone."
     ) {
+      OptionRow(
+        icon: {
+          if model.activeRelayIsChiefCloud {
+            Image("ChiefMark")
+              .resizable()
+              .scaledToFit()
+              .frame(width: 20, height: 20)
+          } else {
+            Image(systemName: "server.rack")
+          }
+        },
+        title: model.activeRelayLabel,
+        detail: "Keep agents working through this relay when your devices are offline.",
+        selected: draft.runtime == .cloud
+      ) {
+        draft.runtime = .cloud
+        draft.inferenceProvider = .openCodeGo
+        draft.inferenceModel = "auto"
+      }
+      Divider().overlay(ChiefTheme.line)
       OptionRow(
         icon: { Image(systemName: "iphone") },
         title: "This iPhone",
@@ -132,18 +242,6 @@ private struct RuntimeStep: View {
         selected: draft.runtime == .phone
       ) {
         draft.runtime = .phone
-        if draft.inferenceProvider == .cloud { draft.inferenceProvider = nil }
-      }
-      Divider().overlay(ChiefTheme.line)
-      OptionRow(
-        icon: { Image(systemName: "cloud") },
-        title: "Chief Cloud",
-        detail: "Keep agents working even when your devices are offline.",
-        selected: draft.runtime == .cloud
-      ) {
-        draft.runtime = .cloud
-        draft.inferenceProvider = .cloud
-        draft.inferenceModel = "auto"
       }
     }
   }
@@ -159,94 +257,131 @@ private struct InferenceStep: View {
 
   var body: some View {
     OnboardingStepLayout(
-      title: "How should your agents think?",
-      detail: "Choose the inference provider that powers your agents."
+      title: "What inference provider will your agents use?",
+      detail: "Choose what powers this workspace's agents."
     ) {
       if draft.runtime == .cloud {
         OptionRow(
-          icon: { Image(systemName: "cloud") },
-          title: "Chief Cloud",
-          detail: "Durable compute, browser, files, Git, and artifacts.",
-          selected: true
+          icon: {
+            BrandLogoView(
+              domain: "vercel.com",
+              iconURL: URL(string: "https://integrations.sh/logo/vercel.com"),
+              size: 20
+            )
+          },
+          title: "Vercel AI Gateway",
+          detail: "One API for hundreds of models, with budgets, usage monitoring, and fallbacks.",
+          selected: draft.inferenceProvider == .vercelAiGateway
         ) {
-          draft.inferenceProvider = .cloud
-          draft.inferenceModel = "auto"
+          credential = ""
+          draft.inferenceProvider = .vercelAiGateway
+          draft.inferenceModel = "deepseek/deepseek-v4-flash"
         }
-      } else {
-      OptionRow(
-        icon: { Image(systemName: "internaldrive") },
-        title: "On device",
-        detail: "Download a private model that runs directly on this iPhone.",
-        selected: draft.inferenceProvider == .onDevice
-      ) {
-        withAnimation(.easeInOut(duration: 0.22)) {
-          draft.inferenceProvider = .onDevice
-          draft.inferenceModel = ""
-          draft.deviceModelID = nil
-        }
-        modelPickerPresented = true
-      }
-
-      Divider().overlay(ChiefTheme.line)
-
-      OptionRow(
-        icon: { OpenCodeMark(size: 20) },
-        title: "OpenCode",
-        detail: "Choose a free Zen model or use your OpenCode Go subscription.",
-        selected: draft.inferenceProvider == .openCodeGo
-      ) {
-        withAnimation(.easeInOut(duration: 0.22)) {
+        Divider().overlay(ChiefTheme.line)
+        OptionRow(
+          icon: { OpenCodeMark(size: 20) },
+          title: "OpenCode",
+          detail: "An open-source coding agent for the terminal, desktop, and IDE.",
+          selected: draft.inferenceProvider == .openCodeGo
+        ) {
+          credential = ""
           draft.inferenceProvider = .openCodeGo
-          if draft.inferenceModel.isEmpty {
-            draft.inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
-          }
-          draft.deviceModelID = nil
+          draft.inferenceModel = "opencode-go/deepseek-v4-flash"
         }
-      }
-
-      if draft.inferenceProvider == .openCodeGo {
         VStack(alignment: .leading, spacing: 10) {
-          OpenCodeModelPicker(
-            selectedID: $draft.inferenceModel,
-            models: openCodeModels,
-            loading: loadingOpenCodeModels
+          SecureField(
+            draft.inferenceProvider == .vercelAiGateway
+              ? "Vercel AI Gateway API key" : "OpenCode API key",
+            text: $credential
           )
-          SecureField("OpenCode API key", text: $credential)
             .textContentType(.password)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .textFieldStyle(ChiefTextFieldStyle())
             .privacySensitive()
-          Link(destination: URL(string: "https://opencode.ai/auth")!) {
-            Label("Get your OpenCode key", systemImage: "arrow.up.right")
+          Text("Saved to this workspace's protected relay vault.")
+            .font(.system(size: 13))
+            .foregroundStyle(ChiefTheme.tertiary)
+          Link(destination: providerKeyURL) {
+            Label(providerKeyLabel, systemImage: "arrow.up.right")
               .font(.system(size: 13, weight: .medium))
               .foregroundStyle(ChiefTheme.secondary)
           }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
-      }
-
-      #if DEBUG
-        Divider().overlay(ChiefTheme.line)
-
+      } else {
         OptionRow(
-          icon: { Image(systemName: "laptopcomputer.and.iphone") },
-          title: "Codex on this Mac",
-          detail: DevCodexBridgeSettings.isConfigured
-            ? "Connected for development with \(DevCodexBridgeSettings.model)."
-            : "Scan the QR from Chief's local development bridge.",
-          selected: draft.inferenceProvider == .codexBridge
+          icon: {
+            BrandLogoView(
+              domain: "vercel.com",
+              iconURL: URL(string: "https://integrations.sh/logo/vercel.com"),
+              size: 20
+            )
+          },
+          title: "Vercel AI Gateway",
+          detail: "One API for hundreds of models, with budgets, usage monitoring, and fallbacks.",
+          selected: draft.inferenceProvider == .vercelAiGateway
         ) {
-          withAnimation(.easeInOut(duration: 0.22)) {
-            draft.inferenceProvider = .codexBridge
-            draft.inferenceModel = DevCodexBridgeSettings.model
-            draft.deviceModelID = nil
+          credential = ""
+          draft.inferenceProvider = .vercelAiGateway
+          draft.inferenceModel = "deepseek/deepseek-v4-flash"
+          draft.deviceModelID = nil
+        }
+        Divider().overlay(ChiefTheme.line)
+        OptionRow(
+          icon: { OpenCodeMark(size: 20) },
+          title: "OpenCode",
+          detail: "An open-source coding agent for the terminal, desktop, and IDE.",
+          selected: draft.inferenceProvider == .openCodeGo
+        ) {
+          credential = ""
+          draft.inferenceProvider = .openCodeGo
+          draft.inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
+          draft.deviceModelID = nil
+        }
+        Divider().overlay(ChiefTheme.line)
+        OptionRow(
+          icon: { Image(systemName: "internaldrive") },
+          title: "On device",
+          detail: "Download a private model that runs directly on this iPhone.",
+          selected: draft.inferenceProvider == .onDevice
+        ) {
+          credential = ""
+          draft.inferenceProvider = .onDevice
+          draft.inferenceModel = ""
+          draft.deviceModelID = nil
+          modelPickerPresented = true
+        }
+
+        if draft.inferenceProvider == .openCodeGo
+          || draft.inferenceProvider == .vercelAiGateway
+        {
+          VStack(alignment: .leading, spacing: 10) {
+            if draft.inferenceProvider == .openCodeGo {
+              OpenCodeModelPicker(
+                selectedID: $draft.inferenceModel,
+                models: openCodeModels,
+                loading: loadingOpenCodeModels
+              )
+            }
+            SecureField(
+              draft.inferenceProvider == .vercelAiGateway
+                ? "Vercel AI Gateway API key" : "OpenCode API key",
+              text: $credential
+            )
+            .textContentType(.password)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .textFieldStyle(ChiefTextFieldStyle())
+            .privacySensitive()
+            Link(destination: providerKeyURL) {
+              Label(providerKeyLabel, systemImage: "arrow.up.right")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ChiefTheme.secondary)
+            }
           }
         }
-      #endif
       }
     }
-    .animation(.easeInOut(duration: 0.22), value: draft.inferenceProvider)
     .task(id: draft.inferenceProvider) {
       guard draft.runtime == .phone, draft.inferenceProvider == .openCodeGo else { return }
       loadingOpenCodeModels = true
@@ -266,6 +401,19 @@ private struct InferenceStep: View {
       }
       .chiefSheet([.medium, .large])
     }
+  }
+
+  private var providerKeyLabel: String {
+    draft.inferenceProvider == .vercelAiGateway
+      ? "Get an AI Gateway key" : "Get an OpenCode API key"
+  }
+
+  private var providerKeyURL: URL {
+    URL(
+      string: draft.inferenceProvider == .vercelAiGateway
+        ? "https://vercel.com/docs/ai-gateway/authentication"
+        : "https://opencode.ai/auth"
+    )!
   }
 }
 
@@ -439,12 +587,12 @@ private struct CompanyStep: View {
 
   var body: some View {
     OnboardingStepLayout(
-      title: "What company is this workspace for?",
-      detail: "This gives every agent the right starting context."
+      title: "What’s the name of this workspace?",
+      detail: "Add a website if there’s one your agents should understand."
     ) {
-      TextField("Company name", text: $draft.companyName)
+      TextField("Workspace name", text: $draft.companyName)
         .textFieldStyle(ChiefTextFieldStyle())
-      TextField("Website", text: $draft.website)
+      TextField("Website (optional)", text: $draft.website)
         .textContentType(.URL)
         .textInputAutocapitalization(.never)
         .keyboardType(.URL)
@@ -459,7 +607,7 @@ private struct AppsStep: View {
   var body: some View {
     OnboardingStepLayout(
       title: "What apps do you already use?",
-      detail: "Chief will suggest connections when they are useful."
+      detail: "Choose the apps your team already uses."
     ) {
       LazyVGrid(
         columns: Array(repeating: GridItem(.flexible()), count: 3),
@@ -491,31 +639,32 @@ private struct AppsStep: View {
 }
 
 private struct OnboardingStepLayout<Content: View>: View {
-  @Environment(AppModel.self) private var model
   let title: String
   let detail: String
   @ViewBuilder let content: Content
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 12) {
-        OnboardingProgressSegments(currentStep: model.onboarding.step)
-          .padding(.bottom, 10)
-        Text(title)
-          .font(.system(size: 30, weight: .regular, design: .rounded))
-          .tracking(-0.8)
-        Text(detail)
-          .font(.system(size: 15))
-          .foregroundStyle(ChiefTheme.secondary)
-          .lineSpacing(3)
-        VStack(spacing: 10) { content }.padding(.top, 22)
+    GeometryReader { geometry in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          Spacer(minLength: 24)
+          VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+              .font(.system(size: 30, weight: .regular, design: .rounded))
+              .tracking(-0.8)
+            Text(detail)
+              .font(.system(size: 15))
+              .foregroundStyle(ChiefTheme.secondary)
+              .lineSpacing(3)
+            VStack(spacing: 10) { content }.padding(.top, 22)
+          }
+          Spacer(minLength: 24)
+        }
+        .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .leading)
+        .padding(.horizontal, ChiefTheme.pagePadding)
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, ChiefTheme.pagePadding)
-      .padding(.top, 30)
-      .padding(.bottom, 24)
+      .scrollDismissesKeyboard(.interactively)
     }
-    .scrollDismissesKeyboard(.interactively)
   }
 }
 

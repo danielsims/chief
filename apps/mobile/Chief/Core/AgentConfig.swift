@@ -3,6 +3,7 @@ import Foundation
 struct AgentInferenceConfig: Codable, Equatable, Sendable {
   var provider: String
   var model: String
+  var secretRef: String?
 }
 
 /// Relay-authoritative per-agent configuration, cached on-device per workspace
@@ -12,7 +13,8 @@ struct AgentConfig: Codable, Equatable, Sendable {
   var deploymentTarget: String = "cloud"
   var inference = AgentInferenceConfig(
     provider: "opencode",
-    model: "opencode-go/deepseek-v4-flash"
+    model: "opencode-go/deepseek-v4-flash",
+    secretRef: "opencode"
   )
   var approvals: String = "auto"  // auto | ask
   var capabilities: Set<String> = []

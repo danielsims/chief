@@ -33,6 +33,8 @@ struct AppRootView: View {
           LaunchView()
         case .signedOut:
           SignInView()
+        case .workspaceSetup:
+          WorkspaceSetupView()
         case .onboarding:
           OnboardingView()
         case .workspace:

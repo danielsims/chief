@@ -480,6 +480,8 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
       && components.allSatisfy { ["agent.activity", "thinking", "tool", "error"].contains($0.kind) }
   }
 
+  var isVisibleThreadReply: Bool { !isAgentActivityProjection }
+
   enum CodingKeys: String, CodingKey {
     case id
     case workspaceId
@@ -746,8 +748,8 @@ enum JSONValue: Codable, Sendable {
 struct OnboardingDraft: Equatable, Sendable {
   enum RuntimeLocation: String, CaseIterable, Sendable { case phone, cloud }
   enum InferenceProvider: String, CaseIterable, Sendable {
-    case cloud = "remote"
     case openCodeGo
+    case vercelAiGateway
     #if DEBUG
       /// Development-only inference supplied by this Mac's signed-in Codex
       /// app-server. This case is compiled out of release builds.
