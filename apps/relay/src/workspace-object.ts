@@ -35,6 +35,7 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
+import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
@@ -473,7 +474,12 @@ export class WorkspaceObject extends DurableObject<Env> {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;
         socket.serializeAttachment({ ...attachment, cursor: event.sequence });
-        if (!attachment.conversationIds.includes(conversationId)) continue;
+        if (
+          !attachment.conversationIds.includes(conversationId) &&
+          !isMembershipGrantForPrincipal(event, attachment.principal)
+        ) {
+          continue;
+        }
         if (
           !channels.canReadConversation(conversationId, attachment.principal)
         ) {
