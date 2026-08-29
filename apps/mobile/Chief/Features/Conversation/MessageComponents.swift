@@ -550,29 +550,39 @@ struct ThinkingMessageComponent: View {
 
       if isExpanded, let text = component.payload["text"] ?? component.payload["content"] {
         Text(text)
-          .font(.system(size: 12))
+          .font(.system(size: 13))
           .foregroundStyle(ChiefTheme.secondary)
           .lineSpacing(2)
           .textSelection(.enabled)
+          .padding(.leading, 11)
+          .overlay(alignment: .leading) {
+            Rectangle()
+              .fill(ChiefTheme.line)
+              .frame(width: 1)
+          }
       }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 11)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 12))
-    .overlay {
-      RoundedRectangle(cornerRadius: 12)
-        .stroke(ChiefTheme.line.opacity(0.45), lineWidth: 0.5)
-    }
   }
 }
 
 struct ToolMessageComponent: View {
   let component: MessageComponent
-  @State private var isExpanded = false
+  @State private var isExpanded: Bool
+
+  init(component: MessageComponent) {
+    self.component = component
+    let status = component.payload["status"] ?? "running"
+    _isExpanded = State(
+      initialValue: ["running", "working", "failed", "error"].contains(status)
+    )
+  }
 
   private var name: String { component.payload["name"] ?? "tool" }
   private var status: String { component.payload["status"] ?? "running" }
+  private var input: String? { component.payload["input"] ?? component.payload["parameters"] }
   private var output: String? { component.payload["output"] ?? component.payload["result"] }
   private var error: String? { component.payload["error"] }
   private var displayName: String {
@@ -590,47 +600,60 @@ struct ToolMessageComponent: View {
   }
 
   var body: some View {
-    DisclosureGroup(isExpanded: $isExpanded) {
-      VStack(alignment: .leading, spacing: 8) {
-        if let output { detailBlock(title: "Output", text: output) }
-        if let error { detailBlock(title: "Error", text: error) }
-      }
-      .padding(.top, 10)
-    } label: {
-      HStack(spacing: 9) {
-        Circle()
-          .fill(statusColor)
-          .frame(width: 6, height: 6)
-        Text(displayName)
-          .font(.system(size: 12, weight: .medium))
-        if let summary {
-          Text(summary)
-            .font(.system(size: 10, design: .monospaced))
+    VStack(alignment: .leading, spacing: 0) {
+      Button {
+        withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
+      } label: {
+        HStack(spacing: 9) {
+          statusIcon
+          Text(displayName)
+            .font(.system(size: 13, weight: .medium))
+          if let summary {
+            Text(summary)
+              .font(.system(size: 12))
+              .foregroundStyle(ChiefTheme.tertiary)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 8)
+          statusLabel
+          Image(systemName: "chevron.down")
+            .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(ChiefTheme.tertiary)
-            .lineLimit(1)
+            .rotationEffect(.degrees(isExpanded ? 180 : 0))
         }
-        Spacer(minLength: 8)
-        statusLabel
+        .foregroundStyle(ChiefTheme.secondary)
+        .contentShape(Rectangle())
       }
-      .foregroundStyle(ChiefTheme.secondary)
-      .contentShape(Rectangle())
+      .buttonStyle(.plain)
+
+      if isExpanded {
+        VStack(alignment: .leading, spacing: 8) {
+          detailBlock(title: "Tool", text: name)
+          if let input { detailBlock(title: "Parameters", text: input) }
+          if let output { detailBlock(title: "Result", text: output) }
+          if let error { detailBlock(title: "Error", text: error) }
+        }
+        .padding(.top, 10)
+      }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 11)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 12))
-    .overlay {
-      RoundedRectangle(cornerRadius: 12)
-        .stroke(ChiefTheme.line.opacity(0.45), lineWidth: 0.5)
-    }
-    .tint(ChiefTheme.secondary)
   }
 
-  private var statusColor: Color {
+  @ViewBuilder
+  private var statusIcon: some View {
     switch status {
-    case "running", "working": .blue.opacity(0.85)
-    case "failed", "error": .red.opacity(0.9)
-    default: .green.opacity(0.75)
+    case "running", "working":
+      MatrixLoader(size: 12).foregroundStyle(ChiefTheme.secondary)
+    case "failed", "error":
+      Image(systemName: "exclamationmark.circle.fill")
+        .font(.system(size: 12))
+        .foregroundStyle(.red)
+    default:
+      Image(systemName: "checkmark.circle.fill")
+        .font(.system(size: 12))
+        .foregroundStyle(ChiefTheme.secondary)
     }
   }
 
@@ -655,10 +678,10 @@ struct ToolMessageComponent: View {
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(ChiefTheme.tertiary)
       Text(text)
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(ChiefTheme.secondary)
         .textSelection(.enabled)
-        .lineLimit(6)
+        .lineLimit(12)
     }
   }
 }

@@ -1,18 +1,8 @@
-/* eslint-disable max-lines */
-
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type {
-  Client,
-  InArgs,
-  InStatement,
-  ResultSet,
-  Transaction,
-  TransactionMode,
-} from "@libsql/client";
+import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import {
@@ -30,6 +20,10 @@ import {
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
+import { z } from "zod";
+
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, jsonObjectSchema } from "@chief/relay-contracts";
 
 import type {
   ActionItem,
@@ -52,11 +46,14 @@ import type {
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
+import { allAgentToolPermissions } from "./agent-tool-permissions.js";
+import { availableCapabilities } from "./capabilities/index.js";
 import { CellSqliteStore } from "./cells/sqlite-store.js";
 import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
 import { retryDatabaseWrite } from "./database-write-retry.js";
 import * as schema from "./db/schema.js";
+import { serializeLocalClient } from "./local-store-client.js";
 import {
   diagnosticData,
   diagnosticLevel,
@@ -86,112 +83,66 @@ const RESTART_SESSION_ERROR =
 const RESTART_RETRY_SUMMARY =
   "Chief restarted before this session used any tools. It will continue automatically.";
 
+const channelActionSchema = z.object({
+  type: z.literal("member-added"),
+  actorName: z.string(),
+  actorId: z.string().optional(),
+  actorType: z.enum(["user", "agent"]).optional(),
+  agentIds: z.array(z.string()),
+  userIds: z.array(z.string()).optional(),
+});
+
+const agentMessageMetadataSchema = z.union([
+  z.object({
+    type: z.literal("result"),
+    ok: z.boolean(),
+    costUsd: z.number().optional(),
+    durationMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    title: z.string().optional(),
+    code: z.string().optional(),
+    agentId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("permissionResolved"),
+    requestId: z.string(),
+    behavior: z.enum(["allow", "deny"]),
+  }),
+  z.object({
+    type: z.literal("channel"),
+    threadRootId: z.string().optional(),
+    mentions: z.array(z.string()).optional(),
+    channelAction: channelActionSchema.optional(),
+  }),
+]);
+
+function parseAgentMessageMetadata(
+  value: JsonObject | undefined,
+): AgentMessageMetadata | undefined {
+  return agentMessageMetadataSchema.safeParse(value).data;
+}
+
+function isAgentCapabilityId(
+  value: string,
+): value is NonNullable<AgentPreference["capabilities"]>[number] {
+  return availableCapabilities.some((capability) => capability.id === value);
+}
+
+function isAgentToolPermission(
+  value: string,
+): value is NonNullable<AgentPreference["toolPermissions"]>[number] {
+  return allAgentToolPermissions.some((permission) => permission === value);
+}
+
 class ScheduleSessionClaimConflict extends Error {}
 
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+const moduleDirectory = import.meta.dirname;
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
-
-/**
- * libSQL can overlap an interactive transaction with another operation even
- * when its connection concurrency is one. Hold a process-local queue for the
- * complete lifetime of each transaction so every LocalStore and ChannelStore
- * operation observes one ordered database boundary.
- */
-function serializeLocalClient(client: Client): Client {
-  let tail: Promise<unknown> = Promise.resolve();
-  const enqueue = <T>(operation: () => Promise<T>) => {
-    const result = tail.then(operation, operation);
-    tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
-  function execute(statement: InStatement): Promise<ResultSet>;
-  function execute(sql: string, args?: InArgs): Promise<ResultSet>;
-  function execute(statement: InStatement | string, args?: InArgs) {
-    return enqueue(() =>
-      typeof statement === "string"
-        ? client.execute(statement, args)
-        : client.execute(statement),
-    );
-  }
-  const transaction = (mode?: TransactionMode) => {
-    let release: (() => void) | undefined;
-    const occupied = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const previous = tail;
-    tail = previous.then(
-      () => occupied,
-      () => occupied,
-    );
-    return previous.then(async () => {
-      try {
-        const started = await client.transaction(mode);
-        let released = false;
-        const finish = () => {
-          if (released) return;
-          released = true;
-          release?.();
-        };
-        const wrapped: Transaction = {
-          execute: started.execute.bind(started),
-          batch: started.batch.bind(started),
-          executeMultiple: started.executeMultiple.bind(started),
-          async rollback() {
-            try {
-              await started.rollback();
-            } finally {
-              finish();
-            }
-          },
-          async commit() {
-            try {
-              await started.commit();
-            } finally {
-              finish();
-            }
-          },
-          close() {
-            try {
-              started.close();
-            } finally {
-              finish();
-            }
-          },
-          get closed() {
-            return started.closed;
-          },
-        };
-        return wrapped;
-      } catch (error) {
-        release?.();
-        throw error;
-      }
-    });
-  };
-  return {
-    execute,
-    batch: (statements, mode) => enqueue(() => client.batch(statements, mode)),
-    migrate: (statements) => enqueue(() => client.migrate(statements)),
-    transaction,
-    executeMultiple: (sql) => enqueue(() => client.executeMultiple(sql)),
-    sync: () => enqueue(() => client.sync()),
-    close: () => client.close(),
-    reconnect: () => client.reconnect(),
-    get closed() {
-      return client.closed;
-    },
-    get protocol() {
-      return client.protocol;
-    },
-  };
-}
 
 function defaultDatabasePath() {
   return process.env.CHIEF_DATABASE_PATH ?? CHIEF_DATABASE_PATH;
@@ -219,7 +170,7 @@ export interface LocalChatRecord {
   organizationId: string;
   parentId?: string;
   triggerId?: string;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   scheduleId?: string;
   kind: SessionRecord["kind"];
   visibility: ChatVisibility;
@@ -256,7 +207,7 @@ export interface LocalMessage<Metadata = AgentMessageMetadata> {
   id: string;
   sessionId: string;
   role: "system" | "user" | "assistant";
-  parts: unknown[];
+  parts: ChiefUIMessage["parts"];
   metadata?: Metadata;
   position: number;
   createdAt: number;
@@ -417,19 +368,19 @@ export class LocalStore {
       .set({
         ...(patch.anchorMessageId !== undefined
           ? { anchorMessageId: patch.anchorMessageId }
-          : {}),
+          : undefined),
         ...(patch.conversationId !== undefined
           ? { conversationId: patch.conversationId }
-          : {}),
+          : undefined),
         ...(patch.parentConversationId !== undefined
           ? { parentConversationId: patch.parentConversationId }
-          : {}),
-        ...(patch.status !== undefined ? { status: patch.status } : {}),
+          : undefined),
+        ...(patch.status !== undefined ? { status: patch.status } : undefined),
         ...(patch.threadRootId !== undefined
           ? { threadRootId: patch.threadRootId }
-          : {}),
-        ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.url !== undefined ? { url: patch.url } : {}),
+          : undefined),
+        ...(patch.title !== undefined ? { title: patch.title } : undefined),
+        ...(patch.url !== undefined ? { url: patch.url } : undefined),
         updatedAt: Date.now(),
       })
       .where(
@@ -461,13 +412,11 @@ export class LocalStore {
       id: run.id,
       workspaceId: run.organizationId,
       conversationId: run.conversationId,
-      ...(run.parentConversationId
-        ? { parentConversationId: run.parentConversationId }
-        : {}),
-      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
-      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      parentConversationId: run.parentConversationId ?? undefined,
+      threadRootId: run.threadRootId ?? undefined,
+      anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      ...(run.title ? { title: run.title } : {}),
+      title: run.title,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -486,13 +435,11 @@ export class LocalStore {
       id: run.id,
       workspaceId: run.organizationId,
       conversationId: run.conversationId,
-      ...(run.parentConversationId
-        ? { parentConversationId: run.parentConversationId }
-        : {}),
-      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
-      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      parentConversationId: run.parentConversationId ?? undefined,
+      threadRootId: run.threadRootId ?? undefined,
+      anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      ...(run.title ? { title: run.title } : {}),
+      title: run.title,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -689,7 +636,7 @@ export class LocalStore {
       finishedAt?: number | null;
       summary?: string;
       error?: string | null;
-      triggerContext?: Record<string, unknown>;
+      triggerContext?: JsonObject;
     },
   ) {
     await this.ready;
@@ -706,10 +653,20 @@ export class LocalStore {
     return updated.rowsAffected > 0;
   }
 
-  async messages<Metadata = AgentMessageMetadata>(
+  async messages(
     workspaceId: string,
     chatId: string,
-  ): Promise<LocalMessage<Metadata>[]> {
+  ): Promise<LocalMessage<AgentMessageMetadata>[]>;
+  async messages<Metadata>(
+    workspaceId: string,
+    chatId: string,
+    parseMetadata: (value: JsonObject | undefined) => Metadata | undefined,
+  ): Promise<LocalMessage<Metadata>[]>;
+  async messages<Metadata>(
+    workspaceId: string,
+    chatId: string,
+    parseMetadata?: (value: JsonObject | undefined) => Metadata | undefined,
+  ) {
     await this.ready;
     const chat = await this.db
       .select({ id: schema.sessions.id })
@@ -733,12 +690,13 @@ export class LocalStore {
       )
       .orderBy(schema.messages.position)
       .all();
+    const metadataParser = parseMetadata ?? parseAgentMessageMetadata;
     return rows.map((message) => ({
       id: message.id,
       sessionId: message.sessionId,
       role: message.role,
       parts: message.parts,
-      metadata: message.metadata as Metadata | undefined,
+      metadata: metadataParser(message.metadata ?? undefined),
       position: message.position,
       createdAt: message.createdAt,
     }));
@@ -754,20 +712,20 @@ export class LocalStore {
       .map((message) => ({
         id: message.id,
         role: message.role,
-        parts: message.parts as ChiefUIMessage["parts"],
+        parts: message.parts,
         metadata: {
           createdAt: message.createdAt,
           ...(message.metadata?.type === "channel"
             ? {
                 ...(message.metadata.threadRootId
                   ? { threadRootId: message.metadata.threadRootId }
-                  : {}),
+                  : undefined),
                 ...(message.metadata.mentions?.length
                   ? { mentions: message.metadata.mentions }
-                  : {}),
+                  : undefined),
                 ...(message.metadata.channelAction
                   ? { channelAction: message.metadata.channelAction }
-                  : {}),
+                  : undefined),
               }
             : message.metadata
               ? { event: message.metadata }
@@ -812,6 +770,10 @@ export class LocalStore {
           .values(
             messages.map((message) => ({
               ...message,
+              metadata:
+                message.metadata === undefined
+                  ? undefined
+                  : jsonObjectSchema.parse(message.metadata),
               organizationId: workspaceId,
             })),
           )
@@ -946,39 +908,41 @@ export class LocalStore {
         .set({
           ...(titleOverride || !stored?.title
             ? { title: (titleOverride ?? firstText).slice(0, 72) }
-            : {}),
+            : undefined),
           lastText: lastText.slice(0, 200),
           provider: context.driver,
           model: context.model,
           ...(context.providerState !== undefined
             ? { providerState: context.providerState }
-            : {}),
+            : undefined),
           ...(context.eveState !== undefined
             ? { eveState: context.eveState }
-            : {}),
-          ...(status && !stored?.scheduleId ? { status } : {}),
+            : undefined),
+          ...(status && !stored?.scheduleId ? { status } : undefined),
           ...(context.scheduledFor !== undefined
             ? { scheduledFor: context.scheduledFor }
-            : {}),
+            : undefined),
           ...(context.startedAt !== undefined
             ? { startedAt: context.startedAt }
-            : {}),
+            : undefined),
           ...(context.finishedAt !== undefined
             ? { finishedAt: context.finishedAt }
-            : {}),
+            : undefined),
           ...(context.attempt !== undefined
             ? { attempt: context.attempt }
-            : {}),
+            : undefined),
           ...(context.summary !== undefined
             ? { summary: context.summary }
-            : {}),
-          ...(context.error !== undefined ? { error: context.error } : {}),
+            : undefined),
+          ...(context.error !== undefined
+            ? { error: context.error }
+            : undefined),
           ...(context.artifacts !== undefined
             ? { artifacts: context.artifacts }
-            : {}),
+            : undefined),
           ...(context.blockedTools !== undefined
             ? { blockedTools: context.blockedTools }
-            : {}),
+            : undefined),
           updatedAt: now,
         })
         .where(
@@ -1022,7 +986,7 @@ export class LocalStore {
         const id =
           candidates.find(
             (candidate): candidate is string =>
-              typeof candidate === "string" && !usedMessageIds.has(candidate),
+              isJsonString(candidate) && !usedMessageIds.has(candidate),
           ) ?? randomUUID();
         usedMessageIds.add(id);
         return {
@@ -1794,9 +1758,9 @@ export class LocalStore {
       title: item.title,
       reason: item.reason,
       sourceId: item.sourceId ?? undefined,
-      ...(item.threadRootId ? { threadRootId: item.threadRootId } : {}),
-      ...(item.request ? { request: item.request } : {}),
-      ...(item.resolution ? { resolution: item.resolution } : {}),
+      ...(item.threadRootId ? { threadRootId: item.threadRootId } : undefined),
+      ...(item.request ? { request: item.request } : undefined),
+      ...(item.resolution ? { resolution: item.resolution } : undefined),
       status: item.status,
       createdAt: item.createdAt,
     } satisfies ActionItem;
@@ -2008,7 +1972,7 @@ export class LocalStore {
           transcriptRows.flatMap((row) => {
             const event = agentEvent({
               ...row,
-              metadata: row.metadata as AgentMessageMetadata | undefined,
+              metadata: parseAgentMessageMetadata(row.metadata ?? undefined),
             });
             return event ? [event] : [];
           }),
@@ -2821,11 +2785,11 @@ export class LocalStore {
       driver: preference.driver ?? undefined,
       model: preference.model ?? undefined,
       approvals: preference.approvals ?? undefined,
-      capabilities: preference.capabilities as
-        AgentPreference["capabilities"] | undefined,
+      capabilities: preference.capabilities?.filter(isAgentCapabilityId),
       integrations: preference.integrations ?? undefined,
-      toolPermissions: preference.toolPermissions as
-        AgentPreference["toolPermissions"] | undefined,
+      toolPermissions: preference.toolPermissions?.filter(
+        isAgentToolPermission,
+      ),
     }));
   }
 

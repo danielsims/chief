@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { AgentEvent, DriverType, OnboardingWorkJob } from "./types.js";
 
 export const ONBOARDING_OPENING_MESSAGE =
@@ -91,13 +93,10 @@ export function onboardingOpeningIsVisible(
     }
     for (const block of event.content) {
       if (block.type !== "tool_use") continue;
-      const input =
-        block.input && typeof block.input === "object"
-          ? (block.input as Record<string, unknown>)
-          : {};
+      const input = block.input && isJsonObject(block.input) ? block.input : {};
       if (
         !block.name.toLowerCase().includes("channelsmessagespost") ||
-        typeof input.content !== "string" ||
+        !isJsonString(input.content) ||
         !input.content.includes(ONBOARDING_OPENING_MESSAGE)
       ) {
         continue;

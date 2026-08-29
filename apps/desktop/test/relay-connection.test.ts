@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import { parseOrganizationInvitationUrl } from "../src/lib/organization-invitation";
 import {
   resolveRelayConnection,
@@ -15,6 +17,7 @@ void test("discovers the account issuer for a self-hosted relay", async () => {
         Response.json({
           protocol: "chief-relay",
           protocolVersion: 1,
+          relayId: "relay_test",
           deployment: "self-hosted",
           apiBaseUrl: "https://chief.example.com/v1",
           websocketUrl: "wss://chief.example.com/v1/connect",
@@ -52,13 +55,14 @@ void test("accepts any secure relay host and custom port", async () => {
       requestedUrl =
         input instanceof URL
           ? input.href
-          : typeof input === "string"
+          : isJsonString(input)
             ? input
             : input.url;
       return Promise.resolve(
         Response.json({
           protocol: "chief-relay",
           protocolVersion: 1,
+          relayId: "relay_test",
           deployment: "self-hosted",
           apiBaseUrl: "https://relay.example.com:8443/v1",
           websocketUrl: "wss://relay.example.com:8443/v1/connect",
@@ -89,13 +93,14 @@ void test("accepts any localhost port without requiring a scheme", async () => {
       requestedUrl =
         input instanceof URL
           ? input.href
-          : typeof input === "string"
+          : isJsonString(input)
             ? input
             : input.url;
       return Promise.resolve(
         Response.json({
           protocol: "chief-relay",
           protocolVersion: 1,
+          relayId: "relay_test",
           deployment: "self-hosted",
           apiBaseUrl: "http://localhost:8080/v1",
           websocketUrl: "ws://localhost:8080/v1/connect",

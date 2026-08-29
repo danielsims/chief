@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 const RUNTIME_ENVIRONMENT_KEYS = [
   "PATH",
   "HOME",
@@ -16,7 +18,7 @@ export function agentEnvironment(
 ): Record<string, string> {
   const environment = Object.fromEntries(
     Object.entries({ ...process.env, ...overrides }).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
+      (entry): entry is [string, string] => isJsonString(entry[1]),
     ),
   );
 

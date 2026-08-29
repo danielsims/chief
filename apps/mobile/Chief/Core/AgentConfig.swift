@@ -1,15 +1,35 @@
 import Foundation
 
+struct AgentInferenceConfig: Codable, Equatable, Sendable {
+  var provider: String
+  var model: String
+  var secretRef: String?
+}
+
 /// Relay-authoritative per-agent configuration, cached on-device per workspace
 /// only so the owner UI and local runtime can start without a blank flash.
 struct AgentConfig: Codable, Equatable, Sendable {
   var enabled: Bool = true
-  var driver: String = "openCodeGo"
-  var model: String = OpenCodeModelCatalog.recommendedFreeModelID
+  var deploymentTarget: String = "cloud"
+  var inference = AgentInferenceConfig(
+    provider: "opencode",
+    model: "opencode-go/deepseek-v4-flash",
+    secretRef: "opencode"
+  )
   var approvals: String = "auto"  // auto | ask
   var capabilities: Set<String> = []
   var integrations: Set<String> = []
   var toolPermissions: Set<String> = AgentConfig.baseToolPermissions
+
+  var driver: String {
+    get { inference.provider }
+    set { inference.provider = newValue }
+  }
+
+  var model: String {
+    get { inference.model }
+    set { inference.model = newValue }
+  }
 
   static let allCapabilities = [
     "analytics-chart",

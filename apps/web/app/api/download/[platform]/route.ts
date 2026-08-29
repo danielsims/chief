@@ -10,14 +10,15 @@ const DOWNLOAD_ASSETS = {
   windows: /_x64-setup\.exe$/,
 } as const;
 
-type DownloadPlatform = keyof typeof DOWNLOAD_ASSETS;
-
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ platform: string }> },
 ) {
   const { platform } = await params;
-  if (!(platform in DOWNLOAD_ASSETS)) {
+  const assetPattern = Object.entries(DOWNLOAD_ASSETS).find(
+    ([candidate]) => candidate === platform,
+  )?.[1];
+  if (!assetPattern) {
     return NextResponse.json(
       { error: "Unsupported platform" },
       { status: 404 },
@@ -32,7 +33,6 @@ export async function GET(
     );
   }
 
-  const assetPattern = DOWNLOAD_ASSETS[platform as DownloadPlatform];
   const asset = release.assets.find(({ name }) => assetPattern.test(name));
   if (!asset) {
     return NextResponse.json(

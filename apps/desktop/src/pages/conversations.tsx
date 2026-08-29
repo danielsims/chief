@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
+import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
@@ -51,7 +52,7 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
-import { isWorkspaceAgentId, requestedDriver } from "./conversation-routing";
+import * as routing from "./conversation-routing";
 
 const DEFAULT_WORKSPACE_CHANNEL =
   WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
@@ -69,9 +70,13 @@ export function ConversationsPage() {
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const chiefNavigationRequestId = (
-    location.state as { chiefNavigationRequestId?: number } | null
-  )?.chiefNavigationRequestId;
+  const locationState: unknown = location.state;
+  const navigationState = isJsonObject(locationState) ? locationState : null;
+  const chiefNavigationRequestId = isJsonNumber(
+    navigationState?.chiefNavigationRequestId,
+  )
+    ? navigationState.chiefNavigationRequestId
+    : undefined;
   const navigate = useNavigate();
   const handoffId = params.get("handoff");
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
@@ -143,10 +148,6 @@ export function ConversationsPage() {
     params.get("channel") === null;
   const activeConversationChannel =
     requestedChannel ?? (isDefaultChannelRoute ? activeChannel : undefined);
-  const navigationState =
-    typeof location.state === "object" && location.state !== null
-      ? (location.state as { focusComposerFor?: unknown })
-      : null;
   const focusComposer =
     navigationState?.focusComposerFor === activeConversationChannel?.id;
   const activeChatId = activeConversationChannel
@@ -188,7 +189,7 @@ export function ConversationsPage() {
   const activeProfileAgentId =
     profileParam === "agent" && requestedDirectMessage
       ? requestedDirectMessage.id
-      : isWorkspaceAgentId(profileParam)
+      : routing.isWorkspaceAgentId(profileParam)
         ? profileParam
         : null;
   const activeProfileAgent = activeProfileAgentId
@@ -238,19 +239,16 @@ export function ConversationsPage() {
           description: channel.description,
         }))
     : [];
-  const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+  const isNew = routing.isNewConversation(
+    activeChatId,
+    Boolean(activeConversationChannel),
+    localChats.loading,
+    Boolean(activeEntry),
+  );
   const activeView =
     !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
-  const channelReferences = useMemo(
-    () =>
-      workspaceChannels.channels
-        .filter((channel) => channel.visibility !== "direct")
-        .map((channel) => ({
-          id: channel.id,
-          name: channel.name,
-          slug: channel.slug,
-        })),
-    [workspaceChannels.channels],
+  const channelReferences = routing.channelReferences(
+    workspaceChannels.channels,
   );
   const openReferencedChannel = useCallback(
     (channelId: string) => {
@@ -318,9 +316,7 @@ export function ConversationsPage() {
         }
         return next;
       },
-      // Keep the explicit navigation identity while swapping internal panels.
-      // Dropping it changes ChiefChat's key and replays the whole conversation.
-      { state: location.state as unknown },
+      { state: navigationState },
     );
   };
   const continueArtifact = (artifact: { id: string; title: string }) => {
@@ -413,7 +409,9 @@ export function ConversationsPage() {
                 activeChild={activeChild}
                 initialDriver={
                   activeEntry?.driver ??
-                  (isNew ? requestedDriver(params.get("driver")) : undefined)
+                  (isNew
+                    ? routing.requestedDriver(params.get("driver"))
+                    : undefined)
                 }
                 initialModel={
                   activeEntry?.model ??

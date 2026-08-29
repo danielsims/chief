@@ -17,12 +17,10 @@ export interface PluginState {
   warning?: string;
 }
 
-export interface RelayPluginActionContext {
-  workspaceId: string;
-  conversationId: string;
-  threadRootId?: string;
-  agentId: string;
-  recommendationId: string;
+export interface PluginOAuthClientInput {
+  serverName: string;
+  clientId: string;
+  clientSecret?: string;
 }
 
 const cache = new Map<string, PluginState>();
@@ -149,7 +147,7 @@ export function usePlugins() {
   );
 
   const authorizationAction = useCallback(
-    (pluginId: string) =>
+    (pluginId: string, oauthClient?: PluginOAuthClientInput) =>
       new Promise<PluginAuthorizationAction | undefined>((resolve, reject) => {
         if (!cloudOrganizationId || !capability) {
           reject(new Error("Workspace authorization is not ready."));
@@ -191,6 +189,7 @@ export function usePlugins() {
           workspaceId: cloudOrganizationId,
           pluginId,
           requestId: id,
+          oauthClient,
           executorCapability: capability,
         });
       }),
@@ -198,14 +197,18 @@ export function usePlugins() {
   );
 
   const authorize = useCallback(
-    async (pluginId: string) => {
+    async (pluginId: string, oauthClient?: PluginOAuthClientInput) => {
       setBusyPluginId(pluginId);
       try {
         let lastAction: PluginAuthorizationAction | undefined;
         for (let serverIndex = 0; serverIndex < 8; serverIndex += 1) {
-          const action = await authorizationAction(pluginId);
+          const action = await authorizationAction(
+            pluginId,
+            serverIndex === 0 ? oauthClient : undefined,
+          );
           if (!action) return lastAction;
           lastAction = action;
+          if (action.kind === "plugin_oauth_client") return action;
           await openUrl(action.authorizationUrl);
           const completed = waitForPlugin(
             pluginId,
@@ -262,56 +265,6 @@ export function usePlugins() {
     [capability, client, cloudOrganizationId, waitForPlugin],
   );
 
-  const requestAgentAction = useCallback(
-    (
-      plugin: AgentPluginSummary,
-      action: "install" | "authorize" | "uninstall",
-      context: RelayPluginActionContext,
-    ) => {
-      if (
-        !cloudOrganizationId ||
-        !capability ||
-        context.workspaceId !== cloudOrganizationId
-      ) {
-        throw new Error("Workspace authorization is not ready.");
-      }
-      const messageId = crypto.randomUUID();
-      const verb = action === "uninstall" ? "disconnect" : "connect";
-      client.send({
-        type: "sendMessage",
-        workspaceId: cloudOrganizationId,
-        chatId: context.conversationId,
-        messageId,
-        text: `Approved: ${verb} ${plugin.name}.`,
-        ...(context.threadRootId ? { threadRootId: context.threadRootId } : {}),
-        mentions: [context.agentId],
-        components: [
-          {
-            id: crypto.randomUUID(),
-            kind: "plugin.action",
-            version: 1,
-            payload: {
-              workspaceId: context.workspaceId,
-              conversationId: context.conversationId,
-              ...(context.threadRootId
-                ? { threadRootId: context.threadRootId }
-                : {}),
-              targetAgentId: context.agentId,
-              recommendationId: context.recommendationId,
-              pluginId: plugin.id,
-              pluginName: plugin.name,
-              action,
-            },
-          },
-        ],
-        senderName: "You",
-        executorCapability: capability,
-      });
-      return { messageId, verb };
-    },
-    [capability, client, cloudOrganizationId],
-  );
-
   return {
     ...state,
     loading: !state,
@@ -320,7 +273,6 @@ export function usePlugins() {
     install,
     authorize,
     uninstall,
-    requestAgentAction,
   };
 }
 

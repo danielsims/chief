@@ -98,7 +98,7 @@ export function resolveProjectProvider(
     canonicalRemoteUrl: remote.canonicalUrl,
     ...(adapter.repositoryWebUrl(remote)
       ? { repositoryWebUrl: adapter.repositoryWebUrl(remote) }
-      : {}),
+      : undefined),
   };
 }
 

@@ -126,7 +126,7 @@ export function ObservedChat({
         })}
         {controls.error ? (
           <p className="border-destructive/40 text-destructive mx-auto max-w-3xl rounded-xl border px-3 py-2 text-xs">
-            {controls.error}
+            {controls.error.message}
           </p>
         ) : null}
         {controls.status === "running" && !hasActiveTool ? (

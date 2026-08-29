@@ -1,4 +1,5 @@
 import type { ChannelEvent } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type {
   ChannelReadStateBlob,
@@ -16,7 +17,7 @@ export function recordSeenChannelEvent(seen: Set<string>, eventId: string) {
   seen.add(eventId);
   if (seen.size <= MAX_SEEN_LIVE_EVENTS) return;
   const oldest = seen.values().next().value;
-  if (typeof oldest === "string") seen.delete(oldest);
+  if (isJsonString(oldest)) seen.delete(oldest);
 }
 
 function storageKey(workspaceId: string, readerId: string) {
@@ -29,7 +30,7 @@ export function readChannelState(workspaceId: string, readerId: string) {
       JSON.parse(
         window.localStorage.getItem(storageKey(workspaceId, readerId)) ??
           "null",
-      ) as unknown,
+      ),
     );
   } catch {
     return EMPTY_CHANNEL_READ_STATE;
@@ -94,6 +95,15 @@ export function newSnapshotNotificationMessages(
   return [...messages].filter(
     (message) => message.createdAt > startedAt && !notifiedIds.has(message.id),
   );
+}
+
+export function workspaceNotificationStartedAt(
+  mountedAt: number,
+  onboardingOpenedAt: string | null,
+) {
+  if (onboardingOpenedAt === null) return mountedAt;
+  const parsed = Number(onboardingOpenedAt);
+  return Number.isFinite(parsed) ? Math.min(mountedAt, parsed) : mountedAt;
 }
 
 export function latestChannelMessageTimestamp(

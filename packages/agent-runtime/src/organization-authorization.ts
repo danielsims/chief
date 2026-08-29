@@ -1,19 +1,27 @@
+import { z } from "zod";
+
 export type WorkspaceRole = "owner" | "admin" | "member";
 
-function workspaceRoles(value: unknown): WorkspaceRole[] {
-  const values = Array.isArray(value) ? value : [value];
+const workspaceRoleSchema = z.enum(["owner", "admin", "member"]);
+const workspaceRoleInputSchema = z.union([z.string(), z.array(z.string())]);
+const activeMemberSchema = z.object({
+  organizationId: z.string().optional(),
+  role: workspaceRoleInputSchema.optional(),
+});
+
+function parseWorkspaceRoles(value: unknown): WorkspaceRole[] {
+  const parsed = workspaceRoleInputSchema.safeParse(value);
+  if (!parsed.success) return [];
+  const values = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
   return [
     ...new Set(
       values.flatMap((candidate) =>
-        typeof candidate === "string"
-          ? candidate
-              .split(",")
-              .map((role) => role.trim().toLowerCase())
-              .filter(
-                (role): role is WorkspaceRole =>
-                  role === "owner" || role === "admin" || role === "member",
-              )
-          : [],
+        candidate
+          .split(",")
+          .map((role) =>
+            workspaceRoleSchema.safeParse(role.trim().toLowerCase()),
+          )
+          .flatMap((role) => (role.success ? [role.data] : [])),
       ),
     ),
   ];
@@ -35,14 +43,17 @@ export async function authorizeOrganizationRole(input: {
   const response = await (input.fetcher ?? fetch)(url, {
     headers: { Authorization: `Bearer ${input.sessionToken}` },
   });
-  const member = (await response.json().catch(() => null)) as {
-    organizationId?: unknown;
-    role?: unknown;
-  } | null;
-  if (!response.ok || member?.organizationId !== input.workspaceId) {
+  const member = activeMemberSchema.safeParse(
+    await response.json().catch(() => null),
+  );
+  if (
+    !response.ok ||
+    !member.success ||
+    member.data.organizationId !== input.workspaceId
+  ) {
     throw new Error(input.errorMessage);
   }
-  const role = workspaceRoles(member.role).find((candidate) =>
+  const role = parseWorkspaceRoles(member.data.role).find((candidate) =>
     input.allowedRoles.includes(candidate),
   );
   if (!role) throw new Error(input.errorMessage);

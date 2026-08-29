@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { parseJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
@@ -35,10 +36,9 @@ export function DevelopmentOnboardingReplay({
     setError(null);
     try {
       const metadata = parseOrganizationMetadata(organization);
-      const savedOnboarding =
-        metadata.onboarding && typeof metadata.onboarding === "object"
-          ? { ...(metadata.onboarding as Record<string, unknown>) }
-          : {};
+      const savedOnboarding = {
+        ...(parseJsonObject(metadata.onboarding) ?? {}),
+      };
       delete savedOnboarding.completedAt;
       await updateAuthOrganization(organization.id, {
         metadata: { ...metadata, onboarding: savedOnboarding },

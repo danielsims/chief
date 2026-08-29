@@ -99,7 +99,7 @@ void test("thread and panel agent cards share one standalone avatar treatment", 
     attempt: 1,
     createdAt: 1,
     updatedAt: 2,
-  } as SessionRecord;
+  } satisfies SessionRecord;
   const html = renderToStaticMarkup(
     createElement(AgentActivityCard, { task, detail: "Complete" }),
   );

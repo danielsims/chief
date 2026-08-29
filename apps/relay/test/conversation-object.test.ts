@@ -1,8 +1,9 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   agentIdSchema,
+  appendMessageCommandSchema,
   userIdSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -11,7 +12,7 @@ import {
   withTrustedContext,
   withTrustedSocketTicket,
 } from "../src/internal-context";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-a");
 const userId = userIdSchema.parse("user-a");
@@ -354,9 +355,7 @@ async function postActivity(
 }
 
 function conversationStub() {
-  const conversations = (
-    env as unknown as { CONVERSATIONS: DurableObjectNamespace }
-  ).CONVERSATIONS;
+  const { CONVERSATIONS: conversations } = relayTestEnv();
   const id = conversations.idFromName(`${workspaceId}:${conversationId}`);
   return conversations.get(id);
 }
@@ -367,9 +366,9 @@ function appendCommand(input: {
   routedConversationId?: string;
   threadRootId?: string;
   body?: string;
-  components?: Record<string, unknown>[];
+  components?: JsonObject[];
 }) {
-  return {
+  return appendMessageCommandSchema.parse({
     commandId: input.commandId,
     protocolVersion: 1,
     occurredAt: "2026-08-17T00:00:00.000Z",
@@ -380,7 +379,7 @@ function appendCommand(input: {
       body: input.body ?? "Hello from the durable relay.",
       components: input.components ?? [],
     },
-  };
+  });
 }
 
 async function react(
@@ -400,7 +399,11 @@ async function react(
   return stub.fetch(request);
 }
 
-async function post(stub: DurableObjectStub, body: unknown, asAgent = false) {
+async function post(
+  stub: DurableObjectStub,
+  body: ReturnType<typeof appendCommand>,
+  asAgent = false,
+) {
   const request = trustedRequest(
     "https://relay.test/internal/messages",
     {
@@ -412,7 +415,6 @@ async function post(stub: DurableObjectStub, body: unknown, asAgent = false) {
   );
   return stub.fetch(request);
 }
-
 async function list(stub: DurableObjectStub) {
   const response = await stub.fetch(
     trustedRequest("https://relay.test/internal/messages?after=0&limit=50"),

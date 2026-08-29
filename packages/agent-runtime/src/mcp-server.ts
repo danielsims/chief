@@ -4,6 +4,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonString, jsonValueSchema } from "@chief/relay-contracts";
+
 import type { SessionManager } from "./manager.js";
 import type { AgentEvent, ExecutorCapability } from "./types.js";
 import {
@@ -22,11 +25,11 @@ import { readWorkspaceContext } from "./workspace-context.js";
 
 const ASK_TIMEOUT_MS = 5 * 60_000;
 
-export function defaultMcpChatId(workspaceId: string) {
+export function defaultMcpChatId(workspaceId: string): string {
   return `mcp-chief-${createHash("sha256").update(workspaceId).digest("hex").slice(0, 24)}`;
 }
 
-function lastAssistantText(events: readonly AgentEvent[]) {
+function lastAssistantText(events: readonly AgentEvent[]): string | undefined {
   return events
     .flatMap((event) =>
       event.type === "message" && event.role === "assistant"
@@ -49,16 +52,26 @@ function jsonRpcError(res: ServerResponse, status: number, message: string) {
   );
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+function readBody(req: IncomingMessage): Promise<JsonValue | undefined> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("data", (chunk) => {
+      if (Buffer.isBuffer(chunk)) {
+        chunks.push(chunk);
+        return;
+      }
+      reject(new Error("MCP request body contains a non-binary chunk."));
+    });
     req.on("end", () => {
       if (chunks.length === 0) return resolve(undefined);
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        resolve(
+          jsonValueSchema.parse(
+            JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          ),
+        );
       } catch (error) {
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
     req.on("error", reject);
@@ -95,7 +108,7 @@ export function createChiefMcpHandler(deps: {
         description:
           "List this Chief workspace's agent team: who they are and what each one does.",
       },
-      async () => {
+      () => {
         const roster = defaultAgents
           .filter((agent) => agent.id !== "setup")
           .map(
@@ -137,11 +150,12 @@ export function createChiefMcpHandler(deps: {
           );
         }
 
-        const capableAgent = preference.capabilities
+        const capabilities = preference.capabilities;
+        const capableAgent = capabilities
           ? composeAgentCapabilities(
               agent,
               availableCapabilities.filter((capability) =>
-                preference.capabilities!.includes(capability.id),
+                capabilities.includes(capability.id),
               ),
             )
           : agent;
@@ -211,7 +225,7 @@ export function createChiefMcpHandler(deps: {
             }
           };
           session.on("event", listener);
-          void session.sendPrompt(message).catch((error: unknown) => {
+          void session.sendPrompt(message).catch((error) => {
             clearTimeout(timer);
             session.off("event", listener);
             finish(
@@ -236,7 +250,7 @@ export function createChiefMcpHandler(deps: {
     const token = authorization?.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : undefined;
-    if (!token || typeof workspaceId !== "string" || !workspaceId) {
+    if (!token || !isJsonString(workspaceId) || !workspaceId) {
       jsonRpcError(
         res,
         401,
@@ -247,7 +261,7 @@ export function createChiefMcpHandler(deps: {
     try {
       await deps.authorize(workspaceId, {
         token,
-        apiBaseUrl: typeof capabilityUrl === "string" ? capabilityUrl : "",
+        apiBaseUrl: isJsonString(capabilityUrl) ? capabilityUrl : "",
       });
     } catch (error) {
       const reason =
@@ -255,7 +269,7 @@ export function createChiefMcpHandler(deps: {
           ? error.message
           : "Could not verify access to this workspace.";
       const hint =
-        typeof capabilityUrl === "string" && capabilityUrl
+        isJsonString(capabilityUrl) && capabilityUrl
           ? ""
           : " If this is the first request since the runtime started, also send x-chief-capability-url: <workspace agent-tools base URL>.";
       jsonRpcError(res, 401, `${reason}${hint}`);

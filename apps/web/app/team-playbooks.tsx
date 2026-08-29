@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 
 export interface LandingPlaybook {
   id: string;
@@ -55,12 +57,14 @@ function IntegrationStack({
           key={integration.domain}
         >
           <span>{integration.label.slice(0, 1)}</span>
-          <img
+          <Image
             className={
               whiteLogos.has(integration.domain) ? "white-logo" : undefined
             }
             src={`https://integrations.sh/logo/${integration.domain}`}
             alt=""
+            width={16}
+            height={16}
             loading="lazy"
             onError={(event) => event.currentTarget.remove()}
           />
@@ -122,9 +126,9 @@ export function TeamPlaybooks({ playbooks }: { playbooks: LandingPlaybook[] }) {
             );
           })}
         </div>
-        <a className="button button-primary team-cta" href="/download">
+        <Link className="button button-primary team-cta" href="/download">
           Deploy your team
-        </a>
+        </Link>
       </div>
 
       <div className="playbook-showcase">

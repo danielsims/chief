@@ -1,6 +1,6 @@
 import { cn } from "@chief/ui/lib/utils";
 
-import type { Playbook } from "../../lib/playbooks";
+import type { Playbook } from "../../lib/playbook-types";
 
 export function PlaybookDocument({
   playbook,

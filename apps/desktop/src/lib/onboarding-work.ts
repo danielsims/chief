@@ -1,4 +1,6 @@
 import type { OnboardingWorkJob } from "@chief/agent-runtime/types";
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { IntegrationSearchResult } from "./integrations";
 import { onboardingScopedId } from "./onboarding-ids";
@@ -127,34 +129,36 @@ export function buildOnboardingWorkJobs(
   return [...brandJob, engineeringJob, prospectorJob];
 }
 
-function integrations(value: unknown): IntegrationSearchResult[] {
-  if (!value || typeof value !== "object") return [];
-  const candidates = (value as { integrations?: unknown }).integrations;
+function integrations<Input>(value: Input): IntegrationSearchResult[] {
+  const record = parseJsonObject(value);
+  const candidates = record?.integrations;
   if (!Array.isArray(candidates)) return [];
-  return candidates.filter((item): item is IntegrationSearchResult =>
-    Boolean(
-      item &&
-      typeof item === "object" &&
-      typeof (item as { domain?: unknown }).domain === "string" &&
-      typeof (item as { name?: unknown }).name === "string",
-    ),
-  );
+  return candidates.flatMap((item): IntegrationSearchResult[] => {
+    const integration = parseJsonObject(item);
+    const domain = integration?.domain;
+    const name = integration?.name;
+    return isJsonString(domain) && isJsonString(name)
+      ? [
+          {
+            domain,
+            name,
+            description: "",
+            kinds: [],
+            url: "",
+          },
+        ]
+      : [];
+  });
 }
 
 export function onboardingWorkFromMetadata(
   workspaceId: string,
   companyName: string,
   websiteUrl: string,
-  onboarding: Record<string, unknown>,
+  onboarding: JsonObject,
 ): OnboardingWorkJob[] {
-  const brand =
-    onboarding.brand && typeof onboarding.brand === "object"
-      ? (onboarding.brand as Record<string, unknown>)
-      : {};
-  const automation =
-    onboarding.automation && typeof onboarding.automation === "object"
-      ? (onboarding.automation as Record<string, unknown>)
-      : {};
+  const brand = parseJsonObject(onboarding.brand) ?? {};
+  const automation = parseJsonObject(onboarding.automation) ?? {};
   const selectedPlugins = integrations(onboarding.plugins);
   const legacySelections = [
     ...integrations(onboarding.analytics),
@@ -165,27 +169,21 @@ export function onboardingWorkFromMetadata(
     workspaceId,
     companyName,
     websiteUrl,
-    timezone:
-      typeof automation.timezone === "string"
-        ? automation.timezone
-        : Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone: isJsonString(automation.timezone)
+      ? automation.timezone
+      : Intl.DateTimeFormat().resolvedOptions().timeZone,
     brand: {
-      mode: typeof brand.mode === "string" ? brand.mode : "skip",
-      notes: typeof brand.notes === "string" ? brand.notes : "",
+      mode: isJsonString(brand.mode) ? brand.mode : "skip",
+      notes: isJsonString(brand.notes) ? brand.notes : "",
       files: Array.isArray(brand.files)
-        ? brand.files.flatMap((file) =>
-            file &&
-            typeof file === "object" &&
-            typeof (file as { name?: unknown }).name === "string" &&
-            typeof (file as { type?: unknown }).type === "string"
-              ? [
-                  {
-                    name: (file as { name: string }).name,
-                    type: (file as { type: string }).type,
-                  },
-                ]
-              : [],
-          )
+        ? brand.files.flatMap((file): BrandFile[] => {
+            const parsedFile = parseJsonObject(file);
+            const name = parsedFile?.name;
+            const type = parsedFile?.type;
+            return isJsonString(name) && isJsonString(type)
+              ? [{ name, type }]
+              : [];
+          })
         : [],
     },
     plugins: {

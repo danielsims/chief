@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { parseJsonNumber } from "@chief/relay-contracts";
+
 import type { CellPersistence } from "./sqlite-store.js";
 import type {
   AgentAlarm,
@@ -7,6 +9,7 @@ import type {
   AgentCellState,
   AgentCellStatus,
   AgentEvent,
+  CellStateValue,
   EnqueueResult,
   ProjectLease,
   ProjectLeaseRequest,
@@ -44,27 +47,26 @@ export class DesktopAgentCell implements AgentCell {
       this.leases.current(this.id),
       this.persistence.lastEvent(this.id),
     ]);
-    const lastProgressAt = (await this.persistence.readState(
-      this.id,
-      "lastProgressAt",
-    )) as number | undefined;
+    const lastProgressAt = parseJsonNumber(
+      await this.persistence.readState(this.id, "lastProgressAt"),
+    );
     let state: AgentCellState = "idle";
     if (lease) state = "running";
     else if (lastEvent) state = "idle";
     return {
       state,
-      ...(lastEvent ? { lastEventId: lastEvent.id } : {}),
-      ...(lastEvent ? { lastEventPosition: lastEvent.position } : {}),
-      ...(lastProgressAt ? { lastProgressAt } : {}),
-      ...(lease ? { lease } : {}),
+      lastEventId: lastEvent?.id,
+      lastEventPosition: lastEvent?.position,
+      lastProgressAt,
+      lease,
     };
   }
 
-  async readState<T>(key: string): Promise<T | undefined> {
-    return (await this.persistence.readState(this.id, key)) as T | undefined;
+  async readState(key: string) {
+    return await this.persistence.readState(this.id, key);
   }
 
-  async writeState<T>(key: string, value: T): Promise<void> {
+  async writeState(key: string, value: CellStateValue): Promise<void> {
     await this.persistence.writeState(this.id, key, value);
   }
 
@@ -81,7 +83,7 @@ export class DesktopAgentCell implements AgentCell {
       leaseId: randomUUID(),
       projectId: input.projectId,
       agentId: input.agentId,
-      ...(input.baseRef ? { branch: input.baseRef } : {}),
+      branch: input.baseRef,
       expiresAt: Date.now() + (input.ttlMs ?? DEFAULT_PROJECT_LEASE_TTL_MS),
     };
     await this.persistence.saveProjectLease(this.id, lease);

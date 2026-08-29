@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +5,7 @@ import {
   withTrustedWorkspaceSocketTicket,
 } from "../src/internal-context";
 import { channelRpc, setupChannelTest } from "./channel-test-helpers";
+import { relayTestEnv } from "./helpers";
 
 describe("workspace live delivery", () => {
   it("issues one-time tickets from the durable cursor", async () => {
@@ -70,10 +70,8 @@ describe("workspace live delivery", () => {
     });
   });
 });
-
 function workspaceStub(workspaceId: string) {
-  const workspaces = (env as unknown as { WORKSPACES: DurableObjectNamespace })
-    .WORKSPACES;
+  const { WORKSPACES: workspaces } = relayTestEnv();
   return workspaces.get(workspaces.idFromName(workspaceId));
 }
 

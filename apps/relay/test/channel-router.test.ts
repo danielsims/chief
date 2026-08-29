@@ -1,11 +1,12 @@
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { createExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentRuntimeDescriptorSchema,
   createWorkspaceCommandSchema,
+  provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
@@ -14,6 +15,7 @@ import worker from "../src/index";
 import { computeNostrEventId, sha256PayloadTag } from "../src/nip98";
 import { createManagedWorkspace } from "../src/workspace-authority";
 import { channelEnvelope } from "./channel-test-helpers";
+import { relayTestEnv } from "./helpers";
 
 const secretKey = schnorr.utils.randomSecretKey();
 const pubkey = bytesToHex(schnorr.getPublicKey(secretKey));
@@ -24,6 +26,62 @@ const owner = {
 };
 
 describe("channel HTTP surface", () => {
+  it("exposes each agent at its workspace-scoped URL", async () => {
+    const workspaceId = await setupWorkspace();
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/agents/chief`;
+
+    const response = await worker.fetch(
+      signedRequest(url, "GET"),
+      relayEnv(),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(agentRuntimeDescriptorSchema.parse(await response.json())).toEqual({
+      workspaceId,
+      agentId: "chief",
+      address: url,
+      deploymentTarget: "phone",
+      status: "waiting",
+      computer: "local-celld",
+    });
+  });
+
+  it("accepts idempotent work at the agent's stable URL", async () => {
+    const workspaceId = await setupWorkspace();
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/agents/chief`;
+    const invoke = () =>
+      worker.fetch(
+        signedRequest(
+          url,
+          "POST",
+          JSON.stringify({
+            instruction: "Prepare a concise workspace update.",
+            idempotencyKey: "daily-workspace-update",
+          }),
+        ),
+        relayEnv(),
+        createExecutionContext(),
+      );
+
+    const first = await invoke();
+    const duplicate = await invoke();
+
+    expect(first.status).toBe(202);
+    expect(await first.json()).toMatchObject({
+      duplicate: false,
+      job: {
+        agentId: "chief",
+        kind: "agent.invoke",
+        payload: {
+          conversationId: "chief",
+          instruction: "Prepare a concise workspace update.",
+        },
+      },
+    });
+    expect(await duplicate.json()).toMatchObject({ duplicate: true });
+  });
+
   it("creates, lists, gets, and lists members over the router", async () => {
     const workspaceId = await setupWorkspace();
     const request = (path: string, method = "GET", body?: string) =>
@@ -79,7 +137,7 @@ describe("channel HTTP surface", () => {
 });
 
 async function setupWorkspace() {
-  const relay = env as unknown as Parameters<typeof createManagedWorkspace>[0];
+  const relay = relayTestEnv();
   const command = createWorkspaceCommandSchema.parse({
     commandId: crypto.randomUUID(),
     name: "Router channel test",
@@ -89,7 +147,14 @@ async function setupWorkspace() {
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
-  const created = await createManagedWorkspace(relay, owner, command);
+  const created = await createManagedWorkspace(
+    relay,
+    owner,
+    provisionWorkspaceCommandSchema.parse({
+      workspace: command,
+      secrets: { opencode: "test-opencode-key" },
+    }),
+  );
   return workspaceSnapshotSchema.parse(await created.json()).id;
 }
 
@@ -116,7 +181,6 @@ function signedRequest(url: string, method: string, body?: string) {
   if (body !== undefined) headers["content-type"] = "application/json";
   return new Request(url, { method, headers, body });
 }
-
 function relayEnv(): Parameters<typeof worker.fetch>[1] {
-  return env as unknown as Parameters<typeof worker.fetch>[1];
+  return relayTestEnv();
 }

@@ -1,24 +1,37 @@
 import { relayError } from "./http";
 
-const durableObjectFreeTierMessage =
-  "Exceeded allowed volume of requests in Durable Objects free tier";
+const durableObjectFreeTierMessages = [
+  "Exceeded allowed duration in Durable Objects free tier",
+  "Exceeded allowed volume of requests in Durable Objects free tier",
+] as const;
+
+function secondsUntilNextUtcDay(now = new Date()) {
+  const nextUtcDay = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
+  return Math.max(1, Math.ceil((nextUtcDay - now.getTime()) / 1_000));
+}
 
 export function relayCapacityResponse(
-  error: unknown,
+  error: Error | undefined,
   requestId?: string,
 ): Response | undefined {
   if (
-    !(error instanceof Error) ||
-    !error.message.includes(durableObjectFreeTierMessage)
+    !error ||
+    !durableObjectFreeTierMessages.some((message) =>
+      error.message.includes(message),
+    )
   ) {
     return undefined;
   }
   return relayError(
     503,
     "relay_capacity_exhausted",
-    "This relay is temporarily at capacity. Try again after its usage window resets.",
+    "This relay has reached Cloudflare's daily Durable Object allowance. Cloudflare resets it at 00:00 UTC, or you can switch to another relay now.",
     requestId,
     undefined,
-    { "retry-after": "3600" },
+    { "retry-after": String(secondsUntilNextUtcDay()) },
   );
 }

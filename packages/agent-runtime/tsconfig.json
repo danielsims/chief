@@ -2,6 +2,7 @@
   "extends": "@chief/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
     "jsx": "react-jsx"
   },
   "include": ["src", "test"]

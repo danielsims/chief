@@ -2,25 +2,29 @@ import { createHash } from "node:crypto";
 
 import type { AgentPluginSummary } from "@chief/plugin-api";
 import type { RelayClient } from "@chief/relay-client";
-import { appendMessageCommandSchema } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  appendMessageCommandSchema,
+  parseJsonString,
+} from "@chief/relay-contracts";
 
 import { PluginRuntime } from "./plugins/runtime.js";
-
-type JsonObject = Record<string, unknown>;
 
 const plugins = new PluginRuntime(() => undefined);
 
 function requiredString(input: JsonObject, key: string) {
   const value = input[key];
-  if (typeof value !== "string" || !value.trim()) {
+  const parsed = parseJsonString(value)?.trim();
+  if (!parsed) {
     throw new Error(`${key} is required.`);
   }
-  return value.trim();
+  return parsed;
 }
 
 function optionalString(input: JsonObject, key: string) {
   const value = input[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const parsed = parseJsonString(value)?.trim();
+  return parsed === "" ? undefined : parsed;
 }
 
 function deterministicUuid(value: string) {
@@ -55,9 +59,9 @@ function recommendationPayload(
     status: plugin.status,
     enabled: plugin.enabled,
     trusted: plugin.trusted,
-    ...(plugin.homepage ? { homepage: plugin.homepage } : {}),
-    ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : {}),
-    ...(domain ? { domain } : {}),
+    homepage: plugin.homepage,
+    iconUrl: plugin.iconUrl,
+    domain,
   };
 }
 
@@ -68,6 +72,8 @@ export async function callPluginTool(
     client: RelayClient;
     workspaceId: string;
     agentId: string;
+    conversationId: string;
+    threadRootId?: string;
   },
 ) {
   const { client, workspaceId, agentId } = context;
@@ -75,16 +81,17 @@ export async function callPluginTool(
     return await plugins.snapshot(workspaceId, input.refresh === true);
   }
   if (name === "plugins_recommend") {
-    const conversationId = requiredString(input, "conversationId");
+    const conversationId = requiredString(input, "channelId");
     const threadRootId = optionalString(input, "threadRootId");
-    const rationale = optionalString(input, "rationale");
+    const rationale = requiredString(input, "content");
     const idempotencyKey = requiredString(input, "idempotencyKey");
     const requested = Array.isArray(input.pluginIds)
       ? [
           ...new Set(
-            input.pluginIds.flatMap((value) =>
-              typeof value === "string" && value.trim() ? [value.trim()] : [],
-            ),
+            input.pluginIds.flatMap((value) => {
+              const pluginId = parseJsonString(value)?.trim();
+              return pluginId ? [pluginId] : [];
+            }),
           ),
         ].slice(0, 8)
       : [];
@@ -103,29 +110,33 @@ export async function callPluginTool(
     const commandId = deterministicUuid(
       `${workspaceId}:${agentId}:${conversationId}:${threadRootId ?? ""}:plugin-recommendation:${idempotencyKey}`,
     );
+    const message = {
+      messageId: commandId,
+      conversationId,
+      threadRootId,
+      body: rationale,
+      mentions: [],
+      components: selected.map((plugin) => {
+        const placement = {
+          workspaceId,
+          conversationId,
+          threadRootId,
+          agentId,
+          rationale,
+        };
+        return {
+          id: deterministicUuid(`${commandId}:${plugin.id}`),
+          kind: "plugin.recommendation",
+          version: 1,
+          payload: recommendationPayload(plugin, placement),
+        };
+      }),
+    };
     const command = appendMessageCommandSchema.parse({
       commandId,
       protocolVersion: 1,
       occurredAt: new Date().toISOString(),
-      payload: {
-        messageId: commandId,
-        conversationId,
-        ...(threadRootId ? { threadRootId } : {}),
-        body: rationale ?? "Here are the plugins I recommend.",
-        mentions: [],
-        components: selected.map((plugin) => ({
-          id: deterministicUuid(`${commandId}:${plugin.id}`),
-          kind: "plugin.recommendation",
-          version: 1,
-          payload: recommendationPayload(plugin, {
-            workspaceId,
-            conversationId,
-            ...(threadRootId ? { threadRootId } : {}),
-            agentId,
-            ...(rationale ? { rationale } : {}),
-          }),
-        })),
-      },
+      payload: message,
     });
     return await client.appendMessage(conversationId, command);
   }
@@ -142,42 +153,41 @@ export async function callPluginTool(
       requiredString(input, "pluginId"),
     );
     if (authorization.status === "connected") return authorization;
-    const conversationId = requiredString(input, "conversationId");
-    const threadRootId = optionalString(input, "threadRootId");
-    const idempotencyKey = requiredString(input, "idempotencyKey");
+    const { conversationId, threadRootId } = context;
+    const idempotencyKey = `${requiredString(input, "pluginId")}:authorize`;
     const commandId = deterministicUuid(
       `${workspaceId}:${agentId}:${conversationId}:${threadRootId ?? ""}:plugin-authorization:${idempotencyKey}`,
     );
+    const authorizationPayload = {
+      workspaceId,
+      conversationId,
+      threadRootId,
+      agentId,
+      ...authorization,
+    };
+    const message = {
+      messageId: commandId,
+      conversationId,
+      threadRootId,
+      body:
+        authorization.kind === "plugin_oauth_client"
+          ? `Configure an OAuth client for ${authorization.pluginName} to continue.`
+          : `Authorize ${authorization.pluginName} to continue.`,
+      mentions: [],
+      components: [
+        {
+          id: deterministicUuid(`${commandId}:${authorization.pluginId}`),
+          kind: "plugin.authorization",
+          version: 1,
+          payload: authorizationPayload,
+        },
+      ],
+    };
     const command = appendMessageCommandSchema.parse({
       commandId,
       protocolVersion: 1,
       occurredAt: new Date().toISOString(),
-      payload: {
-        messageId: commandId,
-        conversationId,
-        ...(threadRootId ? { threadRootId } : {}),
-        body: `Authorize ${authorization.pluginName} to continue.`,
-        mentions: [],
-        components: [
-          {
-            id: deterministicUuid(`${commandId}:${authorization.pluginId}`),
-            kind: "plugin.authorization",
-            version: 1,
-            payload: {
-              workspaceId,
-              conversationId,
-              ...(threadRootId ? { threadRootId } : {}),
-              agentId,
-              pluginId: authorization.pluginId,
-              pluginName: authorization.pluginName,
-              description: authorization.description,
-              provider: authorization.provider,
-              authorizationUrl: authorization.authorizationUrl,
-              status: authorization.status,
-            },
-          },
-        ],
-      },
+      payload: message,
     });
     const posted = await client.appendMessage(conversationId, command);
     return { authorization, message: posted.message };

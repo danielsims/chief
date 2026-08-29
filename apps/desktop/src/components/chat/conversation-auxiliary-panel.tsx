@@ -16,7 +16,7 @@ const MAX_PANEL_WIDTH = 720;
 const PANEL_WIDTH_STORAGE_KEY = "chief.conversations.auxiliary-panel-width";
 
 function clampPanelWidth(width: number) {
-  const viewportWidth = typeof window === "undefined" ? 0 : window.innerWidth;
+  const viewportWidth = globalThis.window.innerWidth;
   const viewportMaximum = Math.max(
     MAX_PANEL_WIDTH,
     viewportWidth - MIN_PANEL_WIDTH,
@@ -33,7 +33,6 @@ export interface ConversationAuxiliaryPanelSizing {
 
 export function useConversationAuxiliaryPanelSizing(): ConversationAuxiliaryPanelSizing {
   const [widthPx, setWidthPx] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
     try {
       const stored = Number.parseInt(
         window.sessionStorage.getItem(PANEL_WIDTH_STORAGE_KEY) ?? "",

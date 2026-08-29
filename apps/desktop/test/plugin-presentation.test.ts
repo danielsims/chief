@@ -23,7 +23,7 @@ function plugin(
     name,
     description,
     category,
-    ...(domain ? { domains: [domain] } : {}),
+    ...(domain ? { domains: [domain] } : undefined),
     source: {
       type: "git",
       url: `https://github.com/example/${id}`,

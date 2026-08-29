@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type {
   ActionItem,
+  BrowserRunRecord,
   ChiefUIMessage,
   SessionRecord,
 } from "@chief/agent-runtime/types";
@@ -12,6 +13,47 @@ import {
   withActionTimelineEntries,
   withSpecialistTimelineEntries,
 } from "../src/components/chat/conversation-timeline-entries.js";
+
+void test("a browser remains at its durable activity position when a reply arrives", () => {
+  const activity = {
+    id: "browser-activity",
+    role: "assistant",
+    parts: [
+      {
+        type: "dynamic-tool",
+        toolCallId: "browser-open",
+        toolName: "browser open",
+        input: {},
+        state: "output-available",
+        output: { url: "https://example.com" },
+      },
+    ],
+    metadata: { createdAt: 200 },
+  } satisfies ChiefUIMessage;
+  const reply = {
+    id: "reply",
+    role: "assistant",
+    parts: [{ type: "text", text: "The browser is ready." }],
+    metadata: { createdAt: 300 },
+  } satisfies ChiefUIMessage;
+  const run = {
+    id: "run",
+    workspaceId: "workspace",
+    conversationId: "chief",
+    url: "https://example.com",
+    status: "active",
+    createdAt: 200,
+    updatedAt: 200,
+  } satisfies BrowserRunRecord;
+  const anchors = new Map([[run.id, activity.id]]);
+
+  assert.deepEqual(
+    conversationTimelineEntries([activity, reply], [run], anchors, null).map(
+      (entry) => (entry.type === "message" ? entry.message.id : entry.type),
+    ),
+    ["browser", "reply"],
+  );
+});
 
 void test("channel threads contain authored replies before specialist projection", () => {
   const messages = [
@@ -27,7 +69,7 @@ void test("channel threads contain authored replies before specialist projection
       parts: [{ type: "text", text: "Sign-in is ready when you are." }],
       metadata: { createdAt: 200, threadRootId: "root" },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
 
   const entries = conversationTimelineEntries(messages, [], new Map(), "root");
 
@@ -49,7 +91,7 @@ void test("a specialist task remains in its owning thread after failure", () => 
       parts: [{ type: "text", text: "I could not finish this run." }],
       metadata: { createdAt: 300, threadRootId: "root" },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
   const task = {
     id: "prospecting-run",
     parentId: "channel:workspace:prospecting",
@@ -62,7 +104,7 @@ void test("a specialist task remains in its owning thread after failure", () => 
     attempt: 1,
     createdAt: 200,
     updatedAt: 300,
-  } as SessionRecord;
+  } satisfies SessionRecord;
 
   const entries = withSpecialistTimelineEntries(
     conversationTimelineEntries(messages, [], new Map(), "root"),
@@ -97,7 +139,7 @@ void test("a specialist file card stays in its owning thread", () => {
       },
     ],
     metadata: { createdAt: 200, threadRootId: "brand-thread" },
-  } as ChiefUIMessage;
+  } satisfies ChiefUIMessage;
 
   assert.equal(
     conversationTimelineEntries([fileMessage], [], new Map(), null).length,
@@ -130,7 +172,7 @@ void test("an answered action stays before the continuation reply it triggered",
       parts: [{ type: "text", text: "Thanks, I continued the work." }],
       metadata: { createdAt: 300 },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
   const action = {
     id: "action",
     agentId: "chief",
@@ -138,7 +180,7 @@ void test("an answered action stays before the continuation reply it triggered",
     reason: "One decision is needed.",
     status: "resolved",
     createdAt: 200,
-  } as ActionItem;
+  } satisfies ActionItem;
 
   const entries = withActionTimelineEntries(
     conversationTimelineEntries(messages, [], new Map(), null),

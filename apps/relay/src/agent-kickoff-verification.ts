@@ -1,8 +1,13 @@
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
-import { channelDetailSchema, messagePageSchema } from "@chief/relay-contracts";
+import {
+  channelDetailSchema,
+  isJsonString,
+  messagePageSchema,
+} from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 /** A specialist completion is accepted only after the relay itself shows its
  * threaded acknowledgement and public, owner-visible work channel. */
@@ -12,8 +17,9 @@ export async function validateSpecialistKickoff(
   agent: AgentPrincipal,
 ) {
   const conversationId = job.payload.conversationId;
-  const threadRootId = job.payload.threadRootId;
-  if (typeof conversationId !== "string" || typeof threadRootId !== "string") {
+  const threadRootId =
+    job.payload.kickoffThreadRootId ?? job.payload.threadRootId;
+  if (!isJsonString(conversationId) || !isJsonString(threadRootId)) {
     throw new HttpError(
       409,
       "kickoff_evidence_missing",
@@ -40,6 +46,7 @@ export async function validateSpecialistKickoff(
     ),
   );
   if (!channelResponse.ok) {
+    await releaseInternalResponse(channelResponse);
     throw new HttpError(
       409,
       "kickoff_channel_missing",
@@ -86,7 +93,7 @@ export async function validateSpecialistKickoff(
   );
   const workMessages = workMessagesResponse.ok
     ? messagePageSchema.parse(await workMessagesResponse.json()).messages
-    : [];
+    : await releaseInternalResponse(workMessagesResponse).then(() => []);
   const arrivedInWorkChannel = workMessages.some(
     (message) =>
       message.author.kind === "agent" &&
@@ -117,7 +124,7 @@ export async function validateSpecialistKickoff(
   );
   const messages = messagesResponse.ok
     ? messagePageSchema.parse(await messagesResponse.json()).messages
-    : [];
+    : await releaseInternalResponse(messagesResponse).then(() => []);
   const acknowledged = messages.some(
     (message) =>
       message.author.kind === "agent" &&

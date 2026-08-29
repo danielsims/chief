@@ -17,7 +17,7 @@ const inviteEvent: ChannelEvent = {
   tags: [
     ["h", "agent-cli-dogfood"],
     ["action", "member-added"],
-    ["user", "workspace-owner"],
+    ["user", "user-123"],
     ["agent", "analyst"],
   ],
   content: "Engineer added you and Analyst to the channel.",
@@ -34,11 +34,13 @@ void test("reconstructs agent-authored membership UI from a durable event", () =
     actorId: "engineer",
     actorType: "agent",
     agentIds: ["analyst"],
-    userIds: ["workspace-owner"],
+    userIds: ["user-123"],
   });
   assert.ok(action);
-  const names = channelMembershipTargetNames(action, (agentId) =>
-    agentId === "analyst" ? "Analyst" : agentId,
+  const names = channelMembershipTargetNames(
+    action,
+    (agentId) => (agentId === "analyst" ? "Analyst" : agentId),
+    "user-123",
   );
   assert.equal(formatMembershipTargets(names), "you and Analyst");
 });

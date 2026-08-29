@@ -4,7 +4,23 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 
+import {
+  isJsonNumber,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
+
 import { createNip98Authorization, nip98PublicKey } from "../src/nip98-signer";
+
+interface Nip98Event {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+}
 
 void test("signs one exact request without exposing the agent secret", () => {
   const secret = new Uint8Array(32).fill(7);
@@ -14,19 +30,13 @@ void test("signs one exact request without exposing the agent secret", () => {
     method: "post",
     body,
   });
-  const event = JSON.parse(
-    Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
-      "utf8",
+  const event = parseNip98Event(
+    JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
     ),
-  ) as {
-    id: string;
-    pubkey: string;
-    created_at: number;
-    kind: number;
-    tags: string[][];
-    content: string;
-    sig: string;
-  };
+  );
   const expectedId = bytesToHex(
     sha256(
       new TextEncoder().encode(
@@ -59,3 +69,32 @@ void test("signs one exact request without exposing the agent secret", () => {
   );
   assert.equal(authorization.includes(bytesToHex(secret)), false);
 });
+
+function parseNip98Event(value: unknown): Nip98Event {
+  const object = parseJsonObject(value);
+  if (!object) throw new Error("NIP-98 event must be a JSON object.");
+  const tags = object.tags;
+  if (
+    !isJsonString(object.id) ||
+    !isJsonString(object.pubkey) ||
+    !isJsonNumber(object.created_at) ||
+    !isJsonNumber(object.kind) ||
+    !Array.isArray(tags) ||
+    !tags.every(
+      (tag) => Array.isArray(tag) && tag.every((entry) => isJsonString(entry)),
+    ) ||
+    !isJsonString(object.content) ||
+    !isJsonString(object.sig)
+  ) {
+    throw new Error("NIP-98 event has an invalid shape.");
+  }
+  return {
+    id: object.id,
+    pubkey: object.pubkey,
+    created_at: object.created_at,
+    kind: object.kind,
+    tags,
+    content: object.content,
+    sig: object.sig,
+  };
+}

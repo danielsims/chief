@@ -110,8 +110,76 @@ export const writeExecutionFileSchema = z
   })
   .strict();
 
+export const listExecutionFilesSchema = z
+  .object({ path: relativeExecutionPathSchema.default(".") })
+  .strict();
+
+export const removeExecutionFileSchema = z
+  .object({
+    path: relativeExecutionPathSchema,
+    recursive: z.boolean().default(false),
+  })
+  .strict();
+
+export const executionFileEntrySchema = z
+  .object({
+    path: relativeExecutionPathSchema,
+    kind: z.enum(["directory", "file", "symlink"]),
+    size: z.int().nonnegative(),
+  })
+  .strict();
+
+export const browserTargetSchema = z
+  .object({
+    ref: z.string().trim().min(1).max(256).optional(),
+    labels: z.array(z.string().trim().min(1).max(1_000)).max(32).optional(),
+  })
+  .strict()
+  .refine(
+    (target) => target.ref !== undefined || Boolean(target.labels?.length),
+    "A browser target requires a ref or labels.",
+  );
+
+export const browserOpenRequestSchema = z
+  .object({
+    url: z.url(),
+    fresh: z.boolean().default(false),
+  })
+  .strict();
+
+export const browserFillRequestSchema = z
+  .object({
+    target: browserTargetSchema,
+    text: z.string().max(100_000),
+  })
+  .strict();
+
+export const browserSelectRequestSchema = z
+  .object({
+    target: browserTargetSchema,
+    values: z.array(z.string().max(10_000)).min(1).max(100),
+  })
+  .strict();
+
+export const browserSnapshotSchema = z
+  .object({
+    url: z.string(),
+    title: z.string(),
+    text: z.string(),
+    controls: z.array(z.string()),
+  })
+  .strict();
+
+export const browserStreamSchema = z
+  .object({
+    streamUrl: z.url(),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
 export type ExecutionId = z.infer<typeof executionIdSchema>;
 export type ExecutionCapability = z.infer<typeof executionCapabilitySchema>;
 export type ExecutionLease = z.infer<typeof executionLeaseSchema>;
 export type ExecRequest = z.infer<typeof execRequestSchema>;
 export type ExecResult = z.infer<typeof execResultSchema>;
+export type BrowserTarget = z.infer<typeof browserTargetSchema>;

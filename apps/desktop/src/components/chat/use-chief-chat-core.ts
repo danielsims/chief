@@ -20,7 +20,10 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
@@ -61,10 +64,10 @@ export function useChiefChatCore({
   const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
     name: user?.name.trim() ?? "You",
-    ...(user?.image ? { image: user.image } : {}),
+    ...(user?.image ? { image: user.image } : undefined),
   };
   const currentUser = user
-    ? { id: user.id, ...(user.image ? { image: user.image } : {}) }
+    ? { id: user.id, ...(user.image ? { image: user.image } : undefined) }
     : null;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const channelReactions = useChannelReactions(
@@ -131,15 +134,14 @@ export function useChiefChatCore({
     (chat.controls.status === "running" && chat.sessionAgentId
       ? {
           agentId: chat.sessionAgentId,
-          ...(resumedThreadRootId ? { threadRootId: resumedThreadRootId } : {}),
+          ...(resumedThreadRootId
+            ? { threadRootId: resumedThreadRootId }
+            : undefined),
         }
       : null);
   const activeRootIdentity =
-    visibleActiveRootTurn &&
-    Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, visibleActiveRootTurn.agentId)
-      ? WORKSPACE_AGENT_IDENTITIES[
-          visibleActiveRootTurn.agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-        ]
+    visibleActiveRootTurn && isWorkspaceAgentId(visibleActiveRootTurn.agentId)
+      ? WORKSPACE_AGENT_IDENTITIES[visibleActiveRootTurn.agentId]
       : undefined;
   const activityAgentLabel =
     activeRootIdentity?.name ?? directAgent?.name ?? "Chief";
@@ -197,21 +199,14 @@ export function useChiefChatCore({
   const mentionCandidates = useMemo(
     () =>
       orderMentionCandidatesByMembership(
-        Object.entries(WORKSPACE_AGENT_IDENTITIES)
-          .filter(
-            ([id]) =>
-              id !== "setup" ||
-              directAgent?.id === "setup" ||
-              Boolean(channel?.agentIds.includes("setup")),
-          )
-          .map(([id, identity]) => ({
-            id,
-            ...identity,
-            member:
-              directAgent?.id === id ||
-              addedAgentIds.has(id) ||
-              Boolean(channel?.agentIds.includes(id)),
-          })),
+        Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([id, identity]) => ({
+          id,
+          ...identity,
+          member:
+            directAgent?.id === id ||
+            addedAgentIds.has(id) ||
+            Boolean(channel?.agentIds.includes(id)),
+        })),
       ),
     [addedAgentIds, channel?.agentIds, directAgent?.id],
   );
@@ -258,7 +253,7 @@ export function useChiefChatCore({
       routedAgentId
         ? {
             agentId: routedAgentId,
-            ...(threadRootId ? { threadRootId } : {}),
+            ...(threadRootId ? { threadRootId } : undefined),
           }
         : null,
     );

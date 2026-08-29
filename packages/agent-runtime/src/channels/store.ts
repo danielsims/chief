@@ -233,7 +233,7 @@ export class ChannelStore extends ChannelHistoryStore {
       {
         name: channel.name,
         kind: channel.kind,
-        visibility: channel.visibility,
+        visibility: channel.visibility ?? null,
       },
     );
     return channel;
@@ -306,7 +306,7 @@ export class ChannelStore extends ChannelHistoryStore {
         id: "workspace-owner",
         name: "Workspace owner",
       },
-      { version, visibility },
+      { version, visibility: visibility ?? null },
     );
     return updated;
   }
@@ -415,7 +415,7 @@ export class ChannelStore extends ChannelHistoryStore {
       archivedAt,
       version,
       updatedAt,
-    } as WorkspaceChannel;
+    } satisfies WorkspaceChannel;
     await this.audit(
       workspaceId,
       channel.id,

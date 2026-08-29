@@ -2,6 +2,14 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { session, user } from "./core";
 
+type OAuthMetadataValue =
+  | boolean
+  | number
+  | string
+  | null
+  | OAuthMetadataValue[]
+  | { [key: string]: OAuthMetadataValue };
+
 const timestamp = (name: string) => integer(name, { mode: "timestamp_ms" });
 const jsonStrings = (name: string) =>
   text(name, { mode: "json" }).$type<string[]>();
@@ -39,7 +47,7 @@ export const oauthClient = sqliteTable(
     requirePKCE: integer("require_pkce", { mode: "boolean" }),
     referenceId: text("reference_id"),
     metadata: text("metadata", { mode: "json" }).$type<
-      Record<string, unknown>
+      Record<string, OAuthMetadataValue>
     >(),
   },
   (table) => [index("oauth_client_user_id_idx").on(table.userId)],

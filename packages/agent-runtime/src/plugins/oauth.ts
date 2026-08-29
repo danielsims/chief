@@ -2,7 +2,11 @@ import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  auth,
+  discoverOAuthServerInfo,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthClientInformationSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 import type { McpServerSpec } from "../types.js";
 import type { StoredOAuthSession } from "./oauth-provider.js";
@@ -17,6 +21,7 @@ import {
   oauthStateMatches,
   PLUGIN_OAUTH_CALLBACK_URL,
   readOAuthSession,
+  requiresConfiguredOAuthClient,
   writeOAuthSession,
 } from "./oauth-provider.js";
 import { pluginsRoot, readPluginState } from "./store.js";
@@ -102,6 +107,22 @@ export class PluginOAuthManager {
         remote.name,
         session,
       );
+      if (!session.discovery) {
+        const discovery = await discoverOAuthServerInfo(remote.spec.url);
+        session.discovery = {
+          authorizationServerUrl: discovery.authorizationServerUrl,
+          authorizationServerMetadata: discovery.authorizationServerMetadata,
+          resourceMetadata: discovery.resourceMetadata,
+        };
+        session.updatedAt = Date.now();
+        await writeOAuthSession(workspaceId, pluginId, remote.name, session);
+      }
+      if (requiresConfiguredOAuthClient(session)) {
+        return {
+          status: "client_configuration_required" as const,
+          serverName: remote.name,
+        };
+      }
       const result = await auth(provider, { serverUrl: remote.spec.url });
       if (result === "AUTHORIZED") {
         session.authorizedWithoutTokens = !session.tokens?.access_token;
@@ -130,6 +151,43 @@ export class PluginOAuthManager {
       status: "connected" as const,
       serverName: remotes.at(-1)?.name ?? pluginId,
     };
+  }
+
+  async configureClient(
+    workspaceId: string,
+    pluginId: string,
+    input: { serverName: string; clientId: string; clientSecret?: string },
+  ) {
+    const { loaded } = await installedPlugin(workspaceId, pluginId);
+    const remote = loaded.mcpServers.find(
+      ({ name }) => name === input.serverName,
+    );
+    if (
+      !remote ||
+      (remote.spec.type !== "streamable-http" && remote.spec.type !== "sse")
+    ) {
+      throw new Error("The OAuth client does not belong to this plugin.");
+    }
+    const session = await readOAuthSession(
+      workspaceId,
+      pluginId,
+      input.serverName,
+    );
+    if (!session || session.serverUrl !== remote.spec.url) {
+      throw new Error("Start provider authorization before adding a client.");
+    }
+    const clientInformation: { client_id: string; client_secret?: string } = {
+      client_id: input.clientId.trim(),
+    };
+    if (input.clientSecret) {
+      clientInformation.client_secret = input.clientSecret;
+    }
+    session.clientInformation =
+      OAuthClientInformationSchema.parse(clientInformation);
+    delete session.tokens;
+    delete session.codeVerifier;
+    session.updatedAt = Date.now();
+    await writeOAuthSession(workspaceId, pluginId, input.serverName, session);
   }
 
   async connectionState(workspaceId: string, pluginId: string) {
@@ -244,7 +302,7 @@ export class PluginOAuthManager {
               ...spec.headers,
               ...(session.tokens?.access_token
                 ? { Authorization: `Bearer ${session.tokens.access_token}` }
-                : {}),
+                : undefined),
             },
           });
         }

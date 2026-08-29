@@ -1,10 +1,12 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { parseJsonObject } from "@chief/relay-contracts";
+
 import { routeRelayAuth } from "../src/auth/routes";
+import { relayTestEnv } from "./helpers";
 
 describe("relay-local authentication", () => {
-  const relayEnv = env as unknown as Env;
+  const relayEnv = relayTestEnv();
 
   it("publishes OAuth 2.1 metadata for the relay issuer", async () => {
     const response = await routeRelayAuth(
@@ -13,9 +15,9 @@ describe("relay-local authentication", () => {
       ),
       relayEnv,
     );
-
     expect(response.status).toBe(200);
-    const metadata = (await response.json()) as Record<string, unknown>;
+    const metadata = parseJsonObject(await response.json());
+    if (!metadata) throw new Error("OAuth metadata must be a JSON object.");
     expect(metadata).toMatchObject({
       issuer: "https://relay.test/api/auth",
       authorization_endpoint: "https://relay.test/api/auth/oauth2/authorize",
@@ -73,6 +75,7 @@ describe("relay-local authentication", () => {
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.origin).toBe("https://app.test");
+    // A device with no browser session must sign in first.
     expect(location.pathname).toBe("/sign-in");
     expect(location.searchParams.get("client_id")).toBe("chief-desktop");
     expect(location.searchParams.get("state")).toBe("pkce-state");

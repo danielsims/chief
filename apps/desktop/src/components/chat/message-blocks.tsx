@@ -7,9 +7,10 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
@@ -21,22 +22,24 @@ import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
 
-function toolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
+function jsonText(value: JsonValue | undefined): string {
+  if (isJsonString(value)) return value;
+  return value === undefined ? "" : JSON.stringify(value);
+}
+
+function toolResultText(content: JsonValue | undefined): string {
+  if (isJsonString(content)) return content;
   if (Array.isArray(content)) {
     return content
       .map((block) =>
-        block &&
-        typeof block === "object" &&
-        "text" in block &&
-        typeof (block as { text: unknown }).text === "string"
-          ? (block as { text: string }).text
+        block && isJsonObject(block) && isJsonString(block.text)
+          ? block.text
           : "",
       )
       .filter(Boolean)
       .join("\n");
   }
-  if (content && typeof content === "object") {
+  if (content && isJsonObject(content)) {
     return JSON.stringify(content, null, 2);
   }
   return "";
@@ -63,16 +66,15 @@ function canonicalTool(name: string) {
   return "tool";
 }
 
-function skillName(input: unknown) {
-  if (!input || typeof input !== "object") return null;
-  const value = input as Record<string, unknown>;
+function skillName(input: JsonValue | undefined) {
+  if (!input || !isJsonObject(input)) return null;
   for (const key of ["name", "skill", "skillName"]) {
-    if (typeof value[key] === "string" && value[key]) return value[key];
+    if (isJsonString(input[key]) && input[key]) return input[key];
   }
   return null;
 }
 
-export function toolPresentation(name: string, input: unknown) {
+export function toolPresentation(name: string, input: JsonValue | undefined) {
   const kind = canonicalTool(name);
   if (kind === "skill") return skillName(input) ?? "Skill";
   if (kind === "integration") {
@@ -88,8 +90,8 @@ export function toolPresentation(name: string, input: unknown) {
   return executorToolLabel(input) ?? name.replace(/_/g, " ");
 }
 
-export function toolSummary(input: unknown): string {
-  const value = (input ?? {}) as Record<string, unknown>;
+export function toolSummary(input: JsonValue | undefined): string {
+  const value = isJsonObject(input) ? input : {};
   for (const key of [
     "description",
     "file_path",
@@ -100,7 +102,7 @@ export function toolSummary(input: unknown): string {
     "url",
     "code",
   ]) {
-    if (typeof value[key] === "string" && value[key]) {
+    if (isJsonString(value[key]) && value[key]) {
       const text = String(value[key]);
       return text.length > 90 ? `${text.slice(0, 90)}…` : text;
     }
@@ -137,9 +139,9 @@ function ToolCard({
     result && !result.is_error && /\bwarn(?:ing)?\b/i.test(output),
   );
   const input =
-    block.input && typeof block.input === "object"
+    block.input && isJsonObject(block.input)
       ? JSON.stringify(block.input, null, 2)
-      : String(block.input ?? "");
+      : jsonText(block.input);
 
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -263,7 +265,6 @@ export function Blocks({
   onOpenChannel,
   onOpenTask,
   toolAttachment,
-  pluginActionContext,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
@@ -275,7 +276,6 @@ export function Blocks({
   channelReferences?: readonly ChannelReferenceTarget[];
   onOpenChannel?: (channelId: string) => void;
   onOpenTask?: (taskId: string) => void;
-  pluginActionContext?: RelayPluginActionContext;
   /**
    * A generic hook for tools that carry a rich inline UI (Chief's embedded
    * browser, etc.). A tool block can render a live attachment at its exact
@@ -304,26 +304,10 @@ export function Blocks({
       {blocks.map((block, index) => {
         if (block.type === "data-plugin-recommendations") {
           const data = block.data;
-          const embeddedContext =
-            data.workspaceId &&
-            data.conversationId &&
-            data.agentId &&
-            data.recommendationId
-              ? {
-                  workspaceId: data.workspaceId,
-                  conversationId: data.conversationId,
-                  ...(data.threadRootId
-                    ? { threadRootId: data.threadRootId }
-                    : {}),
-                  agentId: data.agentId,
-                  recommendationId: data.recommendationId,
-                }
-              : undefined;
           return (
             <PluginRecommendationCards
               key={index}
               plugins={data.plugins}
-              actionContext={embeddedContext ?? pluginActionContext}
               authorizations={data.authorizations}
             />
           );
@@ -386,7 +370,6 @@ export function Blocks({
                   key={block.id}
                   block={block}
                   result={results.get(block.id)}
-                  actionContext={pluginActionContext}
                 />
               );
             }
@@ -442,7 +425,7 @@ export function Blocks({
                 key={index}
                 className={cn(
                   "bg-card/50 text-muted-foreground max-h-56 max-w-full overflow-auto border px-3 py-2 font-mono text-[11px] leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap",
-                  block.is_error && "border-red-500/40 text-red-500",
+                  "border-red-500/40 text-red-500",
                 )}
               >
                 {text.length > MAX_RESULT_CHARS

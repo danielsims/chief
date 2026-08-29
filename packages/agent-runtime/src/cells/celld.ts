@@ -6,6 +6,7 @@ import type {
   AgentCell,
   AgentCellStatus,
   AgentEvent,
+  CellStateValue,
   EnqueueResult,
   ProjectLease,
   ProjectLeaseRequest,
@@ -62,17 +63,17 @@ export class CellDCell implements AgentCell {
     const overLimit = progressBytes > CELD_DOCUMENTED_LIMITS.maxStateBytes;
     return {
       state: overLimit ? "failed" : lease ? "running" : "idle",
-      ...(lastEvent ? { lastEventId: lastEvent.id } : {}),
-      ...(lastEvent ? { lastEventPosition: lastEvent.position } : {}),
-      ...(lease ? { lease } : {}),
+      lastEventId: lastEvent?.id,
+      lastEventPosition: lastEvent?.position,
+      lease,
     };
   }
 
-  async readState<T>(key: string): Promise<T | undefined> {
-    return (await this.persistence.readState(this.id, key)) as T | undefined;
+  async readState(key: string) {
+    return await this.persistence.readState(this.id, key);
   }
 
-  async writeState<T>(key: string, value: T): Promise<void> {
+  async writeState(key: string, value: CellStateValue): Promise<void> {
     const bytes = approximateBytes(value);
     if (
       (await this.stateBytes()) + bytes >
@@ -96,7 +97,7 @@ export class CellDCell implements AgentCell {
       leaseId: randomUUID(),
       projectId: input.projectId,
       agentId: input.agentId,
-      ...(input.baseRef ? { branch: input.baseRef } : {}),
+      branch: input.baseRef,
       expiresAt: this.now() + (input.ttlMs ?? DEFAULT_PROJECT_LEASE_TTL_MS),
     };
     await this.persistence.saveProjectLease(this.id, lease);
@@ -117,7 +118,7 @@ export class CellDCell implements AgentCell {
   }
 }
 
-function approximateBytes(value: unknown) {
+function approximateBytes<Value>(value: Value) {
   const serialized = JSON.stringify(value);
   return serialized ? serialized.length : 0;
 }

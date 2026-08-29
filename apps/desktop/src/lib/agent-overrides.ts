@@ -3,6 +3,8 @@
  * settings UI (writes) and the chat runtime (reads). The runtime libSQL store
  * is durable; this tiny localStorage mirror keeps session opening synchronous.
  */
+import { z } from "zod";
+
 import type {
   AgentApprovalMode,
   AgentCapabilityId,
@@ -21,6 +23,53 @@ export interface AgentOverride {
 }
 
 export type AgentOverrides = Record<string, AgentOverride>;
+
+const agentOverrideSchema = z.object({
+  driver: z.enum(["claude", "codex", "opencode", "remote"]).optional(),
+  model: z.string().optional(),
+  enabled: z.boolean().optional(),
+  approvals: z.enum(["auto", "ask"]).optional(),
+  capabilities: z
+    .array(
+      z.enum([
+        "analytics-chart",
+        "prospect-memory",
+        "trend-memory",
+        "content-calendar",
+        "campaign-memory",
+        "schedule-manager",
+      ]),
+    )
+    .optional(),
+  integrations: z.array(z.string()).optional(),
+  toolPermissions: z
+    .array(
+      z.enum([
+        "workspace.read",
+        "workspace.write",
+        "projects.read",
+        "projects.write",
+        "channels.read",
+        "channels.create",
+        "channels.update",
+        "channels.archive",
+        "members.read",
+        "members.manage",
+        "messages.read",
+        "messages.send",
+        "messages.manage",
+        "schedules.read",
+        "schedules.manage",
+        "schedules.run",
+        "webhooks.manage",
+        "browser.use",
+        "integrations.manage",
+        "agents.delegate",
+      ]),
+    )
+    .optional(),
+});
+const agentOverridesSchema = z.record(z.string(), agentOverrideSchema);
 
 const KEY = "chief-agent-overrides";
 const PROVIDER_KEY = "chief-workspace-provider";
@@ -113,9 +162,9 @@ export function clearWorkspaceProvider(workspaceId: string) {
 export function getAgentOverrides(workspaceId: string): AgentOverrides {
   retireLegacyGlobalState();
   try {
-    const value = JSON.parse(
-      migratedValue(KEY, LEGACY_KEY, workspaceId) ?? "{}",
-    ) as AgentOverrides;
+    const value = agentOverridesSchema.parse(
+      JSON.parse(migratedValue(KEY, LEGACY_KEY, workspaceId) ?? "{}"),
+    );
     if (!value.chief && value.cmo) {
       value.chief = value.cmo;
       delete value.cmo;

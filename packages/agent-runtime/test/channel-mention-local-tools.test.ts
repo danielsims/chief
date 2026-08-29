@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import type { JsonValue } from "@chief/relay-contracts";
+
 import type { ChannelEvent } from "../src/channel-types.js";
 import { handleChannelLocalTool } from "../src/channel-local-tools.js";
 import { LocalStore } from "../src/local-store.js";
@@ -11,7 +13,7 @@ import { LocalStore } from "../src/local-store.js";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-channel-mention-test-encryption-key";
 
-function post(path: string, body: unknown) {
+function post(path: string, body: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },

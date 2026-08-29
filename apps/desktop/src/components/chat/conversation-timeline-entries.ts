@@ -36,9 +36,10 @@ export function conversationTimelineEntries(
   const entries: TimelineEntry[] = [];
   const placed = new Set<string>();
   for (const message of messages) {
-    if (isActivityProjection(message)) continue;
     if ((message.metadata?.threadRootId ?? null) !== threadRootId) continue;
-    entries.push({ type: "message", message });
+    if (!isActivityProjection(message)) {
+      entries.push({ type: "message", message });
+    }
     for (const run of runs) {
       if (
         (run.threadRootId ?? null) !== threadRootId ||

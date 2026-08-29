@@ -1,6 +1,10 @@
+import { z } from "zod";
+
 import type { createChiefAuth } from "./server";
 
 type ChiefAuth = ReturnType<typeof createChiefAuth>;
+
+const oauthUserInfoSchema = z.object({ sub: z.string().trim().min(1) });
 
 export async function verifyChiefAccountCredential(
   auth: ChiefAuth,
@@ -18,11 +22,11 @@ export async function verifyChiefAccountCredential(
     // only performs local JWKS verification unless a confidential introspection
     // client is configured, so it cannot validate our public-client opaque
     // tokens.
-    const payload = await auth.api.oauth2UserInfo({ headers });
+    const payload = oauthUserInfoSchema.safeParse(
+      await auth.api.oauth2UserInfo({ headers }),
+    );
     void audience;
-    return typeof payload.sub === "string" && payload.sub.trim()
-      ? payload.sub
-      : null;
+    return payload.success ? payload.data.sub : null;
   } catch {
     // Callers deliberately receive no token claims or validation detail.
     return null;

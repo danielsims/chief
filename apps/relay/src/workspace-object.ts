@@ -1,20 +1,27 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 
-import type { ConversationEvent, Principal } from "@chief/relay-contracts";
+import type { ConversationEvent } from "@chief/relay-contracts";
 import {
   conversationEventSchema,
   conversationIdSchema,
+  isJsonString,
+  parseJsonObject,
   principalSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
+import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
   readTrustedIdentity,
   readTrustedWorkspaceSocketTicket,
+  trustedTelemetryAttributes,
 } from "./internal-context";
 import { WorkspaceAccessService } from "./workspace-access-service";
+import { requireWorkspaceAdministrator } from "./workspace-administration";
+import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import {
   routeWorkspaceChannel,
@@ -24,13 +31,17 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
+import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
-
-const MAX_REPLAY_EVENTS_PER_CONNECTION = 1_000;
-const SOCKET_MESSAGE_LIMIT_PER_MINUTE = 30;
-const SUBSCRIPTION_UPDATE_LIMIT_PER_MINUTE = 10;
+import { WorkspaceSecretService } from "./workspace-secret-service";
+import {
+  consumeSocketAllowance,
+  MAX_REPLAY_EVENTS_PER_CONNECTION,
+  workspaceDataCapability,
+  workspaceSocketAttachment,
+} from "./workspace-socket-state";
 
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -41,119 +52,237 @@ export class WorkspaceObject extends DurableObject<Env> {
     });
   }
 
-  async fetch(request: Request) {
-    try {
+  fetch(request: Request) {
+    const connectWebSocket = this.connectWebSocket.bind(this);
+    const routeOperation = this.routeOperation.bind(this);
+    const program = Effect.gen(function* () {
       if (request.headers.get("upgrade") === "websocket") {
-        return await this.connectWebSocket(request);
-      }
-      if (request.method !== "POST") {
-        return relayError(405, "method_not_allowed", "Method not allowed.");
+        return yield* attempt("workspace.websocket.connect", () =>
+          connectWebSocket(request),
+        );
       }
       const operation = request.headers.get("x-chief-internal-operation");
-      const response = await this.routeOperation(request, operation);
+      const readsSecret =
+        request.method === "GET" &&
+        (operation === "secret-get" || operation === "secret-list");
+      if (request.method !== "POST" && !readsSecret) {
+        return relayError(405, "method_not_allowed", "Method not allowed.");
+      }
+      const response = yield* routeOperation(request, operation);
       return (
         response ??
         relayError(404, "not_found", "Workspace operation not found.")
       );
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return relayError(error.status, error.code, error.message);
-      }
-      return relayError(
-        400,
-        "invalid_request",
-        "The workspace request is invalid.",
-      );
-    }
+    });
+    return runResponse(program, this.env, {
+      operation: "workspace.fetch",
+      attributes: trustedTelemetryAttributes(request),
+      workflowId: request.headers.get("x-chief-workflow-id") ?? undefined,
+    });
   }
 
-  private async routeOperation(request: Request, operation: string | null) {
-    if (operation?.startsWith("channels-")) {
-      return routeWorkspaceChannel(
-        this.ctx.storage,
-        this.env,
-        request,
-        operation,
-      );
-    }
-    if (operation === "directs-start") {
-      return routeWorkspaceDirect(this.ctx.storage, this.env, request);
-    }
-    if (operation?.startsWith("data-")) {
-      return this.routeData(request, operation);
-    }
-    if (operation === "live-event-publish") {
-      return this.publishLiveEvent(request);
-    }
-    if (operation === "live-socket-ticket") {
-      return this.createLiveSocketTicket(request);
-    }
-    if (operation === "agent-message-dispatch") {
-      return dispatchWorkspaceMessage(this.ctx.storage, this.env, request);
-    }
+  private routeOperation(request: Request, operation: string | null) {
+    const ctx = this.ctx;
+    const env = this.env;
+    const routeData = this.routeData.bind(this);
+    const publishLiveEvent = this.publishLiveEvent.bind(this);
+    const createLiveSocketTicket = this.createLiveSocketTicket.bind(this);
+    return Effect.gen(function* () {
+      if (operation?.startsWith("channels-")) {
+        return yield* attempt("workspace.channels", () =>
+          routeWorkspaceChannel(ctx.storage, env, request, operation),
+        );
+      }
+      if (operation === "directs-start") {
+        return yield* attempt("workspace.direct.start", () =>
+          routeWorkspaceDirect(ctx.storage, env, request),
+        );
+      }
+      if (operation?.startsWith("data-")) {
+        return yield* attempt("workspace.data", () =>
+          routeData(request, operation),
+        );
+      }
+      if (operation === "live-event-publish") {
+        return yield* attempt("workspace.live.publish", () =>
+          publishLiveEvent(request),
+        );
+      }
+      if (operation === "live-socket-ticket") {
+        return yield* attempt("workspace.live.ticket", () =>
+          createLiveSocketTicket(request),
+        );
+      }
+      if (operation === "agent-message-dispatch") {
+        return yield* attempt("workspace.agent.dispatch", () =>
+          dispatchWorkspaceMessage(ctx.storage, env, request),
+        );
+      }
 
-    const access = new WorkspaceAccessService(this.ctx.storage, this.env);
-    if (operation === "members-list") return access.membersList(request);
-    if (operation === "member-role-set") return access.memberRoleSet(request);
-    if (operation === "agent-config-get") return access.agentConfigGet(request);
-    if (operation === "agent-config-set") {
-      return access.agentConfigSet(request);
-    }
-    if (operation === "authorize-conversation") {
-      return access.authorizeConversation(request);
-    }
-    if (operation === "authorize-agent-runtime") {
-      return access.authorizeAgentRuntime(request);
-    }
-    if (operation === "agent-hosting-context") {
-      return access.agentHostingContext(request);
-    }
-    if (operation === "register-agent-key") {
-      return access.registerAgentKey(request, readTrustedIdentity(request));
-    }
-    if (operation === "agent-keys") return access.agentKeys();
+      const access = new WorkspaceAccessService(ctx.storage, env);
+      const agents = new WorkspaceAgentAccessService(ctx.storage, env);
+      if (operation === "members-list") {
+        return yield* attempt("workspace.members.list", () =>
+          access.membersList(request),
+        );
+      }
+      if (operation === "member-role-set") {
+        return yield* attempt("workspace.member.role", () =>
+          access.memberRoleSet(request),
+        );
+      }
+      if (operation === "agent-config-get") {
+        return yield* attempt("workspace.agent.config.get", () =>
+          agents.configGet(request),
+        );
+      }
+      if (operation === "agent-runtime-get") {
+        return yield* attempt("workspace.agent.runtime.get", () =>
+          agents.runtimeDescriptor(request),
+        );
+      }
+      if (operation === "agent-config-set") {
+        return yield* attempt("workspace.agent.config.set", () =>
+          agents.configSet(request),
+        );
+      }
+      if (operation === "authorize-conversation") {
+        return yield* attempt("workspace.conversation.authorize", () =>
+          agents.authorizeConversation(request),
+        );
+      }
+      if (operation === "authorize-agent-runtime") {
+        return yield* attempt("workspace.agent.authorize", () =>
+          agents.authorizeRuntime(request),
+        );
+      }
+      if (operation === "agent-hosting-context") {
+        return yield* attempt("workspace.agent.context", () =>
+          agents.hostingContext(request),
+        );
+      }
+      if (operation === "register-agent-key") {
+        return yield* attempt("workspace.agent.key.register", () =>
+          access.registerAgentKey(request, readTrustedIdentity(request)),
+        );
+      }
+      if (operation === "agent-keys") {
+        return yield* attempt("workspace.agent.keys", () => access.agentKeys());
+      }
 
-    const invitations = new WorkspaceInvitationService(
-      this.ctx.storage,
-      this.env,
+      const invitations = new WorkspaceInvitationService(ctx.storage, env);
+      if (operation === "invite-create") {
+        return yield* attempt("workspace.invite.create", () =>
+          invitations.create(request, readTrustedContext(request).principal),
+        );
+      }
+      if (operation === "invite-preview") {
+        return yield* attempt("workspace.invite.preview", () =>
+          invitations.preview(request),
+        );
+      }
+      if (operation === "invite-claim") {
+        return yield* attempt("workspace.invite.claim", () =>
+          invitations.claim(request, readTrustedIdentity(request).identity),
+        );
+      }
+      if (operation === "organization-member-join") {
+        return yield* attempt("workspace.organization.join", () =>
+          invitations.joinOrganizationMember(
+            readTrustedIdentity(request).identity,
+          ),
+        );
+      }
+
+      const lifecycle = new WorkspaceLifecycleService(ctx.storage, env);
+      if (operation === "complete-onboarding") {
+        return yield* attempt("workspace.onboarding.complete", () =>
+          lifecycle.completeOnboarding(request),
+        );
+      }
+
+      if (
+        operation === "secret-set" ||
+        operation === "secret-get" ||
+        operation === "secret-list" ||
+        operation === "secret-delete"
+      ) {
+        const secrets = new WorkspaceSecretService(ctx.storage, env);
+        if (operation === "secret-set") {
+          return yield* attempt("workspace.secret.set", () =>
+            secrets.set(request),
+          );
+        }
+        if (operation === "secret-get") {
+          return yield* attempt("workspace.secret.get", () =>
+            secrets.get(request),
+          );
+        }
+        if (operation === "secret-list") {
+          return yield* attempt("workspace.secret.list", () =>
+            secrets.list(request),
+          );
+        }
+        return yield* attempt("workspace.secret.delete", () =>
+          secrets.delete(request),
+        );
+      }
+
+      const context = readTrustedIdentity(request);
+      if (operation === "authorize") {
+        return yield* attempt("workspace.authorize", () =>
+          access.authorize(context.identity),
+        );
+      }
+      if (operation === "claim") {
+        return yield* attempt("workspace.claim", () =>
+          lifecycle.claim(request, context),
+        );
+      }
+      if (operation === "create-managed") {
+        return yield* attempt("workspace.create", () =>
+          lifecycle.createManaged(request, context),
+        );
+      }
+      if (operation === "snapshot") {
+        return yield* attempt("workspace.snapshot", () =>
+          lifecycle.snapshot(context),
+        );
+      }
+      if (operation === "deletion-plan") {
+        return yield* attempt("workspace.deletion.plan", () =>
+          lifecycle.deletionPlan(context),
+        );
+      }
+      if (operation === "delete-owned") {
+        return yield* attempt("workspace.delete", () =>
+          lifecycle.deleteOwned(context),
+        );
+      }
+
+      const logs = new WorkspaceLogService(ctx.storage, env);
+      if (operation === "record-logs") {
+        return yield* attempt("workspace.logs.record", () =>
+          logs.record(request),
+        );
+      }
+      if (operation === "list-logs") {
+        return yield* attempt("workspace.logs.list", () => logs.list(request));
+      }
+      return undefined;
+    }).pipe(
+      Effect.withSpan("workspace.operation", {
+        attributes: { "chief.operation": operation ?? "unknown" },
+      }),
     );
-    if (operation === "invite-create") {
-      return invitations.create(request, readTrustedContext(request).principal);
-    }
-    if (operation === "invite-preview") return invitations.preview(request);
-    if (operation === "invite-claim") {
-      return invitations.claim(request, readTrustedIdentity(request).identity);
-    }
-    if (operation === "organization-member-join") {
-      return invitations.joinOrganizationMember(
-        readTrustedIdentity(request).identity,
-      );
-    }
-
-    const lifecycle = new WorkspaceLifecycleService(this.ctx.storage, this.env);
-    if (operation === "complete-onboarding") {
-      return lifecycle.completeOnboarding(request);
-    }
-    const context = readTrustedIdentity(request);
-    if (operation === "authorize") return access.authorize(context.identity);
-    if (operation === "claim") return lifecycle.claim(request, context);
-    if (operation === "create-managed") {
-      return lifecycle.createManaged(request, context);
-    }
-    if (operation === "snapshot") return lifecycle.snapshot(context);
-    if (operation === "deletion-plan") return lifecycle.deletionPlan(context);
-    if (operation === "delete-owned") return lifecycle.deleteOwned(context);
-
-    const logs = new WorkspaceLogService(this.ctx.storage, this.env);
-    if (operation === "record-logs") return logs.record(request);
-    if (operation === "list-logs") return logs.list(request);
-    return undefined;
   }
 
   private async routeData(request: Request, operation: string) {
     const context = readTrustedContext(request);
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    channels.requirePrincipalMember(context.principal);
+    if (workspaceDataCapability(operation) === "machines.write")
+      requireWorkspaceAdministrator(channels, context.principal);
+    else channels.requirePrincipalMember(context.principal);
     channels.requireAgentCapability(
       context.principal,
       workspaceDataCapability(operation),
@@ -241,16 +370,16 @@ export class WorkspaceObject extends DurableObject<Env> {
       socket.send("pong");
       return;
     }
-    if (typeof message !== "string") {
+    if (!isJsonString(message)) {
       socket.close(1008, "Invalid workspace message");
       return;
     }
     try {
-      const input = JSON.parse(message) as {
-        type?: unknown;
-        conversationIds?: unknown;
-        after?: unknown;
-      };
+      const input = parseJsonObject(JSON.parse(message));
+      if (!input) {
+        socket.close(1008, "Invalid workspace message");
+        return;
+      }
       if (input.type !== "workspace.subscribe") {
         socket.close(1008, "Invalid workspace message");
         return;
@@ -343,7 +472,12 @@ export class WorkspaceObject extends DurableObject<Env> {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;
         socket.serializeAttachment({ ...attachment, cursor: event.sequence });
-        if (!attachment.conversationIds.includes(conversationId)) continue;
+        if (
+          !attachment.conversationIds.includes(conversationId) &&
+          !isMembershipGrantForPrincipal(event, attachment.principal)
+        ) {
+          continue;
+        }
         if (
           !channels.canReadConversation(conversationId, attachment.principal)
         ) {
@@ -356,95 +490,4 @@ export class WorkspaceObject extends DurableObject<Env> {
       }
     }
   }
-}
-
-interface WorkspaceSocketAttachment {
-  principal: Principal;
-  conversationIds: string[];
-  cursor: number | null;
-  subscribed: boolean;
-  messageWindowStartedAt: number;
-  messageCount: number;
-  subscriptionWindowStartedAt: number;
-  subscriptionCount: number;
-}
-
-type SocketAllowance = "message" | "subscription";
-
-function consumeSocketAllowance(
-  socket: WebSocket,
-  kind: SocketAllowance,
-): WorkspaceSocketAttachment | null {
-  const attachment = workspaceSocketAttachment(socket);
-  const now = Date.now();
-  const windowKey =
-    kind === "message"
-      ? "messageWindowStartedAt"
-      : "subscriptionWindowStartedAt";
-  const countKey = kind === "message" ? "messageCount" : "subscriptionCount";
-  const limit =
-    kind === "message"
-      ? SOCKET_MESSAGE_LIMIT_PER_MINUTE
-      : SUBSCRIPTION_UPDATE_LIMIT_PER_MINUTE;
-  const expired = now - attachment[windowKey] >= 60_000;
-  const count = expired ? 1 : attachment[countKey] + 1;
-  if (count > limit) {
-    socket.close(1008, "Workspace socket rate limit exceeded");
-    return null;
-  }
-  const next: WorkspaceSocketAttachment = {
-    ...attachment,
-    [windowKey]: expired ? now : attachment[windowKey],
-    [countKey]: count,
-  };
-  socket.serializeAttachment(next);
-  return next;
-}
-
-function workspaceSocketAttachment(
-  socket: WebSocket,
-): WorkspaceSocketAttachment {
-  const value = socket.deserializeAttachment() as WorkspaceSocketAttachment;
-  return {
-    principal: principalSchema.parse(value.principal),
-    conversationIds: Array.isArray(value.conversationIds)
-      ? value.conversationIds.map((id) => conversationIdSchema.parse(id))
-      : [],
-    cursor:
-      value.cursor === null ||
-      (Number.isInteger(value.cursor) && Number(value.cursor) >= 0)
-        ? value.cursor
-        : null,
-    subscribed: value.subscribed === true,
-    messageWindowStartedAt: validTimestamp(value.messageWindowStartedAt),
-    messageCount: validCount(value.messageCount),
-    subscriptionWindowStartedAt: validTimestamp(
-      value.subscriptionWindowStartedAt,
-    ),
-    subscriptionCount: validCount(value.subscriptionCount),
-  };
-}
-
-function validTimestamp(value: unknown) {
-  return Number.isSafeInteger(value) && Number(value) >= 0
-    ? Number(value)
-    : Date.now();
-}
-
-function validCount(value: unknown) {
-  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
-}
-
-function workspaceDataCapability(operation: string) {
-  if (operation === "data-brand-save") return "brand-profile-write";
-  if (operation === "data-prospect-save") return "prospects-write";
-  if (operation === "data-projects-list") return "projects.read";
-  if (
-    operation === "data-project-create" ||
-    operation === "data-project-delete"
-  )
-    return "projects.write";
-  if (operation === "data-file-save" || operation === "data-file-update")
-    return "workspace.write";
-  return "workspace.read";
 }

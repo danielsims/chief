@@ -4,8 +4,8 @@ import type {
   ChiefUIMessage,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
-import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ThreadParticipant } from "./channel-message-controls";
 import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
@@ -18,15 +18,16 @@ import {
   threadRootIdsNeedingUser,
 } from "../../lib/channel-action-items";
 import { withoutMarkerLines } from "../../lib/integration-setup";
-import { relayConversationId } from "../../lib/relay-channel-adapter";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import {
   ChannelMessageActions,
   ChannelMessageMeta,
 } from "./channel-message-controls";
 import { conversationVisibleBlocks } from "./conversation-visible-blocks";
-import { pluginActionContextForMessage } from "./plugin-action-context";
 import { specialistNeedsUserInThread } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 
@@ -42,7 +43,6 @@ type Timeline = ReturnType<typeof useChiefChatTimeline>;
 export function useChiefChatPresentation({
   channel,
   chatId,
-  destinationChannelId,
   composer,
   core,
   directAgent,
@@ -139,13 +139,12 @@ export function useChiefChatPresentation({
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
     const authoredId = message.metadata?.agentId;
-    const respondingId = (
-      authoredId && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, authoredId)
+    const respondingId =
+      isJsonString(authoredId) && isWorkspaceAgentId(authoredId)
         ? authoredId
-        : message.metadata?.mentions?.find((agentId) =>
-            Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
-          )
-    ) as WorkspaceAgentId | undefined;
+        : message.metadata?.mentions?.find(
+            (agentId) => isJsonString(agentId) && isWorkspaceAgentId(agentId),
+          );
     const identity = respondingId
       ? WORKSPACE_AGENT_IDENTITIES[respondingId]
       : undefined;
@@ -153,14 +152,6 @@ export function useChiefChatPresentation({
       ? { id: respondingId, name: identity.name, role: identity.role }
       : undefined;
   };
-  const pluginActionContextFor = (message: ChiefUIMessage) =>
-    pluginActionContextForMessage({
-      message,
-      workspaceId: core.cloudOrganizationId,
-      conversationId: destinationChannelId ?? relayConversationId(chatId),
-      fallbackAgentId:
-        respondingAgentFor(message)?.id ?? directAgent?.id ?? "chief",
-    });
   const controlsForMessage = (message: ChiefUIMessage) => {
     if (!channel) return {};
     const replySummary = summarizeThreadReplies(
@@ -183,7 +174,7 @@ export function useChiefChatPresentation({
               id: "current-user",
               kind: "user",
               name: userAuthor.name,
-              ...(userAuthor.image ? { image: userAuthor.image } : {}),
+              ...(userAuthor.image ? { image: userAuthor.image } : undefined),
             },
           ];
         }
@@ -254,7 +245,6 @@ export function useChiefChatPresentation({
     activeThreadSummary,
     controlsForMessage,
     imageParts,
-    pluginActionContextFor,
     respondingAgentFor,
     threadBlocks: visibleConversationBlocks,
     visibleConversationBlocks,

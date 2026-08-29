@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cloud, MessageCircle, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { Link } from "react-router";
 
 import type {
@@ -13,19 +13,10 @@ import type {
 } from "@chief/agent-runtime/types";
 import { effectiveAgentToolPermissions } from "@chief/agent-runtime/agent-tool-permissions";
 import { Button } from "@chief/ui/components/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-} from "@chief/ui/components/select";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentOverride as LocalAgentOverride } from "../../lib/agent-overrides";
-import type { Provider } from "../../lib/providers";
 import type { AgentIntegrationOption } from "./agent-detail-sections";
 import {
   getToolApprovals,
@@ -33,14 +24,13 @@ import {
   setAgentOverride,
   setWorkspaceProvider,
 } from "../../lib/agent-overrides";
-import { PROVIDER_META } from "../../lib/providers";
-import { useProviderModels } from "../../lib/runtime";
 import { AgentAvatar as ChiefAgentAvatar } from "../agent-avatar";
 import {
   AgentChannelsTab,
   AgentConfigurationTab,
   AgentPermissionsTab,
 } from "./agent-detail-sections";
+import { AgentExecutionCard } from "./agent-execution-card";
 
 export type { AgentIntegrationOption } from "./agent-detail-sections";
 
@@ -72,16 +62,6 @@ function DetailAgentAvatar({
   );
 }
 
-function ProviderOption({ provider }: { provider: Provider }) {
-  const { label, Icon } = PROVIDER_META[provider];
-  return (
-    <span className="flex items-center gap-2">
-      <Icon size={14} />
-      {label}
-    </span>
-  );
-}
-
 export function AgentDetail({
   agent,
   workspaceId,
@@ -89,9 +69,11 @@ export function AgentDetail({
   integrations,
   channels,
   ready,
+  saving,
+  preferenceError,
   onSave,
+  onApplyExecutionToTeam,
   onClose,
-  onDeploy,
   onUpdateChannelAgents,
 }: {
   agent: AgentDefinition;
@@ -100,16 +82,25 @@ export function AgentDetail({
   integrations: AgentIntegrationOption[];
   channels: readonly WorkspaceChannel[];
   ready: boolean;
+  saving: boolean;
+  preferenceError: string | null;
   onSave: (preference: AgentPreference) => void;
+  onApplyExecutionToTeam: (
+    deploymentTarget: "phone" | "desktop" | "cloud",
+    driver: DriverType,
+    model?: string,
+  ) => void;
   onClose?: () => void;
-  onDeploy?: () => void;
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
 }) {
   const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
   const enabled = override?.enabled ?? true;
-  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
-  const models = useProviderModels(driver);
+  const driver = override
+    ? (override.driver ?? null)
+    : getWorkspaceProvider(workspaceId);
   const model = override?.model ?? "";
+  const deploymentTarget =
+    override?.deploymentTarget ?? (driver === "remote" ? "cloud" : "desktop");
   const approvals = override?.approvals ?? getToolApprovals(workspaceId);
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
   const assignedIntegrations =
@@ -118,13 +109,13 @@ export function AgentDetail({
     agent.id,
     override?.toolPermissions,
   );
-  const meta = driver ? PROVIDER_META[driver] : null;
   const sharedChannels = channels.filter(
     (channel) => channel.visibility !== "direct",
   );
 
   const save = (patch: {
     enabled?: boolean;
+    deploymentTarget?: "phone" | "desktop" | "cloud";
     driver?: DriverType;
     model?: string;
     approvals?: AgentApprovalMode;
@@ -150,6 +141,7 @@ export function AgentDetail({
     onSave({
       agentId: agent.id,
       enabled: patch.enabled ?? enabled,
+      deploymentTarget: patch.deploymentTarget ?? deploymentTarget,
       driver: patch.driver ?? driver ?? undefined,
       model: (patch.model ?? model) || undefined,
       approvals: patch.approvals ?? approvals,
@@ -202,12 +194,6 @@ export function AgentDetail({
               <MessageCircle size={13} />
               Message
             </Button>
-            {onDeploy ? (
-              <Button variant="outline" size="sm" onClick={onDeploy}>
-                <Cloud size={13} />
-                Deploy
-              </Button>
-            ) : null}
             {onClose ? (
               <button
                 type="button"
@@ -225,85 +211,23 @@ export function AgentDetail({
           {agent.description}
         </p>
 
-        <div className="bg-muted/25 mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl px-4 py-3.5">
-          <div>
-            <p className="text-[13px] font-medium">Agent app and model</p>
-            <p className="text-muted-foreground mt-0.5 text-[11px]">
-              {meta
-                ? `${agent.name} runs through ${meta.label}.`
-                : "Choose the local agent app that runs this agent."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={driver ?? undefined}
-              disabled={!ready}
-              onValueChange={(value) =>
-                save({ driver: value as DriverType, model: "" })
-              }
-            >
-              <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
-                {meta ? (
-                  <span className="flex items-center gap-2">
-                    <meta.Icon size={14} />
-                    {meta.label}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    Choose agent app
-                  </span>
-                )}
-              </SelectTrigger>
-              <SelectContent className="min-w-40">
-                <SelectGroup>
-                  <SelectLabel>Local agent apps</SelectLabel>
-                  <SelectItem value="claude">
-                    <ProviderOption provider="claude" />
-                  </SelectItem>
-                  <SelectItem value="codex">
-                    <ProviderOption provider="codex" />
-                  </SelectItem>
-                  <SelectItem value="opencode">
-                    <ProviderOption provider="opencode" />
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {driver ? (
-              <Select
-                value={model || "__auto__"}
-                disabled={!ready}
-                onValueChange={(value) =>
-                  save({ model: value === "__auto__" ? "" : value })
-                }
-              >
-                <SelectTrigger className="bg-background/70 h-9 w-auto max-w-56 min-w-40 rounded-xl px-2.5 text-xs">
-                  <span className="truncate">
-                    {models.loading
-                      ? "Loading…"
-                      : (models.models.find((item) => item.value === model)
-                          ?.label ??
-                          model) ||
-                        "Auto-select model"}
-                  </span>
-                </SelectTrigger>
-                <SelectContent className="max-h-72 min-w-56">
-                  {(models.models.length
-                    ? models.models
-                    : [{ value: "", label: "Auto-select model" }]
-                  ).map((item) => (
-                    <SelectItem
-                      key={item.value || "auto"}
-                      value={item.value || "__auto__"}
-                    >
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-          </div>
-        </div>
+        <AgentExecutionCard
+          agentName={agent.name}
+          deploymentTarget={deploymentTarget}
+          driver={driver}
+          model={model}
+          ready={ready}
+          saving={saving}
+          error={preferenceError}
+          onApply={save}
+          onApplyToTeam={(draft) =>
+            onApplyExecutionToTeam(
+              draft.deploymentTarget,
+              draft.driver,
+              draft.model,
+            )
+          }
+        />
       </header>
 
       <nav

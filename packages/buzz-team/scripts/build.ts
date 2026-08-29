@@ -11,7 +11,7 @@ import {
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactsDirectory = resolve(packageRoot, "artifacts");
 
-const serialize = async (value: unknown) =>
+const serialize = async <Value>(value: Value) =>
   format(JSON.stringify(value), {
     parser: "json",
   });

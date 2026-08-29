@@ -1,33 +1,71 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
+import type { SpecialistOutcomeManager } from "../src/specialist-outcome-state.js";
 import {
   persistSpecialistOutcomeState,
   setupNeedsHumanSignIn,
 } from "../src/specialist-outcome-state.js";
 
+type SpecialistOutcomeManagerOverrides = Partial<
+  Omit<SpecialistOutcomeManager, "store">
+> & {
+  store?: Partial<SpecialistOutcomeManager["store"]>;
+};
+
+type FinishChildChatArgs = Parameters<
+  SpecialistOutcomeManager["finishChildChat"]
+>;
+type RaiseActionItemArgs = Parameters<
+  SpecialistOutcomeManager["raiseActionItem"]
+>;
+type UpdateChatStateArgs = Parameters<
+  SpecialistOutcomeManager["store"]["updateChatState"]
+>;
+
+function specialistManager(
+  overrides: SpecialistOutcomeManagerOverrides,
+): SpecialistOutcomeManager {
+  const base: SpecialistOutcomeManager = {
+    finishChildChat: () => undefined,
+    waitForChatPersistence: () => Promise.resolve(),
+    raiseActionItem: () => undefined,
+    dismissActionItem: () => undefined,
+    store: {
+      listBrowserRuns: () => Promise.resolve([]),
+      listActionItems: () => Promise.resolve([]),
+      chatRecord: () => Promise.resolve(null),
+      updateChatState: () => undefined,
+    },
+  };
+  return {
+    ...base,
+    ...overrides,
+    store: { ...base.store, ...overrides.store },
+  };
+}
+
 void test("Setup stays waiting while a browser handoff needs the user", async () => {
-  const finished: unknown[] = [];
-  const updates: unknown[] = [];
-  const actions: unknown[] = [];
-  const manager = {
-    finishChildChat: (...args: unknown[]) => {
+  const finished: FinishChildChatArgs[] = [];
+  const updates: UpdateChatStateArgs[] = [];
+  const actions: RaiseActionItemArgs[] = [];
+  const manager = specialistManager({
+    finishChildChat: (...args: FinishChildChatArgs) => {
       finished.push(args);
     },
     waitForChatPersistence: () => Promise.resolve(),
-    raiseActionItem: (...args: unknown[]) => {
+    raiseActionItem: (...args: RaiseActionItemArgs) => {
       actions.push(args);
     },
     store: {
       listBrowserRuns: () => Promise.resolve([]),
       listActionItems: () => Promise.resolve([]),
       chatRecord: () => Promise.resolve({ title: "Connect Google Analytics" }),
-      updateChatState: (...args: unknown[]) => {
+      updateChatState: (...args: UpdateChatStateArgs) => {
         updates.push(args);
       },
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -85,15 +123,15 @@ void test("Setup stays waiting while a browser handoff needs the user", async ()
 });
 
 void test("an active Setup browser is a waiting handoff even after a tool error", async () => {
-  const finished: unknown[] = [];
-  const updates: unknown[] = [];
-  const actions: unknown[] = [];
-  const manager = {
-    finishChildChat: (...args: unknown[]) => {
+  const finished: FinishChildChatArgs[] = [];
+  const updates: UpdateChatStateArgs[] = [];
+  const actions: RaiseActionItemArgs[] = [];
+  const manager = specialistManager({
+    finishChildChat: (...args: FinishChildChatArgs) => {
       finished.push(args);
     },
     waitForChatPersistence: () => Promise.resolve(),
-    raiseActionItem: (...args: unknown[]) => {
+    raiseActionItem: (...args: RaiseActionItemArgs) => {
       actions.push(args);
     },
     store: {
@@ -118,11 +156,11 @@ void test("an active Setup browser is a waiting handoff even after a tool error"
             status: "open",
           },
         ]),
-      updateChatState: (...args: unknown[]) => {
+      updateChatState: (...args: UpdateChatStateArgs) => {
         updates.push(args);
       },
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -150,12 +188,12 @@ void test("an active Setup browser is a waiting handoff even after a tool error"
 });
 
 void test("completed specialist work still reaches the terminal state", async () => {
-  const finished: unknown[] = [];
-  const manager = {
-    finishChildChat: (...args: unknown[]) => {
+  const finished: FinishChildChatArgs[] = [];
+  const manager = specialistManager({
+    finishChildChat: (...args: FinishChildChatArgs) => {
       finished.push(args);
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -175,13 +213,16 @@ void test("completed specialist work still reaches the terminal state", async ()
 });
 
 void test("completed Setup work clears its session-scoped attention", async () => {
-  const finished: unknown[] = [];
-  const dismissed: unknown[] = [];
-  const manager = {
-    finishChildChat: (...args: unknown[]) => {
+  const finished: FinishChildChatArgs[] = [];
+  const dismissed: Parameters<SpecialistOutcomeManager["dismissActionItem"]>[] =
+    [];
+  const manager = specialistManager({
+    finishChildChat: (...args: FinishChildChatArgs) => {
       finished.push(args);
     },
-    dismissActionItem: (...args: unknown[]) => {
+    dismissActionItem: (
+      ...args: Parameters<SpecialistOutcomeManager["dismissActionItem"]>
+    ) => {
       dismissed.push(args);
     },
     store: {
@@ -202,7 +243,7 @@ void test("completed Setup work clears its session-scoped attention", async () =
           },
         ]),
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,

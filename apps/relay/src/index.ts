@@ -2,7 +2,6 @@ import { routeRelayRequest } from "./router";
 
 export { AgentObject } from "./agent-object";
 export { AccountObject } from "./account-object";
-export { AnalyticsObject } from "./analytics-object";
 export { ConversationObject } from "./conversation-object";
 export { WorkspaceObject } from "./workspace-object";
 

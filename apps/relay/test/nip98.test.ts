@@ -3,6 +3,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
+
 import {
   computeNostrEventId,
   sha256PayloadTag,
@@ -30,7 +32,7 @@ function signEvent(input: EventInput) {
   return { id, ...event, sig };
 }
 
-function base64Event(event: Record<string, unknown>) {
+function base64Event(event: JsonObject) {
   return Buffer.from(JSON.stringify(event), "utf8").toString("base64");
 }
 

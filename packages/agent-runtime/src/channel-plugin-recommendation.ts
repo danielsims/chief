@@ -1,4 +1,5 @@
 import type { AgentPluginSummary } from "@chief/plugin-api";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
@@ -10,7 +11,7 @@ import { createChannelEvent } from "./channels/nip29.js";
 const MAX_RECOMMENDATIONS = 8;
 const DOMAIN_IN_SERVICE = /\(([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)\)\s*$/i;
 
-function stringList(input: unknown, name: string) {
+function stringList(input: JsonValue | undefined, name: string) {
   if (input === undefined) return [];
   if (!Array.isArray(input)) {
     fail(`${name} must be an array.`, 400, "invalid_plugin_recommendation");
@@ -18,22 +19,6 @@ function stringList(input: unknown, name: string) {
   return input
     .slice(0, MAX_RECOMMENDATIONS)
     .map((item, index) => textValue(item, `${name}[${index}]`, 120));
-}
-
-function isPluginSummary(value: unknown): value is AgentPluginSummary {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const plugin = value as Partial<AgentPluginSummary>;
-  return Boolean(
-    typeof plugin.id === "string" &&
-    typeof plugin.name === "string" &&
-    typeof plugin.description === "string" &&
-    typeof plugin.category === "string" &&
-    typeof plugin.status === "string" &&
-    typeof plugin.enabled === "boolean" &&
-    typeof plugin.trusted === "boolean" &&
-    plugin.source &&
-    typeof plugin.source === "object",
-  );
 }
 
 function normalized(value: string) {
@@ -143,7 +128,7 @@ export async function postPluginRecommendation(input: {
   workspaceId: string;
   channel: WorkspaceChannel;
   events: ChannelEvent[];
-  body: Record<string, unknown>;
+  body: JsonObject;
   context: ChannelLocalToolContext;
 }) {
   const { workspaceId, channel, events, body, context } = input;
@@ -167,13 +152,8 @@ export async function postPluginRecommendation(input: {
       "plugin_recommendation_empty",
     );
   }
-  const snapshot = (await context.plugins.list(false)) as {
-    plugins?: unknown[];
-  };
-  const catalog = Array.isArray(snapshot.plugins)
-    ? snapshot.plugins.filter(isPluginSummary)
-    : [];
-  const resolved = resolvePlugins(catalog, pluginIds, services);
+  const snapshot = await context.plugins.list(false);
+  const resolved = resolvePlugins(snapshot.plugins, pluginIds, services);
   if (resolved.plugins.length === 0) {
     fail(
       "No matching plugins were found in the current catalog.",

@@ -40,10 +40,8 @@ Agents can use focused playbooks, connected services, and general workspace tool
 | Path                                                           | Purpose                                                               |
 | -------------------------------------------------------------- | --------------------------------------------------------------------- |
 | [`apps/desktop`](./apps/desktop/README.md)                     | Tauri desktop app and React interface.                                |
-| [`apps/web`](./apps/web/README.md)                             | Marketing site, authentication, billing, and desktop auth bridge.     |
-| [`apps/workspace`](./apps/workspace/README.md)                 | Eve workspace used to build and run deployable agents.                |
+| [`apps/web`](./apps/web/README.md)                             | Marketing site, authentication, and desktop auth bridge.              |
 | [`packages/agent-runtime`](./packages/agent-runtime/README.md) | Local Node runtime, scheduling, tools, channels, and agent execution. |
-| [`packages/backend`](./packages/backend/README.md)             | Convex data model, authentication integration, and server functions.  |
 | [`packages/email`](./packages/email/README.md)                 | React Email templates and Cloudflare Email Service transport.         |
 | [`packages/ui`](./packages/ui/README.md)                       | Shared components, typography, and design tokens.                     |
 
@@ -55,7 +53,6 @@ Agents can use focused playbooks, connected services, and general workspace tool
 - Node.js 24 or newer
 - pnpm 10.17 or newer
 - Rust and the platform dependencies required by Tauri
-- A Convex deployment for authentication and shared application data
 
 ### Install
 
@@ -65,10 +62,10 @@ cd chief
 pnpm install
 ```
 
-Initialize the Convex backend in one terminal:
+Start the relay in one terminal:
 
 ```bash
-pnpm --filter @chief/backend dev
+pnpm relay:dev
 ```
 
 Start the web and workspace services:

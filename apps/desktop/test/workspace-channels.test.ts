@@ -16,6 +16,7 @@ import {
   resolvedChannelChatId,
   WORKSPACE_CHANNELS,
   WORKSPACE_DIRECT_MESSAGES,
+  workspaceChannel,
 } from "../src/lib/workspace-channels";
 
 function artifact(title: string, description = ""): ExecutorArtifactSummary {
@@ -61,6 +62,14 @@ void test("keeps mission control as the stable onboarding channel", () => {
     ]),
     channelChatId(channel.id),
   );
+});
+
+void test("resolves a built-in channel before the runtime channel list loads", () => {
+  const engineering = WORKSPACE_CHANNELS.find(
+    (channel) => channel.id === "engineering",
+  );
+  assert.ok(engineering);
+  assert.equal(workspaceChannel(engineering.relayId)?.id, "engineering");
 });
 
 void test("prepopulates every agent direct message before the first turn", () => {

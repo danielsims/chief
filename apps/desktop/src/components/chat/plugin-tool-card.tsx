@@ -11,10 +11,12 @@ import type {
 } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
-import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
+import type { PluginOAuthClientInput } from "../../lib/runtime-plugins";
 import { integrationSetupChannelPath } from "../../lib/integration-setup";
+import { connectRecommendedPlugin } from "../../lib/plugin-connection";
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
+import { PluginOAuthClientDialog } from "../plugins/plugin-oauth-client-dialog";
 import { ProviderLogo } from "../provider-logo";
 import {
   pluginAuthorizationFromResult,
@@ -25,39 +27,35 @@ type ToolUse = Extract<ContentBlock, { type: "tool_use" }>;
 type ToolResult = Extract<ContentBlock, { type: "tool_result" }>;
 
 type PluginRuntime = ReturnType<typeof usePlugins>;
+type OAuthClientAction = Extract<
+  PluginAuthorizationAction,
+  { kind: "plugin_oauth_client" }
+>;
 const PREVIEW_REFRESHED_AT = 1_786_555_200_000;
 
 function PluginRow({
   plugin,
   runtime,
-  actionContext,
   authorization,
 }: {
   plugin: AgentPluginSummary;
   runtime: PluginRuntime;
-  actionContext?: RelayPluginActionContext;
   authorization?: PluginAuthorizationAction;
 }) {
   const navigate = useNavigate();
-  const [requested, setRequested] = useState(false);
+  const [oauthClientAction, setOAuthClientAction] =
+    useState<OAuthClientAction | null>(null);
   const current =
     runtime.plugins?.find((item) => item.id === plugin.id) ?? plugin;
   const busy = runtime.busyPluginId === plugin.id;
   const connect = async () => {
     try {
       if (authorization) {
+        if (authorization.kind === "plugin_oauth_client") {
+          setOAuthClientAction(authorization);
+          return;
+        }
         await openUrl(authorization.authorizationUrl);
-        return;
-      }
-      if (actionContext) {
-        runtime.requestAgentAction(
-          current,
-          current.status === "available" || current.status === "error"
-            ? "install"
-            : "authorize",
-          actionContext,
-        );
-        setRequested(true);
         return;
       }
       if (current.source.type === "setup") {
@@ -69,41 +67,52 @@ function PluginRow({
         );
         return;
       }
-      if (current.status === "available" || current.status === "error") {
-        await runtime.install(current.id);
+      const action = await connectRecommendedPlugin(current, runtime);
+      if (action?.kind === "plugin_oauth_client") {
+        setOAuthClientAction(action);
       }
-      await runtime.authorize(current.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
   };
+  const configureClient = async (input: PluginOAuthClientInput) => {
+    const active = oauthClientAction;
+    if (!active) return;
+    setOAuthClientAction(null);
+    try {
+      const action = await runtime.authorize(active.pluginId, input);
+      if (action?.kind === "plugin_oauth_client") setOAuthClientAction(action);
+    } catch (error) {
+      setOAuthClientAction(active);
+      throw error;
+    }
+  };
   return (
-    <div className="bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm">
-      <ProviderLogo
-        domain={pluginDomain(current)}
-        label={current.name}
-        className="size-10 overflow-hidden rounded-xl"
-      />
-      <span className="min-w-0 flex-1">
-        <strong className="block truncate text-sm font-medium">
-          {current.name}
-        </strong>
-      </span>
-      {current.status === "connected" ? (
-        <span className="flex items-center gap-1 text-xs text-emerald-500">
-          <Check size={13} /> Connected
+    <>
+      <div className="bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm">
+        <ProviderLogo
+          domain={pluginDomain(current)}
+          label={current.name}
+          className="size-10 overflow-hidden rounded-xl"
+        />
+        <span className="min-w-0 flex-1">
+          <strong className="block truncate text-sm font-medium">
+            {current.name}
+          </strong>
         </span>
-      ) : (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy || requested}
-          onClick={() => void connect()}
-        >
-          {busy ? <LoaderCircle className="animate-spin" size={13} /> : null}
-          {requested
-            ? "Requested"
-            : current.status === "available"
+        {current.status === "connected" ? (
+          <span className="flex items-center gap-1 text-xs text-emerald-500">
+            <Check size={13} /> Connected
+          </span>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void connect()}
+          >
+            {busy ? <LoaderCircle className="animate-spin" size={13} /> : null}
+            {current.status === "available"
               ? "Authorize"
               : current.status === "waiting"
                 ? "Reopen"
@@ -112,21 +121,29 @@ function PluginRow({
                   : current.status === "reconnect"
                     ? "Reconnect"
                     : "Authorize"}
-        </Button>
-      )}
-    </div>
+          </Button>
+        )}
+      </div>
+      {oauthClientAction ? (
+        <PluginOAuthClientDialog
+          key={`${oauthClientAction.pluginId}:${oauthClientAction.serverName}`}
+          action={oauthClientAction}
+          busy={busy}
+          onClose={() => setOAuthClientAction(null)}
+          onSubmit={configureClient}
+        />
+      ) : null}
+    </>
   );
 }
 
 function PluginRecommendationRows({
   plugins,
   runtime,
-  actionContext,
   authorizations,
 }: {
   plugins: AgentPluginSummary[];
   runtime: PluginRuntime;
-  actionContext?: RelayPluginActionContext;
   authorizations?: PluginAuthorizationAction[];
 }) {
   return (
@@ -136,7 +153,6 @@ function PluginRecommendationRows({
           key={plugin.id}
           plugin={plugin}
           runtime={runtime}
-          actionContext={actionContext}
           authorization={authorizations?.find(
             (authorization) => authorization.pluginId === plugin.id,
           )}
@@ -148,11 +164,9 @@ function PluginRecommendationRows({
 
 export function PluginRecommendationCards({
   plugins,
-  actionContext,
   authorizations,
 }: {
   plugins: AgentPluginSummary[];
-  actionContext?: RelayPluginActionContext;
   authorizations?: PluginAuthorizationAction[];
 }) {
   const runtime = usePlugins();
@@ -160,7 +174,6 @@ export function PluginRecommendationCards({
     <PluginRecommendationRows
       plugins={plugins}
       runtime={runtime}
-      actionContext={actionContext}
       authorizations={authorizations}
     />
   );
@@ -177,6 +190,10 @@ function AuthorizationCard({
 }) {
   const action = pluginAuthorizationFromResult(result);
   const [opened, setOpened] = useState(initiallyOpened);
+  const [oauthClientAction, setOAuthClientAction] =
+    useState<OAuthClientAction | null>(
+      action?.kind === "plugin_oauth_client" ? action : null,
+    );
   if (!action) return null;
   const current = plugins.plugins?.find(
     (plugin) => plugin.id === action.pluginId,
@@ -191,6 +208,10 @@ function AuthorizationCard({
     : action.pluginId;
   const open = async () => {
     try {
+      if (action.kind === "plugin_oauth_client") {
+        setOAuthClientAction(action);
+        return;
+      }
       await openUrl(action.authorizationUrl);
       setOpened(true);
     } catch (error) {
@@ -200,85 +221,118 @@ function AuthorizationCard({
   const restart = async () => {
     await open();
   };
+  const configureClient = async (input: PluginOAuthClientInput) => {
+    const active = oauthClientAction;
+    if (!active) return;
+    setOAuthClientAction(null);
+    try {
+      const next = await plugins.authorize(active.pluginId, input);
+      if (next?.kind === "plugin_oauth_client") {
+        setOAuthClientAction(next);
+      } else {
+        setOpened(true);
+      }
+    } catch (error) {
+      setOAuthClientAction(active);
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
-    <div className="bg-card/70 w-[620px] max-w-full rounded-2xl border p-4 shadow-sm">
-      <div className="flex min-w-0 items-center gap-3">
-        <ProviderLogo
-          domain={providerDomain}
-          label={action.pluginName}
-          className="size-12 overflow-hidden rounded-xl"
-        />
-        <span className="min-w-0 flex-1">
-          <strong className="block truncate text-base font-medium">
-            {action.pluginName}
-          </strong>
-          <small className="text-muted-foreground mt-0.5 block truncate text-sm">
-            {action.description}
-          </small>
-        </span>
-        {!waiting && !connected && !failed && !reconnect ? (
-          <Button variant="outline" onClick={() => void open()}>
-            Authorize
-          </Button>
+    <>
+      <div className="bg-card/70 w-[620px] max-w-full rounded-2xl border p-4 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3">
+          <ProviderLogo
+            domain={providerDomain}
+            label={action.pluginName}
+            className="size-12 overflow-hidden rounded-xl"
+          />
+          <span className="min-w-0 flex-1">
+            <strong className="block truncate text-base font-medium">
+              {action.pluginName}
+            </strong>
+            <small className="text-muted-foreground mt-0.5 block truncate text-sm">
+              {action.description}
+            </small>
+          </span>
+          {!waiting && !connected && !failed && !reconnect ? (
+            <Button variant="outline" onClick={() => void open()}>
+              Authorize
+            </Button>
+          ) : null}
+        </div>
+        {waiting || connected || failed || reconnect ? (
+          <div className="mt-4 flex items-center gap-2 border-t pt-3">
+            {connected ? (
+              <>
+                <Check className="text-emerald-500" size={15} />
+                <span className="text-muted-foreground text-sm">
+                  Connected to {action.pluginName}
+                </span>
+              </>
+            ) : failed ? (
+              <>
+                <CircleAlert className="text-amber-500" size={15} />
+                <span className="text-muted-foreground flex-1 text-sm">
+                  {action.pluginName} authorization didn&apos;t finish.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void restart()}
+                >
+                  Retry
+                </Button>
+              </>
+            ) : reconnect ? (
+              <>
+                <RotateCw className="text-amber-500" size={15} />
+                <span className="text-muted-foreground flex-1 text-sm">
+                  {action.pluginName} needs to reconnect.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void restart()}
+                >
+                  Reconnect
+                </Button>
+              </>
+            ) : (
+              <>
+                <LoaderCircle
+                  className="text-muted-foreground animate-spin"
+                  size={15}
+                />
+                <span className="text-muted-foreground flex-1 text-sm">
+                  Waiting for {action.pluginName} authorization…
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => void open()}>
+                  <RotateCw size={13} /> Reopen
+                </Button>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
-      {waiting || connected || failed || reconnect ? (
-        <div className="mt-4 flex items-center gap-2 border-t pt-3">
-          {connected ? (
-            <>
-              <Check className="text-emerald-500" size={15} />
-              <span className="text-muted-foreground text-sm">
-                Connected to {action.pluginName}
-              </span>
-            </>
-          ) : failed ? (
-            <>
-              <CircleAlert className="text-amber-500" size={15} />
-              <span className="text-muted-foreground flex-1 text-sm">
-                {action.pluginName} authorization didn&apos;t finish.
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => void restart()}>
-                Retry
-              </Button>
-            </>
-          ) : reconnect ? (
-            <>
-              <RotateCw className="text-amber-500" size={15} />
-              <span className="text-muted-foreground flex-1 text-sm">
-                {action.pluginName} needs to reconnect.
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => void restart()}>
-                Reconnect
-              </Button>
-            </>
-          ) : (
-            <>
-              <LoaderCircle
-                className="text-muted-foreground animate-spin"
-                size={15}
-              />
-              <span className="text-muted-foreground flex-1 text-sm">
-                Waiting for {action.pluginName} authorization…
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => void open()}>
-                <RotateCw size={13} /> Reopen
-              </Button>
-            </>
-          )}
-        </div>
+      {oauthClientAction ? (
+        <PluginOAuthClientDialog
+          key={`${oauthClientAction.pluginId}:${oauthClientAction.serverName}`}
+          action={oauthClientAction}
+          busy={plugins.busyPluginId === oauthClientAction.pluginId}
+          onClose={() => setOAuthClientAction(null)}
+          onSubmit={configureClient}
+        />
       ) : null}
-    </div>
+    </>
   );
 }
 
 export function PluginToolCard({
   block: _block,
   result,
-  actionContext,
 }: {
   block: ToolUse;
   result?: ToolResult;
-  actionContext?: RelayPluginActionContext;
 }) {
   const plugins = usePlugins();
   const authorization = result
@@ -294,13 +348,7 @@ export function PluginToolCard({
   }
   if (authorization)
     return <AuthorizationCard result={result} plugins={plugins} />;
-  if (listed)
-    return (
-      <PluginRecommendationCards
-        plugins={listed}
-        actionContext={actionContext}
-      />
-    );
+  if (listed) return <PluginRecommendationCards plugins={listed} />;
   return null;
 }
 
@@ -342,10 +390,6 @@ export function PluginToolCardsPreview() {
         status: "authorization_required" as const,
       }),
     uninstall: () => Promise.resolve(),
-    requestAgentAction: () => ({
-      messageId: "00000000-0000-4000-8000-000000000000",
-      verb: "connect",
-    }),
   } satisfies PluginRuntime;
   const result: ToolResult = {
     type: "tool_result",

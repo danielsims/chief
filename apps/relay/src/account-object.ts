@@ -1,18 +1,23 @@
 import { DurableObject } from "cloudflare:workers";
+import { Effect } from "effect";
 
 import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 import {
   commandIdSchema,
   createWorkspaceCommandSchema,
+  isJsonObject,
+  isJsonString,
   switchWorkspaceCommandSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { attempt, runResponse, sync } from "./effect";
 import { json, parseJson, relayError } from "./http";
 import {
   readTrustedAccountIdentity,
   withTrustedIdentity,
 } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 interface DirectoryRow extends Record<string, SqlStorageValue> {
   workspace_id: string;
@@ -51,9 +56,17 @@ export class AccountObject extends DurableObject<Env> {
     });
   }
 
-  async fetch(request: Request) {
-    try {
-      const identity = readTrustedAccountIdentity(request);
+  fetch(request: Request) {
+    const create = this.create.bind(this);
+    const active = this.active.bind(this);
+    const list = this.list.bind(this);
+    const switchWorkspace = this.switchWorkspace.bind(this);
+    const join = this.join.bind(this);
+    const remove = this.remove.bind(this);
+    const program = Effect.gen(function* () {
+      const identity = yield* sync("account.identity", () =>
+        readTrustedAccountIdentity(request),
+      );
       if (identity.kind !== "user") {
         return relayError(403, "user_required", "A user identity is required.");
       }
@@ -62,27 +75,34 @@ export class AccountObject extends DurableObject<Env> {
         return relayError(405, "method_not_allowed", "Method not allowed.");
       }
       if (operation === "create-workspace") {
-        return await this.create(request, identity);
+        return yield* attempt("account.workspace.create", () =>
+          create(request, identity),
+        );
       }
-      if (operation === "active-workspace") return this.active(identity);
-      if (operation === "list-workspaces") return await this.list(identity);
+      if (operation === "active-workspace") {
+        return yield* sync("account.workspace.active", () => active(identity));
+      }
+      if (operation === "list-workspaces") {
+        return yield* attempt("account.workspace.list", () => list(identity));
+      }
       if (operation === "switch-workspace") {
-        return await this.switchWorkspace(request, identity);
+        return yield* attempt("account.workspace.switch", () =>
+          switchWorkspace(request, identity),
+        );
       }
       if (operation === "join-workspace") {
-        return await this.join(request, identity);
+        return yield* attempt("account.workspace.join", () =>
+          join(request, identity),
+        );
       }
       if (operation === "remove-workspace") {
-        return await this.remove(request);
+        return yield* attempt("account.workspace.remove", () =>
+          remove(request),
+        );
       }
       return relayError(404, "not_found", "Account operation not found.");
-    } catch {
-      return relayError(
-        400,
-        "invalid_request",
-        "The account request is invalid.",
-      );
-    }
+    });
+    return runResponse(program, this.env, { operation: "account.fetch" });
   }
 
   private async create(
@@ -100,7 +120,7 @@ export class AccountObject extends DurableObject<Env> {
     );
     if (prior) {
       this.setActiveWorkspace(identity.pubkey, prior.workspace_id);
-      return json(toDirectoryEntry(prior));
+      return json({ ...toDirectoryEntry(prior), created: false });
     }
 
     const workspaceId = workspaceIdSchema.parse(
@@ -122,7 +142,7 @@ export class AccountObject extends DurableObject<Env> {
       );
       this.setActiveWorkspace(identity.pubkey, workspaceId, createdAt);
     });
-    return json({ workspaceId, command, createdAt });
+    return json({ workspaceId, command, createdAt, created: true });
   }
 
   private active(identity: Extract<AuthenticatedIdentity, { kind: "user" }>) {
@@ -178,7 +198,10 @@ export class AccountObject extends DurableObject<Env> {
           },
         ),
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        await releaseInternalResponse(response);
+        return false;
+      }
       const snapshot: { onboardingComplete?: boolean } = await response.json();
       return snapshot.onboardingComplete === true;
     } catch {
@@ -211,7 +234,7 @@ export class AccountObject extends DurableObject<Env> {
     if (current?.workspace_id !== target) {
       this.setActiveWorkspace(identity.pubkey, target);
     }
-    void this.maybeRecordMetrics();
+    void this.maybeRecordProductEvents();
     return json({ workspaceId: target, isActive: true });
   }
 
@@ -219,14 +242,16 @@ export class AccountObject extends DurableObject<Env> {
     request: Request,
     identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
   ) {
-    const input = (await parseJson(request)) as Record<string, unknown>;
-    const workspaceId = workspaceIdSchema.parse(input.workspaceId);
-    const operationId = commandIdSchema.parse(input.operationId);
-    const name = typeof input.name === "string" ? input.name.trim() : "";
-    const website =
-      typeof input.website === "string" ? input.website.trim() : "";
-    const createdAt =
-      typeof input.createdAt === "string" ? input.createdAt : "";
+    const input = parseJson(request).then((value) => {
+      if (!isJsonObject(value)) throw new Error("Expected a JSON object.");
+      return value;
+    });
+    const body = await input;
+    const workspaceId = workspaceIdSchema.parse(body.workspaceId);
+    const operationId = commandIdSchema.parse(body.operationId);
+    const name = isJsonString(body.name) ? body.name.trim() : "";
+    const website = isJsonString(body.website) ? body.website.trim() : "";
+    const createdAt = isJsonString(body.createdAt) ? body.createdAt : "";
     if (!name || name.length > 120 || website.length > 2_048) {
       return relayError(
         400,
@@ -268,7 +293,8 @@ export class AccountObject extends DurableObject<Env> {
   }
 
   private async remove(request: Request) {
-    const input = (await parseJson(request)) as Record<string, unknown>;
+    const input = await parseJson(request);
+    if (!isJsonObject(input)) throw new Error("Expected a JSON object.");
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const existing = firstRow<DirectoryRow>(
       this.ctx.storage.sql.exec(
@@ -336,10 +362,10 @@ export class AccountObject extends DurableObject<Env> {
     );
   }
 
-  private async maybeRecordMetrics() {
+  private async maybeRecordProductEvents() {
     try {
-      const { recordMetrics } = await import("./metrics");
-      recordMetrics(this.env, ["active-workspace"]);
+      const { recordProductEvents } = await import("./product-events");
+      recordProductEvents(this.env, ["active-workspace"]);
     } catch {
       // Observability only.
     }
@@ -405,5 +431,6 @@ function migrateLegacyDirectory(storage: DurableObjectStorage) {
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

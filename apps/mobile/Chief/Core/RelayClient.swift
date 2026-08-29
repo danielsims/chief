@@ -7,7 +7,10 @@ let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 protocol RelayServing: Sendable {
   func bindDeviceIdentity(accountToken: String) async throws
   func loadWorkspace() async throws -> WorkspaceSnapshot
-  func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot
+  func createWorkspace(
+    from draft: OnboardingDraft,
+    inferenceCredential: String?
+  ) async throws -> WorkspaceSnapshot
   func messages(
     workspaceID: String,
     conversationID: String,
@@ -130,6 +133,8 @@ protocol RelayServing: Sendable {
   ) async throws -> ConversationSummary
   func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig?
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws
+  func workspaceSecretNames(workspaceID: String) async throws -> [String]
+  func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
   func replies(
     workspaceID: String,
     conversationID: String,
@@ -188,6 +193,14 @@ protocol RelayServing: Sendable {
 }
 
 extension RelayServing {
+  func workspaceSecretNames(workspaceID _: String) async throws -> [String] {
+    throw RelayError.unavailable
+  }
+
+  func setWorkspaceSecret(workspaceID _: String, name _: String, value _: String) async throws {
+    throw RelayError.unavailable
+  }
+
   func createWorkspaceInvite(
     workspaceID _: String,
     conversationID _: String?
@@ -801,6 +814,28 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
+  func workspaceSecretNames(workspaceID: String) async throws -> [String] {
+    struct Secret: Decodable { let name: String }
+    struct SecretList: Decodable { let secrets: [Secret] }
+    let result: SecretList = try await request(
+      path: "/v1/workspaces/\(workspaceID)/secrets",
+      method: "GET"
+    )
+    return result.secrets.map(\.name)
+  }
+
+  func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws {
+    struct Input: Encodable {
+      let name: String
+      let value: String
+    }
+    let _: EmptyResponse = try await request(
+      path: "/v1/workspaces/\(workspaceID)/secrets",
+      method: "POST",
+      body: try JSONEncoder().encode(Input(name: name, value: value))
+    )
+  }
+
   func removeChannelMember(
     workspaceID: String,
     conversationID: String,
@@ -924,8 +959,20 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
-  func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot {
-    let body = try JSONEncoder().encode(CreateWorkspaceInput(draft: draft))
+  func createWorkspace(
+    from draft: OnboardingDraft,
+    inferenceCredential: String?
+  ) async throws -> WorkspaceSnapshot {
+    let body = try JSONEncoder().encode(
+      ProvisionWorkspaceInput(
+        workspace: CreateWorkspaceInput(draft: draft),
+        secrets: .init(
+          opencode: draft.inferenceProvider == .openCodeGo ? inferenceCredential : nil,
+          vercelAiGateway: draft.inferenceProvider == .vercelAiGateway
+            ? inferenceCredential : nil
+        )
+      )
+    )
     return try await request(path: "/v1/workspaces", method: "POST", body: body)
   }
 
@@ -1576,6 +1623,16 @@ private struct RelayLogEnvelope: Encodable {
 private struct RelayLogBatch: Encodable { let logs: [RelayLogEnvelope] }
 private struct LogReceipt: Decodable { let accepted: Int }
 private struct EmptyResponse: Decodable {}
+private struct ProvisionWorkspaceInput: Encodable {
+  struct Secrets: Encodable {
+    let opencode: String?
+    let vercelAiGateway: String?
+  }
+
+  let workspace: CreateWorkspaceInput
+  let secrets: Secrets
+}
+
 private struct CreateWorkspaceInput: Codable {
   let commandId: String
   let name: String
@@ -1590,7 +1647,7 @@ private struct CreateWorkspaceInput: Codable {
     name = draft.companyName
     website = draft.website
     runtime = draft.runtime?.rawValue ?? "phone"
-    inferenceProvider = draft.inferenceProvider?.rawValue ?? "openCodeGo"
+    inferenceProvider = draft.inferenceProvider?.rawValue ?? "remote"
     inferenceModel = draft.inferenceModel
     selectedApps = draft.selectedApps.sorted()
   }

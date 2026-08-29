@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ChannelEvent, WorkspaceChannel } from "../src/channel-types.js";
-import type { SessionManager } from "../src/manager.js";
-import type { AgentSession } from "../src/session.js";
+import type {
+  ScheduledChannelRunManager,
+  ScheduledChannelSession,
+  ScheduledChannelStoreManager,
+  ScheduledChannelWorkManager,
+} from "../src/scheduled-channel-thread.js";
 import type { AgentEvent, RecurringWorkRecord } from "../src/types.js";
 import {
   channelChatId,
@@ -70,7 +74,7 @@ void test("scheduled work creates a durable channel thread before provider work"
         },
       }),
     },
-  } as unknown as SessionManager;
+  } satisfies ScheduledChannelStoreManager;
 
   const heartbeat = await beginScheduledChannelThread(
     manager,
@@ -124,7 +128,7 @@ void test("ordinary scheduled work wakes its assigned agent in the owning channe
         },
       }),
     },
-  } as unknown as SessionManager;
+  } satisfies ScheduledChannelStoreManager;
 
   const thread = await beginScheduledChannelThread(
     manager,
@@ -165,7 +169,7 @@ void test("legacy onboarding schedules move to the assigned agent channel", asyn
         },
       }),
     },
-  } as unknown as SessionManager;
+  } satisfies ScheduledChannelStoreManager;
 
   const thread = await beginScheduledChannelThread(
     manager,
@@ -195,9 +199,15 @@ void test("an inactive scheduled channel fails before provisioning workspace too
     store: {
       channelStore: () => ({
         list: () => Promise.resolve([{ ...channel, lifecycle: "archived" }]),
+        get: () => Promise.resolve(undefined),
+        appendEvent: (_workspaceId: string, event: ChannelEvent) =>
+          Promise.resolve(event),
       }),
     },
-  } as unknown as SessionManager;
+    acquireExecutionWhenAvailable: () => Promise.resolve(() => undefined),
+    agentPreference: () => Promise.resolve(undefined),
+    ensureRootChat: () => Promise.reject(new Error("should not start")),
+  } satisfies ScheduledChannelWorkManager;
 
   await assert.rejects(
     () =>
@@ -234,12 +244,6 @@ void test("scheduled work keeps provider work and its closing update in the thre
       }
     | undefined;
   const session = {
-    config: {
-      driver: "codex",
-      access: "full",
-      workspaceId,
-      executionOwner: "interactive",
-    },
     on: (_event: "event", listener: (event: AgentEvent) => void) => {
       listeners.add(listener);
     },
@@ -260,7 +264,7 @@ void test("scheduled work keeps provider work and its closing update in the thre
       for (const listener of listeners) listener({ type: "result", ok: true });
       return Promise.resolve();
     },
-  } as unknown as AgentSession;
+  } satisfies ScheduledChannelSession;
   const manager = {
     store: {
       channelStore: () => ({
@@ -279,7 +283,7 @@ void test("scheduled work keeps provider work and its closing update in the thre
         released = true;
       });
     },
-  } as unknown as SessionManager;
+  } satisfies ScheduledChannelRunManager;
 
   await runScheduledChannelThread({
     bindSession: () => {

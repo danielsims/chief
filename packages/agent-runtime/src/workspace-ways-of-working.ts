@@ -1,6 +1,12 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type {
   WorkspaceOperatingMode,
   WorkspaceWaysOfWorking,
@@ -21,25 +27,29 @@ function settingsPath(workspaceId: string) {
 }
 
 function isOperatingMode(value: unknown): value is WorkspaceOperatingMode {
-  return workspaceOperatingModes.includes(value as WorkspaceOperatingMode);
+  return (
+    isJsonString(value) &&
+    workspaceOperatingModes.some((mode) => mode === value)
+  );
 }
 
 export function readWorkspaceWaysOfWorking(
   workspaceId: string,
 ): WorkspaceWaysOfWorking {
   try {
-    const parsed = JSON.parse(
+    const parsed: unknown = JSON.parse(
       readFileSync(settingsPath(workspaceId), "utf8"),
-    ) as Partial<WorkspaceWaysOfWorking>;
+    );
+    if (!isJsonObject(parsed)) return defaultWorkspaceWaysOfWorking;
     if (!isOperatingMode(parsed.mode)) return defaultWorkspaceWaysOfWorking;
     return {
       mode: parsed.mode,
       missionControlChannelId:
-        typeof parsed.missionControlChannelId === "string" &&
+        isJsonString(parsed.missionControlChannelId) &&
         parsed.missionControlChannelId
           ? parsed.missionControlChannelId
           : MISSION_CONTROL_CHANNEL_ID,
-      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
+      updatedAt: isJsonNumber(parsed.updatedAt) ? parsed.updatedAt : 0,
     };
   } catch {
     return defaultWorkspaceWaysOfWorking;

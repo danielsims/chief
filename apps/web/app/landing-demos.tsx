@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 import { LandingAppShell } from "./landing-app-shell";
 
@@ -319,10 +320,12 @@ function IntegrationMark({ provider }: { provider: Provider }) {
         {provider.localIcon ? (
           <GoogleProductIcon type={provider.localIcon} />
         ) : (
-          <img
+          <Image
             className={provider.white ? "white-logo" : undefined}
             src={`https://integrations.sh/logo/${provider.domain}`}
             alt=""
+            width={17}
+            height={17}
             loading="lazy"
           />
         )}
@@ -405,17 +408,24 @@ export function RuntimeDemo() {
         <p className="runtime-heading">Agent app</p>
         <div className="provider-options">
           <div>
-            <img src="https://integrations.sh/logo/claude.ai" alt="" />
+            <Image
+              src="https://integrations.sh/logo/claude.ai"
+              alt=""
+              width={20}
+              height={20}
+            />
             <p>
               <strong>Claude</strong>
               <span>Uses Claude on this Mac.</span>
             </p>
           </div>
           <div>
-            <img
+            <Image
               className="white-logo"
               src="https://integrations.sh/logo/chatgpt.com"
               alt=""
+              width={20}
+              height={20}
             />
             <p>
               <strong>ChatGPT</strong>

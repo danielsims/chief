@@ -47,6 +47,33 @@ void test("rejects an unsafe authorization URL", () => {
   assert.equal(action, undefined);
 });
 
+void test("parses OAuth client configuration without provider-specific fields", () => {
+  const action = pluginAuthorizationFromResult({
+    type: "tool_result",
+    tool_use_id: "tool-1",
+    content: JSON.stringify({
+      kind: "plugin_oauth_client",
+      pluginId: "analytics",
+      pluginName: "Analytics",
+      description: "Analytics administration",
+      provider: "analytics.example.com",
+      serverName: "analytics-mcp",
+      callbackUrl: "http://127.0.0.1:4318/plugins/oauth/callback",
+      status: "client_configuration_required",
+    }),
+  });
+  assert.deepEqual(action, {
+    kind: "plugin_oauth_client",
+    pluginId: "analytics",
+    pluginName: "Analytics",
+    description: "Analytics administration",
+    provider: "analytics.example.com",
+    serverName: "analytics-mcp",
+    callbackUrl: "http://127.0.0.1:4318/plugins/oauth/callback",
+    status: "client_configuration_required",
+  });
+});
+
 void test("parses plugin list results", () => {
   const plugins = pluginListFromResult({
     type: "tool_result",

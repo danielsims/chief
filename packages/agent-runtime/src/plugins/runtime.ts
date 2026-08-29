@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { PluginAuthorizationAction } from "@chief/plugin-api";
 
-import type { PluginLocalToolService } from "../plugin-local-tools.js";
+import type { PluginLocalToolService } from "../tools/toolkits/plugins/context.js";
 import type {
   ClientMessage,
   ExecutorCapability,
@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import type { PluginCatalogSnapshot } from "./types.js";
 import { installCatalogPlugin, pluginCatalog } from "./catalog.js";
+import { PLUGIN_OAUTH_CALLBACK_URL } from "./oauth-provider.js";
 import { PluginOAuthManager } from "./oauth.js";
 import { removePluginInstallation, trustPluginInstallation } from "./store.js";
 
@@ -79,6 +80,14 @@ export class PluginRuntime {
     return installCatalogPlugin(workspaceId, pluginId, trusted);
   }
 
+  configureOAuthClient(
+    workspaceId: string,
+    pluginId: string,
+    input: { serverName: string; clientId: string; clientSecret?: string },
+  ) {
+    return this.oauth.configureClient(workspaceId, pluginId, input);
+  }
+
   async authorize(
     workspaceId: string,
     pluginId: string,
@@ -96,6 +105,21 @@ export class PluginRuntime {
       return { pluginId, status: "connected" };
     }
     this.onChange(workspaceId);
+    if (authorization.status === "client_configuration_required") {
+      return {
+        kind: "plugin_oauth_client",
+        pluginId,
+        pluginName: plugin.name,
+        description: plugin.description,
+        provider:
+          plugin.source.type === "discovery" || plugin.source.type === "setup"
+            ? plugin.source.domain
+            : plugin.name,
+        serverName: authorization.serverName,
+        callbackUrl: PLUGIN_OAUTH_CALLBACK_URL,
+        status: "client_configuration_required",
+      };
+    }
     return {
       kind: "plugin_authorization",
       pluginId,
@@ -120,7 +144,7 @@ export class PluginRuntime {
     authorize: (
       workspaceId: string,
       capability: ExecutorCapability,
-    ) => Promise<unknown>,
+    ) => Promise<void>,
     send: (message: ServerMessage) => void,
   ): Promise<boolean> {
     if (!isPluginClientMessage(message)) return false;
@@ -139,6 +163,13 @@ export class PluginRuntime {
       );
       this.onChange(message.workspaceId);
     } else if (message.type === "authorizePlugin") {
+      if (message.oauthClient) {
+        await this.oauth.configureClient(
+          message.workspaceId,
+          message.pluginId,
+          message.oauthClient,
+        );
+      }
       const action = await this.authorize(
         message.workspaceId,
         message.pluginId,

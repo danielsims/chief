@@ -5,9 +5,6 @@ import type { ChannelClientMessage } from "./channel-types.js";
 import type { ProjectClientMessage } from "./projects/client-message.js";
 import type {
   AccessMode,
-  AgentDeploymentChannel,
-  AgentDeploymentPlaybook,
-  AgentDeploymentTarget,
   AgentPreference,
   BrowserRunConversationMessage,
   CampaignRecord,
@@ -184,6 +181,7 @@ export type ClientMessage =
     }
   | {
       type: "saveAgentPreference";
+      requestId: string;
       workspaceId: string;
       preference: AgentPreference;
       executorCapability: ExecutorCapability;
@@ -335,6 +333,11 @@ export type ClientMessage =
       workspaceId: string;
       pluginId: string;
       requestId: string;
+      oauthClient?: {
+        serverName: string;
+        clientId: string;
+        clientSecret?: string;
+      };
       executorCapability: ExecutorCapability;
     }
   | {
@@ -348,30 +351,6 @@ export type ClientMessage =
       type: "disconnectGoogleAnalytics";
       workspaceId: string;
       requestId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "listAgentDeployments";
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "startAgentDeployment";
-      workspaceId: string;
-      agentId: string;
-      target: AgentDeploymentTarget;
-      projectName: string;
-      teamId?: string;
-      model?: string;
-      playbooks: AgentDeploymentPlaybook[];
-      channels?: AgentDeploymentChannel[];
-      activate?: boolean;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "cancelAgentDeployment";
-      workspaceId: string;
-      deploymentId: string;
       executorCapability: ExecutorCapability;
     }
   | {

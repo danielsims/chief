@@ -3,8 +3,10 @@ import { Bot } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 
-import type { WorkspaceAgentId } from "../lib/workspace-channels";
-import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
 import { UserAvatar } from "./user-avatar";
 
@@ -15,8 +17,8 @@ interface ChannelDetailsUser {
 }
 
 function getAgentIdentity(agentId: string) {
-  if (Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)) {
-    return WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId];
+  if (isWorkspaceAgentId(agentId)) {
+    return WORKSPACE_AGENT_IDENTITIES[agentId];
   }
   return { name: agentId, role: "Workspace agent" };
 }

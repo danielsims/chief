@@ -167,7 +167,7 @@ private struct WorkspaceSwitcherSheet: View {
   var body: some View {
     NavigationStack {
       List {
-        Section("Your workspaces") {
+        Section("Workspaces") {
           ForEach(orderedWorkspaces) { summary in
             Button {
               Haptics.medium()
@@ -193,7 +193,7 @@ private struct WorkspaceSwitcherSheet: View {
                 )
                 VStack(alignment: .leading, spacing: 3) {
                   Text(summary.name).font(.system(size: 15, weight: .semibold))
-                  Text(statusText(for: summary))
+                  Text(model.relayLabel(forWorkspaceID: summary.id))
                     .font(.system(size: 13))
                     .foregroundStyle(ChiefTheme.secondary)
                 }
@@ -210,7 +210,7 @@ private struct WorkspaceSwitcherSheet: View {
           Button {
             Haptics.heavy()
             dismiss()
-            model.beginWorkspaceSetup()
+            model.showWorkspaceSetup()
           } label: {
             Label("Create workspace", systemImage: "plus")
           }
@@ -219,6 +219,11 @@ private struct WorkspaceSwitcherSheet: View {
             joinSheet = true
           } label: {
             Label("Join workspace", systemImage: "link")
+          }
+          NavigationLink {
+            RelayConnectionSettingsView()
+          } label: {
+            Label("Manage relays", systemImage: "network")
           }
         }
       }
@@ -256,12 +261,6 @@ private struct WorkspaceSwitcherSheet: View {
     }
   }
 
-  private func statusText(for summary: WorkspaceSummary) -> String {
-    if summary.id == model.workspace?.id {
-      return "Connected"
-    }
-    return summary.onboardingComplete ? "Workspace" : "Setup needed"
-  }
 }
 
 private struct WorkspaceAvatar: View {

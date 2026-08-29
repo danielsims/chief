@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { AgentDefinition } from "../src/types.js";
+import type {
+  AgentDefinition,
+  AgentEvent,
+  RecurringWorkRecord,
+  SessionRecord,
+} from "../src/types.js";
 import { LocalStore } from "../src/local-store.js";
-import { handleLocalTool, localToolsOpenApi } from "../src/local-tools.js";
 import { SessionManager } from "../src/manager.js";
 import { AgentSession } from "../src/session.js";
 
@@ -21,165 +25,249 @@ const cmo: AgentDefinition = {
   instructions: "Run the requested work.",
 };
 
-void test("switching root execution replaces the idle session and clears continuation state", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-manager-switch-"));
+function recurringWork(): RecurringWorkRecord {
+  return {
+    id: "report",
+    agentId: "analyst",
+    title: "Report",
+    instructions: "Review the data.",
+    cron: "0 9 * * 1",
+    timezone: "UTC",
+    onceAt: 2,
+    status: "active",
+    placement: "local",
+    approvalSummary: "Read approved data.",
+    proposedToolPatterns: [],
+    grant: { version: 1, approvedAt: 1, toolPatterns: [] },
+    nextAt: 2,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function scheduleSession(parentId: string | undefined = "root"): SessionRecord {
+  return {
+    id: "schedule-session",
+    parentId,
+    scheduleId: "report",
+    kind: "task",
+    visibility: "private",
+    agent: "chief",
+    title: "Report occurrence",
+    provider: "codex",
+    status: "running",
+    scheduledFor: 2,
+    startedAt: 3,
+    attempt: 1,
+    createdAt: 3,
+    updatedAt: 3,
+  };
+}
+
+void test("queued execution claims are granted one at a time", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-execution-queue-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
-  const originalStart = Object.getOwnPropertyDescriptor(
-    AgentSession.prototype,
-    "start",
-  );
-  const originalStop = Object.getOwnPropertyDescriptor(
-    AgentSession.prototype,
-    "stop",
-  );
-  let startCount = 0;
-  Object.defineProperty(AgentSession.prototype, "start", {
-    configurable: true,
-    async value() {
-      startCount += 1;
-      await Promise.resolve();
-    },
-  });
-  Object.defineProperty(AgentSession.prototype, "stop", {
-    configurable: true,
-    async value(this: AgentSession) {
-      this.removeAllListeners();
-      await Promise.resolve();
-    },
-  });
   try {
-    await manager.createRootChat(
+    const releaseFirst = manager.acquireExecution(
       "workspace",
-      "root",
-      "Review",
-      "codex",
-      "gpt-5.4",
+      "chat",
+      "interactive",
     );
-    await store.updateChatState("workspace", "root", {
-      providerState: { sessionId: "codex-thread" },
-      eveState: { cursor: "remote-cursor" },
+    const second = manager.acquireExecutionWhenAvailable(
+      "workspace",
+      "chat",
+      "interactive",
+      1_000,
+    );
+    const third = manager.acquireExecutionWhenAvailable(
+      "workspace",
+      "chat",
+      "interactive",
+      1_000,
+    );
+    const claimed: string[] = [];
+    const secondReady = second.then((release) => {
+      claimed.push("second");
+      return { name: "second", release };
     });
-    const first = await manager.ensureRootChat(cmo, "root", {
-      driver: "codex",
-      model: "gpt-5.4",
-      access: "guarded",
-      workspaceId: "workspace",
-      executionOwner: "interactive",
+    const thirdReady = third.then((release) => {
+      claimed.push("third");
+      return { name: "third", release };
     });
-    const second = await manager.switchRootChatExecution(cmo, "root", {
-      driver: "remote",
-      model: "anthropic/claude-sonnet-4.6",
-      access: "guarded",
-      workspaceId: "workspace",
-      executionOwner: "interactive",
-    });
-
-    assert.notEqual(first, second);
-    assert.equal(startCount, 2);
-    const stored = await store.chatRecord("workspace", "root");
-    assert.ok(stored);
-    assert.equal(stored.provider, "remote");
-    assert.equal(stored.model, "anthropic/claude-sonnet-4.6");
-    assert.equal(stored.providerState, undefined);
-    assert.equal(stored.eveState, undefined);
+    releaseFirst();
+    const firstQueued = await Promise.race([secondReady, thirdReady]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(claimed.length, 1);
+    firstQueued.release();
+    const finalQueued = await (firstQueued.name === "second"
+      ? thirdReady
+      : secondReady);
+    finalQueued.release();
   } finally {
     await manager.stopAll();
-    if (originalStart) {
-      Object.defineProperty(AgentSession.prototype, "start", originalStart);
-    }
-    if (originalStop) {
-      Object.defineProperty(AgentSession.prototype, "stop", originalStop);
-    }
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-void test("switching a channel responder keeps its transcript and adopts the tagged persona", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-manager-responder-"));
+void test("chat-adjacent writes are serialized with transcript persistence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-chat-write-queue-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
-  const originalStart = Object.getOwnPropertyDescriptor(
-    AgentSession.prototype,
-    "start",
-  );
-  const originalStop = Object.getOwnPropertyDescriptor(
-    AgentSession.prototype,
-    "stop",
-  );
-  Object.defineProperty(AgentSession.prototype, "start", {
-    configurable: true,
-    async value() {
-      await Promise.resolve();
-    },
-  });
-  Object.defineProperty(AgentSession.prototype, "stop", {
-    configurable: true,
-    async value(this: AgentSession) {
-      this.removeAllListeners();
-      await Promise.resolve();
-    },
+  const order: string[] = [];
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
   });
   try {
-    await manager.createRootChat(
+    const first = manager.enqueueChatPersistence(
       "workspace",
-      "channel-chat",
-      "General",
-      "codex",
+      "channel:general",
+      async () => {
+        order.push("first:start");
+        await firstGate;
+        order.push("first:end");
+      },
     );
-    const first = await manager.ensureRootChat(cmo, "channel-chat", {
-      driver: "codex",
-      access: "guarded",
-      workspaceId: "workspace",
-      executionOwner: "interactive",
-    });
-    first.recordUserMessage("Shared channel context", "message-1");
-    await manager.waitForChatPersistence("workspace", "channel-chat");
-
-    const analyst: AgentDefinition = {
-      id: "analyst",
-      name: "Analyst",
-      role: "Marketing analyst",
-      description: "Explains performance.",
-      instructions: "Answer as the analyst.",
-    };
-    const second = await manager.switchRootChatAgent(analyst, "channel-chat", {
-      driver: "codex",
-      access: "guarded",
-      workspaceId: "workspace",
-      executionOwner: "interactive",
-    });
-
-    assert.notEqual(first, second);
-    assert.equal(second.agent.id, "analyst");
-    assert.match(second.agent.instructions, /direct localTools\.\* tools/);
-    assert.match(second.agent.instructions, /never search Executor/);
-    assert.ok(
-      second.events.some(
-        (event) =>
-          event.type === "message" &&
-          event.id === "message-1" &&
-          event.role === "user",
+    const second = manager.enqueueChatPersistence(
+      "workspace",
+      "channel:general",
+      () => {
+        order.push("second");
+        return Promise.resolve();
+      },
+    );
+    await Promise.resolve();
+    assert.deepEqual(order, ["first:start"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ["first:start", "first:end", "second"]);
+    await assert.rejects(
+      manager.enqueueChatPersistence("workspace", "channel:general", () =>
+        Promise.reject(new Error("expected write failure")),
       ),
+      /expected write failure/,
     );
-    assert.equal(
-      (await store.chatRecord("workspace", "channel-chat"))?.agent,
-      "analyst",
-    );
+    await manager.enqueueChatPersistence("workspace", "channel:general", () => {
+      order.push("after failure");
+      return Promise.resolve();
+    });
+    assert.equal(order.at(-1), "after failure");
   } finally {
     await manager.stopAll();
-    if (originalStart) {
-      Object.defineProperty(AgentSession.prototype, "start", originalStart);
-    }
-    if (originalStop) {
-      Object.defineProperty(AgentSession.prototype, "stop", originalStop);
-    }
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-void test("agent-bound local tools do not replace an unchanged live session", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-manager-local-mcp-"));
+void test("task sessions preserve schedule metadata and persist every diagnostic event", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-manager-diagnostics-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  const originalStart = Object.getOwnPropertyDescriptor(
+    AgentSession.prototype,
+    "start",
+  );
+  let resumedProviderSession: string | undefined;
+  Object.defineProperty(AgentSession.prototype, "start", {
+    configurable: true,
+    async value(this: AgentSession, _cwd: string, resumeSessionId?: string) {
+      resumedProviderSession = resumeSessionId;
+      await Promise.resolve(this);
+    },
+  });
+  try {
+    const work = recurringWork();
+    await manager.saveRecurringWork("workspace", work);
+    await manager.startScheduleSession(
+      "workspace",
+      { ...scheduleSession(), parentId: undefined },
+      { expectedNextAt: 2, nextAt: null },
+    );
+    await store.updateChatState("workspace", "schedule-session", {
+      providerState: { sessionId: "provider-continuation" },
+    });
+    const retryAt = Date.now() + 30_000;
+    await manager.waitingScheduleSession(
+      "workspace",
+      {
+        ...scheduleSession(),
+        parentId: undefined,
+        status: "waiting",
+        updatedAt: Date.now(),
+      },
+      { ...work, nextAt: retryAt, updatedAt: Date.now() },
+    );
+    const resumed = await manager.resumeScheduleSession("workspace", work.id, {
+      expectedNextAt: retryAt,
+      nextAt: null,
+      startedAt: retryAt,
+    });
+    assert.equal(resumed?.attempt, 2);
+    const session = await manager.ensureTaskSession(
+      cmo,
+      undefined,
+      "schedule-session",
+      {
+        driver: "codex",
+        access: "guarded",
+        workspaceId: "workspace",
+        executionOwner: "schedule",
+        automationGrant: { version: 1, approvedAt: 1, toolPatterns: [] },
+      },
+    );
+    assert.equal(resumedProviderSession, "provider-continuation");
+    assert.match(
+      session.agent.instructions,
+      /current Chief session ID is schedule-session/,
+    );
+    const events: AgentEvent[] = [
+      { type: "stream", text: "Working" },
+      { type: "toolProgress", toolUseId: "tool-1", text: "Reading" },
+      { type: "status", status: "running" },
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "text", text: "Run the report." }],
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tool-1", name: "analytics.read", input: {} },
+        ],
+      },
+      { type: "exit", code: 0 },
+    ];
+    for (const event of events) {
+      session.events.push(event);
+      session.emit("event", event);
+    }
+    await manager.waitForChatPersistence("workspace", "schedule-session");
+    const stored = await store.chatRecord("workspace", "schedule-session");
+    assert.ok(stored);
+    assert.equal(stored.parentId, undefined);
+    assert.equal(stored.scheduleId, "report");
+    assert.equal(stored.kind, "task");
+    assert.equal(stored.visibility, "private");
+    assert.equal(stored.status, "running");
+    assert.equal(stored.attempt, 2);
+    assert.equal(stored.title, "Report occurrence");
+    const diagnostics = await manager.diagnostics("workspace");
+    assert.deepEqual(
+      diagnostics.events.map((event) => [event.position, event.type]),
+      events.map((event, position) => [position, event.type]),
+    );
+  } finally {
+    if (originalStart) {
+      Object.defineProperty(AgentSession.prototype, "start", originalStart);
+    }
+    await manager.stopAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("concurrent opens share one provider startup", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-manager-startup-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
   const originalStart = Object.getOwnPropertyDescriptor(
@@ -187,251 +275,38 @@ void test("agent-bound local tools do not replace an unchanged live session", as
     "start",
   );
   let startCount = 0;
+  let releaseStart: (() => void) | undefined;
+  const startGate = new Promise<void>((resolve) => {
+    releaseStart = resolve;
+  });
   Object.defineProperty(AgentSession.prototype, "start", {
     configurable: true,
-    value() {
+    async value() {
       startCount += 1;
-      return Promise.resolve();
+      await startGate;
     },
   });
-  manager.setSessionEnvironmentProvider(() => ({
-    CHIEF_LOCAL_URL: "http://127.0.0.1:4318",
-    CHIEF_LOCAL_CAPABILITY: "stable-agent-capability",
-  }));
   try {
+    await manager.createRootChat("workspace", "root", "Review", "codex");
     const config = {
       driver: "codex" as const,
       access: "guarded" as const,
       workspaceId: "workspace",
       executionOwner: "interactive" as const,
     };
-    const first = await manager.ensureRootChat(cmo, "root", config, "Review");
-    const second = await manager.ensureRootChat(cmo, "root", config, "Review");
-
-    assert.equal(first, second);
+    const first = manager.ensureRootChat(cmo, "root", config);
+    const second = manager.ensureRootChat(cmo, "root", config);
+    await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(startCount, 1);
-    assert.deepEqual(first.config.mcpServers, [
-      {
-        name: "chief_local",
-        command: "",
-        args: [],
-        url: "http://127.0.0.1:4318/agent-local-mcp",
-        headers: { Authorization: "Bearer stable-agent-capability" },
-      },
-    ]);
+    releaseStart?.();
+    const [firstSession, secondSession] = await Promise.all([first, second]);
+    assert.equal(firstSession, secondSession);
+    assert.equal(startCount, 1);
   } finally {
+    releaseStart?.();
     if (originalStart) {
       Object.defineProperty(AgentSession.prototype, "start", originalStart);
     }
-    await manager.stopAll();
-    await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("action.raise persists its session source and rejects cross-workspace sources", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-manager-action-"));
-  const store = new LocalStore(join(directory, "chief.sqlite"));
-  const manager = new SessionManager(store);
-  try {
-    await manager.createRootChat("workspace-a", "session-a", "A", "codex");
-    await manager.createRootChat("workspace-b", "session-b", "B", "codex");
-    const raise = (sourceId: string) =>
-      handleLocalTool(
-        new Request("http://localhost/local-tools/action", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            title: "Review the launch",
-            reason: "Choose whether the launch should proceed this afternoon.",
-            sourceId,
-          }),
-        }),
-        "workspace-a",
-        manager,
-      );
-
-    const response = await raise("session-a");
-    assert.equal(response.status, 200);
-    assert.equal(
-      (await manager.workspaceData("workspace-a")).actionItems[0]?.sourceId,
-      "session-a",
-    );
-
-    const rejected = await raise("session-b");
-    assert.equal(rejected.status, 400);
-    assert.match(await rejected.text(), /not found in this workspace/);
-
-    const productSource = await raise("automation-launch-plan");
-    assert.equal(productSource.status, 200);
-    assert.ok(
-      (await manager.workspaceData("workspace-a")).actionItems.some(
-        (item) => item.sourceId === "automation-launch-plan",
-      ),
-    );
-    assert.match(
-      JSON.stringify(localToolsOpenApi("http://localhost")),
-      /sourceId/,
-    );
-
-    const structured = () =>
-      handleLocalTool(
-        new Request("http://localhost/local-tools/action", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            title: "Connect analytics",
-            reason:
-              "Chief needs read-only analytics credentials to run the approved growth report.",
-            sourceId: "session-a",
-            dedupeKey: "connect-analytics",
-            request: {
-              steps: [
-                {
-                  text: "Open Google Cloud credentials.",
-                  url: "https://console.cloud.google.com/apis/credentials",
-                },
-              ],
-              questions: [
-                {
-                  header: "Property",
-                  question: "Which property should Chief report on?",
-                  options: [
-                    { label: "Something else", allowsFreeText: true },
-                    { label: "Program" },
-                  ],
-                },
-              ],
-              fields: [
-                {
-                  key: "clientSecret",
-                  label: "Client secret",
-                  type: "secret",
-                  save: { envKey: "GOOGLE_ANALYTICS_CLIENT_SECRET" },
-                },
-              ],
-            },
-          }),
-        }),
-        "workspace-a",
-        manager,
-      );
-    const firstStructured = await structured();
-    const secondStructured = await structured();
-    assert.equal(firstStructured.status, 200);
-    assert.equal(secondStructured.status, 200);
-    const firstStructuredBody = (await firstStructured.json()) as {
-      actionItem: { id: string };
-    };
-    const secondStructuredBody = (await secondStructured.json()) as {
-      actionItem: { id: string };
-    };
-    assert.equal(
-      firstStructuredBody.actionItem.id,
-      secondStructuredBody.actionItem.id,
-    );
-    const storedStructured = (
-      await manager.workspaceData("workspace-a")
-    ).actionItems.filter((item) => item.title === "Connect analytics");
-    assert.equal(storedStructured.length, 1);
-    const storedRequest = storedStructured[0]?.request;
-    assert.ok(storedRequest);
-    assert.equal(storedRequest.questions?.length, 1);
-    assert.deepEqual(storedRequest.questions[0]?.options, [
-      { label: "Program" },
-      {
-        label: "Something else",
-        allowsFreeText: true,
-      },
-    ]);
-    const collision = await handleLocalTool(
-      new Request("http://localhost/local-tools/action", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: "Connect Reddit",
-          reason: "Chief needs Reddit access to complete source monitoring.",
-          sourceId: "session-a",
-          dedupeKey: "connect-analytics",
-        }),
-      }),
-      "workspace-a",
-      manager,
-    );
-    assert.equal(collision.status, 400);
-    assert.match(await collision.text(), /dedupeKey collision/);
-    assert.equal(
-      (await manager.workspaceData("workspace-a")).actionItems.filter(
-        (item) => item.sourceId === "session-a",
-      ).length,
-      2,
-    );
-    const analytics = await handleLocalTool(
-      new Request("http://localhost/local-tools/action", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: "Allow Chief to read Google Analytics",
-          reason:
-            "Google Analytics is not connected, so Chief cannot verify acquisition reporting.",
-          sourceId: "session-a",
-          dedupeKey: "setup:analytics.googleapis.com",
-          request: {
-            steps: [
-              {
-                text: "Open Google Cloud **credentials**.",
-                url: "https://console.cloud.google.com/apis/credentials",
-              },
-            ],
-            fields: [
-              {
-                key: "clientId",
-                label: "Client ID",
-                type: "text",
-                save: { envKey: "GOOGLE_ANALYTICS_CLIENT_ID" },
-              },
-              {
-                key: "clientSecret",
-                label: "Client secret",
-                type: "secret",
-                save: { envKey: "GOOGLE_ANALYTICS_CLIENT_SECRET" },
-              },
-            ],
-          },
-        }),
-      }),
-      "workspace-a",
-      manager,
-    );
-    assert.equal(analytics.status, 200);
-    const analyticsBody = (await analytics.json()) as {
-      actionItem: {
-        request?: {
-          steps?: { text: string; url?: string }[];
-          fields: { key: string; save: { envKey: string } }[];
-        };
-      };
-    };
-    const analyticsRequest = analyticsBody.actionItem.request;
-    assert.ok(analyticsRequest);
-    assert.deepEqual(analyticsRequest.steps, [
-      {
-        text: "Open Google Cloud **credentials**.",
-        url: "https://console.cloud.google.com/apis/credentials",
-      },
-    ]);
-    assert.deepEqual(
-      analyticsRequest.fields.map((field) => [field.key, field.save.envKey]),
-      [
-        ["clientId", "GOOGLE_ANALYTICS_CLIENT_ID"],
-        ["clientSecret", "GOOGLE_ANALYTICS_CLIENT_SECRET"],
-      ],
-    );
-    assert.match(
-      JSON.stringify(localToolsOpenApi("http://localhost")),
-      /dedupeKey|questions|allowsFreeText|envKey/,
-    );
-  } finally {
     await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });
   }

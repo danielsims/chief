@@ -1,10 +1,12 @@
+import { z } from "zod";
+
 import type { Principal, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
+  agentConfigSchema,
   channelDetailSchema,
   channelRecordSchema,
   conversationIdSchema,
   workspaceIdSchema,
-  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -13,6 +15,15 @@ import {
   effectiveAgentConfigFor,
   hasAgentPermission,
 } from "./workspace-agent-config";
+import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+
+const channelMemberRowSchema = z.object({
+  conversation_id: z.string(),
+  principal_kind: z.union([z.literal("user"), z.literal("agent")]),
+  principal_id: z.string(),
+  role: z.union([z.literal("owner"), z.literal("admin"), z.literal("member")]),
+  joined_at: z.string(),
+});
 
 export interface MemberRow extends Record<string, SqlStorageValue> {
   principal_kind: "user" | "agent" | "service";
@@ -75,6 +86,16 @@ export class WorkspaceChannelStore {
     return member?.role ?? null;
   }
 
+  workspaceAgentIds() {
+    return this.storage.sql
+      .exec<MemberRow>(
+        `SELECT principal_kind, principal_id, role FROM members
+         WHERE principal_kind = 'agent' ORDER BY principal_id ASC`,
+      )
+      .toArray()
+      .map((row) => row.principal_id);
+  }
+
   requireWorkspace(expectedWorkspaceId: string) {
     const workspace = firstRow<WorkspaceRow>(
       this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
@@ -124,8 +145,20 @@ export class WorkspaceChannelStore {
       ),
     );
     return row
-      ? effectiveAgentConfigFor(agentId, JSON.parse(row.config_json))
+      ? effectiveAgentConfigFor(
+          agentId,
+          agentConfigSchema.parse(JSON.parse(row.config_json)),
+        )
       : defaultAgentConfigFor(agentId);
+  }
+
+  agentPubkey(agentId: string) {
+    return firstRow<{ pubkey: string }>(
+      this.storage.sql.exec(
+        "SELECT pubkey FROM agent_keys WHERE agent_id = ?",
+        agentId,
+      ),
+    )?.pubkey;
   }
 
   requireAgentCapability(principal: Principal, capability: string) {
@@ -272,7 +305,8 @@ export class WorkspaceChannelStore {
          WHERE conversation_id = ? ORDER BY joined_at ASC, principal_id ASC`,
         conversationId,
       )
-      .toArray() as ChannelMemberRow[];
+      .toArray()
+      .map((row) => channelMemberRowSchema.parse(row));
     const names = this.principalNames();
     return rows.map((row) => ({
       kind: row.principal_kind,
@@ -281,7 +315,7 @@ export class WorkspaceChannelStore {
       joinedAt: String(row.joined_at),
       ...(names.get(`${row.principal_kind}:${row.principal_id}`)
         ? { name: names.get(`${row.principal_kind}:${row.principal_id}`) }
-        : {}),
+        : undefined),
     }));
   }
 
@@ -295,9 +329,7 @@ export class WorkspaceChannelStore {
       ),
     );
     if (!workspace?.snapshot_json) return names;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     for (const agent of snapshot.agents) {
       names.set(`agent:${agent.id}`, agent.name);
     }
@@ -316,9 +348,7 @@ export class WorkspaceChannelStore {
       ),
     );
     if (!workspace?.snapshot_json) return;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     mutate(snapshot.conversations);
     this.storage.sql.exec(
       "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
@@ -333,9 +363,7 @@ export class WorkspaceChannelStore {
       this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
     );
     if (!workspace?.snapshot_json) return;
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     this.seedSnapshotChannels(
       snapshot,
       workspace.created_by_user_id,
@@ -426,7 +454,17 @@ export function principalKindId(principal: Principal) {
   return { kind: "service" as const, id: principal.service };
 }
 
-export function channelRecordFromRow(row: ChannelRow) {
+export function channelRecordFromRow(
+  row: Pick<
+    ChannelRow,
+    | "conversation_id"
+    | "workspace_id"
+    | "name"
+    | "is_private"
+    | "archived"
+    | "created_at"
+  >,
+) {
   return {
     id: conversationIdSchema.parse(String(row.conversation_id)),
     workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
@@ -449,5 +487,6 @@ export function parseChannelId(value: string | null) {
 }
 
 export function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

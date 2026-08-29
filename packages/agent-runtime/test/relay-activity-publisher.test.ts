@@ -20,7 +20,7 @@ void test("activity publisher preserves semantic order and stable tool identity"
       input: Omit<PublishedActivity, "conversationId">,
     ) => {
       published.push({ conversationId, ...input });
-      return Promise.resolve({} as never);
+      return Promise.resolve();
     },
   };
   const publisher = new RelayActivityPublisher(

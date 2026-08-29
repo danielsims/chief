@@ -45,6 +45,7 @@ apps/desktop/src-tauri/resources/agent-runtime.version
 packages/email/.react-email/
 
 # local agent working notes
+.audit/
 docs/
 !apps/web/app/docs/
 !apps/web/app/docs/**

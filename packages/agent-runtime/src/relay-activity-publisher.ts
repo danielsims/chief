@@ -2,11 +2,23 @@ import { randomUUID } from "node:crypto";
 
 import type { RelayClient } from "@chief/relay-client";
 import type { AgentActivityComponent } from "@chief/relay-contracts";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { AgentEvent } from "./types.js";
 
+type ActivityPublishResult = void | Awaited<
+  ReturnType<RelayClient["upsertAgentActivity"]>
+>;
+
+interface ActivityRelayClient {
+  upsertAgentActivity(
+    conversationId: string,
+    input: Parameters<RelayClient["upsertAgentActivity"]>[1],
+  ): Promise<ActivityPublishResult>;
+}
+
 function textPayload(value: unknown) {
-  if (typeof value === "string") return value;
+  if (isJsonString(value)) return value;
   try {
     return JSON.stringify(value);
   } catch {
@@ -26,7 +38,7 @@ export class RelayActivityPublisher {
   private thinkingTimer: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly client: Pick<RelayClient, "upsertAgentActivity">,
+    private readonly client: ActivityRelayClient,
     private readonly conversationId: string,
     private readonly threadRootId?: string,
     private readonly context: {
@@ -162,9 +174,9 @@ export class RelayActivityPublisher {
   private correlation() {
     const providerSessionId = this.context.providerSessionId?.();
     return {
-      ...(this.context.runId ? { runId: this.context.runId } : {}),
-      ...(this.context.jobId ? { jobId: this.context.jobId } : {}),
-      ...(providerSessionId ? { providerSessionId } : {}),
+      ...(this.context.runId ? { runId: this.context.runId } : undefined),
+      ...(this.context.jobId ? { jobId: this.context.jobId } : undefined),
+      ...(providerSessionId ? { providerSessionId } : undefined),
     };
   }
 
@@ -172,7 +184,7 @@ export class RelayActivityPublisher {
     phase: "queued" | "persisted" | "failed",
     messageId: string,
     component: AgentActivityComponent,
-    error?: unknown,
+    error?: Parameters<typeof textPayload>[0],
   ) {
     const record = {
       scope: "cell.activity",
@@ -193,7 +205,7 @@ export class RelayActivityPublisher {
       status: component.kind === "error" ? "failed" : component.payload.status,
       ...(error
         ? { error: error instanceof Error ? error.message : textPayload(error) }
-        : {}),
+        : undefined),
     };
     const serialized = JSON.stringify(record);
     if (phase === "failed") console.error("[cell-activity]", serialized);
@@ -206,7 +218,9 @@ export class RelayActivityPublisher {
       .then(() =>
         this.client.upsertAgentActivity(this.conversationId, {
           messageId,
-          ...(this.threadRootId ? { threadRootId: this.threadRootId } : {}),
+          ...(this.threadRootId
+            ? { threadRootId: this.threadRootId }
+            : undefined),
           component,
         }),
       )

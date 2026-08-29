@@ -4,14 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { ChannelEvent } from "../src/channel-types.js";
+import type { JsonValue } from "@chief/relay-contracts";
+
+import type { ChannelEvent, WorkspaceChannel } from "../src/channel-types.js";
 import { handleChannelLocalTool } from "../src/channel-local-tools.js";
 import { LocalStore } from "../src/local-store.js";
 
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-channel-message-mentions-test-key";
 
-function request(path: string, body: Record<string, unknown>) {
+function request(path: string, body: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -28,8 +30,8 @@ void test("a visible agent mention becomes a durable wake signal", async () => {
     channelStore: store.channelStore(),
     availableAgentIds: ["chief", "engineer"],
     onAgentMentions: (
-      _channel: unknown,
-      _event: unknown,
+      _channel: WorkspaceChannel,
+      _event: ChannelEvent,
       agentIds: readonly string[],
     ) => {
       wakeups.push([...agentIds]);

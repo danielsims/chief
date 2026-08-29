@@ -201,7 +201,6 @@
 		27CFC22282E9F54D86055A52 /* WorkspaceIdentityAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIdentityAvatar.swift; sourceTree = "<group>"; };
 		2895AF414AE50C7D0B3F9663 /* ConversationActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationActivity.swift; sourceTree = "<group>"; };
 		29FE591E605DD0B9CAD48758 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		2AF5F8D7A5A0F723E542CEB4 /* swift-secp256k1 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "swift-secp256k1"; path = "Chief/Vendored/swift-secp256k1"; sourceTree = SOURCE_ROOT; };
 		2CE707A588AF29146A09E6A1 /* ThreadParticipantStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadParticipantStack.swift; sourceTree = "<group>"; };
 		2F8AEF859759ADA2D235C11D /* browser-ui */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "browser-ui"; path = "../../../browser-ui"; sourceTree = SOURCE_ROOT; };
 		2F9262D4A5003AC4CADCFF32 /* ConversationReadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationReadState.swift; sourceTree = "<group>"; };
@@ -392,7 +391,6 @@
 			isa = PBXGroup;
 			children = (
 				2F8AEF859759ADA2D235C11D /* browser-ui */,
-				2AF5F8D7A5A0F723E542CEB4 /* swift-secp256k1 */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -785,8 +783,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				40471D54164E45E4BA877211 /* XCRemoteSwiftPackageReference "swift-sdk" */,
+				29A86627CF5C590491113C06 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
 				8A4EBA993FFC128B047DE253 /* XCLocalSwiftPackageReference "../../../browser-ui" */,
-				161B22919F394EAD1878831B /* XCLocalSwiftPackageReference "Chief/Vendored/swift-secp256k1" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC25F9AB70668630797E8E41 /* Products */;
@@ -1347,10 +1345,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		161B22919F394EAD1878831B /* XCLocalSwiftPackageReference "Chief/Vendored/swift-secp256k1" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "Chief/Vendored/swift-secp256k1";
-		};
 		8A4EBA993FFC128B047DE253 /* XCLocalSwiftPackageReference "../../../browser-ui" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../../browser-ui";
@@ -1358,6 +1352,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		29A86627CF5C590491113C06 /* XCRemoteSwiftPackageReference "swift-secp256k1" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.21.1;
+			};
+		};
 		40471D54164E45E4BA877211 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
@@ -1379,6 +1381,7 @@
 		};
 		CA74DA9987546A975B45A1C8 /* P256K */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 29A86627CF5C590491113C06 /* XCRemoteSwiftPackageReference "swift-secp256k1" */;
 			productName = P256K;
 		};
 		D29589ADE752E1E3788A7A6D /* MCP */ = {

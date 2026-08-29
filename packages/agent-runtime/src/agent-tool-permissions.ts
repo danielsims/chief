@@ -17,6 +17,7 @@ export interface AgentToolPermissionDefinition {
   group:
     | "Workspace"
     | "Projects"
+    | "Machines"
     | "Channels"
     | "Messages"
     | "Scheduled work"
@@ -48,6 +49,18 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
       label: "Work in projects",
       description: "Create isolated checkouts and commit agent changes.",
       group: "Projects",
+    },
+    {
+      id: "machines.read",
+      label: "View machines",
+      description: "See the machines connected to this workspace.",
+      group: "Machines",
+    },
+    {
+      id: "machines.write",
+      label: "Manage machines",
+      description: "Connect machines and assign agent access.",
+      group: "Machines",
     },
     {
       id: "channels.read",
@@ -151,9 +164,15 @@ export const allAgentToolPermissions = agentToolPermissionDefinitions.map(
   (permission) => permission.id,
 );
 
-const executorOperationsByPermissionMutable = Object.fromEntries(
-  allAgentToolPermissions.map((permission) => [permission, [] as string[]]),
-) as Record<AgentToolPermission, string[]>;
+function emptyPermissionOperations(
+  permission: AgentToolPermission,
+): [AgentToolPermission, string[]] {
+  return [permission, []];
+}
+
+const executorOperationsByPermissionMutable = new Map(
+  allAgentToolPermissions.map(emptyPermissionOperations),
+);
 
 for (const operation of [
   ...channelApiOperations,
@@ -161,9 +180,15 @@ for (const operation of [
   ...pluginApiOperations,
 ]) {
   if (!operation.toolPermission) continue;
-  executorOperationsByPermissionMutable[operation.toolPermission].push(
-    operation.operationId,
+  const operations = executorOperationsByPermissionMutable.get(
+    operation.toolPermission,
   );
+  if (!operations) {
+    throw new Error(
+      `Unknown agent tool permission: ${operation.toolPermission}`,
+    );
+  }
+  operations.push(operation.operationId);
 }
 
 /**
@@ -171,8 +196,9 @@ for (const operation of [
  * reference, so docs, OpenAPI, Executor, and request authorization cannot
  * silently acquire separate hand-maintained vocabularies.
  */
-export const executorOperationsByPermission: Readonly<
-  Record<AgentToolPermission, readonly string[]>
+export const executorOperationsByPermission: ReadonlyMap<
+  AgentToolPermission,
+  readonly string[]
 > = executorOperationsByPermissionMutable;
 
 function executorOperationName(operationId: string) {
@@ -181,74 +207,94 @@ function executorOperationName(operationId: string) {
 }
 
 const permissionByExecutorTool = new Map<string, AgentToolPermission>(
-  Object.entries(executorOperationsByPermission).flatMap(
-    ([permission, operations]) =>
-      operations.map(
-        (operation) =>
-          [
-            `localTools.${executorOperationName(operation)}`,
-            permission as AgentToolPermission,
-          ] as const,
+  [...executorOperationsByPermission].flatMap(([permission, operations]) =>
+    operations.map((operation) =>
+      permissionToolNames(
+        permission,
+        `localTools.${executorOperationName(operation)}`,
       ),
+    ),
   ),
 );
 
-for (const [permission, names] of Object.entries({
-  "workspace.read": [
-    "prospectsList",
-    "trendsList",
-    "analyticsListDatasets",
-    "contentList",
-    "filesList",
-    "filesRead",
-    "campaignsList",
-    "recurringWorkList",
+function permissionToolNames(
+  permission: AgentToolPermission,
+  name: string,
+): [string, AgentToolPermission] {
+  return [name, permission];
+}
+
+const executorToolPermissionGroups: readonly (readonly [
+  AgentToolPermission,
+  readonly string[],
+])[] = [
+  [
+    "workspace.read",
+    [
+      "prospectsList",
+      "trendsList",
+      "analyticsListDatasets",
+      "contentList",
+      "filesList",
+      "filesRead",
+      "campaignsList",
+      "recurringWorkList",
+    ],
   ],
-  "workspace.write": [
-    "prospectsSave",
-    "trendsSave",
-    "analyticsSaveDataset",
-    "contentSave",
-    "filesWrite",
-    "campaignsSave",
-    "actionRaise",
-    "brandProfileSave",
-    "recurringWorkPropose",
+  [
+    "workspace.write",
+    [
+      "prospectsSave",
+      "trendsSave",
+      "analyticsSaveDataset",
+      "contentSave",
+      "filesWrite",
+      "campaignsSave",
+      "actionRaise",
+      "brandProfileSave",
+      "recurringWorkPropose",
+    ],
   ],
-  "projects.read": [
-    "projectsList",
-    "projectsInspect",
-    "projectsCheckoutStatus",
+  [
+    "projects.read",
+    ["projectsList", "projectsInspect", "projectsCheckoutStatus"],
   ],
-  "projects.write": [
-    "projectsCreateCheckout",
-    "projectsCommit",
-    "projectsReleaseCheckout",
+  [
+    "projects.write",
+    ["projectsCreateCheckout", "projectsCommit", "projectsReleaseCheckout"],
   ],
-  "browser.use": [
-    "browserOpen",
-    "browserSnapshot",
-    "browserClose",
-    "browserPresent",
-    "browserClick",
-    "browserFill",
-    "browserSelect",
-    "browserPress",
+  [
+    "browser.use",
+    [
+      "browserOpen",
+      "browserSnapshot",
+      "browserClose",
+      "browserPresent",
+      "browserClick",
+      "browserFill",
+      "browserSelect",
+      "browserPress",
+    ],
   ],
-  "integrations.manage": [
-    "googleOAuthProvisionClient",
-    "googleOAuthCaptureClient",
-    "googleAnalyticsAuthorize",
-    "googleAnalyticsComplete",
-    "googleAnalyticsSelect",
-    "integrationOpenHandoff",
-    "integrationCaptureGeneratedCredential",
-    "integrationOpenProviderPage",
-    "setupList",
-    "setupStart",
+  [
+    "integrations.manage",
+    [
+      "googleOAuthProvisionClient",
+      "googleOAuthCaptureClient",
+      "googleAnalyticsAuthorize",
+      "googleAnalyticsComplete",
+      "googleAnalyticsSelect",
+      "integrationOpenHandoff",
+      "integrationCaptureGeneratedCredential",
+      "integrationOpenProviderPage",
+      "setupList",
+      "setupStart",
+    ],
   ],
-  "agents.delegate": ["specialistsDelegate"],
-}) as [AgentToolPermission, string[]][]) {
+  ["agents.delegate", ["specialistsDelegate"]],
+];
+
+for (const [permission, names] of executorToolPermissionGroups) {
   for (const name of names)
     permissionByExecutorTool.set(`localTools.${name}`, permission);
 }

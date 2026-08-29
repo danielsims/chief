@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { z } from "zod";
 
 import type {
   InputRequest,
@@ -19,9 +20,9 @@ export function useStoredInputs(keys: string[] | null) {
     inputStatus?.signature === keysSignature ? inputStatus.present : null;
 
   useEffect(() => {
-    const parsed = JSON.parse(keysSignature) as string[];
+    const requestedKeys = z.array(z.string()).parse(JSON.parse(keysSignature));
     if (
-      parsed.length === 0 ||
+      requestedKeys.length === 0 ||
       status !== "connected" ||
       !cloudOrganizationId ||
       !capability
@@ -35,14 +36,16 @@ export function useStoredInputs(keys: string[] | null) {
       ) {
         setInputStatus({
           signature: keysSignature,
-          present: new Set(msg.present.filter((key) => parsed.includes(key))),
+          present: new Set(
+            msg.present.filter((key) => requestedKeys.includes(key)),
+          ),
         });
       }
     });
     client.send({
       type: "queryInputs",
       workspaceId: cloudOrganizationId,
-      keys: parsed,
+      keys: requestedKeys,
       executorCapability: capability,
     });
     return () => {

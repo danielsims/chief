@@ -123,7 +123,7 @@ export function runCellConformanceSuite(factory: () => Promise<CellHarness>) {
       const status = await restarted.getStatus();
       assert.equal(status.state, "running");
       assert.equal(status.lease?.runId, runId);
-      assert.equal(await restarted.readState<number>("step"), 3);
+      assert.equal(await restarted.readState("step"), 3);
     },
   );
 

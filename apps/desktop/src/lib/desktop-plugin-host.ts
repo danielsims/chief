@@ -1,9 +1,25 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 const PLUGIN_HOST_URL = "http://127.0.0.1:4318";
 
 let tokenPromise: Promise<string> | null = null;
+
+type PluginHostRequest =
+  | { workspaceId: string; refresh: boolean }
+  | { workspaceId: string; pluginId: string; trusted: boolean }
+  | {
+      workspaceId: string;
+      pluginId: string;
+      oauthClient?: {
+        serverName: string;
+        clientId: string;
+        clientSecret?: string;
+      };
+    };
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) =>
@@ -43,14 +59,14 @@ async function waitUntilReady(token: string) {
     : new Error("Chief's plugin host did not start.");
 }
 
-export async function requestDesktopPluginHost<T>(
+export async function requestDesktopPluginHost(
   path:
     | "/plugins/list"
     | "/plugins/install"
     | "/plugins/authorize"
     | "/plugins/uninstall",
-  body: Record<string, unknown>,
-) {
+  body: PluginHostRequest,
+): Promise<JsonObject> {
   const token = await hostToken();
   await waitUntilReady(token);
   const response = await tauriFetch(`${PLUGIN_HOST_URL}${path}`, {
@@ -62,13 +78,14 @@ export async function requestDesktopPluginHost<T>(
     },
     body: JSON.stringify(body),
   });
-  const result = (await response.json()) as T & { error?: unknown };
+  const result = parseJsonObject(await response.json());
   if (!response.ok) {
     throw new Error(
-      typeof result.error === "string"
+      result && isJsonString(result.error)
         ? result.error
         : `Plugin host returned HTTP ${response.status}.`,
     );
   }
+  if (!result) throw new Error("Plugin host returned an invalid response.");
   return result;
 }

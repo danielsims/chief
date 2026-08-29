@@ -24,13 +24,15 @@ function projectRecord(
     id: row.id,
     organizationId: row.organizationId,
     name: row.name,
-    ...(row.description ? { description: row.description } : {}),
+    ...(row.description ? { description: row.description } : undefined),
     repositoryKind: row.repositoryKind,
     providerId: row.providerId,
     ...(row.canonicalRemoteUrl
       ? { canonicalRemoteUrl: row.canonicalRemoteUrl }
-      : {}),
-    ...(row.repositoryWebUrl ? { repositoryWebUrl: row.repositoryWebUrl } : {}),
+      : undefined),
+    ...(row.repositoryWebUrl
+      ? { repositoryWebUrl: row.repositoryWebUrl }
+      : undefined),
     defaultBranch: row.defaultBranch,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -62,7 +64,7 @@ function checkoutRecord(
     runtimeId: row.runtimeId,
     agentId: row.agentId,
     agentIdentity: row.agentIdentity,
-    ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+    ...(row.sessionId ? { sessionId: row.sessionId } : undefined),
     strategy: row.strategy,
     path: row.path,
     branch: row.branch,

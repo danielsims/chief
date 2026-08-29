@@ -1,4 +1,4 @@
-import type { IntegrationDependency, Playbook } from "./playbooks";
+import type { IntegrationDependency, Playbook } from "./playbook-types";
 
 export function createMeasurementExperimentsPlaybook(input: {
   integrations: IntegrationDependency[];

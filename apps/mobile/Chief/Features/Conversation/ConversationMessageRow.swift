@@ -203,7 +203,7 @@ struct ConversationMessageRow: View {
     return model.conversations.messages(
       workspaceID: workspaceID,
       conversationID: message.conversationID
-    ).filter { $0.threadRootID == message.id }
+    ).filter { $0.threadRootID == message.id && $0.isVisibleThreadReply }
   }
 
   private var replyCount: Int { replies.count }

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
 import type { SlackChannelSettings } from "../types.js";
 import type { SlackGatewayConfig } from "./slack-gateway.js";
@@ -13,6 +14,14 @@ import { workspaceRoot, workspaceSecrets } from "../workspace-secrets.js";
  */
 export type SlackGatewaySettings = SlackChannelSettings;
 
+const slackGatewaySettingsSchema = z.object({
+  enabled: z.boolean(),
+  driver: z.enum(["claude", "codex", "opencode"]),
+  model: z.string().optional(),
+  allowedUserIds: z.array(z.string()),
+  allowedChannelIds: z.array(z.string()),
+});
+
 function settingsPath(workspaceId: string) {
   return join(workspaceRoot(workspaceId), "slack.json");
 }
@@ -21,9 +30,9 @@ export function readSlackGatewaySettings(
   workspaceId: string,
 ): SlackGatewaySettings | null {
   try {
-    return JSON.parse(
-      readFileSync(settingsPath(workspaceId), "utf8"),
-    ) as SlackGatewaySettings;
+    return slackGatewaySettingsSchema.parse(
+      JSON.parse(readFileSync(settingsPath(workspaceId), "utf8")),
+    );
   } catch {
     return null;
   }

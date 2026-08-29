@@ -14,11 +14,18 @@ WORKDIR /source
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY .gitignore ./
 COPY patches ./patches
-COPY tooling/eslint/package.json ./tooling/eslint/package.json
+COPY tooling/oxlint/package.json ./tooling/oxlint/package.json
 COPY tooling/prettier/package.json ./tooling/prettier/package.json
 COPY tooling/typescript/package.json ./tooling/typescript/package.json
+COPY packages/agent-computer/package.json ./packages/agent-computer/package.json
+COPY packages/agent-runtime/package.json ./packages/agent-runtime/package.json
 COPY packages/auth/package.json ./packages/auth/package.json
+COPY packages/browser/package.json ./packages/browser/package.json
+COPY packages/channel-api/package.json ./packages/channel-api/package.json
 COPY packages/email/package.json ./packages/email/package.json
+COPY packages/google-oauth-connector/package.json ./packages/google-oauth-connector/package.json
+COPY packages/plugin-api/package.json ./packages/plugin-api/package.json
+COPY packages/relay-client/package.json ./packages/relay-client/package.json
 COPY packages/relay-contracts/package.json ./packages/relay-contracts/package.json
 COPY apps/relay/package.json ./apps/relay/package.json
 
@@ -26,11 +33,18 @@ RUN --mount=type=cache,id=chief-relay-pnpm,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store \
   && pnpm install --frozen-lockfile --filter @chief/relay...
 
-COPY tooling/eslint ./tooling/eslint
+COPY tooling/oxlint ./tooling/oxlint
 COPY tooling/prettier ./tooling/prettier
 COPY tooling/typescript ./tooling/typescript
+COPY packages/agent-computer ./packages/agent-computer
+COPY packages/agent-runtime ./packages/agent-runtime
 COPY packages/auth ./packages/auth
+COPY packages/browser ./packages/browser
+COPY packages/channel-api ./packages/channel-api
 COPY packages/email ./packages/email
+COPY packages/google-oauth-connector ./packages/google-oauth-connector
+COPY packages/plugin-api ./packages/plugin-api
+COPY packages/relay-client ./packages/relay-client
 COPY packages/relay-contracts ./packages/relay-contracts
 COPY apps/relay ./apps/relay
 

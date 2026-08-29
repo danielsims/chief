@@ -1,480 +1,107 @@
+import type {
+  AgentBrowser,
+  AgentComputer,
+  AgentInferenceToolCall,
+} from "@chief/agent-computer";
+import type { DurableTool } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
+import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import {
-  channelCreateCommandSchema,
-  channelMemberAddCommandSchema,
-  messagePageSchema,
-} from "@chief/relay-contracts";
+  localAgentToolDefinitions,
+  parseLocalAgentToolCall,
+} from "@chief/agent-runtime/local-tools";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
-import { publishAgentMessage } from "./agent-message-publisher";
-import { HttpError } from "./http";
-import { withTrustedContext } from "./internal-context";
+import { hostedAgentTools } from "./hosted-agent-tools/registry";
+import { hostedAgentToolName } from "./hosted-agent-tools/tool";
+import { recentConversationMessages } from "./hosted-agent-tools/toolkits/channels";
 
-export const hostedAgentToolDefinitions = [
-  tool("relay_channels_list", "List channels visible to this agent.", {
-    type: "object",
-    properties: {},
-    additionalProperties: false,
-  }),
-  tool("relay_workspace_members", "List workspace members and their roles.", {
-    type: "object",
-    properties: {},
-    additionalProperties: false,
-  }),
-  tool(
-    "relay_messages_list",
-    "Read recent top-level messages in a conversation.",
-    {
-      type: "object",
-      properties: {
-        conversationId: { type: "string" },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
-      },
-      required: ["conversationId"],
-      additionalProperties: false,
-    },
-  ),
-  tool(
-    "relay_message_post",
-    "Post a message to a channel, direct message, or thread.",
-    {
-      type: "object",
-      properties: {
-        conversationId: { type: "string" },
-        threadRootId: { type: "string" },
-        body: { type: "string" },
-        idempotencyKey: { type: "string" },
-      },
-      required: ["conversationId", "body", "idempotencyKey"],
-      additionalProperties: false,
-    },
-  ),
-  tool("relay_channels_create", "Create a workspace channel.", {
-    type: "object",
-    properties: {
-      conversationId: { type: "string" },
-      name: { type: "string" },
-      isPrivate: { type: "boolean" },
-    },
-    required: ["conversationId", "name", "isPrivate"],
-    additionalProperties: false,
-  }),
-  tool(
-    "relay_channels_members_add",
-    "Add one or more workspace members to a channel.",
-    {
-      type: "object",
-      properties: {
-        conversationId: { type: "string" },
-        kind: { type: "string", enum: ["user", "agent"] },
-        principalIds: {
-          type: "array",
-          items: { type: "string" },
-          minItems: 1,
-          maxItems: 32,
-        },
-      },
-      required: ["conversationId", "kind", "principalIds"],
-      additionalProperties: false,
-    },
-  ),
-  tool(
-    "plugins_list",
-    "Search the portable plugin catalog available to this hosted cell.",
-    {
-      type: "object",
-      properties: { refresh: { type: "boolean" } },
-      additionalProperties: false,
-    },
-  ),
-  tool(
-    "plugins_recommend",
-    "Present real clickable plugin cards in a relay conversation.",
-    {
-      type: "object",
-      properties: {
-        conversationId: { type: "string" },
-        threadRootId: { type: "string" },
-        pluginIds: {
-          type: "array",
-          items: { type: "string" },
-          minItems: 1,
-          maxItems: 8,
-        },
-        rationale: { type: "string" },
-        idempotencyKey: { type: "string" },
-      },
-      required: ["conversationId", "pluginIds", "idempotencyKey"],
-      additionalProperties: false,
-    },
-  ),
-  tool(
-    "plugins_install",
-    "Prepare an approved plugin for a compatible signed cell.",
-    {
-      type: "object",
-      properties: {
-        pluginId: { type: "string" },
-        trusted: { type: "boolean" },
-      },
-      required: ["pluginId", "trusted"],
-      additionalProperties: false,
-    },
-  ),
-  tool(
-    "plugins_authorize",
-    "Check the authorization handoff for an installed plugin.",
-    {
-      type: "object",
-      properties: {
-        pluginId: { type: "string" },
-        conversationId: { type: "string" },
-        threadRootId: { type: "string" },
-        idempotencyKey: { type: "string" },
-      },
-      required: ["pluginId", "conversationId", "idempotencyKey"],
-      additionalProperties: false,
-    },
-  ),
-  tool("plugins_uninstall", "Remove a plugin from a compatible signed cell.", {
-    type: "object",
-    properties: { pluginId: { type: "string" } },
-    required: ["pluginId"],
-    additionalProperties: false,
-  }),
-] as const;
+export { recentConversationMessages };
+
+interface HostedToolAvailability {
+  browserEnabled: boolean;
+  computerEnabled: boolean;
+}
+
+function availableTools(availability: HostedToolAvailability) {
+  return hostedAgentTools.filter(
+    (tool) =>
+      (availability.browserEnabled || !tool.requiresBrowser) &&
+      (availability.computerEnabled || !tool.requiresComputer),
+  );
+}
+
+export function hostedAgentToolDefinitions(
+  availability: HostedToolAvailability,
+) {
+  return localAgentToolDefinitions(
+    availableTools(availability).map((tool) => tool.definition),
+  );
+}
+
+export function hostedDurableTools(
+  availability: HostedToolAvailability,
+): DurableTool[] {
+  return availableTools(availability).map((tool) => {
+    const definition = localAgentToolDefinitions([tool.definition])[0];
+    if (!definition) throw new Error("Hosted tool definition is missing.");
+    return { definition, effect: tool.effect };
+  });
+}
 
 export async function executeHostedAgentTool(
+  computer: AgentComputer,
+  browser: AgentBrowser | undefined,
+  computerEnabled: boolean,
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
-  rawArguments: unknown,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
-  const input = objectInput(rawArguments);
-  switch (name) {
-    case "relay_channels_list":
-      return workspaceOperation(env, job, principal, "channels-list");
-    case "relay_workspace_members":
-      return workspaceOperation(env, job, principal, "members-list");
-    case "relay_messages_list":
-      return listMessages(env, job, principal, input);
-    case "relay_message_post": {
-      const conversationId = requiredString(input, "conversationId");
-      const body = requiredString(input, "body");
-      const idempotencyKey = requiredString(input, "idempotencyKey");
-      const threadRootId = optionalString(input, "threadRootId");
-      await publishAgentMessage(
-        env,
-        job,
-        { conversationId, body, ...(threadRootId ? { threadRootId } : {}) },
-        await deterministicUuid(`${job.id}:${name}:${idempotencyKey}`),
-      );
-      return { ok: true, conversationId, threadRootId: threadRootId ?? null };
-    }
-    case "relay_channels_create": {
-      const conversationId = requiredString(input, "conversationId");
-      const command = channelCreateCommandSchema.parse({
-        commandId: await deterministicUuid(
-          `${job.id}:${name}:${conversationId}`,
-        ),
-        protocolVersion: 1,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          conversationId,
-          name: requiredString(input, "name"),
-          isPrivate: Boolean(input.isPrivate),
-        },
-      });
-      return workspaceOperation(
-        env,
-        job,
-        principal,
-        "channels-create",
-        command,
-      );
-    }
-    case "relay_channels_members_add": {
-      const conversationId = requiredString(input, "conversationId");
-      const kind =
-        input.kind === "user"
-          ? "user"
-          : input.kind === "agent"
-            ? "agent"
-            : null;
-      if (!kind) throw new Error("kind must be user or agent");
-      if (
-        !Array.isArray(input.principalIds) ||
-        input.principalIds.length === 0
-      ) {
-        throw new Error("principalIds must contain at least one member");
-      }
-      const members = input.principalIds.map((principalId) => ({
-        kind,
-        principalId: String(principalId),
-      }));
-      const command = channelMemberAddCommandSchema.parse({
-        commandId: await deterministicUuid(
-          `${job.id}:${name}:${conversationId}:${kind}:${members.map((member) => member.principalId).join(",")}`,
-        ),
-        protocolVersion: 1,
-        occurredAt: new Date().toISOString(),
-        payload: { conversationId, members },
-      });
-      return workspaceOperation(
-        env,
-        job,
-        principal,
-        "channels-members-add",
-        command,
-      );
-    }
-    case "plugins_list":
-      return { plugins: await hostedPluginCatalog(), runtime: "cloudflare-do" };
-    case "plugins_recommend": {
-      const conversationId = requiredString(input, "conversationId");
-      const threadRootId = optionalString(input, "threadRootId");
-      const idempotencyKey = requiredString(input, "idempotencyKey");
-      const pluginIds = Array.isArray(input.pluginIds)
-        ? [...new Set(input.pluginIds.map(String).filter(Boolean))].slice(0, 8)
-        : [];
-      if (pluginIds.length === 0) throw new Error("pluginIds is required");
-      const catalog = await hostedPluginCatalog();
-      const selected = pluginIds.map((pluginId) => {
-        const plugin = catalog.find((candidate) => candidate.id === pluginId);
-        if (!plugin) throw new Error(`Unknown plugin ID: ${pluginId}`);
-        return plugin;
-      });
-      await publishAgentMessage(
-        env,
-        job,
-        {
-          conversationId,
-          ...(threadRootId ? { threadRootId } : {}),
-          body:
-            optionalString(input, "rationale") ??
-            "Here are the plugins I recommend.",
-          components: await Promise.all(
-            selected.map(async (plugin) => ({
-              id: await deterministicUuid(
-                `${job.id}:${idempotencyKey}:${plugin.id}`,
-              ),
-              kind: "plugin.recommendation",
-              version: 1,
-              payload: {
-                workspaceId: job.workspaceId,
-                conversationId,
-                ...(threadRootId ? { threadRootId } : {}),
-                agentId: job.agentId,
-                pluginId: plugin.id,
-                name: plugin.name,
-                description: plugin.description,
-                category: plugin.category,
-                sourceType: "discovery",
-                status: "available",
-                enabled: false,
-                trusted: false,
-                domain: plugin.domain,
-                ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : {}),
-              },
-            })),
-          ),
-        },
-        await deterministicUuid(`${job.id}:${name}:${idempotencyKey}`),
-      );
-      return { ok: true, conversationId, pluginIds };
-    }
-    case "plugins_install":
-    case "plugins_authorize":
-    case "plugins_uninstall":
-      return {
-        pluginId: requiredString(input, "pluginId"),
-        status: "signed_cell_required",
-        reason:
-          "Cloudflare hosts the durable agent and catalog cards, but provider OAuth and plugin secrets stay on a signed celld device. Open Chief on a signed phone or desktop to complete this action.",
-      };
-    default:
-      throw new Error(`Unsupported hosted cell tool: ${name}`);
-  }
-}
-
-interface HostedPlugin {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  domain: string;
-  iconUrl?: string;
-  status: "available";
-  enabled: false;
-  trusted: false;
-}
-
-interface HostedPluginCatalogDocument {
-  data?: {
-    slug?: string;
-    name?: string;
-    domain?: string;
-    description?: string;
-    icon?: string;
-    kind?: string;
-    categories?: string[];
-  }[];
-}
-
-async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
-  const response = await fetch("https://integrations.sh/api.json", {
-    headers: { accept: "application/json" },
+  const tools = availableTools({
+    browserEnabled: browser !== undefined,
+    computerEnabled,
   });
-  if (!response.ok) throw new Error("The plugin catalog is unavailable.");
-  const document: HostedPluginCatalogDocument = await response.json();
-  return (document.data ?? [])
-    .flatMap((entry) => {
-      if (entry.kind !== "mcp" || !entry.slug || !entry.name || !entry.domain)
-        return [];
-      const description = entry.description?.trim();
-      return [
-        {
-          id: entry.slug,
-          name: entry.name,
-          description: nonEmptyOr(
-            description,
-            `Connect ${entry.name} to your Chief agents.`,
-          ),
-          category: entry.categories?.[0] ?? "Integration",
-          domain: entry.domain,
-          ...(entry.icon ? { iconUrl: entry.icon } : {}),
-          status: "available" as const,
-          enabled: false as const,
-          trusted: false as const,
-        },
-      ];
-    })
-    .slice(0, 60);
-}
-
-function nonEmptyOr(value: string | undefined, fallback: string) {
-  if (value === undefined || value.length === 0) return fallback;
-  return value;
-}
-
-export async function recentConversationMessages(
-  env: Env,
-  job: AgentJob,
-  principal: AgentPrincipal,
-  conversationId: string,
-) {
-  const result = await listMessages(env, job, principal, {
-    conversationId,
-    limit: 40,
-  });
-  return messagePageSchema.parse(result).messages;
-}
-
-async function listMessages(
-  env: Env,
-  job: AgentJob,
-  principal: AgentPrincipal,
-  input: Record<string, unknown>,
-) {
-  const conversationId = requiredString(input, "conversationId");
-  const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
-  const stub = env.CONVERSATIONS.get(
-    env.CONVERSATIONS.idFromName(`${job.workspaceId}:${conversationId}`),
+  const handler = tools.find((tool) => hostedAgentToolName(tool) === name);
+  if (!handler) throw new Error(`Unknown hosted agent tool: ${name}`);
+  const parsed = parseHostedAgentToolCall(
+    handler.definition,
+    name,
+    rawArguments,
   );
-  const response = await stub.fetch(
-    withTrustedContext(
-      new Request(`https://conversation.internal/messages?limit=${limit}`),
-      {
-        principal,
-        requestId: crypto.randomUUID(),
-        workspaceId: job.workspaceId,
-        conversationId,
-      },
-    ),
+  return await handler.execute(
+    { computer, browser, env, job, principal },
+    parsed.input,
   );
-  return responseJson(response, "Conversation messages could not be read.");
 }
 
-async function workspaceOperation(
-  env: Env,
-  job: AgentJob,
-  principal: AgentPrincipal,
-  operation: string,
-  body?: unknown,
+function parseHostedAgentToolCall(
+  definition: Parameters<typeof parseLocalAgentToolCall>[0][number],
+  name: string,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
-  const response = await env.WORKSPACES.get(
-    env.WORKSPACES.idFromName(job.workspaceId),
-  ).fetch(
-    withTrustedContext(
-      new Request("https://workspace.internal", {
-        method: "POST",
-        headers: {
-          "x-chief-internal-operation": operation,
-          ...(body ? { "content-type": "application/json" } : {}),
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      }),
-      {
-        principal,
-        requestId: crypto.randomUUID(),
-        workspaceId: job.workspaceId,
-      },
-    ),
-  );
-  return responseJson(response, `Workspace operation ${operation} failed.`);
-}
-
-async function responseJson(response: Response, fallback: string) {
-  const text = await response.text();
-  if (!response.ok) {
-    throw new HttpError(
-      response.status,
-      "hosted_tool_failed",
-      text || fallback,
+  try {
+    return parseLocalAgentToolCall(
+      [definition],
+      name,
+      normalizeHostedToolArguments(name, rawArguments),
+    );
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Tool input is invalid.";
+    throw new RecoverableToolError(
+      `${name} was not run because its input was rejected. ${detail}`,
     );
   }
-  return text ? (JSON.parse(text) as unknown) : { ok: true };
 }
 
-function tool(
+export function normalizeHostedToolArguments(
   name: string,
-  description: string,
-  parameters: Record<string, unknown>,
+  rawArguments: AgentInferenceToolCall["arguments"],
 ) {
-  return { type: "function", function: { name, description, parameters } };
-}
-
-function objectInput(value: unknown): Record<string, unknown> {
-  if (typeof value === "string") {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function requiredString(input: Record<string, unknown>, key: string) {
-  const value = input[key];
-  if (typeof value !== "string" || !value.trim())
-    throw new Error(`${key} is required`);
-  return value.trim();
-}
-
-function optionalString(input: Record<string, unknown>, key: string) {
-  const value = input[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-async function deterministicUuid(value: string) {
-  const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
-  ).slice(0, 16);
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+  if (name !== "channels_messages_post") return rawArguments;
+  const input = parseJsonObject(rawArguments);
+  if (!input || !isJsonString(input.mentions)) return rawArguments;
+  return { ...input, mentions: [input.mentions] };
 }

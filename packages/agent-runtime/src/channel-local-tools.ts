@@ -1,8 +1,9 @@
 import type { ChannelActorIdentity } from "@chief/channel-api";
+import type { JsonObject } from "@chief/relay-contracts";
 
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
 import type { ChannelStore } from "./channels/store.js";
-import type { PluginLocalToolService } from "./plugin-local-tools.js";
+import type { PluginLocalToolService } from "./tools/toolkits/plugins/context.js";
 import {
   booleanQuery,
   ChannelApiFailure,
@@ -23,7 +24,7 @@ export interface ChannelLocalToolContext {
   actor: ChannelActorIdentity;
   channelStore: ChannelStore;
   availableAgentIds: readonly string[];
-  plugins?: PluginLocalToolService;
+  plugins?: Pick<PluginLocalToolService, "list">;
   onChannelsChanged?: () => void | Promise<void>;
   onChannelEvent?: (event: ChannelEvent) => void | Promise<void>;
   onAgentMentions?: (
@@ -40,7 +41,11 @@ export interface ChannelLocalToolContext {
     channel: WorkspaceChannel,
     reason: string,
     actor: ChannelActorIdentity,
-  ) => Promise<unknown>;
+  ) => Promise<DeletionReview>;
+}
+
+interface DeletionReview {
+  id: string;
 }
 
 interface ChannelToolResult {
@@ -87,14 +92,10 @@ async function visibleChannel(
   return channel;
 }
 
-async function changed(context: ChannelLocalToolContext) {
-  await context.onChannelsChanged?.();
-}
-
 export async function handleChannelLocalTool(
   request: Request,
   workspaceId: string,
-  body: Record<string, unknown>,
+  body: JsonObject,
   context: ChannelLocalToolContext | undefined,
 ): Promise<ChannelToolResult> {
   const url = new URL(request.url);
@@ -189,7 +190,7 @@ export async function handleChannelLocalTool(
         operationKey,
         strictName: true,
       });
-      await changed(context);
+      await context.onChannelsChanged?.();
       await emitMemberAddedEvent({
         context,
         workspaceId,
@@ -267,7 +268,7 @@ export async function handleChannelLocalTool(
           actor: context.actor,
         },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "archive" && request.method === "POST") {
@@ -278,7 +279,7 @@ export async function handleChannelLocalTool(
         true,
         { expectedVersion: expectedVersion(body), actor: context.actor },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "unarchive" && request.method === "POST") {
@@ -289,7 +290,7 @@ export async function handleChannelLocalTool(
         false,
         { expectedVersion: expectedVersion(body), actor: context.actor },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "join" && request.method === "POST") {
@@ -317,7 +318,7 @@ export async function handleChannelLocalTool(
         context.actor,
         { agentId: context.actor.id },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "leave" && request.method === "POST") {
@@ -340,7 +341,7 @@ export async function handleChannelLocalTool(
         context.actor,
         { agentId: context.actor.id },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "members" && request.method === "GET") {
@@ -386,7 +387,7 @@ export async function handleChannelLocalTool(
         context.actor,
         { agentIds: requested.agentIds, userIds: requested.userIds },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       const idempotencyKey = optionalText(
         body.idempotencyKey,
         "idempotencyKey",
@@ -431,7 +432,7 @@ export async function handleChannelLocalTool(
         context.actor,
         { agentId },
       );
-      await changed(context);
+      await context.onChannelsChanged?.();
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "activity" && request.method === "GET") {

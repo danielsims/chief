@@ -7,30 +7,37 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  isJsonBoolean,
+  isJsonString,
+  parseJsonObject,
+  parseJsonValue,
+} from "@chief/relay-contracts";
+
 import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
 import { evaluateToolUse } from "../approvals.js";
 import { BaseDriver } from "./base.js";
 import { agentEnvironment } from "./environment.js";
 
-function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
+function parseQuestions(input: JsonObject): AgentQuestion[] {
   if (!Array.isArray(input.questions)) return [];
   return input.questions.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object") return [];
-    const item = candidate as Record<string, unknown>;
-    if (typeof item.question !== "string" || !Array.isArray(item.options)) {
+    const item = parseJsonObject(candidate);
+    if (!item) return [];
+    if (!isJsonString(item.question) || !Array.isArray(item.options)) {
       return [];
     }
     const options = item.options.flatMap((option) => {
-      if (!option || typeof option !== "object") return [];
-      const record = option as Record<string, unknown>;
-      return typeof record.label === "string"
+      const record = parseJsonObject(option);
+      if (!record) return [];
+      return isJsonString(record.label)
         ? [
             {
               label: record.label,
-              description:
-                typeof record.description === "string"
-                  ? record.description
-                  : undefined,
+              description: isJsonString(record.description)
+                ? record.description
+                : undefined,
             },
           ]
         : [];
@@ -39,7 +46,7 @@ function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
     return [
       {
         question: item.question,
-        header: typeof item.header === "string" ? item.header : undefined,
+        header: isJsonString(item.header) ? item.header : undefined,
         multiSelect: item.multiSelect === true,
         options,
       },
@@ -71,22 +78,12 @@ export class ClaudeDriver extends BaseDriver {
   private access: StartOptions["access"] = "guarded";
   private generation = 0;
 
-  async start(opts: StartOptions): Promise<void> {
+  start(opts: StartOptions): Promise<void> {
     this.startOptions = opts;
     this.sessionId = opts.resumeSessionId;
     this.access = opts.access;
     this.closed = false;
     if (this.abort.signal.aborted) this.abort = new AbortController();
-
-    const driver = this;
-    async function* input(): AsyncGenerator<SDKUserMessage> {
-      while (!driver.closed) {
-        while (driver.inputQueue.length > 0) {
-          yield driver.inputQueue.shift()!;
-        }
-        await new Promise<void>((resolve) => (driver.wake = resolve));
-      }
-    }
 
     // Strip nested-session markers so the CLI doesn't think it's running
     // inside another Claude Code session (matters when the service itself
@@ -97,7 +94,7 @@ export class ClaudeDriver extends BaseDriver {
     delete env.CLAUDE_CODE_SESSION_ID;
 
     const activeQuery = query({
-      prompt: input(),
+      prompt: this.inputMessages(),
       options: {
         env,
         cwd: opts.cwd,
@@ -115,7 +112,7 @@ export class ClaudeDriver extends BaseDriver {
                   type: "stdio" as const,
                   command: server.command,
                   args: server.args,
-                  ...(server.cwd ? { cwd: server.cwd } : {}),
+                  ...(server.cwd ? { cwd: server.cwd } : undefined),
                   env: server.env ?? {},
                 },
           ]),
@@ -127,8 +124,15 @@ export class ClaudeDriver extends BaseDriver {
         // other tool (installs, browser opens and callback servers just
         // work); guarded sessions route mutations through the approval
         // policy.
-        canUseTool: (toolName: string, toolInput: Record<string, unknown>) =>
-          this.decideToolUse(opts.cwd, toolName, toolInput),
+        canUseTool: (toolName, toolInput) => {
+          const parsedInput = parseJsonObject(toolInput);
+          return parsedInput
+            ? this.decideToolUse(opts.cwd, toolName, parsedInput)
+            : Promise.resolve({
+                behavior: "deny",
+                message: "The tool input was not valid JSON.",
+              });
+        },
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
@@ -140,6 +144,19 @@ export class ClaudeDriver extends BaseDriver {
     this.q = activeQuery;
     const generation = ++this.generation;
     void this.pump(activeQuery, generation);
+    return Promise.resolve();
+  }
+
+  private async *inputMessages(): AsyncGenerator<SDKUserMessage> {
+    while (!this.closed) {
+      while (this.inputQueue.length > 0) {
+        const message = this.inputQueue.shift();
+        if (message) yield message;
+      }
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+    }
   }
 
   private async pump(activeQuery: Query, generation: number) {
@@ -171,28 +188,40 @@ export class ClaudeDriver extends BaseDriver {
         }
         break;
       case "stream_event": {
-        const ev = msg.event;
+        const ev = parseJsonObject(msg.event);
+        const delta = ev ? parseJsonObject(ev.delta) : undefined;
         if (
-          ev.type === "content_block_delta" &&
-          ev.delta.type === "text_delta"
+          ev?.type === "content_block_delta" &&
+          delta?.type === "text_delta" &&
+          isJsonString(delta.text)
         ) {
-          this.emitEvent({ type: "stream", text: ev.delta.text });
+          this.emitEvent({ type: "stream", text: delta.text });
         }
         break;
       }
       case "assistant": {
         const blocks: ContentBlock[] = [];
-        for (const block of msg.message.content) {
-          if (block.type === "text") {
+        const message = parseJsonObject(msg.message);
+        const content = Array.isArray(message?.content) ? message.content : [];
+        for (const candidate of content) {
+          const block = parseJsonObject(candidate);
+          if (block?.type === "text" && isJsonString(block.text)) {
             blocks.push({ type: "text", text: block.text });
-          } else if (block.type === "thinking") {
+          } else if (
+            block?.type === "thinking" &&
+            isJsonString(block.thinking)
+          ) {
             blocks.push({ type: "thinking", thinking: block.thinking });
-          } else if (block.type === "tool_use") {
+          } else if (
+            block?.type === "tool_use" &&
+            isJsonString(block.id) &&
+            isJsonString(block.name)
+          ) {
             blocks.push({
               type: "tool_use",
               id: block.id,
               name: block.name.replace(/^mcp__[^_]+__/, ""),
-              input: block.input,
+              input: parseJsonValue(block.input),
             });
           }
         }
@@ -207,15 +236,22 @@ export class ClaudeDriver extends BaseDriver {
       }
       case "user": {
         const blocks: ContentBlock[] = [];
-        const content = msg.message.content;
+        const message = parseJsonObject(msg.message);
+        const content = message?.content;
         if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === "tool_result") {
+          for (const candidate of content) {
+            const block = parseJsonObject(candidate);
+            if (
+              block?.type === "tool_result" &&
+              isJsonString(block.tool_use_id)
+            ) {
               blocks.push({
                 type: "tool_result",
                 tool_use_id: block.tool_use_id,
-                content: block.content,
-                is_error: block.is_error,
+                content: parseJsonValue(block.content),
+                is_error: isJsonBoolean(block.is_error)
+                  ? block.is_error
+                  : undefined,
               });
             }
           }
@@ -241,7 +277,7 @@ export class ClaudeDriver extends BaseDriver {
   private decideToolUse(
     cwd: string,
     toolName: string,
-    toolInput: Record<string, unknown>,
+    toolInput: JsonObject,
   ): Promise<PermissionResult> {
     if (toolName === "AskUserQuestion") {
       return this.requestAnswers(toolInput);
@@ -256,9 +292,7 @@ export class ClaudeDriver extends BaseDriver {
    * AskUserQuestion is answered, not approved: the UI collects the user's
    * choices and they return to the model through updatedInput.answers.
    */
-  private requestAnswers(
-    toolInput: Record<string, unknown>,
-  ): Promise<PermissionResult> {
+  private requestAnswers(toolInput: JsonObject): Promise<PermissionResult> {
     const questions = parseQuestions(toolInput);
     if (questions.length === 0) {
       return Promise.resolve({
@@ -289,7 +323,7 @@ export class ClaudeDriver extends BaseDriver {
   private requestApproval(
     cwd: string,
     toolName: string,
-    toolInput: Record<string, unknown>,
+    toolInput: JsonObject,
   ): Promise<PermissionResult> {
     if (evaluateToolUse(toolName, toolInput, cwd) === "allow") {
       return Promise.resolve({
@@ -338,7 +372,7 @@ export class ClaudeDriver extends BaseDriver {
     pending(answers);
   }
 
-  async sendPromptOnce(text: string): Promise<void> {
+  sendPromptOnce(text: string): Promise<void> {
     this.inputQueue.push({
       type: "user",
       message: { role: "user", content: text },
@@ -347,6 +381,7 @@ export class ClaudeDriver extends BaseDriver {
     });
     this.emitEvent({ type: "status", status: "running" });
     this.wake?.();
+    return Promise.resolve();
   }
 
   /** Recover from a failed prompt by restarting the Claude SDK session. */

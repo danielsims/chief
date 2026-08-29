@@ -4,6 +4,8 @@ import type {
   ServerResponse,
 } from "node:http";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 type AsyncRequestHandler = (
   request: IncomingMessage,
   response: ServerResponse,
@@ -14,7 +16,7 @@ export function localToolRequest(input: {
   url?: string;
   method?: string;
   headers: IncomingHttpHeaders;
-  body: Record<string, unknown>;
+  body: object;
 }) {
   const method = (input.method ?? "GET").toUpperCase();
   const supportsBody = method !== "GET" && method !== "HEAD";
@@ -22,19 +24,19 @@ export function localToolRequest(input: {
     method,
     headers: Object.fromEntries(
       Object.entries(input.headers).flatMap(([key, value]) =>
-        typeof value === "string" ? [[key, value]] : [],
+        isJsonString(value) ? [[key, value]] : [],
       ),
     ),
     ...(supportsBody && Object.keys(input.body).length > 0
       ? { body: JSON.stringify(input.body) }
-      : {}),
+      : undefined),
   });
 }
 
 /** Keep one malformed HTTP request from terminating the entire agent runtime. */
 export function guardedRequestHandler(
   handler: AsyncRequestHandler,
-  report: (error: unknown, request: IncomingMessage) => void = (
+  report: (error: Error, request: IncomingMessage) => void = (
     error,
     request,
   ) => {
@@ -45,25 +47,25 @@ export function guardedRequestHandler(
   },
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
-    void handler(request, response).catch((error: unknown) => {
+    void handler(request, response).catch((cause) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
       report(error, request);
       if (response.writableEnded || response.destroyed) return;
       if (response.headersSent) {
-        response.destroy(error instanceof Error ? error : undefined);
+        response.destroy(error);
         return;
       }
       response.writeHead(500, {
         "content-type": "application/json",
         "cache-control": "no-store",
       });
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Chief could not complete this local request.";
+      const message = error.message
+        ? error.message
+        : "Chief could not complete this local request.";
       response.end(
         JSON.stringify({
           error: message,
-          ...(error instanceof Error ? { code: "local_tool_failed" } : {}),
+          code: "local_tool_failed",
         }),
       );
     });

@@ -1,3 +1,6 @@
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import { isJsonObject } from "@chief/relay-contracts";
+
 export const GOOGLE_ANALYTICS_INTEGRATION = "google_analytics";
 export const GOOGLE_ANALYTICS_CONNECTION = "main";
 export const GOOGLE_ANALYTICS_OAUTH_CLIENT = "chief_google_analytics";
@@ -7,70 +10,78 @@ const GOOGLE_ANALYTICS_SCOPE =
 export const GOOGLE_ANALYTICS_OPENAPI_URL =
   "https://api.apis.guru/v2/specs/googleapis.com/analyticsdata/v1beta/openapi.json";
 
-export function googleAnalyticsSpecOverrides() {
+type AccountSummariesPath = JsonObject & {
+  get: JsonObject & {
+    "x-executor-toolPath": string;
+    servers: (JsonObject & { url: string })[];
+  };
+};
+
+interface GoogleAnalyticsSpecOverride {
+  op: string;
+  path: string;
+  value: AccountSummariesPath;
+}
+
+const accountSummariesPath: AccountSummariesPath = {
+  get: {
+    operationId: "accountSummariesList",
+    "x-executor-toolPath": "accountSummaries.list",
+    servers: [{ url: "https://analyticsadmin.googleapis.com" }],
+    parameters: [
+      {
+        name: "pageSize",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      {
+        name: "pageToken",
+        in: "query",
+        required: false,
+        schema: { type: "string" },
+      },
+    ],
+    responses: {
+      200: {
+        description: "Accessible Google Analytics accounts and properties",
+        content: {
+          "application/json": {
+            schema: { type: "object", additionalProperties: true },
+          },
+        },
+      },
+    },
+  },
+};
+
+export function googleAnalyticsSpecOverrides(): GoogleAnalyticsSpecOverride[] {
   return [
     {
       op: "add",
       path: "/paths/~1v1beta~1accountSummaries",
-      value: {
-        get: {
-          operationId: "accountSummariesList",
-          "x-executor-toolPath": "accountSummaries.list",
-          servers: [{ url: "https://analyticsadmin.googleapis.com" }],
-          parameters: [
-            {
-              name: "pageSize",
-              in: "query",
-              required: false,
-              schema: { type: "integer", minimum: 1, maximum: 200 },
-            },
-            {
-              name: "pageToken",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            200: {
-              description:
-                "Accessible Google Analytics accounts and properties",
-              content: {
-                "application/json": {
-                  schema: { type: "object", additionalProperties: true },
-                },
-              },
-            },
-          },
-        },
-      },
+      value: accountSummariesPath,
     },
   ];
 }
 
 /** Repairs reserved Google resource names lost by the APIs.guru conversion. */
-export function prepareGoogleAnalyticsSpec(source: unknown) {
-  if (!source || typeof source !== "object") {
+export function prepareGoogleAnalyticsSpec(source: JsonValue): JsonObject {
+  if (!source || !isJsonObject(source)) {
     throw new Error("Google Analytics returned an invalid OpenAPI document.");
   }
-  const spec = structuredClone(source) as Record<string, unknown>;
-  const paths =
-    spec.paths && typeof spec.paths === "object"
-      ? (spec.paths as Record<string, Record<string, unknown>>)
-      : {};
+  const spec = structuredClone(source);
+  const paths = isJsonObject(spec.paths) ? spec.paths : {};
   spec.paths = paths;
   for (const pathItem of Object.values(paths)) {
+    if (!isJsonObject(pathItem)) continue;
     for (const operation of [pathItem, ...Object.values(pathItem)]) {
-      if (!operation || typeof operation !== "object") continue;
-      const parameters = (operation as { parameters?: unknown }).parameters;
+      if (!operation || !isJsonObject(operation)) continue;
+      const parameters = operation.parameters;
       if (!Array.isArray(parameters)) continue;
       for (const parameter of parameters) {
-        if (
-          parameter &&
-          typeof parameter === "object" &&
-          (parameter as { in?: unknown }).in === "path"
-        ) {
-          (parameter as { allowReserved?: boolean }).allowReserved = true;
+        if (parameter && isJsonObject(parameter) && parameter.in === "path") {
+          parameter.allowReserved = true;
         }
       }
     }

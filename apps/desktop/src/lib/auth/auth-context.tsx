@@ -1,24 +1,18 @@
-/**
- * Desktop Auth Context
- *
- * Uses PKCE-based authentication flow:
- * - Generates PKCE challenge and opens system browser
- * - Deep link handler or dev-mode polling receives authorization code
- * - Exchanges code for session token via /desktop/token endpoint
- */
-
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+
+import { isJsonNumber } from "@chief/relay-contracts";
 
 import type { StoredRelayConnection } from "../relay-connection";
+import type { AuthState } from "./auth-state";
 import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import {
@@ -29,26 +23,28 @@ import {
 } from "../config";
 import {
   activateKnownRelay,
+  forgetRelayWorkspaces,
+  knownRelayConnections,
   rememberRelayConnection,
+  resolveRelayConnection,
   saveStoredRelayConnection,
 } from "../relay-connection";
 import { useRelayWorkspaceOverride } from "../relay-workspace-override";
+import { connectedRelayIdentities } from "./account-directory";
+import {
+  asError,
+  chiefAccountConnection,
+  openRelayAuthorization,
+  validateOrRefreshSession,
+} from "./auth-session-flow";
 import {
   authClient,
   getActiveAuthOrganizationMember,
-  updateAuthUser,
-  validateStoredSession,
 } from "./better-auth-client";
-import { refreshOAuthSession, setupAuthDeepLink } from "./client";
-import { shouldInvalidateOAuthSession } from "./oauth-token-error";
-import {
-  generateCodeChallenge,
-  generateCodeVerifier,
-  generateState,
-  storePkceVerifier,
-} from "./pkce";
+import { setupAuthDeepLink } from "./client";
 import {
   AUTH_SESSION_CHANGED_EVENT,
+  clearStoredRelaySession,
   clearStoredSession,
   getStoredSession,
   hydrateStoredSession,
@@ -56,29 +52,6 @@ import {
   setStoredSession,
   storeSessionForRelay,
 } from "./session";
-
-interface AuthState {
-  isLoading: boolean;
-  isSigningIn: boolean;
-  isAuthenticated: boolean;
-  sessionToken: string | null;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    emailVerified: boolean;
-    image?: string;
-  } | null;
-  cloudOrganizationId: string | null;
-  organizationRole: OrganizationRole | null;
-  /** Last sign-in failure, surfaced on the splash screen. */
-  authError: string | null;
-  signIn: () => void;
-  connectRelay: (connection: StoredRelayConnection) => Promise<void>;
-  signOut: () => void;
-  invalidateSession: () => void;
-  updateProfileImage: (image: string | null) => Promise<void>;
-}
 
 const AuthContext = createContext<AuthState | null>(null);
 const noAuthAction = () => undefined;
@@ -93,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [storedSession, setStoredSessionState] = useState<StoredSession | null>(
     null,
   );
+  const currentStoredSession = useEffectEvent(() => storedSession);
   const [organizationMembership, setOrganizationMembership] = useState<{
     organizationId: string;
     role: OrganizationRole;
@@ -102,12 +76,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authFlowCompletedRef = useRef(false);
 
   useEffect(() => {
-    const syncStoredSession = () => setStoredSessionState(getStoredSession());
+    const syncStoredSession = () => {
+      setStoredSessionState(getStoredSession());
+    };
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
     void hydrateStoredSession()
       .then((session) => {
         setStoredSessionState(session);
         setSessionHydrated(true);
+        // A persisted OAuth access token may have expired while Chief was
+        // closed. Keep consumers behind the auth loading boundary until the
+        // Better Auth session has been validated or refreshed, otherwise the
+        // relay can race ahead and attempt device binding with the stale token.
         if (!session) setIsLoading(false);
       })
       .catch((error: unknown) => {
@@ -168,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const failDesktopAuth = useCallback((err: unknown) => {
+  const failDesktopAuth = useCallback((err: Error) => {
     // A late failure from the losing delivery path (poll vs deep link)
     // must not clobber an already-completed sign-in.
     if (authFlowCompletedRef.current) return;
@@ -195,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshExpiredSession = () => {
       if (
         document.visibilityState === "visible" &&
-        typeof storedSession?.expiresAt === "number" &&
+        isJsonNumber(storedSession?.expiresAt) &&
         storedSession.expiresAt <= Date.now() + 60_000
       ) {
         setValidationTrigger((current) => current + 1);
@@ -209,48 +189,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [storedSession?.expiresAt]);
 
-  // Validate the cached session against the server once when it changes (app
-  // launch, and again right after sign-in). The localStorage session can
-  // outlive the server-side session — it expires, or a backend auth deploy
-  // invalidates old tokens. Without this the app shows a signed-in UI while
-  // every authenticated cloud call silently 401s. This is a single request per
-  // token (NOT polling); when the server rejects the token we sign out locally
-  // so the user gets a clear re-login prompt instead of a half-broken session.
   useEffect(() => {
     if (!sessionHydrated) return;
-    const token = storedSession?.token;
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+    const session = currentStoredSession();
+    if (!session) return;
+    const token = session.token;
 
     let cancelled = false;
-    // Only the first hydration blocks the application shell. A focus-triggered
-    // refresh must keep the authenticated tree mounted so returning to Chief
-    // never resets navigation, scroll position, or arrival animations.
-    setIsLoading(false);
-    void validateOrRefreshSession(storedSession).then((result) => {
-      if (cancelled) return;
-      if (!result) {
-        console.warn("[Auth] Stored session rejected by server, signing out");
-        invalidateSession();
-        return;
-      }
+    void validateOrRefreshSession(session)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result) {
+          console.warn("[Auth] Stored session rejected by server, signing out");
+          invalidateSession();
+          return;
+        }
 
-      setStoredSessionState((current) => {
-        if (!current || current.token !== token) return current;
-        const next = result;
-        setStoredSession(next);
-        return next;
+        setStoredSessionState((current) => {
+          if (!current || current.token !== token) return current;
+          const next = result;
+          setStoredSession(next);
+          return next;
+        });
+        setIsLoading(false);
+        setAuthError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("[Auth] Could not validate the OAuth session:", error);
+        setAuthError("Chief could not validate your sign-in. Try again.");
+        setIsLoading(false);
       });
-      setIsLoading(false);
-    });
     return () => {
       cancelled = true;
     };
-    // The access token is the validation identity. Depending on the whole
-    // session would retrigger after updating lastValidated with the same token.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     invalidateSession,
     sessionHydrated,
@@ -288,45 +260,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const relayOrigin = connection?.relayUrl ?? RELAY_URL;
       const authBaseUrl = connection?.authBaseUrl ?? AUTH_BASE_URL;
       const authUiUrl = connection?.authUiUrl ?? AUTH_UI_BASE_URL;
-      console.log("[Auth] signIn called, starting PKCE flow");
       setIsSigningIn(true);
       setAuthError(null);
       authFlowCleanupRef.current?.();
       authFlowCleanupRef.current = null;
       authFlowCompletedRef.current = false;
-      const state = generateState();
-      const codeVerifier = generateCodeVerifier();
-      const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-      await storePkceVerifier(state, codeVerifier, {
-        relayOrigin,
+      await openRelayAuthorization({
+        version: 1,
+        relayUrl: relayOrigin,
         authBaseUrl,
+        authUiUrl,
       });
-
-      const signInUrl = new URL("/api/auth/oauth2/authorize", authUiUrl);
-      signInUrl.searchParams.set("client_id", "chief-desktop");
-      signInUrl.searchParams.set("redirect_uri", "chief-desktop:///auth");
-      signInUrl.searchParams.set("response_type", "code");
-      signInUrl.searchParams.set(
-        "scope",
-        "openid profile email offline_access",
-      );
-      signInUrl.searchParams.set("code_challenge", codeChallenge);
-      signInUrl.searchParams.set("code_challenge_method", "S256");
-      signInUrl.searchParams.set("state", state);
-      signInUrl.searchParams.set("resource", authBaseUrl);
-
-      console.log(
-        "[Auth] Opening browser for PKCE OAuth:",
-        signInUrl.toString().substring(0, 100) + "...",
-      );
-      await openUrl(signInUrl.toString());
     },
     [],
   );
 
   const signIn = useCallback(() => {
-    void startRelayAuthorization().catch(failDesktopAuth);
+    void startRelayAuthorization(chiefAccountConnection).catch((error) =>
+      failDesktopAuth(asError(error instanceof Error ? error : String(error))),
+    );
   }, [failDesktopAuth, startRelayAuthorization]);
 
   const connectRelay = useCallback(
@@ -335,7 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const existing = await loadSessionForRelay(connection.relayUrl);
       const reusable =
         existing &&
-        (typeof existing.expiresAt !== "number" ||
+        (!isJsonNumber(existing.expiresAt) ||
           existing.expiresAt > Date.now() + 60_000 ||
           Boolean(existing.refreshToken));
       if (reusable) {
@@ -349,30 +301,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await startRelayAuthorization(connection);
       } catch (error) {
-        failDesktopAuth(error);
+        failDesktopAuth(
+          asError(error instanceof Error ? error : String(error)),
+        );
         throw error;
       }
     },
     [failDesktopAuth, startRelayAuthorization],
   );
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback((requestedRelayUrl?: string) => {
     authFlowCleanupRef.current?.();
     authFlowCleanupRef.current = null;
     authFlowCompletedRef.current = false;
     setIsSigningIn(false);
     setIsLoading(false);
-    const remoteSignOut = authClient.signOut().catch((err) => {
-      console.error("[Auth] Remote sign-out error:", err);
+    const activeRelayOrigin = new URL(RELAY_URL).origin;
+    const relayOrigin = new URL(requestedRelayUrl ?? RELAY_URL).origin;
+    const identity = connectedRelayIdentities().find(
+      (candidate) => candidate.relayUrl === relayOrigin,
+    );
+    const accountId = identity?.user.id ?? null;
+    const signsOutActiveRelay = relayOrigin === activeRelayOrigin;
+    const remoteSignOut = signsOutActiveRelay
+      ? authClient.signOut().catch((err) => {
+          console.error("[Auth] Remote sign-out error:", err);
+        })
+      : Promise.resolve();
+    if (signsOutActiveRelay) {
+      clearStoredSession();
+      setStoredSessionState(null);
+    }
+    void Promise.all([
+      remoteSignOut,
+      clearStoredRelaySession(relayOrigin),
+    ]).finally(() => {
+      if (accountId) forgetRelayWorkspaces(relayOrigin, accountId);
+      if (!signsOutActiveRelay) return;
+      const fallback = connectedRelayIdentities()[0];
+      if (!fallback) {
+        saveStoredRelayConnection(null);
+        return;
+      }
+      const connection = resolveRelayConnection(
+        fallback.relayUrl,
+        knownRelayConnections(),
+        chiefAccountConnection,
+      );
+      if (!connection) {
+        saveStoredRelayConnection(null);
+        return;
+      }
+      if (connection.relayUrl === chiefAccountConnection.relayUrl) {
+        saveStoredRelayConnection(null);
+      } else {
+        activateKnownRelay(connection.relayUrl);
+      }
+      window.location.assign("/");
     });
-    clearStoredSession();
-    setStoredSessionState(null);
-
-    void remoteSignOut;
   }, []);
 
-  const updateProfileImage = useCallback(async (image: string | null) => {
-    await updateAuthUser({ image });
+  const updateProfileImage = useCallback((image: string | null) => {
     setStoredSessionState((current) => {
       if (!current) return current;
       const next: StoredSession = {
@@ -386,9 +375,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStoredSession(next);
       return next;
     });
+    return Promise.resolve();
   }, []);
-
-  // ─── Context Value ───────────────────────────────────────────────────
 
   const user = storedSession?.user ?? null;
   const organizationRole =
@@ -438,36 +426,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-async function validateOrRefreshSession(session: StoredSession) {
-  const shouldRefresh =
-    Boolean(session.refreshToken) &&
-    typeof session.expiresAt === "number" &&
-    session.expiresAt <= Date.now() + 60_000;
-  if (shouldRefresh) {
-    try {
-      return await refreshOAuthSession(session);
-    } catch (error) {
-      return shouldInvalidateOAuthSession(error) ? null : session;
-    }
-  }
-  const validation = await validateStoredSession(session.token);
-  if (validation.status === "valid") {
-    return {
-      ...session,
-      user: validation.user,
-      organizationId: validation.organizationId ?? session.organizationId,
-      lastValidated: Date.now(),
-    };
-  }
-  if (validation.status === "unknown") return session;
-  if (!session.refreshToken) return null;
-  try {
-    return await refreshOAuthSession(session);
-  } catch (error) {
-    return shouldInvalidateOAuthSession(error) ? null : session;
-  }
 }
 
 export function useAuth(): AuthState {

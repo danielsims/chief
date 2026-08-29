@@ -1,6 +1,8 @@
 import type { HandleMessageStreamEvent, InputResponse } from "eve/client";
 import { Client, resolveTextToResponse } from "eve/client";
 
+import { parseJsonObject } from "@chief/relay-contracts";
+
 import type { ContentBlock, StartOptions } from "../types.js";
 import type { RemoteDriverState } from "./remote-eve-state.js";
 import {
@@ -280,7 +282,7 @@ export class EveRemoteDriver extends BaseDriver {
           message: safeRuntimeError(error),
           ...(isDeploymentNotFound(error)
             ? { code: "deployment_not_found" as const }
-            : {}),
+            : undefined),
         });
         this.emitEvent({ type: "status", status: "idle" });
       }
@@ -358,7 +360,7 @@ export class EveRemoteDriver extends BaseDriver {
           type: "tool_use",
           id: action.callId,
           name: remoteActionName(action),
-          input: action.input,
+          input: parseJsonObject(action.input) ?? {},
         }));
         if (content.length) {
           this.emitEvent({

@@ -1,4 +1,4 @@
-const pendingTurnFrom = (messages) => {
+const _pendingTurnFrom = (messages) => {
   let lastAssistant = -1;
   let lastUser = -1;
   for (let index = 0; index < messages.length; index += 1) {
@@ -17,8 +17,10 @@ const browserEndReasons = new Set([
   "unavailable",
 ]);
 
+const isString = (value) => String(value) === value;
+
 const validBrowserIdentifier = (value) =>
-  typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
+  isString(value) && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 
 const validBrowserRelease = (request) => {
   if (
@@ -30,17 +32,16 @@ const validBrowserRelease = (request) => {
     return false;
   if (
     request.label != null &&
-    (typeof request.label !== "string" || request.label.length > 160)
+    (!isString(request.label) || request.label.length > 160)
   )
     return false;
   if (
     request.title != null &&
-    (typeof request.title !== "string" || request.title.length > 256)
+    (!isString(request.title) || request.title.length > 256)
   )
     return false;
   if (request.url != null) {
-    if (typeof request.url !== "string" || request.url.length > 2048)
-      return false;
+    if (!isString(request.url) || request.url.length > 2048) return false;
     if (
       !/^https?:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(request.url) ||
       /^https?:\/\/[^/]*@/i.test(request.url)
@@ -50,7 +51,7 @@ const validBrowserRelease = (request) => {
   return true;
 };
 
-const persistBrowserRelease = async (storage, messages, request) => {
+const _persistBrowserRelease = async (storage, messages, request) => {
   if (!validBrowserRelease(request)) {
     throw new Error("invalid browser session release request");
   }
@@ -72,7 +73,7 @@ const persistBrowserRelease = async (storage, messages, request) => {
   return receipt;
 };
 
-const persistBrowserEnd = async (storage, messages, request) => {
+const _persistBrowserEnd = async (storage, messages, request) => {
   if (
     request?.version !== 1 ||
     !validBrowserIdentifier(request.sessionId) ||
@@ -101,7 +102,7 @@ const persistBrowserEnd = async (storage, messages, request) => {
   return receipt;
 };
 
-const scopedConversationStorage = (storage, conversationId) => {
+const _scopedConversationStorage = (storage, conversationId) => {
   if (!/^[A-Za-z0-9._:-]{1,160}$/.test(conversationId)) {
     throw new Error("invalid conversation id");
   }
@@ -127,9 +128,9 @@ const scopedConversationStorage = (storage, conversationId) => {
 
 const validTurnCheckpoint = (checkpoint) =>
   checkpoint?.version === 1 &&
-  typeof checkpoint.id === "string" &&
-  typeof checkpoint.sessionId === "string" &&
-  typeof checkpoint.turnId === "string" &&
+  isString(checkpoint.id) &&
+  isString(checkpoint.sessionId) &&
+  isString(checkpoint.turnId) &&
   Number.isFinite(checkpoint.userAt) &&
   Array.isArray(checkpoint.activities);
 
@@ -141,7 +142,7 @@ const checkpointMessage = (checkpoint, kind, message) => ({
   sessionId: checkpoint.sessionId,
 });
 
-const materializeCheckpoint = (messages, checkpoint) => {
+const _materializeCheckpoint = (messages, checkpoint) => {
   if (!validTurnCheckpoint(checkpoint)) return messages;
   const has = (kind, id) =>
     messages.some(
@@ -193,27 +194,27 @@ const materializeCheckpoint = (messages, checkpoint) => {
   return messages;
 };
 
-const ensureSession = async (storage, conversationId, cellName) => {
+const _ensureSession = async (storage, conversationId, cellName) => {
   const sessionId = `${cellName}:${conversationId}`;
   const existing = await storage.get("session");
   if (existing?.version === 1 && existing.sessionId === sessionId)
     return existing;
   const session = {
-    ...(existing?.version === 1 ? existing : {}),
+    ...(existing?.version === 1 ? existing : undefined),
     version: 1,
     sessionId,
     conversationId,
     streamIndex: Number.isFinite(existing?.streamIndex)
       ? existing.streamIndex
       : 0,
-    status: typeof existing?.status === "string" ? existing.status : "waiting",
+    status: isString(existing?.status) ? existing.status : "waiting",
     createdAt: existing?.createdAt ?? new Date().toISOString(),
   };
   await storage.put("session", session);
   return session;
 };
 
-const updateSession = async (storage, session, status, addedEvents = 0) => {
+const _updateSession = async (storage, session, status, addedEvents = 0) => {
   const next = {
     ...session,
     streamIndex: session.streamIndex + addedEvents,
@@ -241,7 +242,7 @@ const journalEntriesFromConversation = (conversationId, messages) => {
   let latestUser = null;
   let tools = [];
   for (const message of messages) {
-    if (message?.role === "user" && typeof message.content === "string") {
+    if (message?.role === "user" && isString(message.content)) {
       latestUser = message;
       tools = [];
       continue;
@@ -249,10 +250,10 @@ const journalEntriesFromConversation = (conversationId, messages) => {
     if (message?.role === "tool" && latestUser) {
       try {
         const tool = JSON.parse(String(message.content ?? ""));
-        if (typeof tool?.name === "string") {
+        if (isString(tool?.name)) {
           tools.push({
             name: tool.name,
-            status: typeof tool.status === "string" ? tool.status : "unknown",
+            status: isString(tool.status) ? tool.status : "unknown",
           });
         }
       } catch {
@@ -262,7 +263,7 @@ const journalEntriesFromConversation = (conversationId, messages) => {
     }
     if (
       message?.role !== "assistant" ||
-      typeof message.content !== "string" ||
+      !isString(message.content) ||
       !latestUser
     )
       continue;
@@ -311,31 +312,26 @@ const readAgentJournal = async (storage) => {
     entries: journal.entries.filter(
       (entry) =>
         entry &&
-        typeof entry.id === "string" &&
-        typeof entry.conversationId === "string" &&
+        isString(entry.id) &&
+        isString(entry.conversationId) &&
         Number.isFinite(entry.completedAt),
     ),
   };
 };
 
-const appendAgentJournal = async (
+const _appendAgentJournal = async (
   storage,
   conversationId,
   userTurn,
   assistantMessage,
   tools,
 ) => {
-  if (!userTurn || typeof assistantMessage?.content !== "string") return;
+  if (!userTurn || !isString(assistantMessage?.content)) return;
   const journal = await readAgentJournal(storage);
   const id = `${conversationId}:${userTurn.at}:${assistantMessage.at}`;
   if (journal.entries.some((entry) => entry.id === id)) return;
   const completedTools = (Array.isArray(tools) ? tools : [])
-    .filter(
-      (tool) =>
-        tool &&
-        typeof tool.name === "string" &&
-        typeof tool.status === "string",
-    )
+    .filter((tool) => tool && isString(tool.name) && isString(tool.status))
     .map((tool) => ({ name: tool.name, status: tool.status }));
   journal.entries.push({
     id,
@@ -351,7 +347,7 @@ const appendAgentJournal = async (
   await storage.put(agentJournalKey, journal);
 };
 
-const agentContinuityMessage = async (storage, currentConversationId) => {
+const _agentContinuityMessage = async (storage, currentConversationId) => {
   const journal = await readAgentJournal(storage);
   if (!journal.entries.length) return null;
 

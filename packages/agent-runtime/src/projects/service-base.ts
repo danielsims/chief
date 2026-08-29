@@ -137,7 +137,7 @@ export abstract class ProjectServiceBase {
         projectId,
         principal,
         capability,
-        ...(targetRef ? { targetRef } : {}),
+        ...(targetRef ? { targetRef } : undefined),
       });
     } catch (error) {
       if (error instanceof ProjectAuthorizationError) {
@@ -145,7 +145,7 @@ export abstract class ProjectServiceBase {
           organizationId,
           projectId,
           principal,
-          ...(targetRef ? { branch: targetRef } : {}),
+          ...(targetRef ? { branch: targetRef } : undefined),
           result: "denied",
           message: error.message,
         });
@@ -180,23 +180,25 @@ export abstract class ProjectServiceBase {
     const record: ProjectOperationRecord = {
       id: randomUUID(),
       organizationId: input.organizationId,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.projectId ? { projectId: input.projectId } : undefined),
       ...(input.principal
         ? {
             principalType: input.principal.type,
             principalId: input.principal.id,
           }
-        : {}),
-      ...(input.agentId ? { agentId: input.agentId } : {}),
-      ...(input.checkoutId ? { checkoutId: input.checkoutId } : {}),
-      ...(input.branch ? { branch: input.branch } : {}),
+        : undefined),
+      ...(input.agentId ? { agentId: input.agentId } : undefined),
+      ...(input.checkoutId ? { checkoutId: input.checkoutId } : undefined),
+      ...(input.branch ? { branch: input.branch } : undefined),
       operation,
       result: input.result,
-      ...(input.commitHash ? { commitHash: input.commitHash } : {}),
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      ...(input.commitHash ? { commitHash: input.commitHash } : undefined),
+      ...(input.correlationId
+        ? { correlationId: input.correlationId }
+        : undefined),
       ...(input.message
         ? { message: input.message.trim().replace(/\s+/g, " ").slice(0, 240) }
-        : {}),
+        : undefined),
       createdAt: Date.now(),
     };
     await this.operationsStore.saveOperation(record);

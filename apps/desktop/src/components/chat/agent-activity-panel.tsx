@@ -1,7 +1,9 @@
-import { CircleAlert } from "lucide-react";
+import { ArrowUpRight, CircleAlert } from "lucide-react";
+import { Link } from "react-router";
 
 import type { ContentBlock, SessionRecord } from "@chief/agent-runtime/types";
 
+import type { ChatRuntimeError } from "../../lib/runtime-chat-controls";
 import type { ConversationActivityTurn } from "./conversation-activity-history";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import {
@@ -22,7 +24,6 @@ export function AgentActivityPanel({
   blocks,
   error,
   previousTurns,
-  agentLabel,
   running,
   tasks,
   onClose,
@@ -30,9 +31,8 @@ export function AgentActivityPanel({
   sizing,
 }: {
   blocks: ContentBlock[];
-  error?: string;
+  error?: ChatRuntimeError;
   previousTurns: readonly ConversationActivityTurn[];
-  agentLabel: string;
   running: boolean;
   tasks: SessionRecord[];
   onClose: () => void;
@@ -48,21 +48,35 @@ export function AgentActivityPanel({
 
       <ConversationAuxiliaryPanelBody className="p-4">
         {error ? (
-          <section className="border-destructive/20 bg-destructive/5 mb-5 rounded-lg border p-3">
-            <div className="text-destructive flex items-center gap-1.5 text-xs font-medium">
-              <CircleAlert size={13} />
-              Error
-            </div>
-            <p className="text-muted-foreground mt-2 text-xs leading-5">
-              {error}
-            </p>
-          </section>
+          error.agentId ? (
+            <Link
+              to={`/agents?agent=${encodeURIComponent(error.agentId)}`}
+              onClick={onClose}
+              className="border-destructive/20 bg-destructive/5 hover:bg-destructive/10 mb-5 block rounded-lg border p-3 transition-colors"
+            >
+              <div className="text-destructive flex items-center gap-1.5 text-xs font-medium">
+                <CircleAlert size={13} />
+                {error.title ?? "Error"}
+                <ArrowUpRight size={12} className="ml-auto" />
+              </div>
+              <p className="text-muted-foreground mt-2 text-xs leading-5">
+                {error.message}
+              </p>
+            </Link>
+          ) : (
+            <section className="border-destructive/20 bg-destructive/5 mb-5 rounded-lg border p-3">
+              <div className="text-destructive flex items-center gap-1.5 text-xs font-medium">
+                <CircleAlert size={13} />
+                {error.title ?? "Error"}
+              </div>
+              <p className="text-muted-foreground mt-2 text-xs leading-5">
+                {error.message}
+              </p>
+            </section>
+          )
         ) : null}
         {hasActivity ? (
           <div>
-            <p className="text-muted-foreground mb-2 px-1 text-[12px] leading-4 font-normal">
-              {agentLabel} activity
-            </p>
             <ToolActivityGroup blocks={blocks} active={running} />
           </div>
         ) : null}

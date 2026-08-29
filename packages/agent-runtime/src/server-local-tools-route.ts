@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 import type { AgentSessionCapability } from "./agent-session-capabilities.js";
+import type { localToolsOpenApi } from "./local-tools.js";
 import type { AgentToolPermission, ExecutorCapability } from "./types.js";
 import {
   effectiveAgentToolPermissions,
@@ -32,8 +36,11 @@ interface LocalToolRouteManager {
   >;
 }
 
+type LocalToolsOpenApi = ReturnType<typeof localToolsOpenApi>;
+type OpenApiDocument = LocalToolsOpenApi | { openapi: string };
+
 export interface LocalToolRouteRequest {
-  body: Record<string, unknown>;
+  body: JsonObject;
   caller: ActiveLocalToolCaller;
   capability: ExecutorCapability;
   path: string;
@@ -51,7 +58,7 @@ export interface LocalToolRouteRequest {
  */
 export function prepareCallerScopedToolBody(input: {
   path: string;
-  body: Record<string, unknown>;
+  body: JsonObject;
   callerAgentId: string;
   callerChatId: string;
   callerThreadRootId?: string;
@@ -102,7 +109,7 @@ interface LocalToolRouteDependencies<Context> {
   ): Promise<Response>;
   manager: LocalToolRouteManager;
   onSuccess?(result: LocalToolRouteResult): void;
-  openApi(): unknown;
+  openApi(): OpenApiDocument;
   origin: string;
   prepareBody?(request: LocalToolRouteRequest): void | Promise<void>;
   workspaceCapabilities: ReadonlyMap<string, ExecutorCapability>;
@@ -250,36 +257,44 @@ export function createLocalToolsRoute<Context>(
   };
 }
 
-function bearerToken(authorization: string | undefined) {
+function bearerToken(authorization: string | undefined): string | undefined {
   return /^Bearer (.+)$/.exec(authorization ?? "")?.[1];
 }
 
-async function readJsonBody(request: IncomingMessage) {
-  const chunks: Buffer[] = [];
+async function readJsonBody(request: IncomingMessage): Promise<JsonObject> {
+  const chunks: Uint8Array[] = [];
   for await (const chunk of request) {
-    chunks.push(Buffer.from(chunk as Uint8Array));
+    if (isRequestBodyChunk(chunk)) chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks);
   if (raw.length === 0) return {};
   try {
-    const value: unknown = JSON.parse(raw.toString("utf8"));
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
+    return parseJsonObject(JSON.parse(raw.toString("utf8"))) ?? {};
   } catch {
     return {};
   }
 }
 
-function requestedSession(url: URL, body: Readonly<Record<string, unknown>>) {
-  return typeof body.sessionId === "string"
+function isRequestBodyChunk(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array;
+}
+
+function requestedSession(
+  url: URL,
+  body: Readonly<JsonObject>,
+): string | undefined {
+  return isJsonString(body.sessionId)
     ? body.sessionId
-    : typeof body.conversationId === "string"
+    : isJsonString(body.conversationId)
       ? body.conversationId
       : (url.searchParams.get("sessionId") ?? undefined);
 }
 
-function writeJson(response: ServerResponse, status: number, body: unknown) {
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  body: JsonObject | OpenApiDocument,
+) {
   response.writeHead(status, {
     "content-type": "application/json",
     "cache-control": "no-store",

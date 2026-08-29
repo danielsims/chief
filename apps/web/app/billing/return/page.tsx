@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 
 import { SuccessCheck } from "@chief/ui/components/success-check";
@@ -29,10 +30,12 @@ function BillingReturnContent() {
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="p-8">
-        <img
+        <Image
           alt="Chief"
           className="h-8 w-8"
           src="/brand/chief-mark-sharp-open-white.svg"
+          width={32}
+          height={32}
         />
       </header>
 

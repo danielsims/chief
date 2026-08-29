@@ -14,6 +14,7 @@ import {
   cachedChannelEvents,
   cachedWorkspaceChannels,
   cacheWorkspaceChannels,
+  reconcileChannelEvents,
 } from "./workspace-conversation-cache";
 
 export function useChannelEvents(channelId: string | null) {
@@ -68,11 +69,18 @@ export function useChannelEvents(channelId: string | null) {
         message.workspaceId === cloudOrganizationId &&
         message.channelId === channelId
       ) {
-        cacheChannelEvents(cloudOrganizationId, channelId, message.events);
-        setEventState({
-          cacheKey: activeCacheKey,
-          events: message.events,
-          loaded: true,
+        setEventState((currentState) => {
+          const current =
+            currentState.cacheKey === activeCacheKey
+              ? currentState.events
+              : (cachedChannelEvents(cloudOrganizationId, channelId) ?? []);
+          const next = reconcileChannelEvents(current, message.events);
+          cacheChannelEvents(cloudOrganizationId, channelId, next);
+          return {
+            cacheKey: activeCacheKey,
+            events: next,
+            loaded: true,
+          };
         });
         return;
       }
@@ -86,14 +94,7 @@ export function useChannelEvents(channelId: string | null) {
             currentState.cacheKey === activeCacheKey
               ? currentState.events
               : (cachedChannelEvents(cloudOrganizationId, channelId) ?? []);
-          if (current.some((event) => event.id === message.event.id)) {
-            return {
-              cacheKey: activeCacheKey,
-              events: current,
-              loaded: currentState.loaded,
-            };
-          }
-          const next = [...current, message.event];
+          const next = reconcileChannelEvents(current, [message.event]);
           cacheChannelEvents(cloudOrganizationId, channelId, next);
           return {
             cacheKey: activeCacheKey,

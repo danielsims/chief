@@ -1,3 +1,5 @@
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 export const pendingOrganizationInvitationKey =
   "chief.pending-organization-invitation.v1";
 
@@ -36,13 +38,16 @@ export function storePendingOrganizationInvitation(
 
 export function readPendingOrganizationInvitation() {
   try {
-    const parsed = JSON.parse(
-      window.sessionStorage.getItem(pendingOrganizationInvitationKey) ?? "null",
-    ) as Partial<PendingOrganizationInvitation> | null;
+    const parsed = parseJsonObject(
+      JSON.parse(
+        window.sessionStorage.getItem(pendingOrganizationInvitationKey) ??
+          "null",
+      ),
+    );
     if (
       !parsed ||
-      typeof parsed.relayUrl !== "string" ||
-      typeof parsed.workspaceId !== "string"
+      !isJsonString(parsed.relayUrl) ||
+      !isJsonString(parsed.workspaceId)
     ) {
       return null;
     }

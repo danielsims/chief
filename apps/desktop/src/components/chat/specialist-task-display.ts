@@ -1,9 +1,16 @@
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
+
 interface SpecialistTask {
   id: string;
   agent: string;
   parentId?: string;
   status?: string;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: { threadRootId?: string };
   triggerId?: string;
 }
 
@@ -38,28 +45,25 @@ export function specialistNeedsUserInThread(
   );
 }
 
-function delegationIds(input: unknown) {
-  if (!input || typeof input !== "object") return undefined;
-  const value = input as Record<string, unknown>;
-  if (typeof value.delegationId === "string") return [value.delegationId];
-  if (typeof value.code !== "string") return undefined;
+function delegationIds(input: JsonValue | undefined) {
+  if (!input || !isJsonObject(input)) return undefined;
+  const value = input;
+  if (isJsonString(value.delegationId)) return [value.delegationId];
+  if (!isJsonString(value.code)) return undefined;
   return Array.from(
     value.code.matchAll(/delegationId\s*:\s*["']([^"']+)["']/g),
     (match) => match[1],
   ).filter((id): id is string => Boolean(id));
 }
 
-function delegatedAgentIds(input: unknown) {
-  if (!input || typeof input !== "object") return undefined;
-  const value = input as Record<string, unknown>;
-  if (
-    typeof value.agentId === "string" &&
-    typeof value.delegationId === "string"
-  ) {
+function delegatedAgentIds(input: JsonValue | undefined) {
+  if (!input || !isJsonObject(input)) return undefined;
+  const value = input;
+  if (isJsonString(value.agentId) && isJsonString(value.delegationId)) {
     return [value.agentId];
   }
   if (
-    typeof value.code !== "string" ||
+    !isJsonString(value.code) ||
     !value.code.includes("specialistsDelegate")
   ) {
     return undefined;
@@ -71,7 +75,7 @@ function delegatedAgentIds(input: unknown) {
 }
 
 export function specialistTasksForInput<T extends SpecialistTask>(
-  input: unknown,
+  input: JsonValue | undefined,
   tasks: readonly T[],
 ) {
   const matches: T[] = [];
@@ -100,7 +104,7 @@ export function specialistTasksForInput<T extends SpecialistTask>(
 }
 
 export function specialistTaskForInput<T extends SpecialistTask>(
-  input: unknown,
+  input: JsonValue | undefined,
   tasks: readonly T[],
 ) {
   return specialistTasksForInput(input, tasks)[0];
@@ -114,7 +118,10 @@ export function specialistTaskOwners(
   for (const message of messages) {
     for (const block of message.blocks) {
       if (block.type !== "tool_use") continue;
-      for (const task of specialistTasksForInput(block.input, tasks)) {
+      for (const task of specialistTasksForInput(
+        parseJsonValue(block.input),
+        tasks,
+      )) {
         if (!owners.has(task.id)) owners.set(task.id, message.id);
       }
     }
@@ -146,7 +153,8 @@ export function ordinaryToolMessageGroups<
             block.type === "tool_use" ||
             block.type === "tool_result") &&
           (block.type !== "tool_use" ||
-            specialistTasksForInput(block.input, tasks).length === 0),
+            specialistTasksForInput(parseJsonValue(block.input), tasks)
+              .length === 0),
       );
     if (!ordinaryToolsOnly) {
       current = undefined;

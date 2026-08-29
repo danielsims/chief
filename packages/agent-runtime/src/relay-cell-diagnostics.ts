@@ -1,7 +1,9 @@
+import type { JsonValue } from "@chief/relay-contracts";
+
 export function cellToolDiagnostic(
   phase: "catalog" | "started" | "completed" | "failed",
-  details: Record<string, unknown>,
-) {
+  details: Record<string, JsonValue>,
+): void {
   const record = {
     scope: "cell.tools",
     phase,

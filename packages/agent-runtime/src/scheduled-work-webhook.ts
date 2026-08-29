@@ -1,13 +1,22 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import type { SessionManager } from "./manager.js";
-import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
+import type { JsonValue } from "@chief/relay-contracts";
+import { parseJsonObject } from "@chief/relay-contracts";
+
+import type {
+  ScheduledWorkManager,
+  ScheduledWorkRunner,
+} from "./scheduled-work-runtime.js";
 
 export async function handleScheduledWorkWebhook(input: {
   path: string;
-  body: unknown;
+  body: JsonValue;
   idempotencyKey?: string;
-  manager: SessionManager;
+  manager: ScheduledWorkManager & {
+    recurringWorkWorkspaceId(
+      scheduledWorkId: string,
+    ): Promise<string | undefined>;
+  };
   runner: ScheduledWorkRunner;
 }) {
   const match = /^\/hooks\/scheduled-runs\/([^/]+)\/([^/]+)$/.exec(input.path);
@@ -65,10 +74,7 @@ export async function handleScheduledWorkWebhook(input: {
       value: { queued: false, replayed: true, runId: prior.id },
     };
   }
-  const context =
-    input.body && typeof input.body === "object" && !Array.isArray(input.body)
-      ? (input.body as Record<string, unknown>)
-      : { payload: input.body };
+  const context = parseJsonObject(input.body) ?? { payload: input.body };
   void input.runner
     .runTriggered(workspaceId, scheduledWorkId, triggerId, {
       type: "webhook",

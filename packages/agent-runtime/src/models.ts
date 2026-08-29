@@ -8,15 +8,20 @@ import {
   statSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { z } from "zod";
+
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 import type { DriverType, ProviderModelOption } from "./types.js";
 
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+const moduleDirectory = import.meta.dirname;
 
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<
@@ -25,6 +30,27 @@ const cache = new Map<
 >();
 let codexModelsInFlight: Promise<ProviderModelOption[]> | undefined;
 let gatewayModelsInFlight: Promise<ProviderModelOption[]> | undefined;
+
+const gatewayModelsSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        context_window: z.number().optional(),
+        type: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+        pricing: z
+          .object({
+            input: z.string().optional(),
+            output: z.string().optional(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
 
 function binary(name: DriverType) {
   const upper = name.toUpperCase();
@@ -97,9 +123,14 @@ function claudeModels(): ProviderModelOption[] {
     }
     for (let index = lines.length - 1; index >= 0; index -= 1) {
       try {
-        const model = JSON.parse(lines[index]!)?.message?.model;
+        const line = lines[index];
+        if (!line) continue;
+        const parsed: unknown = JSON.parse(line);
+        const record = parseJsonObject(parsed);
+        const message = record ? parseJsonObject(record.message) : undefined;
+        const model = message?.model;
         if (
-          typeof model === "string" &&
+          isJsonString(model) &&
           model &&
           !model.startsWith("<") &&
           !model.includes("synthetic")
@@ -129,7 +160,7 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
       },
       (error) => {
         clearTimeout(timer);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       },
     );
   });
@@ -150,7 +181,7 @@ function commandModels(
       let stderr = "";
       child.stdout.on("data", (chunk) => (stdout += String(chunk)));
       child.stderr.on("data", (chunk) => (stderr += String(chunk)));
-      child.on("error", reject);
+      child.on("error", (error) => reject(error));
       child.on("exit", (code) => {
         if (code !== 0) {
           reject(new Error(stderr || `Model discovery exited ${code}.`));
@@ -158,18 +189,19 @@ function commandModels(
         }
         let values: string[] = [];
         try {
-          const parsed = JSON.parse(stdout) as unknown;
-          const records = Array.isArray(parsed)
+          const parsed: unknown = JSON.parse(stdout);
+          const object = parseJsonObject(parsed);
+          const records: unknown[] = Array.isArray(parsed)
             ? parsed
-            : parsed && typeof parsed === "object" && "models" in parsed
-              ? ((parsed as { models?: unknown[] }).models ?? [])
+            : Array.isArray(object?.models)
+              ? object.models
               : [];
           values = records.flatMap((record) => {
-            if (typeof record === "string") return [record];
-            if (!record || typeof record !== "object") return [];
-            const item = record as Record<string, unknown>;
+            if (isJsonString(record)) return [record];
+            const item = parseJsonObject(record);
+            if (!item) return [];
             const value = item.id ?? item.model ?? item.value;
-            return typeof value === "string" ? [value] : [];
+            return isJsonString(value) ? [value] : [];
           });
         } catch {
           values = stdout
@@ -205,7 +237,10 @@ function codexModels(): Promise<ProviderModelOption[]> {
     let stderr = "";
     const pending = new Map<
       number,
-      { resolve: (value: unknown) => void; reject: (error: Error) => void }
+      {
+        resolve: (value: JsonValue | undefined) => void;
+        reject: (error: Error) => void;
+      }
     >();
     const stop = () => {
       child.stdin.end();
@@ -259,25 +294,31 @@ function codexModels(): Promise<ProviderModelOption[]> {
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         try {
-          const message = JSON.parse(line) as {
-            id?: number;
-            result?: unknown;
-            error?: { message?: string };
-          };
-          if (message.id === undefined) continue;
-          const request = pending.get(message.id);
+          const parsed: unknown = JSON.parse(line);
+          const message = parseJsonObject(parsed);
+          if (!message) continue;
+          const id = isJsonNumber(message.id) ? message.id : undefined;
+          if (id === undefined) continue;
+          const request = pending.get(id);
           if (!request) continue;
-          pending.delete(message.id);
-          if (message.error) {
-            request.reject(new Error(message.error.message ?? "RPC error"));
-          } else request.resolve(message.result);
+          pending.delete(id);
+          const rpcError = parseJsonObject(message.error);
+          if (rpcError) {
+            request.reject(
+              new Error(
+                isJsonString(rpcError.message) ? rpcError.message : "RPC error",
+              ),
+            );
+          } else {
+            request.resolve(message.result);
+          }
         } catch {
           // Ignore diagnostics written to stdout.
         }
       }
     });
-    const request = (method: string, params: Record<string, unknown> = {}) =>
-      new Promise<unknown>((done, fail) => {
+    const request = (method: string, params: JsonObject = {}) =>
+      new Promise<JsonValue | undefined>((done, fail) => {
         const id = ++nextId;
         pending.set(id, { resolve: done, reject: fail });
         child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
@@ -291,21 +332,17 @@ function codexModels(): Promise<ProviderModelOption[]> {
         child.stdin.write(
           `${JSON.stringify({ method: "initialized", params: {} })}\n`,
         );
-        const result = (await request("model/list")) as Record<string, unknown>;
-        const candidates = [
-          result,
-          result.data,
-          result.models,
-          (result.data as Record<string, unknown> | undefined)?.models,
-        ];
+        const result = parseJsonObject(await request("model/list", {}));
+        const data = result ? parseJsonObject(result.data) : undefined;
+        const candidates = [result, data, result?.models, data?.models];
         const values = candidates
           .flatMap((candidate) => (Array.isArray(candidate) ? candidate : []))
           .flatMap((record) => {
-            if (typeof record === "string") return [record];
-            if (!record || typeof record !== "object") return [];
-            const item = record as Record<string, unknown>;
-            const value = item.model ?? item.id ?? item.name ?? item.slug;
-            return typeof value === "string" ? [value] : [];
+            if (isJsonString(record)) return [record];
+            if (!record || !isJsonObject(record)) return [];
+            const value =
+              record.model ?? record.id ?? record.name ?? record.slug;
+            return isJsonString(value) ? [value] : [];
           });
         finish({
           models: [...new Set(values)].map((value) => ({
@@ -328,65 +365,48 @@ function codexModels(): Promise<ProviderModelOption[]> {
 
 function gatewayModels(): Promise<ProviderModelOption[]> {
   if (gatewayModelsInFlight) return gatewayModelsInFlight;
-  gatewayModelsInFlight = withTimeout(
+  const discovery = withTimeout(
     fetch("https://ai-gateway.vercel.sh/v1/models").then(async (response) => {
       if (!response.ok) {
         throw new Error(
           `Gateway model discovery returned HTTP ${response.status}.`,
         );
       }
-      const body = (await response.json()) as {
-        data?: {
-          id?: unknown;
-          name?: unknown;
-          description?: unknown;
-          context_window?: unknown;
-          type?: unknown;
-          tags?: unknown;
-          pricing?: { input?: unknown; output?: unknown };
-        }[];
-      };
+      const body = gatewayModelsSchema.parse(await response.json());
       return (body.data ?? [])
-        .filter(
-          (model) =>
-            model.type === "language" &&
-            typeof model.id === "string" &&
-            model.id.length > 0,
-        )
-        .map((model) => ({
-          value: model.id as string,
-          label:
-            typeof model.name === "string" && model.name
-              ? model.name
-              : label(model.id as string),
-          description:
-            typeof model.description === "string"
-              ? model.description
-              : undefined,
-          contextWindow:
-            typeof model.context_window === "number"
-              ? model.context_window
-              : undefined,
-          tags: Array.isArray(model.tags)
-            ? model.tags.filter((tag): tag is string => typeof tag === "string")
-            : undefined,
-          pricing: model.pricing
-            ? {
-                input:
-                  typeof model.pricing.input === "string"
-                    ? model.pricing.input
-                    : undefined,
-                output:
-                  typeof model.pricing.output === "string"
-                    ? model.pricing.output
-                    : undefined,
-              }
-            : undefined,
-        }))
+        .flatMap((model): ProviderModelOption[] => {
+          const id = model.id;
+          if (model.type !== "language" || !id) return [];
+          return [
+            {
+              value: id,
+              label:
+                isJsonString(model.name) && model.name ? model.name : label(id),
+              description: isJsonString(model.description)
+                ? model.description
+                : undefined,
+              contextWindow: isJsonNumber(model.context_window)
+                ? model.context_window
+                : undefined,
+              tags: model.tags,
+              pricing: model.pricing
+                ? {
+                    input: isJsonString(model.pricing.input)
+                      ? model.pricing.input
+                      : undefined,
+                    output: isJsonString(model.pricing.output)
+                      ? model.pricing.output
+                      : undefined,
+                  }
+                : undefined,
+            },
+          ];
+        })
         .sort((a, b) => a.label.localeCompare(b.label));
     }),
     10_000,
-  ).finally(() => {
+  );
+  gatewayModelsInFlight = discovery.finally(() => {
     gatewayModelsInFlight = undefined;
   });
   return gatewayModelsInFlight;

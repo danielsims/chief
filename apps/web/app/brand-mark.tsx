@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface BrandMarkProps {
   className?: string;
   size: number;
@@ -6,12 +8,13 @@ interface BrandMarkProps {
 
 export function BrandMark({ className, size, tone = "white" }: BrandMarkProps) {
   return (
-    <img
+    <Image
       alt=""
       aria-hidden="true"
       className={className}
       src={`/brand/chief-mark-sharp-open-${tone}.svg`}
-      style={{ height: size, width: size }}
+      width={size}
+      height={size}
     />
   );
 }

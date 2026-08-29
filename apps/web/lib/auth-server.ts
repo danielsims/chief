@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { env } from "./env";
 
 const forwardedRequestHeaders = new Set([
@@ -19,6 +21,11 @@ const decodedRepresentationHeaders = [
   "content-length",
   "transfer-encoding",
 ] as const;
+
+const authorizationRedirectSchema = z.object({
+  redirect: z.literal(true),
+  url: z.string(),
+});
 
 /**
  * Fixed-origin auth proxy. The relay owns Better Auth and its D1 database;
@@ -59,17 +66,15 @@ export async function proxyRelayAuth(request: Request) {
     response.ok &&
     response.headers.get("content-type")?.includes("application/json")
   ) {
-    const payload = (await response
-      .clone()
-      .json()
-      .catch(() => null)) as {
-      redirect?: unknown;
-      url?: unknown;
-    } | null;
-    const destination =
-      payload?.redirect === true && typeof payload.url === "string"
-        ? safeAuthorizationRedirect(payload.url, source.origin)
-        : null;
+    const payload = authorizationRedirectSchema.safeParse(
+      await response
+        .clone()
+        .json()
+        .catch(() => null),
+    );
+    const destination = payload.success
+      ? safeAuthorizationRedirect(payload.data.url, source.origin)
+      : null;
     if (destination) {
       return new Response(null, {
         status: 302,

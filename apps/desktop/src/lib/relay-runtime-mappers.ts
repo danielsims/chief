@@ -4,6 +4,7 @@ import type {
   ChiefUIMessage,
   ContentBlock,
   PluginAuthorizationAction,
+  ServerMessage,
 } from "@chief/agent-runtime/types";
 import type {
   ConversationMessage,
@@ -11,16 +12,58 @@ import type {
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 import {
+  isJsonObject,
+  isJsonString,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
+
+import { channelActionFromComponent } from "./channel-actions";
 
 const activityComponentKinds = new Set([
   "agent.activity",
   "thinking",
   "tool",
   "error",
+  "browser",
 ]);
+
+export function browserRuntimeEvent(
+  message: ConversationMessage,
+): ServerMessage | undefined {
+  const component = message.components.find(
+    (candidate) => candidate.kind === "browser" && candidate.version === 1,
+  );
+  if (!component || message.author.kind !== "agent") return undefined;
+  const browserRunId = component.payload.browserRunId;
+  const status = component.payload.status;
+  if (!isJsonString(browserRunId)) return undefined;
+  if (status === "closed") {
+    return {
+      type: "browserClosed",
+      browserRunId,
+      workspaceId: message.workspaceId,
+      conversationId: message.conversationId,
+    };
+  }
+  const url = component.payload.url;
+  const streamUrl = component.payload.streamUrl;
+  if (status !== "active" || !isJsonString(url) || !isJsonString(streamUrl)) {
+    return undefined;
+  }
+  const event = {
+    type: "browserNavigate",
+    browserRunId,
+    workspaceId: message.workspaceId,
+    conversationId: message.conversationId,
+    anchorMessageId: message.id,
+    url,
+    streamUrl,
+  } as const;
+  return message.threadRootId
+    ? { ...event, threadRootId: message.threadRootId }
+    : event;
+}
 
 export function isAgentActivityProjection(message: ConversationMessage) {
   return (
@@ -41,10 +84,16 @@ export function agentRunEvent(message: ConversationMessage) {
     if (error) {
       return {
         type: "error" as const,
-        message:
-          typeof error.payload.message === "string"
-            ? error.payload.message
-            : "The agent run was interrupted.",
+        agentId: message.author.id,
+        ...(isJsonString(error.payload.code)
+          ? { code: error.payload.code }
+          : undefined),
+        ...(isJsonString(error.payload.title)
+          ? { title: error.payload.title }
+          : undefined),
+        message: isJsonString(error.payload.message)
+          ? error.payload.message
+          : "The agent run was interrupted.",
       };
     }
     return { type: "status" as const, status: "running" as const };
@@ -55,6 +104,9 @@ export function agentRunEvent(message: ConversationMessage) {
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const channelAction = message.components
+    .map(channelActionFromComponent)
+    .find((action) => action !== undefined);
   return {
     id: message.id,
     role: message.author.kind === "user" ? "user" : "assistant",
@@ -62,9 +114,14 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       createdAt: Date.parse(message.createdAt),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
-        : {}),
-      ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
-      ...(message.mentions.length > 0 ? { mentions: message.mentions } : {}),
+        : undefined),
+      ...(message.threadRootId
+        ? { threadRootId: message.threadRootId }
+        : undefined),
+      ...(message.mentions.length > 0
+        ? { mentions: message.mentions }
+        : undefined),
+      ...(channelAction ? { channelAction } : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -145,7 +202,9 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation ? agentForDirect(conversation.name, snapshot) : undefined;
+  return conversation?.kind === "direct"
+    ? agentForDirect(conversation.name, snapshot)
+    : undefined;
 }
 
 export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
@@ -194,9 +253,9 @@ function pluginRecommendationParts(
         enabled: value.enabled,
         trusted: value.trusted,
         source,
-        ...(value.homepage ? { homepage: value.homepage } : {}),
-        ...(value.iconUrl ? { iconUrl: value.iconUrl } : {}),
-        ...(value.domain ? { domains: [value.domain] } : {}),
+        ...(value.homepage ? { homepage: value.homepage } : undefined),
+        ...(value.iconUrl ? { iconUrl: value.iconUrl } : undefined),
+        ...(value.domain ? { domains: [value.domain] } : undefined),
       } satisfies AgentPluginSummary,
     ];
   });
@@ -208,15 +267,27 @@ function pluginRecommendationParts(
     if (!parsed.success) return [];
     const value = parsed.data;
     return [
-      {
-        kind: "plugin_authorization",
-        pluginId: value.pluginId,
-        pluginName: value.pluginName,
-        description: value.description,
-        provider: value.provider,
-        authorizationUrl: value.authorizationUrl,
-        status: value.status,
-      } satisfies PluginAuthorizationAction,
+      (value.status === "authorization_required"
+        ? {
+            kind: "plugin_authorization",
+            pluginId: value.pluginId,
+            pluginName: value.pluginName,
+            description: value.description,
+            provider: value.provider,
+            authorizationUrl: value.authorizationUrl,
+            status: value.status,
+          }
+        : {
+            kind: value.kind,
+            pluginId: value.pluginId,
+            pluginName: value.pluginName,
+            description: value.description,
+            provider: value.provider,
+            serverName: value.serverName,
+            callbackUrl: value.callbackUrl,
+            setupUrl: value.setupUrl,
+            status: value.status,
+          }) satisfies PluginAuthorizationAction,
     ];
   });
   const authorizationPlugins = authorizations.map(
@@ -243,10 +314,12 @@ function pluginRecommendationParts(
       type: "data-plugin-recommendations",
       data: {
         plugins,
-        ...(authorizations.length > 0 ? { authorizations } : {}),
+        ...(authorizations.length > 0 ? { authorizations } : undefined),
         workspaceId: message.workspaceId,
         conversationId: message.conversationId,
-        ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
         agentId: message.author.id,
         recommendationId: message.id,
       },
@@ -297,10 +370,9 @@ function activityParts(
             toolName: block.name,
             input: block.input,
             state: "output-error",
-            errorText:
-              typeof result.content === "string"
-                ? result.content
-                : JSON.stringify(result.content),
+            errorText: isJsonString(result.content)
+              ? result.content
+              : JSON.stringify(result.content),
           }
         : {
             type: "dynamic-tool",
@@ -321,13 +393,13 @@ function componentActivityBlocks(component: MessageComponent): ContentBlock[] {
   }
   if (component.kind === "thinking") {
     const text = component.payload.text;
-    return typeof text === "string" && text.trim()
+    return isJsonString(text) && text.trim()
       ? [{ type: "thinking", thinking: text }]
       : [];
   }
   if (component.kind !== "tool") return [];
   const name = component.payload.name;
-  if (typeof name !== "string" || !name.trim()) return [];
+  if (!isJsonString(name) || !name.trim()) return [];
   const id = component.id;
   const use: ContentBlock = {
     type: "tool_use",
@@ -344,20 +416,20 @@ function componentActivityBlocks(component: MessageComponent): ContentBlock[] {
       tool_use_id: id,
       content:
         component.payload.output ?? component.payload.error ?? "Completed",
-      ...(component.payload.error ? { is_error: true } : {}),
+      ...(component.payload.error ? { is_error: true } : undefined),
     },
   ];
 }
 
 function isContentBlock(value: unknown): value is ContentBlock {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const block = value as Record<string, unknown>;
-  if (block.type === "thinking") return typeof block.thinking === "string";
+  if (!value || !isJsonObject(value) || Array.isArray(value)) return false;
+  const block = value;
+  if (block.type === "thinking") return isJsonString(block.thinking);
   if (block.type === "tool_use") {
-    return typeof block.id === "string" && typeof block.name === "string";
+    return isJsonString(block.id) && isJsonString(block.name);
   }
   if (block.type === "tool_result") {
-    return typeof block.tool_use_id === "string";
+    return isJsonString(block.tool_use_id);
   }
   return false;
 }

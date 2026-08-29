@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   AgentConfigResult,
   AgentLease,
+  AgentRuntimeDescriptor,
   AppendMessageCommand,
   AppendMessageResult,
   ChannelMember,
@@ -9,8 +10,12 @@ import type {
   ConversationEvent,
   DirectParticipant,
   DirectStartResult,
+  JsonObject,
   LogBatch,
   LogPage,
+  Machine,
+  MachineCreate,
+  MachineUpdate,
   MessageComponent,
   RegisterAgentKeyResult,
   WorkspaceId,
@@ -18,6 +23,7 @@ import type {
 import {
   agentConfigResultSchema,
   agentLeaseSchema,
+  agentRuntimeDescriptorSchema,
   appendMessageResultSchema,
   channelMembershipsResultSchema,
   channelMembersResultSchema,
@@ -28,12 +34,19 @@ import {
   directStartResultSchema,
   logPageSchema,
   logReceiptSchema,
+  machineCreateSchema,
+  machineDeleteResultSchema,
+  machineSchema,
+  machinesResultSchema,
+  machineUpdateSchema,
   messagePageSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
   socketTicketSchema,
   upsertAgentActivityResultSchema,
+  workspaceSecretListResultSchema,
+  workspaceSecretResultSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
@@ -58,6 +71,74 @@ export class RelayClient extends RelayClientBase {
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
+  }
+
+  async listMachines(): Promise<Machine[]> {
+    return (
+      await this.fetchJson(this.workspaceUrl("machines"), machinesResultSchema)
+    ).machines;
+  }
+
+  async createMachine(input: MachineCreate): Promise<Machine> {
+    return this.fetchJson(this.workspaceUrl("machines"), machineSchema, true, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(machineCreateSchema.parse(input)),
+    });
+  }
+
+  async updateMachine(id: string, input: MachineUpdate): Promise<Machine> {
+    return this.fetchJson(
+      this.workspaceUrl(`machines/${encodeURIComponent(id)}`),
+      machineSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(machineUpdateSchema.parse(input)),
+      },
+    );
+  }
+
+  async deleteMachine(id: string) {
+    return this.fetchJson(
+      this.workspaceUrl(`machines/${encodeURIComponent(id)}`),
+      machineDeleteResultSchema,
+      true,
+      { method: "DELETE" },
+    );
+  }
+
+  async setWorkspaceSecret(name: string, value: string) {
+    return await this.fetchJson(
+      this.workspaceUrl("secrets"),
+      workspaceSecretResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, value }),
+      },
+    );
+  }
+
+  async listWorkspaceSecrets() {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("secrets"),
+        workspaceSecretListResultSchema,
+        true,
+      )
+    ).secrets;
+  }
+
+  async deleteWorkspaceSecret(name: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(`secrets?name=${encodeURIComponent(name)}`),
+      workspaceSecretResultSchema,
+      true,
+      { method: "DELETE" },
+    );
   }
 
   async listChannelMembers(conversationId: string): Promise<ChannelMember[]> {
@@ -107,6 +188,13 @@ export class RelayClient extends RelayClientBase {
     return await this.fetchJson(
       this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
       agentConfigResultSchema,
+    );
+  }
+
+  async loadAgentRuntime(agentId: string): Promise<AgentRuntimeDescriptor> {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`),
+      agentRuntimeDescriptorSchema,
     );
   }
 
@@ -166,7 +254,10 @@ export class RelayClient extends RelayClientBase {
     command: {
       leaseToken: string;
       outcome:
-        | { status: "completed"; result?: Record<string, unknown> }
+        | {
+            status: "completed";
+            result?: JsonObject;
+          }
         | { status: "failed"; error: string; retryAt?: string };
     },
   ) {
@@ -215,10 +306,11 @@ export class RelayClient extends RelayClientBase {
 
   async listMessages(
     conversationId: string,
-    input: { after?: number; limit?: number } = {},
+    input: { after?: number; limit?: number; recent?: boolean } = {},
   ) {
     const url = this.conversationUrl(conversationId, "messages");
     appendPageQuery(url, input);
+    if (input.recent) url.searchParams.set("recent", "true");
     return this.fetchJson(url, messagePageSchema);
   }
 

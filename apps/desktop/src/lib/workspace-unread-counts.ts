@@ -1,17 +1,22 @@
 import { useEffect, useMemo } from "react";
 
+import { isJsonNumber, parseJsonObject } from "@chief/relay-contracts";
+
 import { syncDesktopUnreadBadge } from "./notifications";
 
 const KEY_PREFIX = "chief:workspace-unread-counts:v1:";
 
 export function readWorkspaceUnreadCounts(readerId: string) {
   try {
-    const parsed = JSON.parse(
-      window.localStorage.getItem(`${KEY_PREFIX}${readerId}`) ?? "{}",
-    ) as Record<string, unknown>;
+    const parsed =
+      parseJsonObject(
+        JSON.parse(
+          window.localStorage.getItem(`${KEY_PREFIX}${readerId}`) ?? "{}",
+        ),
+      ) ?? {};
     return new Map(
       Object.entries(parsed).flatMap(([workspaceId, value]) =>
-        typeof value === "number" && value > 0
+        isJsonNumber(value) && value > 0
           ? ([[workspaceId, value]] as const)
           : [],
       ),

@@ -14,6 +14,8 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 const execFileAsync = promisify(execFile);
 const KEYCHAIN_SERVICE = "com.latentsupply.chief.workspace-secrets";
 const LEGACY_KEYCHAIN_SERVICE = "com.latentsupply.marketer.workspace-secrets";
@@ -48,11 +50,15 @@ function indexPath(workspaceId: string) {
 
 function readIndex(workspaceId: string): SecretIndex {
   try {
-    const parsed = JSON.parse(readFileSync(indexPath(workspaceId), "utf8")) as
-      Partial<SecretIndex> | undefined;
+    const parsed: unknown = JSON.parse(
+      readFileSync(indexPath(workspaceId), "utf8"),
+    );
+    if (!isJsonObject(parsed)) return { env: [], files: [] };
     return {
-      env: Array.isArray(parsed?.env) ? parsed.env : [],
-      files: Array.isArray(parsed?.files) ? parsed.files : [],
+      env: Array.isArray(parsed.env) ? parsed.env.filter(isJsonString) : [],
+      files: Array.isArray(parsed.files)
+        ? parsed.files.filter(isJsonString)
+        : [],
     };
   } catch {
     return { env: [], files: [] };
@@ -157,13 +163,13 @@ class WorkspaceSecrets {
     const next = prior.then(task, task);
     this.queues.set(
       workspaceId,
-      next.catch(() => {}),
+      next.catch(() => undefined),
     );
     return next;
   }
 
-  async keys(workspaceId: string): Promise<string[]> {
-    return readIndex(workspaceId).env;
+  keys(workspaceId: string): Promise<string[]> {
+    return Promise.resolve(readIndex(workspaceId).env);
   }
 
   async readEnv(workspaceId: string, keys: string[]) {

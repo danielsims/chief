@@ -34,6 +34,7 @@ import {
   newSnapshotNotificationMessages,
   readChannelState,
   recordSeenChannelEvent,
+  workspaceNotificationStartedAt,
   writeChannelState,
 } from "./channel-read-state-storage";
 import { messageNotificationTarget, notifySystem } from "./notifications";
@@ -104,7 +105,12 @@ function ScopedChannelReadStateProvider({
   const observedRef = useRef(observedByChannel);
   const hydratedChannelsRef = useRef(new Set<string>());
   const sourceAliasesRef = useRef(new Map<string, Map<string, string>>());
-  const [startedAt] = useState(() => Date.now());
+  const [startedAt] = useState(() =>
+    workspaceNotificationStartedAt(
+      Date.now(),
+      sessionStorage.getItem(`chief:onboarding:${workspaceId}`),
+    ),
+  );
   const seenLiveEventsRef = useRef(new Set<string>());
   const notifiedLiveEventsRef = useRef(new Set<string>());
   const liveMessageIdsRef = useRef(new Set<string>());

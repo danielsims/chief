@@ -1,6 +1,7 @@
+import { z } from "zod";
+
 import type {
   ClientMessage,
-  PluginAuthorizationAction,
   ProjectRecord,
   ProjectRepositorySnapshot,
   ServerMessage,
@@ -9,6 +10,7 @@ import type {
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import type {
+  JsonObject,
   RelayProject,
   WorkspaceFile,
   WorkspaceSnapshot,
@@ -16,13 +18,128 @@ import type {
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
 
-type PluginSnapshot = Omit<
-  Extract<ServerMessage, { type: "plugins" }>,
-  "type" | "workspaceId"
->;
+const pluginSourceSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("bundled"), path: z.string() }),
+  z.object({
+    type: z.literal("git"),
+    url: z.string(),
+    sha: z.string(),
+    path: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("discovery"),
+    registry: z.string(),
+    domain: z.string(),
+  }),
+  z.object({ type: z.literal("setup"), domain: z.string() }),
+]);
+
+const pluginSnapshotSchema = z.object({
+  plugins: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
+      category: z.string(),
+      homepage: z.string().optional(),
+      repository: z.string().optional(),
+      iconUrl: z.string().optional(),
+      featured: z.boolean().optional(),
+      popularity: z.number().optional(),
+      domains: z.array(z.string()).optional(),
+      keywords: z.array(z.string()).optional(),
+      source: pluginSourceSchema,
+      status: z.enum([
+        "available",
+        "installed",
+        "authorization_required",
+        "waiting",
+        "connected",
+        "failed",
+        "reconnect",
+        "error",
+      ]),
+      installedAt: z.number().optional(),
+      enabled: z.boolean(),
+      trusted: z.boolean(),
+      diagnostics: z.array(z.string()).optional(),
+    }),
+  ),
+  sources: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      homepage: z.string().optional(),
+      enabled: z.boolean(),
+    }),
+  ),
+  refreshedAt: z.number(),
+  stale: z.boolean(),
+  warning: z.string().optional(),
+});
+
+const pluginAuthorizationActionBaseSchema = z.object({
+  pluginId: z.string(),
+  pluginName: z.string(),
+  description: z.string(),
+  provider: z.string(),
+});
+
+const pluginOAuthUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" ||
+    (url.protocol === "http:" &&
+      ["127.0.0.1", "localhost"].includes(url.hostname))
+  );
+});
+
+const pluginAuthorizationActionSchema = z.union([
+  pluginAuthorizationActionBaseSchema.extend({
+    kind: z.literal("plugin_authorization"),
+    authorizationUrl: pluginOAuthUrlSchema,
+    status: z.literal("authorization_required"),
+  }),
+  pluginAuthorizationActionBaseSchema.extend({
+    kind: z.literal("plugin_oauth_client"),
+    serverName: z.string(),
+    callbackUrl: pluginOAuthUrlSchema,
+    setupUrl: pluginOAuthUrlSchema.optional(),
+    status: z.literal("client_configuration_required"),
+  }),
+]);
+
+const connectedPluginActionSchema = z.object({
+  pluginId: z.string(),
+  status: z.literal("connected"),
+});
+
+function pluginSnapshot(response: JsonObject) {
+  const parsed = pluginSnapshotSchema.safeParse(response.snapshot);
+  if (!parsed.success)
+    throw new Error("Plugin host returned an invalid snapshot.");
+  return parsed.data;
+}
+
+function pluginAuthorizationAction(response: JsonObject) {
+  const parsed = z
+    .union([pluginAuthorizationActionSchema, connectedPluginActionSchema])
+    .safeParse(response.action);
+  if (!parsed.success) {
+    throw new Error("Plugin host returned an invalid authorization action.");
+  }
+  return parsed.data;
+}
 
 interface WorkspaceDataContext {
-  relay: RelayClient;
+  relay: Pick<
+    RelayClient,
+    | "createProject"
+    | "listProjects"
+    | "listProspects"
+    | "listWorkspaceFiles"
+    | "updateWorkspaceFile"
+  >;
   snapshot: WorkspaceSnapshot;
   emit(message: ServerMessage): void;
 }
@@ -52,12 +169,11 @@ export async function routeRelayWorkspaceDataCommand(
         "Choose a Git remote for this relay-backed project. Local repository paths stay private to this Mac.",
       );
     case "listPlugins": {
-      const { snapshot } = await requestDesktopPluginHost<{
-        snapshot: PluginSnapshot;
-      }>("/plugins/list", {
+      const response = await requestDesktopPluginHost("/plugins/list", {
         workspaceId: context.snapshot.id,
         refresh: message.refresh === true,
       });
+      const snapshot = pluginSnapshot(response);
       context.emit({
         type: "plugins",
         workspaceId: context.snapshot.id,
@@ -66,13 +182,12 @@ export async function routeRelayWorkspaceDataCommand(
       return true;
     }
     case "installPlugin": {
-      const { snapshot } = await requestDesktopPluginHost<{
-        snapshot: PluginSnapshot;
-      }>("/plugins/install", {
+      const response = await requestDesktopPluginHost("/plugins/install", {
         workspaceId: context.snapshot.id,
         pluginId: message.pluginId,
         trusted: message.trusted,
       });
+      const snapshot = pluginSnapshot(response);
       context.emit({
         type: "plugins",
         workspaceId: context.snapshot.id,
@@ -81,14 +196,13 @@ export async function routeRelayWorkspaceDataCommand(
       return true;
     }
     case "authorizePlugin": {
-      const { action, snapshot } = await requestDesktopPluginHost<{
-        action:
-          PluginAuthorizationAction | { pluginId: string; status: "connected" };
-        snapshot: PluginSnapshot;
-      }>("/plugins/authorize", {
+      const response = await requestDesktopPluginHost("/plugins/authorize", {
         workspaceId: context.snapshot.id,
         pluginId: message.pluginId,
+        oauthClient: message.oauthClient,
       });
+      const action = pluginAuthorizationAction(response);
+      const snapshot = pluginSnapshot(response);
       context.emit({
         type: "plugins",
         workspaceId: context.snapshot.id,
@@ -105,12 +219,11 @@ export async function routeRelayWorkspaceDataCommand(
       return true;
     }
     case "uninstallPlugin": {
-      const { snapshot } = await requestDesktopPluginHost<{
-        snapshot: PluginSnapshot;
-      }>("/plugins/uninstall", {
+      const response = await requestDesktopPluginHost("/plugins/uninstall", {
         workspaceId: context.snapshot.id,
         pluginId: message.pluginId,
       });
+      const snapshot = pluginSnapshot(response);
       context.emit({
         type: "plugins",
         workspaceId: context.snapshot.id,
@@ -198,13 +311,13 @@ async function registerClonedProject(
     name: requestedName?.length ? requestedName : repository.name,
     ...(message.description?.trim()
       ? { description: message.description.trim() }
-      : {}),
+      : undefined),
     repositoryKind: "cloned",
     providerId: repository.providerId,
     canonicalRemoteUrl: repository.canonicalRemoteUrl,
     ...(repository.repositoryWebUrl
       ? { repositoryWebUrl: repository.repositoryWebUrl }
-      : {}),
+      : undefined),
     defaultBranch: "main",
   });
   context.emit({
@@ -225,7 +338,7 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     prospects: prospects.map((prospect) => ({
       id: prospect.id,
       name: prospect.name,
-      ...(prospect.company ? { company: prospect.company } : {}),
+      ...(prospect.company ? { company: prospect.company } : undefined),
       source: prospect.source,
       sourceUrl: prospect.sourceUrl,
       summary: prospect.summary,
@@ -305,7 +418,7 @@ function projectRepositoryDetails(raw: string): {
     canonicalRemoteUrl: scp ? value : url.toString(),
     ...(["github", "gitlab", "bitbucket"].includes(providerId)
       ? { repositoryWebUrl: `https://${hostname}/${path}` }
-      : {}),
+      : undefined),
   };
 }
 

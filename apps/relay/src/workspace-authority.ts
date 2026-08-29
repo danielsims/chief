@@ -2,12 +2,13 @@ import type {
   AuthenticatedIdentity,
   CreateWorkspaceCommand,
   Principal,
-  UserPrincipal,
+  ProvisionWorkspaceCommand,
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
-  hexPubkeySchema,
+  commandIdSchema,
   organizationWorkspaceJoinResultSchema,
+  parseJsonObject,
   workspaceInviteClaimResultSchema,
 } from "@chief/relay-contracts";
 
@@ -18,13 +19,14 @@ import {
   withTrustedContext,
   withTrustedIdentity,
 } from "./internal-context";
-import { recordMetrics } from "./metrics";
 import {
   registerWorkspaceOrganization,
   registerWorkspaceOrganizationMember,
+  removeWorkspaceOrganization,
   requireWorkspaceOrganizationMember,
 } from "./organization-tenancy";
-import { workspaceOnboardingInstruction } from "./workspace-onboarding-job";
+import { recordProductEvents } from "./product-events";
+import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 export {
@@ -39,16 +41,19 @@ interface WorkspaceDirectoryEntry {
   website: string;
   command: CreateWorkspaceCommand | null;
   createdAt: string;
+  created: boolean;
 }
 
 export async function createManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
-  command: CreateWorkspaceCommand,
+  provision: ProvisionWorkspaceCommand,
+  context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
   }
+  const command = provision.workspace;
   const directory = accountStub(env, identity.userId);
   const directoryResponse = await directory.fetch(
     withTrustedAccountIdentity(identity, {
@@ -62,41 +67,97 @@ export async function createManagedWorkspace(
   );
   if (!directoryResponse.ok) return directoryResponse;
   const entry: WorkspaceDirectoryEntry = await directoryResponse.json();
-  await registerWorkspaceOrganization(env, {
-    identity,
-    name: command.name,
-    website: command.website,
-    workspaceId: entry.workspaceId,
-  });
-  const response = await workspaceStub(env, entry.workspaceId).fetch(
-    withTrustedIdentity(
-      {
-        identity,
-        requestId: command.commandId,
-        workspaceId: entry.workspaceId,
-      },
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-chief-internal-operation": "create-managed",
+  let response: Response;
+  try {
+    await registerWorkspaceOrganization(env, {
+      identity,
+      name: command.name,
+      website: command.website,
+      workspaceId: entry.workspaceId,
+    });
+    response = await workspaceStub(env, entry.workspaceId).fetch(
+      withTrustedIdentity(
+        {
+          identity,
+          requestId: command.commandId,
+          workspaceId: entry.workspaceId,
         },
-        body: JSON.stringify(command),
-      },
-    ),
-  );
-  if (!response.ok) return response;
-  recordMetrics(env, ["signup", "workspace-created"], {
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "create-managed",
+          },
+          body: JSON.stringify(provision),
+        },
+      ),
+    );
+    if (!response.ok) {
+      if (entry.created) await rollbackProvisioning(env, identity, entry);
+      return response;
+    }
+  } catch (error) {
+    if (entry.created) await rollbackProvisioning(env, identity, entry);
+    throw error;
+  }
+  recordProductEvents(env, ["signup", "workspace-created"], {
     kind: "user",
     userId: identity.userId,
     pubkey: identity.pubkey,
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  await enqueueOnboarding(env, identity, { ...entry, command }, false);
+  const onboarding = enqueueOnboarding(
+    env,
+    identity,
+    { ...entry, command },
+    false,
+  );
+  if (context) {
+    context.waitUntil(
+      onboarding.catch((error: unknown) => {
+        console.error("[Workspace] Initial onboarding enqueue failed:", error);
+      }),
+    );
+  } else {
+    await onboarding;
+  }
   return response;
 }
 
+async function rollbackProvisioning(
+  env: Env,
+  identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
+  entry: WorkspaceDirectoryEntry,
+) {
+  const workspace = workspaceStub(env, entry.workspaceId);
+  await Promise.allSettled([
+    accountStub(env, identity.userId).fetch(
+      withTrustedAccountIdentity(identity, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "remove-workspace",
+        },
+        body: JSON.stringify({ workspaceId: entry.workspaceId }),
+      }),
+    ),
+    workspace.fetch(
+      withTrustedIdentity(
+        {
+          identity,
+          requestId: crypto.randomUUID(),
+          workspaceId: entry.workspaceId,
+        },
+        {
+          method: "POST",
+          headers: { "x-chief-internal-operation": "delete-owned" },
+        },
+      ),
+    ),
+    removeWorkspaceOrganization(env, entry.workspaceId),
+  ]);
+}
 export async function activeManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
@@ -128,10 +189,14 @@ export async function activeManagedWorkspace(
     ),
   );
   if (!response.ok) return response;
-  const snapshot = JSON.parse(await response.text()) as {
-    onboardingComplete?: unknown;
-    [key: string]: unknown;
-  };
+  const snapshot = parseJsonObject(JSON.parse(await response.text()));
+  if (!snapshot) {
+    throw new HttpError(
+      502,
+      "invalid_workspace_snapshot",
+      "The workspace returned an invalid snapshot.",
+    );
+  }
   snapshot.runtime = entry.command?.runtime ?? null;
   if (snapshot.onboardingComplete === false && entry.command) {
     // Unit-level authority calls retain deterministic repair coverage. Public
@@ -152,7 +217,6 @@ export async function activeManagedWorkspace(
   // for bytes that will never arrive.
   return json(snapshot, { status: response.status });
 }
-
 export async function createWorkspaceInvite(
   env: Env,
   request: Request,
@@ -226,7 +290,9 @@ export async function claimWorkspaceInvite(
     identity: input.identity,
     workspaceId: result.workspaceId,
   });
-  const command = JSON.parse(body) as { commandId: string };
+  const operationId = commandIdSchema.parse(
+    parseJsonObject(JSON.parse(body))?.commandId,
+  );
   const directoryResponse = await accountStub(env, input.identity.userId).fetch(
     withTrustedAccountIdentity(input.identity, {
       method: "POST",
@@ -236,7 +302,7 @@ export async function claimWorkspaceInvite(
       },
       body: JSON.stringify({
         workspaceId: result.workspaceId,
-        operationId: command.commandId,
+        operationId,
         name: result.workspaceName,
         website: result.website,
         createdAt: new Date().toISOString(),
@@ -377,9 +443,6 @@ export async function routeWorkspaceLogs(
   );
 }
 
-/** Forwards a channels RPC to the workspace DO using the resolved principal
- * context so registered agents can create channels and add members during
- * kick-off (matching how agent jobs are routed). */
 export async function routeChannelOperation(
   env: Env,
   request: Request,
@@ -409,67 +472,4 @@ export async function routeChannelOperation(
     },
   );
   return workspaceStub(env, input.workspaceId).fetch(trusted);
-}
-
-async function enqueueOnboarding(
-  env: Env,
-  identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
-  entry: WorkspaceDirectoryEntry & { command: CreateWorkspaceCommand },
-  repairTerminal: boolean,
-) {
-  const principal: UserPrincipal = {
-    kind: "user",
-    userId: identity.userId,
-    pubkey: hexPubkeySchema.parse(identity.pubkey),
-    workspaceId: entry.workspaceId,
-    role: "owner",
-  };
-  const occurredAt = entry.createdAt;
-  const jobId = crypto.randomUUID();
-  const operation = repairTerminal ? "ensure" : "enqueue";
-  const request = new Request(`https://agent.internal/${operation}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      commandId: entry.command.commandId,
-      protocolVersion: 1,
-      occurredAt,
-      payload: {
-        id: jobId,
-        agentId: "chief",
-        kind: "workspace.onboarding",
-        payload: {
-          name: entry.command.name,
-          website: entry.command.website,
-          runtime: entry.command.runtime,
-          inferenceProvider: entry.command.inferenceProvider,
-          inferenceModel: entry.command.inferenceModel,
-          selectedApps: entry.command.selectedApps,
-          instruction: workspaceOnboardingInstruction({
-            name: entry.command.name,
-            website: entry.command.website,
-            selectedApps: entry.command.selectedApps,
-          }),
-        },
-        availableAt: occurredAt,
-      },
-    }),
-  });
-  const stub = env.AGENTS.get(
-    env.AGENTS.idFromName(`${entry.workspaceId}:chief`),
-  );
-  const response = await stub.fetch(
-    withTrustedContext(request, {
-      principal,
-      requestId: entry.command.commandId,
-      workspaceId: entry.workspaceId,
-    }),
-  );
-  if (!response.ok) {
-    throw new HttpError(
-      502,
-      "agent_enqueue_failed",
-      "Chief's initial workspace setup could not be queued.",
-    );
-  }
 }

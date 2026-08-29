@@ -2,6 +2,13 @@ import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 interface PluginCatalogSnapshot {
   plugins: AgentPluginSummary[];
@@ -36,8 +43,10 @@ export async function loadRelayPluginCatalog(
     if (!response.ok) {
       throw new Error(`Catalog returned HTTP ${response.status}.`);
     }
-    const document = (await response.json()) as { data?: unknown[] };
-    const plugins = (document.data ?? []).flatMap(toCatalogPlugin);
+    const document = parseJsonObject(await response.json());
+    const plugins = Array.isArray(document?.data)
+      ? document.data.flatMap(toCatalogPlugin)
+      : [];
     cachedPluginCatalog = {
       plugins,
       sources: [
@@ -64,11 +73,11 @@ export async function loadRelayPluginCatalog(
   }
 }
 
-function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+function toCatalogPlugin(candidate: JsonValue): AgentPluginSummary[] {
+  if (!isJsonObject(candidate) || Array.isArray(candidate)) {
     return [];
   }
-  const item = candidate as Record<string, unknown>;
+  const item = candidate;
   if (item.kind !== "mcp") return [];
   const id = catalogText(item.slug);
   const name = catalogText(item.name);
@@ -76,11 +85,9 @@ function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
   const domain = catalogText(item.domain);
   if (!id || !name || !description || !domain) return [];
   const categories = Array.isArray(item.categories)
-    ? item.categories.filter(
-        (value): value is string => typeof value === "string",
-      )
+    ? item.categories.filter((value): value is string => isJsonString(value))
     : [];
-  const popularity = typeof item.popularity === "number" ? item.popularity : 0;
+  const popularity = isJsonNumber(item.popularity) ? item.popularity : 0;
   return [
     {
       id,
@@ -106,6 +113,6 @@ function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
   ];
 }
 
-function catalogText(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function catalogText(value: JsonValue | undefined): string | undefined {
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }

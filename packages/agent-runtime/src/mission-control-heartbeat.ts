@@ -1,13 +1,54 @@
 import { randomUUID } from "node:crypto";
 
-import type { SessionManager } from "./manager.js";
+import type { LocalChatRecord } from "./local-store.js";
 import type {
   AgentToolPermission,
+  DriverType,
   RecurringWorkRecord,
   WorkspaceWaysOfWorking,
 } from "./types.js";
 import { channelChatId } from "./channels/nip29.js";
 import { nextRunAt } from "./recurring-work.js";
+
+export interface MissionControlHeartbeatManager {
+  agentPreference(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<{ driver?: DriverType; model?: string } | undefined>;
+  createRootChat(
+    workspaceId: string,
+    chatId: string,
+    title: string,
+    provider?: DriverType,
+    model?: string,
+  ): Promise<RootChatCreation>;
+  recurringWorkByOperationKey(
+    workspaceId: string,
+    operationKey: string,
+  ): Promise<RecurringWorkRecord | undefined>;
+  saveRecurringWork(
+    workspaceId: string,
+    work: RecurringWorkRecord,
+  ): Promise<void>;
+  store: {
+    channelStore(): {
+      get(
+        workspaceId: string,
+        channelId: string,
+      ): Promise<
+        | {
+            id: string;
+            name: string;
+            visibility?: "public" | "private" | "direct";
+            lifecycle: "active" | "archived" | "pending_deletion";
+          }
+        | undefined
+      >;
+    };
+  };
+}
+
+type RootChatCreation = LocalChatRecord | null | void;
 
 export const MISSION_CONTROL_HEARTBEAT_OPERATION_KEY =
   "chief-mission-control-heartbeat";
@@ -107,7 +148,7 @@ function activeHeartbeat(
 
 /** Keeps the single Chief heartbeat aligned with the workspace setting. */
 export async function syncMissionControlHeartbeat(
-  manager: SessionManager,
+  manager: MissionControlHeartbeatManager,
   workspaceId: string,
   waysOfWorking: WorkspaceWaysOfWorking,
 ) {

@@ -1,6 +1,5 @@
 import { pluginApiOperations } from "./reference";
 
-export { pluginOpenApiPaths, pluginOpenApiSchemas } from "./openapi";
 export { pluginApiOperations, pluginApiPrinciples } from "./reference";
 export type {
   AgentPluginCatalogEntry,

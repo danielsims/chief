@@ -10,6 +10,14 @@ const RANGE_CONFIG = {
   "1y": { label: "1Y", days: 365, bucket: 30 },
 } as const;
 
+function rangeConfig(rangeKey: string) {
+  if (rangeKey === "7d") return RANGE_CONFIG["7d"];
+  if (rangeKey === "14d") return RANGE_CONFIG["14d"];
+  if (rangeKey === "3m") return RANGE_CONFIG["3m"];
+  if (rangeKey === "1y") return RANGE_CONFIG["1y"];
+  return RANGE_CONFIG["30d"];
+}
+
 const MONTHS = [
   "Jan",
   "Feb",
@@ -75,8 +83,10 @@ function buildSeries(
   const buckets: { date: string; value: number }[] = [];
   for (let index = 0; index < daily.length; index += bucketSize) {
     const slice = daily.slice(index, index + bucketSize);
+    const finalPoint = slice.at(-1);
+    if (!finalPoint) continue;
     buckets.push({
-      date: slice.at(-1)!.date,
+      date: finalPoint.date,
       value: Math.round(
         slice.reduce((sum, point) => sum + point.value, 0) / slice.length,
       ),
@@ -98,8 +108,7 @@ export function ConnectionPreview({
   series: { date: string; value: number }[];
   rangeKey: string;
 }) {
-  const range =
-    RANGE_CONFIG[rangeKey as keyof typeof RANGE_CONFIG] ?? RANGE_CONFIG["30d"];
+  const range = rangeConfig(rangeKey);
   const points = useMemo(
     () => buildSeries(series, range.days, range.bucket),
     [range.bucket, range.days, series],

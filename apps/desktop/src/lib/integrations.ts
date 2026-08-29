@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { z } from "zod";
 
 export interface IntegrationSearchResult {
   domain: string;
@@ -9,9 +10,16 @@ export interface IntegrationSearchResult {
   url: string;
 }
 
-interface IntegrationSearchResponse {
-  results?: IntegrationSearchResult[];
-}
+const integrationSearchResultSchema = z.object({
+  domain: z.string(),
+  name: z.string(),
+  description: z.string(),
+  kinds: z.array(z.string()),
+  url: z.string(),
+});
+const integrationSearchResponseSchema = z.object({
+  results: z.array(integrationSearchResultSchema).optional(),
+});
 
 const integrationSearches = new Map<
   string,
@@ -42,7 +50,7 @@ export async function searchIntegrations(query: string) {
       throw new Error(`integrations.sh search failed: ${response.status}`);
     }
 
-    const data = (await response.json()) as IntegrationSearchResponse;
+    const data = integrationSearchResponseSchema.parse(await response.json());
     const results = data.results ?? [];
     resolvedIntegrationSearches.set(key, results);
     return results;

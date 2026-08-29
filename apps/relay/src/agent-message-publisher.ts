@@ -1,8 +1,19 @@
-import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
-import { appendMessageCommandSchema } from "@chief/relay-contracts";
+import type {
+  AgentId,
+  AgentJob,
+  AgentPrincipal,
+  JsonObject,
+} from "@chief/relay-contracts";
+import {
+  appendMessageCommandSchema,
+  appendMessageResultSchema,
+  isJsonString,
+} from "@chief/relay-contracts";
 
+import { dispatchPersistedMessage } from "./conversation-agent-dispatch";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 
 /** Publishes a completed cell result through the same permission and
  * conversation authorization boundary as a direct agent tool call. */
@@ -13,16 +24,18 @@ export async function publishAgentMessage(
     conversationId: string;
     threadRootId?: string;
     body: string;
+    mentions?: AgentId[];
     components?: {
       id: string;
       kind: string;
       version: number;
-      payload: Record<string, unknown>;
+      payload: JsonObject;
     }[];
   },
   commandId: string,
   actorPubkey?: string,
 ) {
+  const body = normalizeAgentMessageBody(message.body);
   const agent: AgentPrincipal = {
     kind: "agent",
     agentId: job.agentId,
@@ -53,9 +66,12 @@ export async function publishAgentMessage(
       },
     ),
   );
-  if (!authorization.ok) {
+  const authorized = authorization.ok;
+  const authorizationStatus = authorization.status;
+  await releaseInternalResponse(authorization);
+  if (!authorized) {
     throw new HttpError(
-      authorization.status,
+      authorizationStatus,
       "job_conversation_denied",
       "The agent cannot publish to that conversation.",
     );
@@ -67,8 +83,11 @@ export async function publishAgentMessage(
     payload: {
       messageId: crypto.randomUUID(),
       conversationId: message.conversationId,
-      ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
-      body: message.body,
+      ...(message.threadRootId
+        ? { threadRootId: message.threadRootId }
+        : undefined),
+      body,
+      mentions: message.mentions ?? [],
       components: message.components ?? [],
     },
   });
@@ -81,7 +100,12 @@ export async function publishAgentMessage(
     withTrustedContext(
       new Request("https://conversation.internal/messages", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-chief-workflow-id": isJsonString(job.payload.workflowId)
+            ? job.payload.workflowId
+            : job.id,
+        },
         body: JSON.stringify(command),
       }),
       {
@@ -93,10 +117,43 @@ export async function publishAgentMessage(
     ),
   );
   if (!response.ok) {
+    await releaseInternalResponse(response);
     throw new HttpError(
       502,
       "job_message_failed",
       "The agent's message could not be delivered.",
     );
   }
+  const result = appendMessageResultSchema.parse(await response.json());
+  // Onboarding kickoff messages are the single wake for the specialist cells:
+  // the dedicated workspace.kickoff.* job (enqueued by `enqueueKickoff`) is the
+  // authoritative, cross-platform run. Dispatch their mentions here would also
+  // enqueue a competing conversation.message job into mission-control, so the
+  // agent would run the kickoff twice and dump its work there. Do not double-
+  // dispatch during onboarding. Every other agent-authored mention still wakes
+  // its target as normal.
+  if (job.kind === "workspace.onboarding") return;
+  const dispatch = await dispatchPersistedMessage(env, {
+    message: result.message,
+    principal: agent,
+    requestId: commandId,
+    workspaceId: job.workspaceId,
+    conversationId: message.conversationId,
+    workflowId: isJsonString(job.payload.workflowId)
+      ? job.payload.workflowId
+      : job.id,
+  });
+  const dispatched = dispatch.ok;
+  await releaseInternalResponse(dispatch);
+  if (!dispatched) {
+    throw new HttpError(
+      502,
+      "job_dispatch_failed",
+      "The addressed agents could not be queued.",
+    );
+  }
+}
+
+export function normalizeAgentMessageBody(body: string) {
+  return body.replaceAll(/\s*—\s*/gu, ", ");
 }

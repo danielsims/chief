@@ -1,3 +1,5 @@
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 type OAuthIssuerFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -35,8 +37,8 @@ export async function resolveOAuthIssuer(
       { headers: { accept: "application/json" } },
     );
     if (!response.ok) return fallback;
-    const metadata = (await response.json()) as { issuer?: unknown };
-    return typeof metadata.issuer === "string"
+    const metadata = parseJsonObject(await response.json());
+    return metadata && isJsonString(metadata.issuer)
       ? normalizeOAuthIssuer(metadata.issuer)
       : fallback;
   } catch {

@@ -1,7 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
-import { api } from "@chief/backend/convex/_generated/api";
+import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
@@ -19,31 +18,21 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
-import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
-import type { SocialPlatformDef } from "../../lib/social-platforms";
 import { InviteWorkspaceMemberCard } from "../../components/invite-workspace-member-card";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
-  setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
-import { RELAY_URL } from "../../lib/config";
+import { workspaceRoleForUser } from "../../lib/auth/organization-role";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
-import {
-  relayForWorkspace,
-  rememberRelayWorkspaces,
-} from "../../lib/relay-connection";
 import { useRelaySession } from "../../lib/relay-session";
-import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
 
-// Vite replaces `import.meta.hot` with undefined in production. Production
-// never imports the isolated replay module, so this shortcut cannot appear in
-// releases and removing the dev module removes the feature completely.
+// Vite removes this development-only replay import from production releases.
 const DevelopmentOnboardingReplay = import.meta.hot
   ? lazy(() =>
       import("../../dev/onboarding-replay-card").then((module) => ({
@@ -73,59 +62,14 @@ function LogoPreview({
   );
 }
 
-function SocialAccountRow({
-  def,
-  savedHandle,
-  ready,
+function DeleteWorkspaceCard({
+  workspaceId,
+  workspaceName,
 }: {
-  def: SocialPlatformDef;
-  savedHandle: string;
-  ready: boolean;
+  workspaceId: string;
+  workspaceName: string;
 }) {
-  const upsert = useMutation(api.socialAccounts.upsert);
-  const removeAccount = useMutation(api.socialAccounts.remove);
-  const [value, setValue] = useState(savedHandle);
-
-  useEffect(() => {
-    setValue(savedHandle);
-  }, [savedHandle]);
-
-  const commit = useCallback(async () => {
-    if (value === savedHandle) return;
-    try {
-      if (value) {
-        await upsert({ platform: def.platform, handle: value });
-      } else {
-        await removeAccount({ platform: def.platform });
-      }
-    } catch (error) {
-      console.error(`[Settings] Failed to save ${def.label} handle:`, error);
-      setValue(savedHandle);
-    }
-  }, [value, savedHandle, upsert, removeAccount, def]);
-
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-muted-foreground w-20 shrink-0 text-xs">
-        {def.label}
-      </span>
-      <PrefixedInput
-        prefix={def.prefix}
-        value={value}
-        onValueChange={setValue}
-        onBlur={() => void commit()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-        placeholder="handle"
-        disabled={!ready}
-      />
-    </div>
-  );
-}
-
-function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
-  const { client, switchWorkspace, workspaces } = useRelaySession();
+  const { deleteWorkspace } = useRelaySession();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -135,29 +79,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
     setDeleting(true);
     setError(null);
     try {
-      if (!client) throw new Error("Chief is not connected to the relay.");
-      await client.deleteWorkspace(org.id);
-
-      const remainingOnRelay = await client.listWorkspaces();
-      rememberRelayWorkspaces(RELAY_URL, remainingOnRelay);
-      const [nextOnRelay] = remainingOnRelay;
-      if (nextOnRelay) {
-        await setActiveAuthOrganization(nextOnRelay.id);
-        await client.switchWorkspace(nextOnRelay.id);
-        window.location.assign("/");
-        return;
-      }
-
-      const fallback = workspaces.find(
-        (workspace) =>
-          workspace.id !== org.id &&
-          relayForWorkspace(workspace.id) !== new URL(RELAY_URL).origin,
-      );
-      if (fallback) {
-        await switchWorkspace(fallback.id);
-        return;
-      }
-      window.location.assign("/");
+      await deleteWorkspace(workspaceId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
@@ -194,7 +116,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {org.name}</DialogTitle>
+            <DialogTitle>Delete {workspaceName}</DialogTitle>
             <DialogDescription>
               This deletes the workspace and all of its data. Type the workspace
               name to confirm.
@@ -204,7 +126,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
             autoFocus
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
-            placeholder={org.name}
+            placeholder={workspaceName}
           />
           {error && <p className="text-destructive text-xs">{error}</p>}
           <DialogFooter>
@@ -214,7 +136,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
             <Button
               variant="destructive"
               size="sm"
-              disabled={confirmation !== org.name || deleting}
+              disabled={confirmation !== workspaceName || deleting}
               onClick={() => void handleDelete()}
             >
               {deleting ? "Deleting..." : "Delete permanently"}
@@ -227,13 +149,9 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
 }
 
 export function WorkspaceSettings() {
-  const { client } = useRelaySession();
-  const { cloudOrganizationId } = useAuth();
-  const { isAuthenticated: convexReady } = useConvexAuth();
-  const socialAccounts = useQuery(
-    api.socialAccounts.list,
-    convexReady ? {} : "skip",
-  );
+  const { client, snapshot } = useRelaySession();
+  const { cloudOrganizationId, user } = useAuth();
+  const userId = user?.id;
 
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [name, setName] = useState("");
@@ -243,6 +161,10 @@ export function WorkspaceSettings() {
   const [processingLogo, setProcessingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletionPermission, setDeletionPermission] = useState<{
+    workspaceId: string;
+    allowed: boolean;
+  } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">(
     "idle",
   );
@@ -260,7 +182,7 @@ export function WorkspaceSettings() {
         setName(active.name);
         const metadata = parseOrganizationMetadata(active);
         setWebsite(
-          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
+          isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : "",
         );
         setLogo(active.logo ?? null);
         setLogoSource(metadata.logoSource === "upload" ? "upload" : "favicon");
@@ -270,6 +192,35 @@ export function WorkspaceSettings() {
       cancelled = true;
     };
   }, [cloudOrganizationId]);
+
+  useEffect(() => {
+    if (!client || !snapshot || !userId) return;
+    let cancelled = false;
+    const workspaceId = snapshot.id;
+    void client
+      .listWorkspaceMembers()
+      .then((members) => {
+        if (!cancelled) {
+          setDeletionPermission({
+            workspaceId,
+            allowed: workspaceRoleForUser(members, userId) === "owner",
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          "[Workspace] Could not resolve deletion permission:",
+          error,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, snapshot, userId]);
+
+  const canDeleteWorkspace =
+    deletionPermission?.workspaceId === snapshot?.id &&
+    deletionPermission?.allowed === true;
 
   const handleSave = async () => {
     if (!org) return;
@@ -340,7 +291,7 @@ export function WorkspaceSettings() {
     }
   };
 
-  const useWebsiteIcon = async () => {
+  const applyWebsiteIcon = async () => {
     if (!org) return;
     setProcessingLogo(true);
     setLogoError(null);
@@ -366,10 +317,6 @@ export function WorkspaceSettings() {
       setProcessingLogo(false);
     }
   };
-
-  const savedHandles = new Map(
-    (socialAccounts ?? []).map((account) => [account.platform, account.handle]),
-  );
 
   return (
     <>
@@ -409,7 +356,7 @@ export function WorkspaceSettings() {
                     variant="ghost"
                     size="sm"
                     disabled={processingLogo}
-                    onClick={() => void useWebsiteIcon()}
+                    onClick={() => void applyWebsiteIcon()}
                   >
                     Use website icon
                   </Button>
@@ -471,31 +418,7 @@ export function WorkspaceSettings() {
         </CardContent>
       </Card>
 
-      {org ? <InviteWorkspaceMemberCard organization={org} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Social accounts</CardTitle>
-          <CardDescription>
-            Add the social accounts your agents write for.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {SOCIAL_PLATFORMS.map((def) => (
-            <SocialAccountRow
-              key={def.platform}
-              def={def}
-              savedHandle={savedHandles.get(def.platform) ?? ""}
-              ready={convexReady && socialAccounts !== undefined}
-            />
-          ))}
-          {!convexReady && (
-            <p className="text-muted-foreground text-xs">
-              Connecting to your workspace…
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      {org && <InviteWorkspaceMemberCard organization={org} />}
 
       {org && DevelopmentOnboardingReplay ? (
         <Suspense fallback={null}>
@@ -503,7 +426,12 @@ export function WorkspaceSettings() {
         </Suspense>
       ) : null}
 
-      {org && <DeleteWorkspaceCard org={org} />}
+      {snapshot && canDeleteWorkspace ? (
+        <DeleteWorkspaceCard
+          workspaceId={snapshot.id}
+          workspaceName={snapshot.name}
+        />
+      ) : null}
     </>
   );
 }

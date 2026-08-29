@@ -1,15 +1,63 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
+import { WebSocket, WebSocketServer } from "ws";
 
+import { BrowserRegistry } from "./browser-registry";
 import { readConfig } from "./config";
 import { createExecutorHandler } from "./handler";
 
 const config = readConfig(process.env);
-const handle = createExecutorHandler(config);
+const browsers = new BrowserRegistry(config);
+const handle = createExecutorHandler(config, browsers);
 
 const server = createServer((request, response) => {
   void handleRequest(request, response);
 });
+const streams = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+  void handleUpgrade(request, socket, head);
+});
+
+async function handleUpgrade(
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+) {
+  const origin = `http://${request.headers.host ?? `127.0.0.1:${config.PORT}`}`;
+  const url = new URL(request.url ?? "/", origin);
+  const ticket = url.searchParams.get("ticket");
+  const streamUrl =
+    url.pathname === "/v1/browser/stream" && ticket
+      ? await browsers.resolveStreamTicket(ticket)
+      : undefined;
+  if (!streamUrl) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  const upstream = new WebSocket(streamUrl);
+  let upgraded = false;
+  upstream.once("open", () => {
+    upgraded = true;
+    streams.handleUpgrade(request, socket, head, (client) => {
+      client.on("message", (data, binary) => upstream.send(data, { binary }));
+      upstream.on("message", (data, binary) => client.send(data, { binary }));
+      client.once("close", () => upstream.close());
+      upstream.once("close", () => client.close());
+      const close = () => {
+        client.close(1011, "Browser stream failed");
+        upstream.close();
+      };
+      client.once("error", close);
+      upstream.once("error", close);
+    });
+  });
+  upstream.once("error", () => {
+    if (!upgraded) socket.destroy();
+  });
+}
 
 async function handleRequest(
   request: IncomingMessage,

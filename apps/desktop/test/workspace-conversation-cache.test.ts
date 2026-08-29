@@ -14,6 +14,7 @@ import {
   cacheWorkspaceChats,
   isConversationHydrated,
   markConversationHydrated,
+  reconcileChannelEvents,
 } from "../src/lib/workspace-conversation-cache.js";
 
 void test("conversation caches are isolated at the workspace boundary", () => {
@@ -96,5 +97,91 @@ void test("workspace-wide live events update the channel navigation cache", () =
   assert.equal(
     cachedChannelEvents("workspace-b", "mission-control"),
     undefined,
+  );
+});
+
+void test("late channel snapshots cannot erase newer live component events", () => {
+  const olderEvent = {
+    protocol: "nip29" as const,
+    kind: 9 as const,
+    id: "older-message",
+    channelId: "setup",
+    pubkey: "setup",
+    actor: { type: "agent" as const, id: "setup", name: "Setup" },
+    content: "I am checking your connections.",
+    tags: [],
+    createdAt: 1,
+  };
+  const pluginEvent = {
+    ...olderEvent,
+    id: "plugin-cards",
+    content: "Choose the plugins to connect.",
+    createdAt: 2,
+    components: [
+      {
+        type: "plugin.recommendation" as const,
+        props: { pluginIds: ["notion", "granola"] },
+      },
+    ],
+  };
+  const correctedOlderEvent = {
+    ...olderEvent,
+    content: "I checked your connections.",
+  };
+
+  assert.deepEqual(
+    reconcileChannelEvents([olderEvent, pluginEvent], [correctedOlderEvent]),
+    [correctedOlderEvent, pluginEvent],
+  );
+});
+
+void test("hydration is retained only while its renderable caches exist", () => {
+  activateWorkspaceConversationCache("workspace-hydration");
+  assert.equal(
+    markConversationHydrated(
+      "workspace-hydration",
+      "channel-chat",
+      "channel",
+      "marketing",
+    ),
+    true,
+  );
+  assert.equal(
+    isConversationHydrated(
+      "workspace-hydration",
+      "channel-chat",
+      "channel",
+      "marketing",
+    ),
+    false,
+  );
+
+  cacheTranscript("workspace-hydration", "channel-chat", []);
+  assert.equal(
+    isConversationHydrated(
+      "workspace-hydration",
+      "channel-chat",
+      "channel",
+      "marketing",
+    ),
+    false,
+  );
+
+  cacheChannelEvents("workspace-hydration", "marketing", []);
+  assert.equal(
+    isConversationHydrated(
+      "workspace-hydration",
+      "channel-chat",
+      "channel",
+      "marketing",
+    ),
+    true,
+  );
+
+  markConversationHydrated("workspace-hydration", "direct-chat", "direct");
+  cacheTranscript("workspace-hydration", "direct-chat", []);
+  assert.equal(
+    isConversationHydrated("workspace-hydration", "direct-chat", "direct"),
+    true,
   );
 });

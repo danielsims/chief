@@ -4,6 +4,7 @@ import {
   commandIdSchema,
   conversationIdSchema,
   isoDateTimeSchema,
+  secretNameSchema,
   workspaceIdSchema,
 } from "./identifiers";
 import {
@@ -56,6 +57,26 @@ export const workspaceListResultSchema = z
 
 export const workspaceSwitchResultSchema = z
   .object({ workspaceId: workspaceIdSchema, isActive: z.literal(true) })
+  .strict();
+
+export const workspaceSecretResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    name: secretNameSchema,
+    value: z.string().optional(),
+    deleted: z.boolean().optional(),
+  })
+  .strict();
+
+export const workspaceSecretListEntrySchema = z
+  .object({ name: secretNameSchema, updatedAt: isoDateTimeSchema })
+  .strict();
+
+export const workspaceSecretListResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    secrets: z.array(workspaceSecretListEntrySchema),
+  })
   .strict();
 
 export const organizationWorkspaceJoinResultSchema = z
@@ -140,12 +161,51 @@ export const createWorkspaceCommandSchema = z
     commandId: commandIdSchema,
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
-    runtime: z.enum(["phone", "mac", "cloud"]),
-    inferenceProvider: z.string().trim().min(1).max(64),
+    runtime: z.enum(["phone", "desktop", "cloud"]),
+    inferenceProvider: z.enum([
+      "openCodeGo",
+      "opencode",
+      "vercelAiGateway",
+      "onDevice",
+      "codexBridge",
+    ]),
     inferenceModel: z.string().trim().min(1).max(128),
     selectedApps: z.array(z.string().trim().min(1).max(128)).max(100),
   })
   .strict();
+
+export const provisionWorkspaceCommandSchema = z
+  .object({
+    workspace: createWorkspaceCommandSchema,
+    secrets: z
+      .object({
+        opencode: z.string().trim().min(1).max(20_000).optional(),
+        vercelAiGateway: z.string().trim().min(1).max(20_000).optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((provision, context) => {
+    if (provision.workspace.runtime === "phone") return;
+    const provider = provision.workspace.inferenceProvider;
+    if (
+      (provider === "openCodeGo" || provider === "opencode") &&
+      !provision.secrets.opencode
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Hosted workspaces require an OpenCode credential.",
+        path: ["secrets", "opencode"],
+      });
+    }
+    if (provider === "vercelAiGateway" && !provision.secrets.vercelAiGateway) {
+      context.addIssue({
+        code: "custom",
+        message: "Hosted workspaces require a Vercel AI Gateway credential.",
+        path: ["secrets", "vercelAiGateway"],
+      });
+    }
+  });
 
 export const conversationSummarySchema = z.object({
   id: z.string().min(1).max(128),
@@ -174,7 +234,7 @@ export const workspaceSnapshotSchema = z
       .array(z.string().trim().min(1).max(128))
       .max(100)
       .default([]),
-    runtime: z.enum(["phone", "mac", "cloud"]).nullable().default(null),
+    runtime: z.enum(["phone", "desktop", "cloud"]).nullable().default(null),
     imageURL: z.url().nullable(),
     onboardingComplete: z.boolean(),
     conversations: z.array(conversationSummarySchema),
@@ -188,6 +248,9 @@ export type ClaimWorkspaceCommand = z.infer<typeof claimWorkspaceCommandSchema>;
 export type ClaimedWorkspace = z.infer<typeof claimedWorkspaceSchema>;
 export type CreateWorkspaceCommand = z.infer<
   typeof createWorkspaceCommandSchema
+>;
+export type ProvisionWorkspaceCommand = z.infer<
+  typeof provisionWorkspaceCommandSchema
 >;
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
 export type SwitchWorkspaceCommand = z.infer<

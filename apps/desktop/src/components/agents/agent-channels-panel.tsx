@@ -15,6 +15,10 @@ import { useProviderModels } from "../../lib/runtime";
 import { useSlackChannel } from "../../lib/slack-channel";
 
 const LOCAL_DRIVERS = ["codex", "claude", "opencode"] as const;
+
+function isLocalDriver(value: string): value is (typeof LOCAL_DRIVERS)[number] {
+  return LOCAL_DRIVERS.some((driver) => driver === value);
+}
 const CHANNELS = [
   { id: "slack", label: "Slack", ready: true },
   { id: "discord", label: "Discord", ready: false },
@@ -35,11 +39,9 @@ function ids(value: string) {
 export function AgentChannelsPanel({
   workspaceId,
   onBack,
-  onDeploy,
 }: {
   workspaceId: string | null;
   onBack: () => void;
-  onDeploy: () => void;
 }) {
   const channel = useSlackChannel(workspaceId);
   const [selectedChannel, setSelectedChannel] =
@@ -161,9 +163,9 @@ export function AgentChannelsPanel({
                   <span>Local agent app</span>
                   <Select
                     value={driver}
-                    onValueChange={(value) =>
-                      setDriver(value as Exclude<DriverType, "remote">)
-                    }
+                    onValueChange={(value) => {
+                      if (isLocalDriver(value)) setDriver(value);
+                    }}
                   >
                     <SelectTrigger className="w-full capitalize">
                       {driver}
@@ -203,19 +205,6 @@ export function AgentChannelsPanel({
                     </SelectContent>
                   </Select>
                 </label>
-              </section>
-
-              <section className="flex items-center justify-between gap-5 border-t pt-5">
-                <div>
-                  <p className="text-xs font-medium">Slack via deployed Eve</p>
-                  <p className="text-muted-foreground mt-1 text-[10px] leading-4">
-                    Use Eve's webhook channel when Slack must remain online
-                    while this Mac is asleep or switched off.
-                  </p>
-                </div>
-                <Button type="button" variant="outline" onClick={onDeploy}>
-                  Configure deployment
-                </Button>
               </section>
 
               <section className="space-y-3 border-t pt-5">

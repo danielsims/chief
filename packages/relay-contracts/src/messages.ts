@@ -11,6 +11,7 @@ import {
   workspaceIdSchema,
 } from "./identifiers";
 import { principalSchema } from "./identity";
+import { jsonObjectSchema } from "./json";
 
 export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: userIdSchema }),
@@ -55,60 +56,80 @@ export const pluginRecommendationPayloadSchema = z
   })
   .strict();
 
-export const pluginActionPayloadSchema = z
+export const channelMemberAddedPayloadSchema = z
   .object({
-    workspaceId: workspaceIdSchema,
-    conversationId: conversationIdSchema,
-    threadRootId: messageIdSchema.optional(),
-    targetAgentId: agentIdSchema,
-    recommendationId: z.string().trim().min(1).max(128),
-    pluginId: z.string().trim().min(1).max(128),
-    pluginName: z.string().trim().min(1).max(256),
-    action: z.enum(["install", "authorize", "uninstall"]),
+    type: z.literal("member-added"),
+    actorId: z.string().trim().min(1).max(128),
+    actorName: z.string().trim().min(1).max(256),
+    actorType: z.enum(["agent", "user"]),
+    targetId: z.string().trim().min(1).max(128),
+    targetKind: z.enum(["agent", "user"]),
+    targetName: z.string().trim().min(1).max(256),
+    targetIds: z.string().max(2_048),
+    targetNames: z.string().max(4_096),
+    agentIds: z.string().max(2_048),
+    userIds: z.string().max(2_048),
   })
   .strict();
 
-export const pluginAuthorizationPayloadSchema = z
-  .object({
-    workspaceId: workspaceIdSchema,
-    conversationId: conversationIdSchema,
-    threadRootId: messageIdSchema.optional(),
-    agentId: agentIdSchema,
-    pluginId: z.string().trim().min(1).max(128),
-    pluginName: z.string().trim().min(1).max(256),
-    description: z.string().trim().min(1).max(2_000),
-    provider: z.string().trim().min(1).max(256),
-    authorizationUrl: z
-      .url()
-      .max(2_048)
-      .refine((value) => {
-        const url = new URL(value);
-        return (
-          url.protocol === "https:" ||
-          (url.protocol === "http:" &&
-            ["127.0.0.1", "localhost"].includes(url.hostname))
-        );
-      }, "Authorization URLs must use HTTPS or a loopback callback."),
-    status: z.literal("authorization_required"),
-  })
-  .strict();
+const pluginAuthorizationPayloadBaseSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  conversationId: conversationIdSchema,
+  threadRootId: messageIdSchema.optional(),
+  agentId: agentIdSchema,
+  pluginId: z.string().trim().min(1).max(128),
+  pluginName: z.string().trim().min(1).max(256),
+  description: z.string().trim().min(1).max(2_000),
+  provider: z.string().trim().min(1).max(256),
+});
+
+const externalUrlSchema = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["127.0.0.1", "localhost"].includes(url.hostname))
+    );
+  }, "URLs must use HTTPS or a loopback address.");
+
+export const pluginAuthorizationPayloadSchema = z.union([
+  pluginAuthorizationPayloadBaseSchema
+    .extend({
+      kind: z.literal("plugin_authorization").optional(),
+      authorizationUrl: externalUrlSchema,
+      status: z.literal("authorization_required"),
+    })
+    .strict(),
+  pluginAuthorizationPayloadBaseSchema
+    .extend({
+      kind: z.literal("plugin_oauth_client"),
+      serverName: z.string().trim().min(1).max(256),
+      callbackUrl: externalUrlSchema,
+      setupUrl: externalUrlSchema.optional(),
+      status: z.literal("client_configuration_required"),
+    })
+    .strict(),
+]);
 
 export const messageComponentSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
     kind: z.string().trim().min(1).max(64),
     version: z.int().positive(),
-    payload: z.record(z.string(), z.unknown()),
+    payload: jsonObjectSchema,
   })
   .strict()
   .superRefine((component, context) => {
     const schema =
       component.kind === "plugin.recommendation"
         ? pluginRecommendationPayloadSchema
-        : component.kind === "plugin.action"
-          ? pluginActionPayloadSchema
-          : component.kind === "plugin.authorization"
-            ? pluginAuthorizationPayloadSchema
+        : component.kind === "plugin.authorization"
+          ? pluginAuthorizationPayloadSchema
+          : component.kind === "channel-action"
+            ? channelMemberAddedPayloadSchema
             : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
@@ -182,6 +203,23 @@ export const agentActivityComponentSchema = z.discriminatedUnion("kind", [
           title: z.string().trim().min(1).max(256),
           message: z.string().trim().min(1).max(4_000),
           retryable: z.enum(["true", "false"]),
+          ...activityCorrelationSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().trim().min(1).max(128),
+      kind: z.literal("browser"),
+      version: z.literal(1),
+      payload: z
+        .object({
+          browserRunId: z.string().trim().min(1).max(128),
+          status: z.enum(["active", "closed"]),
+          url: z.string().max(2_048).optional(),
+          streamUrl: z.url().max(4_096).optional(),
+          expiresAt: isoDateTimeSchema.optional(),
           ...activityCorrelationSchema,
         })
         .strict(),
@@ -368,7 +406,6 @@ export type MessageComponent = z.infer<typeof messageComponentSchema>;
 export type PluginRecommendationPayload = z.infer<
   typeof pluginRecommendationPayloadSchema
 >;
-export type PluginActionPayload = z.infer<typeof pluginActionPayloadSchema>;
 export type PluginAuthorizationPayload = z.infer<
   typeof pluginAuthorizationPayloadSchema
 >;

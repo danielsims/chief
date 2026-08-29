@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { LocalStore } from "./local-store.js";
 import type { SessionConfig } from "./session.js";
 import type {
@@ -188,19 +190,19 @@ export async function startManagedSession(
           );
           const previousProviderState =
             currentChat?.providerState &&
-            typeof currentChat.providerState === "object"
+            isJsonObject(currentChat.providerState)
               ? currentChat.providerState
               : {};
           await context.store.updateChatState(config.workspaceId, chatId, {
             ...(config.driver === "remote"
-              ? {}
+              ? undefined
               : {
                   providerState: {
                     ...previousProviderState,
                     sessionId: event.sessionId,
                     ...(session.persistedThreadRootId
                       ? { threadRootId: session.persistedThreadRootId }
-                      : {}),
+                      : undefined),
                   },
                 }),
           });
@@ -229,10 +231,12 @@ export async function startManagedSession(
               kind: storedChat.kind,
               visibility: storedChat.visibility,
               providerState: {
-                ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+                ...(session.sessionId
+                  ? { sessionId: session.sessionId }
+                  : undefined),
                 ...(session.persistedThreadRootId
                   ? { threadRootId: session.persistedThreadRootId }
-                  : {}),
+                  : undefined),
               },
               eveState: session.driverState,
               scheduledFor: storedChat.scheduledFor,
@@ -267,7 +271,7 @@ export async function startManagedSession(
     }
   });
 
-  session.on("state", (state: unknown) => {
+  session.on("state", (state) => {
     const persistence = (context.persistence.get(key) ?? Promise.resolve())
       .then(async () => {
         await context.store.updateChatState(config.workspaceId, chatId, {
@@ -294,9 +298,9 @@ export async function startManagedSession(
   const continuation =
     storedChat.provider === config.driver &&
     storedChat.providerState &&
-    typeof storedChat.providerState === "object" &&
+    isJsonObject(storedChat.providerState) &&
     "sessionId" in storedChat.providerState &&
-    typeof storedChat.providerState.sessionId === "string"
+    isJsonString(storedChat.providerState.sessionId)
       ? storedChat.providerState.sessionId
       : undefined;
   try {
@@ -310,9 +314,9 @@ export async function startManagedSession(
     // exit instead of falling into the main timeline.
     if (
       storedChat.providerState &&
-      typeof storedChat.providerState === "object" &&
+      isJsonObject(storedChat.providerState) &&
       "threadRootId" in storedChat.providerState &&
-      typeof storedChat.providerState.threadRootId === "string"
+      isJsonString(storedChat.providerState.threadRootId)
     ) {
       session.persistedThreadRootId = storedChat.providerState.threadRootId;
     }

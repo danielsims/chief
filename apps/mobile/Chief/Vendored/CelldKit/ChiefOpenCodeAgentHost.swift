@@ -99,12 +99,12 @@ private actor ReasoningActivityEmitter {
   }
 }
 
-/// Concrete host that runs inference through the OpenCode Go API and executes
+/// Concrete host that runs inference through the selected provider and executes
 /// the package-level relay tools natively (running them in an OpenAI-style
 /// tool loop). Tool invocations are returned in the envelope's `tools` so the
 /// worker persists them into the durable transcript, grounding the reply in
 /// real workspace state.
-actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
+actor ChiefAgentHost: ChiefAgentHosting {
   private let relay: any RelayServing
   private let credentials: InferenceCredentialStore
   private let onActivity: AgentActivityCallback
@@ -395,7 +395,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         convoy: convoy,
         tools: definitions,
         workspaceID: workspaceID,
-        model: config.model,
+        inference: config.inference,
         timeout: timeout,
         onReasoning: { delta in await reasoning.append(delta) }
       )
@@ -637,7 +637,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     convoy: [OpenCodeRequest.Message],
     tools: [OpenCodeRequest.ToolDefinition],
     workspaceID: String,
-    model: String,
+    inference: AgentInferenceConfig,
     timeout: Int,
     onReasoning: @escaping @Sendable (String) async -> Void
   ) async throws -> OpenCodeStreamResult {
@@ -678,12 +678,24 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         )
       }
     #endif
-    guard let key = try credentials.load(.openCodeGo), !key.isEmpty else {
+    let provider: OnboardingDraft.InferenceProvider
+    let endpoint: URL
+    switch inference.provider {
+    case "opencode":
+      provider = .openCodeGo
+      endpoint = OpenCodeModelCatalog.completionEndpoint(for: inference.model)
+    case "vercel-ai-gateway":
+      provider = .vercelAiGateway
+      endpoint = URL(string: "https://ai-gateway.vercel.sh/v1/chat/completions")!
+    default:
+      throw WorkspaceSetupError.unsupportedInference
+    }
+    guard let key = try credentials.load(provider), !key.isEmpty else {
       throw WorkspaceSetupError.missingCredential
     }
     let body = try JSONEncoder().encode(
       OpenCodeRequest(
-        model: model,
+        model: inference.model,
         messages: convoy,
         maxTokens: 1_800,
         tools: tools.isEmpty ? nil : tools,
@@ -691,7 +703,6 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         stream: true
       )
     )
-    let endpoint = OpenCodeModelCatalog.completionEndpoint(for: model)
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = TimeInterval(timeout)

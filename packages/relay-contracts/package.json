@@ -10,7 +10,7 @@
   "scripts": {
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint packages/relay-contracts",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -18,11 +18,9 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@chief/eslint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@types/node": "catalog:",
-    "eslint": "catalog:",
     "prettier": "catalog:",
     "tsx": "^4.20.3",
     "typescript": "catalog:"

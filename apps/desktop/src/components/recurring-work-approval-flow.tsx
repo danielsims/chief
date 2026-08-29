@@ -35,7 +35,8 @@ export function RecurringWorkApprovalFlow({
   const revisionChat = useChiefChat(work?.conversationId ?? null);
   const revisionNote = useMemo(() => {
     for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.messages[i]!;
+      const item = revisionChat.messages[i];
+      if (!item) continue;
       if (item.role !== "assistant") continue;
       const text = messageBlocks(item)
         .flatMap((block) => (block.type === "text" ? [block.text] : []))

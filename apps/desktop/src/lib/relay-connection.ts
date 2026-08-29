@@ -1,5 +1,9 @@
 import type { WorkspaceSummary } from "@chief/relay-contracts";
 import {
+  isJsonObject,
+  isJsonString,
+  parseJsonObject,
+  parseJsonValue,
   relayDiscoverySchema,
   workspaceSummarySchema,
 } from "@chief/relay-contracts";
@@ -11,19 +15,29 @@ export interface StoredRelayConnection {
   authUiUrl: string;
 }
 
+export interface ConnectedWorkspace {
+  relayUrl: string;
+  accountId: string;
+  summary: WorkspaceSummary;
+}
+
 interface StoredRelayDirectory {
-  version: 1;
+  version: 2;
   activeRelayUrl: string | null;
   connections: StoredRelayConnection[];
-  workspaces: Record<string, { relayUrl: string; summary: WorkspaceSummary }>;
+  workspaces: Record<
+    string,
+    { accountId: string; relayUrl: string; summary: WorkspaceSummary }
+  >;
 }
 
 const legacyStorageKey = "chief.relay-connection.v1";
-const storageKey = "chief.relay-directory.v1";
+const legacyDirectoryStorageKey = "chief.relay-directory.v1";
+const storageKey = "chief.relay-directory.v2";
 
 function emptyDirectory(): StoredRelayDirectory {
   return {
-    version: 1,
+    version: 2,
     activeRelayUrl: null,
     connections: [],
     workspaces: {},
@@ -34,35 +48,34 @@ function readDirectory(): StoredRelayDirectory {
   try {
     const raw = globalThis.localStorage.getItem(storageKey);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<StoredRelayDirectory>;
+      const parsed = parseJsonObject(JSON.parse(raw)) ?? {};
       const connections = Array.isArray(parsed.connections)
         ? parsed.connections
             .map(parseStoredRelayConnection)
             .filter((value): value is StoredRelayConnection => value !== null)
         : [];
-      const activeRelayUrl =
-        typeof parsed.activeRelayUrl === "string"
-          ? normalizedRelayOrigin(parsed.activeRelayUrl)
-          : null;
+      const activeRelayUrl = isJsonString(parsed.activeRelayUrl)
+        ? normalizedRelayOrigin(parsed.activeRelayUrl)
+        : null;
       const workspaces =
-        parsed.workspaces && typeof parsed.workspaces === "object"
+        parsed.workspaces && isJsonObject(parsed.workspaces)
           ? Object.fromEntries(
               Object.entries(parsed.workspaces).flatMap(
                 ([workspaceId, value]) => {
                   try {
-                    const record = value as {
-                      relayUrl?: unknown;
-                      summary?: unknown;
-                    };
-                    if (typeof record.relayUrl !== "string") return [];
-                    const summary = workspaceSummarySchema.parse(
-                      record.summary,
-                    );
+                    if (!isJsonObject(value)) return [];
+                    if (
+                      !isJsonString(value.accountId) ||
+                      !isJsonString(value.relayUrl)
+                    )
+                      return [];
+                    const summary = workspaceSummarySchema.parse(value.summary);
                     return [
                       [
                         workspaceId,
                         {
-                          relayUrl: normalizedRelayOrigin(record.relayUrl),
+                          accountId: value.accountId,
+                          relayUrl: normalizedRelayOrigin(value.relayUrl),
                           summary,
                         },
                       ],
@@ -74,13 +87,33 @@ function readDirectory(): StoredRelayDirectory {
               ),
             )
           : {};
-      return { version: 1, activeRelayUrl, connections, workspaces };
+      return { version: 2, activeRelayUrl, connections, workspaces };
+    }
+    const legacyDirectory = globalThis.localStorage.getItem(
+      legacyDirectoryStorageKey,
+    );
+    if (legacyDirectory) {
+      const parsed = parseJsonObject(JSON.parse(legacyDirectory)) ?? {};
+      const connections = Array.isArray(parsed.connections)
+        ? parsed.connections
+            .map(parseStoredRelayConnection)
+            .filter((value): value is StoredRelayConnection => value !== null)
+        : [];
+      const activeRelayUrl = isJsonString(parsed.activeRelayUrl)
+        ? normalizedRelayOrigin(parsed.activeRelayUrl)
+        : null;
+      const migrated = {
+        ...emptyDirectory(),
+        activeRelayUrl,
+        connections,
+      };
+      writeDirectory(migrated);
+      globalThis.localStorage.removeItem(legacyDirectoryStorageKey);
+      return migrated;
     }
     const legacy = globalThis.localStorage.getItem(legacyStorageKey);
     if (legacy) {
-      const connection = parseStoredRelayConnection(
-        JSON.parse(legacy) as unknown,
-      );
+      const connection = parseStoredRelayConnection(parseJsonValue(legacy));
       if (connection) {
         const migrated = {
           ...emptyDirectory(),
@@ -163,13 +196,15 @@ export function resolveRelayConnection(
 
 export function rememberRelayWorkspaces(
   relayUrl: string,
+  accountId: string,
   workspaces: WorkspaceSummary[],
 ) {
   const directory = readDirectory();
   const normalized = normalizedRelayOrigin(relayUrl);
   const retained = Object.fromEntries(
     Object.entries(directory.workspaces).filter(
-      ([, value]) => value.relayUrl !== normalized,
+      ([, value]) =>
+        value.accountId !== accountId || value.relayUrl !== normalized,
     ),
   );
   writeDirectory({
@@ -178,22 +213,87 @@ export function rememberRelayWorkspaces(
       ...retained,
       ...Object.fromEntries(
         workspaces.map((summary) => [
-          summary.id,
-          { relayUrl: normalized, summary },
+          workspaceDirectoryKey(normalized, accountId, summary.id),
+          { accountId, relayUrl: normalized, summary },
         ]),
       ),
     },
   });
 }
 
-export function relayForWorkspace(workspaceId: string) {
-  return readDirectory().workspaces[workspaceId]?.relayUrl ?? null;
+export function forgetRelayWorkspaces(relayUrl: string, accountId: string) {
+  const directory = readDirectory();
+  const normalized = normalizedRelayOrigin(relayUrl);
+  writeDirectory({
+    ...directory,
+    workspaces: Object.fromEntries(
+      Object.entries(directory.workspaces).filter(
+        ([, workspace]) =>
+          workspace.relayUrl !== normalized ||
+          workspace.accountId !== accountId,
+      ),
+    ),
+  });
 }
 
-export function knownWorkspaceSummaries() {
-  return Object.values(readDirectory().workspaces).map(
-    (entry) => entry.summary,
+export function relayForWorkspace(
+  accountId: string,
+  workspaceId: string,
+  relayUrl?: string,
+) {
+  const expectedRelay = relayUrl ? normalizedRelayOrigin(relayUrl) : undefined;
+  const matches = Object.values(readDirectory().workspaces).filter(
+    (entry) =>
+      entry.accountId === accountId &&
+      entry.summary.id === workspaceId &&
+      (!expectedRelay || entry.relayUrl === expectedRelay),
   );
+  return matches.length === 1 ? (matches[0]?.relayUrl ?? null) : null;
+}
+
+export function knownWorkspaceSummaries(
+  relayUrl: string,
+  accountId: string | null,
+) {
+  if (!accountId) return [];
+  const normalized = normalizedRelayOrigin(relayUrl);
+  return Object.values(readDirectory().workspaces)
+    .filter(
+      (entry) => entry.accountId === accountId && entry.relayUrl === normalized,
+    )
+    .map((entry) => entry.summary);
+}
+
+export function knownWorkspacesForRelayIdentities(
+  identities: readonly { relayUrl: string; user: { id: string } }[],
+): ConnectedWorkspace[] {
+  const allowed = new Set(
+    identities.map(
+      (identity) =>
+        `${normalizedRelayOrigin(identity.relayUrl)}:${identity.user.id}`,
+    ),
+  );
+  return Object.values(readDirectory().workspaces).filter((entry) =>
+    allowed.has(`${entry.relayUrl}:${entry.accountId}`),
+  );
+}
+
+export function workspaceForRelayIdentities(
+  workspaceId: string,
+  identities: readonly { relayUrl: string; user: { id: string } }[],
+): ConnectedWorkspace | null {
+  const matches = knownWorkspacesForRelayIdentities(identities).filter(
+    (workspace) => workspace.summary.id === workspaceId,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function workspaceDirectoryKey(
+  relayUrl: string,
+  accountId: string,
+  workspaceId: string,
+) {
+  return `${encodeURIComponent(relayUrl)}:${accountId}:${workspaceId}`;
 }
 
 export function activateKnownRelay(relayUrl: string) {
@@ -238,13 +338,13 @@ export async function validateRelayConnection(
 function parseStoredRelayConnection(
   value: unknown,
 ): StoredRelayConnection | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
+  if (!value || !isJsonObject(value)) return null;
+  const record = value;
   if (
     record.version !== 1 ||
-    typeof record.relayUrl !== "string" ||
-    typeof record.authBaseUrl !== "string" ||
-    typeof record.authUiUrl !== "string"
+    !isJsonString(record.relayUrl) ||
+    !isJsonString(record.authBaseUrl) ||
+    !isJsonString(record.authUiUrl)
   ) {
     return null;
   }

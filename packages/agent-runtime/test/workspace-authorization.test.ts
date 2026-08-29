@@ -32,18 +32,14 @@ void test("switching a socket revokes its previous workspace", () => {
   assert.equal(authorization.canReceive(socket, "workspace-b"), true);
 });
 
-void test("capability endpoints accept only the configured or Convex issuer", () => {
-  assert.equal(
-    capabilityWhoamiUrl("https://chief-prod-123.convex.site").toString(),
-    "https://chief-prod-123.convex.site/agent-tools/whoami",
-  );
+void test("capability endpoints accept only the configured issuer", () => {
   assert.throws(
     () => capabilityWhoamiUrl("https://attacker.example.com"),
-    /convex\.site/,
+    /CHIEF_AGENT_TOOLS_ORIGIN/,
   );
   assert.throws(
     () => capabilityWhoamiUrl("http://localhost:3000"),
-    /convex\.site/,
+    /CHIEF_AGENT_TOOLS_ORIGIN/,
   );
   assert.equal(
     capabilityWhoamiUrl("http://localhost:3000", {
