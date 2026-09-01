@@ -1,6 +1,5 @@
 import type { ComponentType } from "react";
-import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
-import { Cloud } from "lucide-react";
+import { Claude, OpenAI, OpenCode, Vercel } from "@lobehub/icons";
 
 /**
  * Provider metadata shared by the settings default-provider select and the
@@ -16,9 +15,13 @@ export interface ProviderMeta {
 }
 
 export const PROVIDER_META: Record<Provider, ProviderMeta> = {
-  claude: { label: "Claude", Icon: Claude.Color, location: "Local" },
+  claude: { label: "Claude Code", Icon: Claude.Color, location: "Local" },
   // Codex has no dedicated mark we ship; the OpenAI logo is the recognizable one.
-  codex: { label: "Codex", Icon: OpenAI, location: "Local" },
+  codex: { label: "ChatGPT", Icon: OpenAI, location: "Local" },
   opencode: { label: "OpenCode", Icon: OpenCode, location: "Local" },
-  remote: { label: "OpenCode", Icon: Cloud, location: "Deployed" },
+  remote: {
+    label: "Vercel AI Gateway",
+    Icon: Vercel,
+    location: "Deployed",
+  },
 };

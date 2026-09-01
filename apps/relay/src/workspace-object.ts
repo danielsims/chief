@@ -29,6 +29,8 @@ import {
 } from "./workspace-channel-router";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
+import { drainExternalAgentOutbox } from "./workspace-external-agent-alarm";
+import { externalAgentRouter } from "./workspace-external-agent-router";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
@@ -36,6 +38,7 @@ import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
+import { WorkspaceVercelService } from "./workspace-vercel-service";
 import {
   consumeSocketAllowance,
   MAX_REPLAY_EVENTS_PER_CONNECTION,
@@ -65,7 +68,17 @@ export class WorkspaceObject extends DurableObject<Env> {
       const readsSecret =
         request.method === "GET" &&
         (operation === "secret-get" || operation === "secret-list");
-      if (request.method !== "POST" && !readsSecret) {
+      const readsVercel =
+        request.method === "GET" && operation === "vercel-destinations";
+      const deletesExternalAgent =
+        request.method === "DELETE" &&
+        operation === "external-agent-disconnect";
+      if (
+        request.method !== "POST" &&
+        !readsSecret &&
+        !readsVercel &&
+        !deletesExternalAgent
+      ) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
       }
       const response = yield* routeOperation(request, operation);
@@ -79,6 +92,10 @@ export class WorkspaceObject extends DurableObject<Env> {
       attributes: trustedTelemetryAttributes(request),
       workflowId: request.headers.get("x-chief-workflow-id") ?? undefined,
     });
+  }
+
+  alarm() {
+    return drainExternalAgentOutbox(this.ctx.storage, this.env);
   }
 
   private routeOperation(request: Request, operation: string | null) {
@@ -119,6 +136,12 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
 
+      if (externalAgentRouter.matches(operation)) {
+        return yield* attempt("workspace.external_agent", () =>
+          externalAgentRouter.route(ctx.storage, env, request, operation),
+        );
+      }
+
       const access = new WorkspaceAccessService(ctx.storage, env);
       const agents = new WorkspaceAgentAccessService(ctx.storage, env);
       if (operation === "members-list") {
@@ -136,6 +159,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           agents.configGet(request),
         );
       }
+      if (operation === "agent-create") {
+        return yield* attempt("workspace.agent.create", () =>
+          agents.create(request),
+        );
+      }
       if (operation === "agent-runtime-get") {
         return yield* attempt("workspace.agent.runtime.get", () =>
           agents.runtimeDescriptor(request),
@@ -146,6 +174,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           agents.configSet(request),
         );
       }
+      if (operation === "agent-remove") {
+        return yield* attempt("workspace.agent.remove", () =>
+          agents.remove(request),
+        );
+      }
       if (operation === "authorize-conversation") {
         return yield* attempt("workspace.conversation.authorize", () =>
           agents.authorizeConversation(request),
@@ -154,6 +187,11 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "authorize-agent-runtime") {
         return yield* attempt("workspace.agent.authorize", () =>
           agents.authorizeRuntime(request),
+        );
+      }
+      if (operation === "authorize-native-agent") {
+        return yield* attempt("workspace.agent.native.authorize", () =>
+          agents.authorizeNativeAgent(request),
         );
       }
       if (operation === "agent-hosting-context") {
@@ -198,6 +236,27 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "complete-onboarding") {
         return yield* attempt("workspace.onboarding.complete", () =>
           lifecycle.completeOnboarding(request),
+        );
+      }
+
+      if (
+        operation === "vercel-connect" ||
+        operation === "vercel-destinations" ||
+        operation === "vercel-provision"
+      ) {
+        const vercel = new WorkspaceVercelService(ctx.storage, env);
+        if (operation === "vercel-connect") {
+          return yield* attempt("workspace.vercel.connect", () =>
+            vercel.connect(request),
+          );
+        }
+        if (operation === "vercel-destinations") {
+          return yield* attempt("workspace.vercel.destinations", () =>
+            vercel.destinations(request),
+          );
+        }
+        return yield* attempt("workspace.vercel.provision", () =>
+          vercel.provision(request),
         );
       }
 

@@ -46,7 +46,7 @@ export function WorkspaceHome({
         </p>
       </div>
 
-      <div className="mt-8 space-y-1">
+      <div className="border-border/60 bg-card/30 mt-8 divide-y overflow-hidden rounded-xl border">
         <WorkspaceAction
           title="Create a workspace"
           description="Start a new space for your agents and team"
@@ -78,7 +78,7 @@ export function WorkspaceAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035] flex w-full items-center rounded-xl px-4 py-4 text-left transition-colors duration-150 outline-none disabled:opacity-50"
+      className="hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035] flex w-full items-center px-4 py-4 text-left transition-colors duration-150 outline-none disabled:opacity-50"
     >
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{title}</span>

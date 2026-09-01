@@ -23,6 +23,7 @@ import {
 } from "../config";
 import {
   activateKnownRelay,
+  forgetRelayConnection,
   forgetRelayWorkspaces,
   knownRelayConnections,
   rememberRelayConnection,
@@ -337,6 +338,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearStoredRelaySession(relayOrigin),
     ]).finally(() => {
       if (accountId) forgetRelayWorkspaces(relayOrigin, accountId);
+      if (relayOrigin !== chiefAccountConnection.relayUrl) {
+        forgetRelayConnection(relayOrigin);
+      }
       if (!signsOutActiveRelay) return;
       const fallback = connectedRelayIdentities()[0];
       if (!fallback) {

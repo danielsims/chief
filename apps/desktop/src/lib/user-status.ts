@@ -8,6 +8,11 @@ export interface UserStatus {
   text: string;
 }
 
+export function userStatusLabel(status: UserStatus | null, fallback: string) {
+  if (!status) return fallback;
+  return `${status.emoji} ${status.text}`.trim();
+}
+
 const userStatusSchema = z.object({ emoji: z.string(), text: z.string() });
 
 const statusCache = new Map<string, UserStatus | null>();

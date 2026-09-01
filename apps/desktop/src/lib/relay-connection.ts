@@ -182,6 +182,19 @@ export function knownRelayConnections() {
   return readDirectory().connections;
 }
 
+export function forgetRelayConnection(relayUrl: string) {
+  const normalized = normalizedRelayOrigin(relayUrl);
+  const directory = readDirectory();
+  writeDirectory({
+    ...directory,
+    activeRelayUrl:
+      directory.activeRelayUrl === normalized ? null : directory.activeRelayUrl,
+    connections: directory.connections.filter(
+      (connection) => connection.relayUrl !== normalized,
+    ),
+  });
+}
+
 export function resolveRelayConnection(
   relayUrl: string,
   connections: readonly StoredRelayConnection[],

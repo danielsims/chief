@@ -2,8 +2,6 @@ import { z } from "zod";
 
 import type {
   ClientMessage,
-  ProjectRecord,
-  ProjectRepositorySnapshot,
   ServerMessage,
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
@@ -17,6 +15,10 @@ import type {
 } from "@chief/relay-contracts";
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
+import {
+  relayProjectRecord,
+  relayProjectSnapshot,
+} from "./relay-project-presentation";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -297,7 +299,7 @@ async function listProjects(context: WorkspaceDataContext) {
   context.emit({
     type: "projects",
     workspaceId: context.snapshot.id,
-    projects: projects.map(toProjectSnapshot),
+    projects: projects.map(relayProjectSnapshot),
   });
 }
 
@@ -324,7 +326,7 @@ async function registerClonedProject(
     type: "projectSaved",
     workspaceId: context.snapshot.id,
     requestId: message.requestId,
-    project: toProjectRecord(project),
+    project: relayProjectRecord(project),
   });
   await listProjects(context);
 }
@@ -359,28 +361,6 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
       updatedAt: 0,
     },
   });
-}
-
-function toProjectRecord(project: RelayProject): ProjectRecord {
-  return {
-    ...project,
-    createdAt: Date.parse(project.createdAt),
-    updatedAt: Date.parse(project.updatedAt),
-  };
-}
-
-function toProjectSnapshot(project: RelayProject): ProjectRepositorySnapshot {
-  const record = toProjectRecord(project);
-  return {
-    project: record,
-    portable: Boolean(record.canonicalRemoteUrl),
-    available: false,
-    branches: [record.defaultBranch],
-    commits: [],
-    checkouts: [],
-    error:
-      "This project is registered on the relay. Materialize it in an agent cell to inspect or change its files.",
-  };
 }
 
 function projectRepositoryDetails(raw: string): {

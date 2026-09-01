@@ -199,17 +199,20 @@ export async function activeManagedWorkspace(
   }
   snapshot.runtime = entry.command?.runtime ?? null;
   if (snapshot.onboardingComplete === false && entry.command) {
-    // Unit-level authority calls retain deterministic repair coverage. Public
-    // GET requests intentionally do not enqueue work: reads must return the
-    // existing snapshot immediately, even when the agent authority is slow or
-    // its Cloudflare allowance has been exhausted.
-    if (!context) {
-      await enqueueOnboarding(
-        env,
-        identity,
-        { ...entry, command: entry.command },
-        true,
+    const repair = enqueueOnboarding(
+      env,
+      identity,
+      { ...entry, command: entry.command },
+      true,
+    );
+    if (context) {
+      context.waitUntil(
+        repair.catch((error: unknown) => {
+          console.error("[Workspace] Onboarding repair failed:", error);
+        }),
       );
+    } else {
+      await repair;
     }
   }
   // The body changed, so do not reuse the Durable Object response headers.

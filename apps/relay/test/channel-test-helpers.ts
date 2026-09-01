@@ -4,6 +4,7 @@ import { expect } from "vitest";
 import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   agentIdSchema,
+  appendMessageCommandSchema,
   createWorkspaceCommandSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
@@ -211,6 +212,43 @@ export async function testConversationMessages(
     }>;
   };
   return page.messages;
+}
+
+export async function appendRootMessage(ctx: ChannelTestContext) {
+  const messageId = crypto.randomUUID();
+  const conversation = ctx.env.CONVERSATIONS.get(
+    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:mission-control`),
+  );
+  const response = await conversation.fetch(
+    withTrustedContext(
+      new Request("https://conversation.internal/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          appendMessageCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: {
+              messageId,
+              conversationId: "mission-control",
+              body: "Thread root",
+              mentions: [],
+              components: [],
+            },
+          }),
+        ),
+      }),
+      {
+        principal: ctx.principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+        conversationId: "mission-control",
+      },
+    ),
+  );
+  expect(response.status).toBe(200);
+  return messageId;
 }
 
 export function channelEnvelope(payload: JsonObject) {

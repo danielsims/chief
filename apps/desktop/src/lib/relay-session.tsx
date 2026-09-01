@@ -7,6 +7,7 @@ import type {
 } from "@chief/relay-contracts";
 import { RelayClient } from "@chief/relay-client";
 
+import type { RelayConnectionIntent } from "./relay-session-state";
 import type { RelaySessionValue } from "./relay-session-value";
 import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
@@ -36,7 +37,9 @@ import {
 } from "./relay-session-api";
 import { RelaySessionContext } from "./relay-session-context";
 import {
+  beginRelayConnection,
   beginWorkspaceTransition,
+  failRelayConnection,
   initialRelaySessionState,
   visibleRelaySessionState,
   workspaceSummaryFromSnapshot,
@@ -56,187 +59,194 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   const accountId = user?.id ?? null;
   const connectionGeneration = useRef(0);
   const connectionPromise = useRef<Promise<void> | null>(null);
+  const lastBackgroundRefreshAt = useRef(0);
   const [state, setState] = useState(() =>
     initialRelaySessionState(accountId, sessionToken),
   );
 
-  const connect = useCallback(() => {
-    if (connectionPromise.current) return connectionPromise.current;
-    const attempt = (async () => {
-      const generation = ++connectionGeneration.current;
-      let accountClient: RelayClient | null = null;
-      let refreshedWorkspaces: WorkspaceSummary[] | null = null;
-      if (!sessionToken) {
-        relaySessionTransport.resetDeviceAuthorization();
-        setRelayWorkspaceOverride(null);
-        setState({
-          accountId: null,
-          client: null,
-          snapshot: null,
-          workspaces: [],
-          loading: false,
-          error: null,
-        });
-        return;
-      }
-      if (!accountId) return;
-      setState((current) =>
-        current.accountId === accountId
-          ? { ...current, loading: !current.client }
-          : {
-              accountId,
-              client: null,
-              snapshot: null,
-              workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
-              loading: true,
-              error: null,
-            },
-      );
-      const watchdog = window.setTimeout(() => {
-        if (generation !== connectionGeneration.current) return;
-        connectionGeneration.current += 1;
-        if (connectionPromise.current === attempt) {
-          connectionPromise.current = null;
-        }
-        setState((current) => ({
-          ...current,
-          loading: false,
-          error: "This relay is unavailable.",
-        }));
-      }, 12_000);
-      try {
-        // Keep an account-scoped client available even when the currently
-        // selected workspace is down. Recovery must still be able to switch
-        // to another workspace on this same relay.
-        accountClient = new RelayClient({
-          relayUrl: RELAY_URL,
-          getAuthorization: relaySessionTransport.authorization,
-          getDeviceAuthorization: relaySessionTransport.getDeviceAuthorization,
-          fetch: relaySessionTransport.fetch,
-        });
-        let snapshot = await connectBoundRelayDevice(sessionToken);
-        if (snapshot === undefined) {
-          invalidateSession();
+  const connect = useCallback(
+    (intent: RelayConnectionIntent = "foreground") => {
+      if (connectionPromise.current) return connectionPromise.current;
+      const attempt = (async () => {
+        const generation = ++connectionGeneration.current;
+        let accountClient: RelayClient | null = null;
+        let refreshedWorkspaces: WorkspaceSummary[] | null = null;
+        if (!sessionToken) {
+          relaySessionTransport.resetDeviceAuthorization();
+          setRelayWorkspaceOverride(null);
+          setState({
+            accountId: null,
+            client: null,
+            snapshot: null,
+            workspaces: [],
+            loading: false,
+            error: null,
+          });
           return;
         }
-        const pendingOrganizationInvitation =
-          readPendingOrganizationInvitation();
-        if (
-          pendingOrganizationInvitation?.relayUrl === new URL(RELAY_URL).origin
-        ) {
-          const joined = await accountClient.joinOrganizationWorkspace(
-            pendingOrganizationInvitation.workspaceId,
+        if (!accountId) return;
+        setState((current) => beginRelayConnection(current, accountId, intent));
+        const watchdog = window.setTimeout(() => {
+          if (generation !== connectionGeneration.current) return;
+          connectionGeneration.current += 1;
+          if (connectionPromise.current === attempt) {
+            connectionPromise.current = null;
+          }
+          setState((current) =>
+            failRelayConnection(
+              current,
+              accountId,
+              "This relay is unavailable.",
+              intent,
+            ),
           );
-          await accountClient.switchWorkspace(joined.workspaceId);
-          clearPendingOrganizationInvitation();
-          snapshot = await activeRelayWorkspace();
-        }
-        const pendingWorkspace = pendingWorkspaceSwitch(accountId);
-        if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
-          await accountClient.switchWorkspace(pendingWorkspace.workspaceId);
-          snapshot = await activeRelayWorkspace();
-        }
-        if (!snapshot) {
-          // Resolve the directory before treating a missing selection as empty.
-          refreshedWorkspaces = await accountClient.listWorkspaces();
-          rememberRelayWorkspaces(RELAY_URL, accountId, refreshedWorkspaces);
-          const [fallbackWorkspace] = refreshedWorkspaces;
-          if (fallbackWorkspace) {
-            await accountClient.switchWorkspace(fallbackWorkspace.id);
+        }, 12_000);
+        try {
+          // Keep an account-scoped client available even when the currently
+          // selected workspace is down. Recovery must still be able to switch
+          // to another workspace on this same relay.
+          accountClient = new RelayClient({
+            relayUrl: RELAY_URL,
+            getAuthorization: relaySessionTransport.authorization,
+            getDeviceAuthorization:
+              relaySessionTransport.getDeviceAuthorization,
+            fetch: relaySessionTransport.fetch,
+          });
+          let snapshot = await connectBoundRelayDevice(sessionToken);
+          if (snapshot === undefined) {
+            invalidateSession();
+            return;
+          }
+          const pendingOrganizationInvitation =
+            readPendingOrganizationInvitation();
+          if (
+            pendingOrganizationInvitation?.relayUrl ===
+            new URL(RELAY_URL).origin
+          ) {
+            const joined = await accountClient.joinOrganizationWorkspace(
+              pendingOrganizationInvitation.workspaceId,
+            );
+            await accountClient.switchWorkspace(joined.workspaceId);
+            clearPendingOrganizationInvitation();
             snapshot = await activeRelayWorkspace();
           }
-        }
-        const client = snapshot
-          ? new RelayClient({
-              relayUrl: RELAY_URL,
+          const pendingWorkspace = pendingWorkspaceSwitch(accountId);
+          if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
+            await accountClient.switchWorkspace(pendingWorkspace.workspaceId);
+            snapshot = await activeRelayWorkspace();
+          }
+          if (!snapshot) {
+            // Resolve the directory before treating a missing selection as empty.
+            refreshedWorkspaces = await accountClient.listWorkspaces();
+            rememberRelayWorkspaces(RELAY_URL, accountId, refreshedWorkspaces);
+            const [fallbackWorkspace] = refreshedWorkspaces;
+            if (fallbackWorkspace) {
+              await accountClient.switchWorkspace(fallbackWorkspace.id);
+              snapshot = await activeRelayWorkspace();
+            }
+          }
+          const client = snapshot
+            ? new RelayClient({
+                relayUrl: RELAY_URL,
+                workspaceId: snapshot.id,
+                getAuthorization: relaySessionTransport.authorization,
+                getDeviceAuthorization:
+                  relaySessionTransport.getDeviceAuthorization,
+                fetch: relaySessionTransport.fetch,
+              })
+            : accountClient;
+          const cellsStarted = snapshot
+            ? ensureDesktopCells(snapshot, client)
+            : Promise.resolve();
+          const directoryWorkspaces = knownWorkspaceSummaries(
+            RELAY_URL,
+            accountId,
+          ).map((summary) => ({
+            ...summary,
+            isActive: summary.id === snapshot?.id,
+          }));
+          if (generation !== connectionGeneration.current) return;
+          setRelayWorkspaceOverride(snapshot?.id ?? null);
+          if (snapshot) {
+            rememberConnectedWorkspace(accountId, {
               workspaceId: snapshot.id,
-              getAuthorization: relaySessionTransport.authorization,
-              getDeviceAuthorization:
-                relaySessionTransport.getDeviceAuthorization,
-              fetch: relaySessionTransport.fetch,
-            })
-          : accountClient;
-        const cellsStarted = snapshot
-          ? ensureDesktopCells(snapshot, client)
-          : Promise.resolve();
-        const directoryWorkspaces = knownWorkspaceSummaries(
-          RELAY_URL,
-          accountId,
-        ).map((summary) => ({
-          ...summary,
-          isActive: summary.id === snapshot?.id,
-        }));
-        if (generation !== connectionGeneration.current) return;
-        setRelayWorkspaceOverride(snapshot?.id ?? null);
-        if (snapshot) {
-          rememberConnectedWorkspace(accountId, {
-            workspaceId: snapshot.id,
-            relayUrl: new URL(RELAY_URL).origin,
-          });
-        }
-        if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
-          // Keep the previous workspace available until the target relay has
-          // completed the entire connection. A partial switch must still have
-          // a reliable Back path.
-          clearWorkspaceSwitch(accountId);
-        }
-        setState({
-          accountId,
-          client,
-          snapshot,
-          workspaces: directoryWorkspaces,
-          loading: false,
-          error: null,
-        });
-        // Directory metadata must not turn a healthy workspace into an outage.
-        if (!refreshedWorkspaces) {
-          void accountClient
-            .listWorkspaces()
-            .then((workspaces) => {
-              rememberRelayWorkspaces(RELAY_URL, accountId, workspaces);
-              if (generation !== connectionGeneration.current) return;
-              setState((current) => ({
-                ...current,
-                accountId,
-                workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
-                  (summary) => ({
-                    ...summary,
-                    isActive: summary.id === current.snapshot?.id,
-                  }),
-                ),
-              }));
-            })
-            .catch((error: unknown) => {
-              console.warn(
-                "[Relay] Workspace directory refresh failed:",
-                error,
-              );
+              relayUrl: new URL(RELAY_URL).origin,
             });
+          }
+          if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
+            // Keep the previous workspace available until the target relay has
+            // completed the entire connection. A partial switch must still have
+            // a reliable Back path.
+            clearWorkspaceSwitch(accountId);
+          }
+          setState({
+            accountId,
+            client,
+            snapshot,
+            workspaces: directoryWorkspaces,
+            loading: false,
+            error: null,
+          });
+          // Directory metadata must not turn a healthy workspace into an outage.
+          if (!refreshedWorkspaces) {
+            void accountClient
+              .listWorkspaces()
+              .then((workspaces) => {
+                rememberRelayWorkspaces(RELAY_URL, accountId, workspaces);
+                if (generation !== connectionGeneration.current) return;
+                setState((current) => ({
+                  ...current,
+                  accountId,
+                  workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
+                    (summary) => ({
+                      ...summary,
+                      isActive: summary.id === current.snapshot?.id,
+                    }),
+                  ),
+                }));
+              })
+              .catch((error: unknown) => {
+                console.warn(
+                  "[Relay] Workspace directory refresh failed:",
+                  error,
+                );
+              });
+          }
+          void cellsStarted.catch((error: unknown) => {
+            console.error("[Relay] Desktop cells could not start:", error);
+          });
+        } catch (error) {
+          if (generation !== connectionGeneration.current) return;
+          if (intent === "background") {
+            console.warn("[Relay] Background refresh failed:", error);
+          }
+          setState((current) => {
+            const next = failRelayConnection(
+              current,
+              accountId,
+              error instanceof Error ? error.message : String(error),
+              intent,
+            );
+            if (next === current) return current;
+            return {
+              ...next,
+              client: accountClient ?? current.client,
+              workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
+            };
+          });
+        } finally {
+          window.clearTimeout(watchdog);
         }
-        void cellsStarted.catch((error: unknown) => {
-          console.error("[Relay] Desktop cells could not start:", error);
-        });
-      } catch (error) {
-        if (generation !== connectionGeneration.current) return;
-        setState((current) => ({
-          ...current,
-          accountId,
-          client: accountClient ?? current.client,
-          workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
-          loading: false,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      } finally {
-        window.clearTimeout(watchdog);
-      }
-    })();
-    connectionPromise.current = attempt;
-    void attempt.finally(() => {
-      if (connectionPromise.current === attempt)
-        connectionPromise.current = null;
-    });
-    return attempt;
-  }, [accountId, invalidateSession, sessionToken]);
+      })();
+      connectionPromise.current = attempt;
+      void attempt.finally(() => {
+        if (connectionPromise.current === attempt)
+          connectionPromise.current = null;
+      });
+      return attempt;
+    },
+    [accountId, invalidateSession, sessionToken],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => void connect(), 0);
@@ -250,7 +260,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void connect();
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastBackgroundRefreshAt.current < 5_000) return;
+      lastBackgroundRefreshAt.current = now;
+      void connect("background");
     };
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);

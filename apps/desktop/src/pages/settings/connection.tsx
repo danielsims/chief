@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, ShieldCheck } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
@@ -10,10 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@chief/ui/components/card";
-import { Input } from "@chief/ui/components/input";
 
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../../lib/config";
-import { useRelaySession } from "../../lib/relay-session";
 
 export function ConnectionSettings() {
   const [copied, setCopied] = useState(false);
@@ -69,149 +67,7 @@ export function ConnectionSettings() {
           </ConnectionRow>
         </CardContent>
       </Card>
-      <HostedAgentCredential />
     </div>
-  );
-}
-
-function HostedAgentCredential() {
-  const { client, snapshot } = useRelaySession();
-  const [apiKey, setApiKey] = useState("");
-  const [provider, setProvider] = useState<"opencode" | "vercel-ai-gateway">(
-    "opencode",
-  );
-  const [configuredSecrets, setConfiguredSecrets] = useState<Set<string>>(
-    new Set(),
-  );
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!client) return;
-    void Promise.all([
-      client.listWorkspaceSecrets(),
-      client.loadAgentConfig("chief"),
-    ])
-      .then(([secrets, chief]) => {
-        if (!cancelled) {
-          setConfiguredSecrets(new Set(secrets.map((secret) => secret.name)));
-          setProvider(chief.config.inference.provider);
-        }
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : String(caught));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
-
-  const save = async () => {
-    const value = apiKey.trim();
-    if (!client || !value || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const inference =
-        provider === "vercel-ai-gateway"
-          ? ({
-              provider,
-              model: "deepseek/deepseek-v4-flash",
-              secretRef: "vercel-ai-gateway",
-            } as const)
-          : ({
-              provider,
-              model: "opencode-go/deepseek-v4-flash",
-              secretRef: "opencode",
-            } as const);
-      await client.setWorkspaceSecret(inference.secretRef, value);
-      await Promise.all(
-        (snapshot?.agents ?? []).map(async (agent) => {
-          const current = await client.loadAgentConfig(agent.id);
-          await client.saveAgentConfig(agent.id, {
-            ...current.config,
-            inference,
-          });
-        }),
-      );
-      setApiKey("");
-      setConfiguredSecrets((current) =>
-        new Set(current).add(inference.secretRef),
-      );
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const secretName =
-    provider === "vercel-ai-gateway" ? "vercel-ai-gateway" : "opencode";
-  const configured = configuredSecrets.has(secretName);
-  const providerName =
-    provider === "vercel-ai-gateway" ? "Vercel AI Gateway" : "OpenCode";
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Hosted agents</CardTitle>
-        <CardDescription>
-          Choose the inference provider for this workspace’s agents.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          {(
-            [
-              ["vercel-ai-gateway", "Vercel AI Gateway"],
-              ["opencode", "OpenCode"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setProvider(value)}
-              className={`min-h-11 rounded-lg border px-3 text-sm transition-colors ${provider === value ? "border-foreground bg-muted" : "border-border hover:border-foreground/50"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={
-              configured
-                ? `Replace ${providerName} API key`
-                : `${providerName} API key`
-            }
-            autoComplete="new-password"
-            disabled={!client || saving}
-          />
-          <Button
-            type="button"
-            onClick={() => void save()}
-            disabled={!client || !apiKey.trim() || saving}
-            loading={saving}
-          >
-            {configured ? "Replace" : "Save"}
-          </Button>
-        </div>
-        <p className="text-muted-foreground mt-2 text-xs">
-          {configured
-            ? `${providerName} is configured. Its credential cannot be read back.`
-            : `Add your ${providerName} API key to use this provider.`}
-        </p>
-        {error ? (
-          <p className="text-destructive mt-2 text-xs">{error}</p>
-        ) : null}
-      </CardContent>
-    </Card>
   );
 }
 

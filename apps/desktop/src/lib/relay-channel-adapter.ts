@@ -18,6 +18,19 @@ export function relayConversationId(
   return scoped.slice(scoped.lastIndexOf(":") + 1);
 }
 
+export function rememberRelayConversationId(
+  conversationIdsByChat: Map<string, string>,
+  chatId: string,
+  explicitConversationId?: string,
+) {
+  const resolved =
+    explicitConversationId ??
+    conversationIdsByChat.get(chatId) ??
+    relayConversationId(chatId);
+  conversationIdsByChat.set(chatId, resolved);
+  return resolved;
+}
+
 const CURRENT_USER_ID = "workspace-owner";
 
 export function workspaceChannelFromRelay(

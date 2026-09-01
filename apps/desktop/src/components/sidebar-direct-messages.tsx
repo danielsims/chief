@@ -17,8 +17,7 @@ import type {
 } from "../lib/workspace-channels";
 import {
   sidebarPinnedItemKey,
-  WORKSPACE_AGENT_IDENTITIES,
-  WORKSPACE_DIRECT_MESSAGES,
+  workspaceAgentIdentity,
 } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
 import { AttentionPill } from "./attention-pill";
@@ -29,6 +28,7 @@ export function DirectMessageRow({
   compactAttention,
   dragKind,
   needsUser,
+  name,
   onOpen,
   onPinChange,
   pinned,
@@ -39,13 +39,17 @@ export function DirectMessageRow({
   compactAttention: boolean;
   dragKind: "source" | "sortable";
   needsUser: boolean;
+  name?: string;
   onOpen: () => void;
   onPinChange: (pinned: boolean) => void;
   pinned: boolean;
   unreadCount: number;
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
-  const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+  const identity = workspaceAgentIdentity(
+    agentId,
+    name ? [{ id: agentId, name, role: "Agent" }] : [],
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const source = useDraggable({
     id: `source:${sidebarPinnedItemKey(item)}`,
@@ -190,6 +194,7 @@ export function SidebarDirectMessages({
   onPinChange,
   pinnedAgentIds,
   unreadCounts,
+  agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
   attentionTargets: ReadonlyMap<
@@ -205,6 +210,7 @@ export function SidebarDirectMessages({
   onPinChange: (agentId: WorkspaceAgentId, pinned: boolean) => void;
   pinnedAgentIds: WorkspaceAgentId[];
   unreadCounts: ReadonlyMap<WorkspaceAgentId, number>;
+  agents: readonly { id: string; name: string; role: string }[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const visibleIds = directMessageIds.filter(
@@ -231,22 +237,19 @@ export function SidebarDirectMessages({
       </button>
       {!collapsed ? (
         <div className="space-y-0.5">
-          {WORKSPACE_DIRECT_MESSAGES.filter((message) =>
-            visibleIds.includes(message.id),
-          ).map((message) => (
+          {visibleIds.map((agentId) => (
             <DirectMessageRow
-              key={message.id}
-              active={activeAgentId === message.id}
-              agentId={message.id}
+              key={agentId}
+              active={activeAgentId === agentId}
+              agentId={agentId}
+              name={agents.find((agent) => agent.id === agentId)?.name}
               compactAttention={compactAttention}
               dragKind="source"
-              needsUser={attentionTargets.has(message.id)}
-              onOpen={() =>
-                onOpen(message.id, attentionTargets.get(message.id))
-              }
-              onPinChange={(pinned) => onPinChange(message.id, pinned)}
+              needsUser={attentionTargets.has(agentId)}
+              onOpen={() => onOpen(agentId, attentionTargets.get(agentId))}
+              onPinChange={(pinned) => onPinChange(agentId, pinned)}
               pinned={false}
-              unreadCount={unreadCounts.get(message.id) ?? 0}
+              unreadCount={unreadCounts.get(agentId) ?? 0}
             />
           ))}
         </div>

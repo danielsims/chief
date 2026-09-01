@@ -26,10 +26,8 @@ export async function routeAgentJob(
   },
 ) {
   assertOwnAgentMailbox(input.principal, input.agentId, "claim or complete");
-  if (input.operation === "claim") {
-    const authorization = await authorizeAgentRuntime(env, input);
-    if (!authorization.ok) return authorization;
-  }
+  const authorization = await authorizeAgentRuntime(env, input);
+  if (!authorization.ok) return authorization;
   const body = await request.text();
   return agentStub(env, input.workspaceId, input.agentId).fetch(
     withTrustedContext(

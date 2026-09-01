@@ -10,6 +10,7 @@ import {
   channelIdFromChatId,
   directMessageAgentIdFromChatId,
   directMessageChatId,
+  directMessageIdsForAgents,
   directMessageIdsForChats,
   placePinnedChannel,
   placeSidebarPinnedItem,
@@ -17,6 +18,7 @@ import {
   WORKSPACE_CHANNELS,
   WORKSPACE_DIRECT_MESSAGES,
   workspaceChannel,
+  workspaceDirectMessage,
 } from "../src/lib/workspace-channels";
 
 function artifact(title: string, description = ""): ExecutorArtifactSummary {
@@ -77,6 +79,17 @@ void test("prepopulates every agent direct message before the first turn", () =>
     directMessageIdsForChats(),
     WORKSPACE_DIRECT_MESSAGES.map((message) => message.id),
   );
+});
+
+void test("uses the live roster for direct messages created through Eve", () => {
+  const agents = [{ id: "chief" }, { id: "researcher-agent" }];
+  assert.deepEqual(directMessageIdsForAgents(agents), [
+    "chief",
+    "researcher-agent",
+  ]);
+  assert.deepEqual(workspaceDirectMessage("researcher-agent", agents), {
+    id: "researcher-agent",
+  });
 });
 
 void test("gives every agent a workspace-scoped lazy direct destination", () => {

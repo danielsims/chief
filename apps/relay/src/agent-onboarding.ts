@@ -6,15 +6,26 @@ import type {
 } from "@chief/relay-contracts";
 import {
   agentPublishedMessageSchema,
+  channelCreateCommandSchema,
+  channelMemberAddCommandSchema,
+  channelMembersResultSchema,
   isJsonString,
   messagePageSchema,
   workspaceOnboardingResultSchema,
 } from "@chief/relay-contracts";
 
-import { channelIdForKey } from "./hosted-agent-tools/toolkits/channels";
+import {
+  channelIdForKey,
+  deterministicUuid,
+  workspaceOperation,
+} from "./hosted-agent-tools/toolkits/channels";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import {
+  WORKSPACE_ONBOARDING_OPENING_MESSAGE,
+  workspaceOnboardingDelegation,
+} from "./workspace-onboarding-job";
 
 type MessagePublisher = (
   job: AgentJob,
@@ -22,6 +33,25 @@ type MessagePublisher = (
   commandId: string,
   actorPubkey?: string,
 ) => Promise<void>;
+
+interface SpecialistKickoff {
+  agentId: string;
+  mention: string;
+  kind: string;
+  operationKey: string;
+  payload: {
+    name: string;
+    website: string;
+    selectedApps?: string[];
+    conversationId: string;
+    skillId?: string;
+    title: string;
+    instruction: string;
+  };
+}
+
+export const PROSPECTOR_KICKOFF_INSTRUCTION =
+  'First MUST call channels_messages_post with channelId mission-control, the supplied threadRootId, content exactly "On it. I\'ll recommend the right prospecting connections and continue in #prospecting.", and idempotencyKey workspace-kickoff-prospector-ack. The relay has already created Prospecting and assigned its members; do not create, search for, or repair channels. This automatic kickoff is a capability handoff, not a web-research run. Do not browse Reddit, X, search engines, or the company website, and do not attempt to discover tools with tools_search or any invented tool name. Call plugins_list with a prospecting-related query, select only relevant plugins that the returned catalog genuinely contains, then call plugins_recommend once to publish no more than three actionable cards in Prospecting. Prefer Needle for public buying-signal discovery when present, Apollo.io for structured people and company discovery when present, and LunarCrush only when social intelligence is relevant and present. Do not install or authorize anything without the user choosing a card. Your final response is published verbatim in Prospecting: briefly explain what each recommended connection unlocks and ask which source the user wants to start with. Requested integrations from workspace setup are unrelated choices and must not be treated as product, audience, competitor, or prospect evidence.';
 
 /** Finalizes Chief's opening and delegates the three independent kickoff cells. */
 export async function publishOnboardingResult(
@@ -35,6 +65,7 @@ export async function publishOnboardingResult(
   const workspace = env.WORKSPACES.get(
     env.WORKSPACES.idFromName(job.workspaceId),
   );
+  await ensureOnboardingDelegation(env, job, agent, publishMessage);
   const published =
     result.publishedMessage ??
     agentPublishedMessageSchema.parse({
@@ -85,6 +116,57 @@ export async function publishOnboardingResult(
   await enqueueKickoff(env, job, agent, kickoffThreadRoots(messages));
 }
 
+async function ensureOnboardingDelegation(
+  env: Env,
+  job: AgentJob,
+  agent: AgentPrincipal,
+  publishMessage: MessagePublisher,
+) {
+  const selectedApps = Array.isArray(job.payload.selectedApps)
+    ? job.payload.selectedApps.map(String)
+    : [];
+  const delegation = workspaceOnboardingDelegation(selectedApps);
+  await workspaceOperation(env, job, agent, "channels-members-add", {
+    body: channelMemberAddCommandSchema.parse({
+      commandId: await deterministicUuid(`${job.id}:onboarding:members`),
+      protocolVersion: 1,
+      occurredAt: job.createdAt,
+      payload: {
+        conversationId: "mission-control",
+        members: delegation.map(({ agentId }) => ({
+          kind: "agent",
+          principalId: agentId,
+        })),
+      },
+    }),
+  });
+  let messages = await missionControlMessages(env, job, agent);
+  const required = [
+    WORKSPACE_ONBOARDING_OPENING_MESSAGE,
+    ...delegation.map(({ body }) => body),
+  ];
+  for (const [index, body] of required.entries()) {
+    const exists = messages.some(
+      (candidate) =>
+        candidate.author.kind === "agent" &&
+        candidate.author.id === "chief" &&
+        !candidate.threadRootId &&
+        candidate.body === body,
+    );
+    if (exists) continue;
+    await publishMessage(
+      job,
+      agentPublishedMessageSchema.parse({
+        conversationId: "mission-control",
+        body,
+      }),
+      await deterministicUuid(`${job.id}:onboarding:message:${index}`),
+      agent.pubkey,
+    );
+    messages = await missionControlMessages(env, job, agent);
+  }
+}
+
 async function enqueueKickoff(
   env: Env,
   job: AgentJob,
@@ -99,8 +181,8 @@ async function enqueueKickoff(
   const selectedApps = Array.isArray(job.payload.selectedApps)
     ? job.payload.selectedApps.map(String)
     : [];
-  const common = { name, website, selectedApps };
-  const kickoff = [
+  const common = { name, website };
+  const kickoff: SpecialistKickoff[] = [
     {
       agentId: "brand",
       mention: "Marketer",
@@ -123,10 +205,8 @@ async function enqueueKickoff(
       payload: {
         ...common,
         conversationId: "prospecting",
-        skillId: "find-buying-signals",
-        title: "Find the first qualified prospects and buying signals",
-        instruction:
-          "Privately complete these prerequisites: MUST call channels_messages_post with channelId mission-control, the supplied threadRootId, content exactly \"On it. I'll research the first buying signals and continue in #prospecting.\", and idempotencyKey workspace-kickoff-prospector-ack; MUST call channels_create with operationKey prospecting-channel, name prospecting, and visibility public; MUST call channels_members_list with channelId mission-control and find the user with role owner; MUST call channels_members_add with the returned channel id and that exact owner in members; then MUST call channels_messages_post with the returned channel id, content exactly \"I'm getting oriented now. I'll share the first evidence-backed buying signals here once they're ready.\", and idempotencyKey workspace-kickoff-prospector-arrival. Then perform the attached skill as real work: call prospects_list, research the supplied company and relevant public buying signals with web_read, and persist only genuinely qualified findings with prospects_save and direct source URLs. Tool results are the only proof. Your final response is published verbatim in Prospecting, so never mention required actions, tools, compliance, or what you would publish. Write the useful channel message itself: greet the user like a teammate and summarize the evidence-backed findings you actually saved. Distinguish known facts from assumptions. Never invent a person, company, post, source, or URL.",
+        title: "Recommend prospecting connections",
+        instruction: PROSPECTOR_KICKOFF_INSTRUCTION,
       },
     },
     {
@@ -139,7 +219,7 @@ async function enqueueKickoff(
         conversationId: "engineering",
         title: "Prepare the engineering workspace",
         instruction:
-          'Privately complete these prerequisites: MUST call channels_messages_post with channelId mission-control, the supplied threadRootId, content exactly "On it. I\'ll get oriented and continue in #engineering.", and idempotencyKey workspace-kickoff-engineer-ack; MUST call channels_create with operationKey engineering-channel, name engineering, and visibility public; MUST call channels_members_list with channelId mission-control and find the user with role owner; MUST call channels_members_add with the returned channel id and that exact owner in members; then MUST call channels_messages_post with the returned channel id, content exactly "I\'m getting oriented now. I\'ll share the engineering context and a concrete first pass here shortly.", and idempotencyKey workspace-kickoff-engineer-arrival. Tool results are the only proof. Your final response is published verbatim in Engineering, so never mention required actions, tools, compliance, or what you would publish. Write the useful channel message itself: greet the user like a teammate, summarize the engineering context actually supplied, call out what remains unknown, and propose one concrete read-only first pass. Treat selected apps as relevance only, never proof of a connection, and do not claim code changes, repository access, or deployment.',
+          'Privately complete these prerequisites: MUST call channels_messages_post with channelId mission-control, the supplied threadRootId, content exactly "On it. I\'ll get oriented and continue in #engineering.", and idempotencyKey workspace-kickoff-engineer-ack; MUST call channels_create with operationKey engineering-channel, name engineering, and visibility public; MUST call channels_members_list with channelId mission-control and find the user with role owner; MUST call channels_members_add with the returned channel id and that exact owner in members; then MUST call channels_messages_post with the returned channel id, content exactly "I\'m getting oriented now. I\'ll share the engineering context and a concrete first pass here shortly.", and idempotencyKey workspace-kickoff-engineer-arrival. Tool results are the only proof. Your final response is published verbatim in Engineering, so never mention required actions, tools, compliance, or what you would publish. Write the useful channel message itself: greet the user like a teammate, summarize the engineering context actually supplied, call out what remains unknown, and propose one concrete read-only first pass. Requested integrations belong to Setup and are not product or engineering context. Do not claim code changes, repository access, or deployment.',
       },
     },
   ];
@@ -151,6 +231,7 @@ async function enqueueKickoff(
       operationKey: "setup-channel",
       payload: {
         ...common,
+        selectedApps,
         conversationId: "setup",
         skillId: "setup-integration",
         title: "Privately prepare the selected connections",
@@ -170,6 +251,9 @@ async function enqueueKickoff(
       );
     }
     const conversationId = await channelIdForKey(entry.operationKey);
+    if (entry.agentId === "prospector") {
+      await ensureProspectorChannel(env, job, agent, conversationId);
+    }
     const command = {
       commandId: crypto.randomUUID(),
       protocolVersion: 1,
@@ -222,6 +306,51 @@ async function enqueueKickoff(
       );
     }
   }
+}
+
+async function ensureProspectorChannel(
+  env: Env,
+  job: AgentJob,
+  agent: AgentPrincipal,
+  conversationId: string,
+) {
+  await workspaceOperation(env, job, agent, "channels-create", {
+    body: channelCreateCommandSchema.parse({
+      commandId: await deterministicUuid(`${job.id}:prospecting:channel`),
+      protocolVersion: 1,
+      occurredAt: job.createdAt,
+      payload: { conversationId, name: "prospecting", isPrivate: false },
+    }),
+  });
+  const missionControl = channelMembersResultSchema.parse(
+    await workspaceOperation(env, job, agent, "channels-members-list", {
+      conversationId: "mission-control",
+    }),
+  );
+  const owner = missionControl.members.find(
+    (member) => member.kind === "user" && member.role === "owner",
+  );
+  if (!owner) {
+    throw new HttpError(
+      502,
+      "workspace_owner_missing",
+      "Chief could not find the workspace owner for Prospecting.",
+    );
+  }
+  await workspaceOperation(env, job, agent, "channels-members-add", {
+    body: channelMemberAddCommandSchema.parse({
+      commandId: await deterministicUuid(`${job.id}:prospecting:members`),
+      protocolVersion: 1,
+      occurredAt: job.createdAt,
+      payload: {
+        conversationId,
+        members: [
+          { kind: "user", principalId: owner.principalId },
+          { kind: "agent", principalId: "prospector" },
+        ],
+      },
+    }),
+  });
 }
 
 async function missionControlMessages(

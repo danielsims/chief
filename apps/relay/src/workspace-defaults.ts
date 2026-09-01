@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { JsonObject, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
   parseJsonObject,
+  projectProviderIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
@@ -12,56 +13,60 @@ export const defaultWorkspaceAgents = [
     name: "Chief",
     role: "Chief of staff",
     status: "working",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "brand",
     name: "Marketer",
     role: "Marketing",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "content",
     name: "Content",
     role: "Content and creative",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "analyst",
     name: "Analyst",
     role: "Measurement and reporting",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "ads",
     name: "Advertising",
     role: "Paid acquisition",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "prospector",
     name: "Prospector",
     role: "Research and outreach",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "engineer",
     name: "Engineer",
     role: "Product engineering",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
   {
     id: "setup",
     name: "Setup",
     role: "Connections and integrations",
     status: "idle",
+    runtime: { kind: "native-cell" },
   },
 ] as const satisfies WorkspaceSnapshot["agents"];
 
-/** Normalizes a stored workspace snapshot so older or drifted data can never
- * brick the workspace. The only lenient field today is `runtime`: a stale
- * value outside the current enum falls back to the schema's own nullable
- * default instead of throwing. We log the offending value so the drift is
- * root-caused, then repair it persistently at the next write. */
+/** Normalizes known stored-data drift before applying the strict wire schema. */
 export function decodeWorkspaceSnapshot(json: string): WorkspaceSnapshot {
   // The stored JSON is trusted to be a JSON object (it was written by the
   // schema); this boundary parser either yields one or leaves no path to
@@ -70,13 +75,26 @@ export function decodeWorkspaceSnapshot(json: string): WorkspaceSnapshot {
   if (!raw) throw new Error("Stored workspace snapshot is not a JSON object.");
   const parsed = workspaceSnapshotSchema.safeParse(raw);
   if (parsed.success) return parsed.data;
+
+  let repaired = raw;
+  let changed = false;
   const staleRuntime = workspaceSnapshotRuntimeSafeParse(raw);
   if (staleRuntime) {
     console.warn("[workspace-snapshot] lenient runtime decode", {
       runtime: staleRuntime,
     });
-    return workspaceSnapshotSchema.parse({ ...raw, runtime: null });
+    repaired = { ...repaired, runtime: null };
+    changed = true;
   }
+  const staleProviders = workspaceSnapshotProjectProviders(raw);
+  if (staleProviders) {
+    console.warn("[workspace-snapshot] lenient project provider decode", {
+      providerIds: staleProviders.providerIds,
+    });
+    repaired = { ...repaired, projects: staleProviders.projects };
+    changed = true;
+  }
+  if (changed) return workspaceSnapshotSchema.parse(repaired);
   throw parsed.error;
 }
 
@@ -92,19 +110,39 @@ function workspaceSnapshotRuntimeSafeParse(raw: JsonObject) {
   return candidate.success ? candidate.data : undefined;
 }
 
+function workspaceSnapshotProjectProviders(raw: JsonObject) {
+  if (!Array.isArray(raw.projects)) return undefined;
+  const providerIds: string[] = [];
+  const projects = raw.projects.map((value) => {
+    const project = parseJsonObject(value);
+    if (!project) return value;
+    const candidate = z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .safeParse(project.providerId);
+    if (
+      !candidate.success ||
+      projectProviderIdSchema.safeParse(candidate.data).success
+    ) {
+      return project;
+    }
+    providerIds.push(candidate.data);
+    return { ...project, providerId: "generic-git" };
+  });
+  return providerIds.length > 0 ? { projects, providerIds } : undefined;
+}
+
 export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
   snapshot: WorkspaceSnapshot;
   changed: boolean;
 } {
-  const existing = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
-  const missing = defaultWorkspaceAgents.filter(
-    (agent) => !existing.has(agent.id),
-  );
   const missionControlWasPrivate = snapshot.conversations.some(
     (conversation) =>
       conversation.id === "mission-control" && conversation.isPrivate,
   );
-  if (missing.length === 0 && !missionControlWasPrivate) {
+  if (!missionControlWasPrivate) {
     return { snapshot, changed: false };
   }
   return {
@@ -115,17 +153,6 @@ export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
           ? { ...conversation, isPrivate: false }
           : conversation,
       ),
-      agents: [
-        ...defaultWorkspaceAgents.map(
-          (agent) => existing.get(agent.id) ?? agent,
-        ),
-        ...snapshot.agents.filter(
-          (agent) =>
-            !defaultWorkspaceAgents.some(
-              (required) => required.id === agent.id,
-            ),
-        ),
-      ],
     },
     changed: true,
   };
