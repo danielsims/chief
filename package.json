@@ -11,7 +11,7 @@
     "clean:workspaces": "turbo run clean",
     "dev": "turbo watch dev --continue",
     "desktop": "turbo dev --filter=@chief/desktop",
-    "desktop:dmg": "APPLE_SIGNING_IDENTITY='Developer ID Application: Latent Supply Pty Ltd (XMMXB25823)' pnpm --filter @chief/desktop build:app:offline && codesign --verify --deep --strict --verbose=2 apps/desktop/src-tauri/target/release/bundle/macos/Chief.app && open -R apps/desktop/src-tauri/target/release/bundle/dmg/Chief_*.dmg",
+    "desktop:dmg": "APPLE_SIGNING_IDENTITY='Developer ID Application: Latent Supply Pty Ltd (XMMXB25823)' pnpm --filter @chief/desktop build:app:offline && codesign --verify --deep --strict --verbose=2 apps/desktop/src-tauri/target/release/bundle/macos/Chief.app && pnpm --filter @chief/desktop verify:packaged-plugin-host && open -R apps/desktop/src-tauri/target/release/bundle/dmg/Chief_*.dmg",
     "email": "pnpm --filter=@chief/email dev",
     "executor:build": "pnpm --filter=@chief/executor build",
     "executor:image": "docker build --file apps/executor/Dockerfile --tag chief-executor:dev .",
