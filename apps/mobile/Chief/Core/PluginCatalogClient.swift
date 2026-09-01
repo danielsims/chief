@@ -39,7 +39,12 @@ struct PluginOption: Equatable, Identifiable, Sendable {
     .init(id: "slack", name: "Slack", domain: "slack.com"),
     .init(id: "granola", name: "Granola", domain: "granola.ai"),
     .init(id: "notion", name: "Notion", domain: "notion.com"),
-    .init(id: "github", name: "GitHub", domain: "github.com"),
+    .init(
+      id: "github",
+      name: "GitHub",
+      domain: "github.com",
+      description: "Work with repositories, issues, pull requests, and code on GitHub."
+    ),
     .init(id: "vercel", name: "Vercel", domain: "vercel.com"),
     .init(id: "posthog", name: "PostHog", domain: "posthog.com"),
     .init(id: "linear", name: "Linear", domain: "linear.app"),
@@ -198,6 +203,14 @@ final class PluginCatalogClient {
           name: "drive",
           endpoint: URL(string: "https://file.googleapis.com/mcp")!
         ),
+      ]
+    }
+    if plugin.id == "github" {
+      return [
+        PluginRemoteServer(
+          name: "github",
+          endpoint: URL(string: "https://api.githubcopilot.com/mcp/")!
+        )
       ]
     }
     struct Surface: Decodable {

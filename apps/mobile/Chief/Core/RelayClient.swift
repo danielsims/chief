@@ -18,6 +18,7 @@ protocol RelayServing: Sendable {
     signingIdentity: NostrIdentity?
   ) async throws -> [ConversationMessage]
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
@@ -355,6 +356,25 @@ extension RelayServing {
   }
 
   /// Convenience overloads for sends without attachments/components.
+  func send(
+    body: String,
+    workspaceID: String,
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    components: [MessageComponent]
+  ) async throws -> ConversationMessage {
+    try await send(
+      messageID: UUID().uuidString,
+      body: body,
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      threadRootID: threadRootID,
+      mentions: mentions,
+      components: components
+    )
+  }
+
   func send(
     body: String,
     workspaceID: String,
@@ -994,6 +1014,7 @@ actor URLSessionRelayClient: RelayServing {
   }
 
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
@@ -1005,7 +1026,7 @@ actor URLSessionRelayClient: RelayServing {
       commandId: UUID().uuidString,
       occurredAt: ISO8601DateFormatter.chief().string(from: .now),
       payload: .init(
-        messageId: UUID().uuidString,
+        messageId: messageID,
         conversationId: conversationID,
         threadRootId: threadRootID,
         body: body,

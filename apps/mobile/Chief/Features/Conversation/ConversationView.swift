@@ -223,6 +223,7 @@ struct ConversationView: View {
       mentions: mentions,
       threadRootID: nil
     )
+    let messageID = UUID().uuidString
 
     draft = ""
     composerMentionIDs = []
@@ -240,6 +241,7 @@ struct ConversationView: View {
           relay: model.relay
         )
         let message = try await model.relay.send(
+          messageID: messageID,
           body: body,
           workspaceID: workspaceID,
           conversationID: conversationID,
@@ -256,7 +258,17 @@ struct ConversationView: View {
         // The relay queues exactly one idempotent job for the addressed cell.
         // The on-device mailbox loop claims it over the live socket.
       } catch {
-        draft = pendingText
+        if await reconcileDeliveredMessage(
+          messageID: messageID,
+          workspaceID: workspaceID
+        ) {
+          sentMessageIDs.insert(messageID)
+          return
+        }
+        draft = MessageSendRecovery.restoredDraft(
+          pending: pendingText,
+          current: draft
+        )
         composerMentionIDs = pendingMentionIDs
         composerSkillIDs = pendingSkillIDs
         attachments = pendingAttachments
@@ -264,6 +276,33 @@ struct ConversationView: View {
         print("[Chief] send to \(conversationID) failed: \(error)")
       }
     }
+  }
+
+  private func reconcileDeliveredMessage(
+    messageID: String,
+    workspaceID: String
+  ) async -> Bool {
+    for attempt in 0..<4 {
+      if model.conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).contains(where: { $0.id == messageID }) {
+        return true
+      }
+      if attempt == 1,
+        let remote = try? await model.relay.messages(
+          workspaceID: workspaceID,
+          conversationID: conversationID,
+          after: nil
+        ),
+        let delivered = remote.first(where: { $0.id == messageID })
+      {
+        model.conversations.merge(delivered)
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(150))
+    }
+    return false
   }
 
   private func joinChannel() {

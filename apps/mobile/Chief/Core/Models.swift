@@ -420,12 +420,14 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
 struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let organizationID: String
+  let agentID: String?
   let name: String
   let description: String?
   let repositoryKind: String
   let providerID: String
   let canonicalRemoteURL: String?
   let repositoryWebURL: String?
+  let repositoryFiles: [ProjectRepositorySourceFile]?
   let defaultBranch: String
   let createdAt: String
   let updatedAt: String
@@ -435,12 +437,48 @@ struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
   var changedFiles: Int { 0 }
 
   enum CodingKeys: String, CodingKey {
-    case id, name, description, repositoryKind, defaultBranch, createdAt, updatedAt
+    case id, name, description, repositoryKind, repositoryFiles, defaultBranch, createdAt, updatedAt
     case organizationID = "organizationId"
+    case agentID = "agentId"
     case providerID = "providerId"
     case canonicalRemoteURL = "canonicalRemoteUrl"
     case repositoryWebURL = "repositoryWebUrl"
   }
+
+  init(
+    id: String,
+    organizationID: String,
+    agentID: String? = nil,
+    name: String,
+    description: String? = nil,
+    repositoryKind: String,
+    providerID: String,
+    canonicalRemoteURL: String? = nil,
+    repositoryWebURL: String? = nil,
+    repositoryFiles: [ProjectRepositorySourceFile]? = nil,
+    defaultBranch: String,
+    createdAt: String,
+    updatedAt: String
+  ) {
+    self.id = id
+    self.organizationID = organizationID
+    self.agentID = agentID
+    self.name = name
+    self.description = description
+    self.repositoryKind = repositoryKind
+    self.providerID = providerID
+    self.canonicalRemoteURL = canonicalRemoteURL
+    self.repositoryWebURL = repositoryWebURL
+    self.repositoryFiles = repositoryFiles
+    self.defaultBranch = defaultBranch
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+}
+
+struct ProjectRepositorySourceFile: Codable, Equatable, Sendable {
+  let path: String
+  let content: String
 }
 
 struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {

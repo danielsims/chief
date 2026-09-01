@@ -128,9 +128,13 @@ actor WorkspaceAgentLoop {
       let context = [
         lease.job.payload.name.map { "Workspace: \($0)" },
         lease.job.payload.website.flatMap { $0.isEmpty ? nil : "Website: \($0)" },
-        lease.job.payload.selectedApps.flatMap {
-          $0.isEmpty ? nil : "Selected apps (relevance only): \($0.joined(separator: ", "))"
-        },
+        agentID == "setup"
+          ? lease.job.payload.selectedApps.flatMap {
+            $0.isEmpty
+              ? nil
+              : "Requested connections: \($0.joined(separator: ", ")). These are setup requests, not proof of access."
+          }
+          : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence.",
         lease.job.payload.threadRootId.map {
           "Mission Control kickoff threadRootId: \($0)"
         },

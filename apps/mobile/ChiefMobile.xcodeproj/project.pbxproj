@@ -62,6 +62,7 @@
 		64DE37DB6B86E189F1079452 /* ChiefAgentActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6D5DE8263A4D3D680EBD18 /* ChiefAgentActivityWidget.swift */; };
 		6B454BC8F3277BA9692F1C20 /* RelayTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142E40382CA835D0D7DA0995 /* RelayTools.swift */; };
 		6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */; };
+		6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */; };
 		6F91D08771E347D06D49DBFE /* AgentSkillBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA10DC57916ADE010B38AAE /* AgentSkillBundle.swift */; };
 		74B40049EDECAA26972C3379 /* CelldC.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94655488DC2BD184AEE1E8E /* CelldC.swift */; };
 		76250A9E4FA02208AEC2B0BE /* DevCodexBridgeRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10974004AE6FEA79A6C0BAB4 /* DevCodexBridgeRPC.swift */; };
@@ -125,6 +126,7 @@
 		E08C753A156D9F7AF356AB98 /* DevCodexBridgeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C579ECDFF5EA646EA362C8BE /* DevCodexBridgeSettings.swift */; };
 		E0F0B73432B0FADF5BD05148 /* ChiefCellRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF66A16F6B4A653B6EC83D1 /* ChiefCellRuntime.swift */; };
 		E1EDB8495AD62275E2212AF1 /* PluginCatalogClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531611CDDD3D04D3709C4D98 /* PluginCatalogClient.swift */; };
+		E3333E22D3AB55B9C036997E /* ProjectRepositoryTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D5C9650583F45692D9E7AB /* ProjectRepositoryTreeTests.swift */; };
 		E65DABEBB7DFB04EF2B2BB51 /* BrandLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FC02DC37EEC3DFDD4E131C /* BrandLogo.swift */; };
 		E6D3F21E651FAC203533CB27 /* MobileBrandAssetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */; };
 		E86378FBFCC51F4BAE45A076 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = D29589ADE752E1E3788A7A6D /* MCP */; };
@@ -134,7 +136,9 @@
 		ED4234C5D7F5816386155F29 /* WorkspaceData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D570759850439C182A9B280 /* WorkspaceData.swift */; };
 		F30A0C8A572B9E4B2D08139E /* MessageSkill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA800891A8B0A96131E68EA6 /* MessageSkill.swift */; };
 		F59BEE98348BFACBEA4D7127 /* droplet.caf in Resources */ = {isa = PBXBuildFile; fileRef = 5E96644C6E57E3B1C9D7F340 /* droplet.caf */; };
+		F84A8C41C3020D66F742FCCD /* MessageSendRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85EDCFE266EF656E0B9B7EE1 /* MessageSendRecovery.swift */; };
 		F86B4E63631B7B9A89156018 /* TurnExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760B2082D21E011136CFE3AD /* TurnExtractor.swift */; };
+		F9735FFBDA3F143A2682709C /* ProjectRepositoryTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = F072781A24DD601D61DA8E88 /* ProjectRepositoryTree.swift */; };
 		FE723A7672D269B60A616495 /* NIP98Signer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3830638007AF1DAA98075318 /* NIP98Signer.swift */; };
 /* End PBXBuildFile section */
 
@@ -190,6 +194,7 @@
 		137F89E6D0013172646B5FD4 /* ChiefTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ChiefTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		142E40382CA835D0D7DA0995 /* RelayTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTools.swift; sourceTree = "<group>"; };
 		15333FB517188ED08371E31B /* AppConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationTests.swift; sourceTree = "<group>"; };
+		18D5C9650583F45692D9E7AB /* ProjectRepositoryTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectRepositoryTreeTests.swift; sourceTree = "<group>"; };
 		198C948C6D8F953905CC5786 /* RelayConnectionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayConnectionSettingsView.swift; sourceTree = "<group>"; };
 		1A6D5DE8263A4D3D680EBD18 /* ChiefAgentActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefAgentActivityWidget.swift; sourceTree = "<group>"; };
 		1B9984ED7EBE9F3F9FCD55A0 /* OpenCodeModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeModelCatalog.swift; sourceTree = "<group>"; };
@@ -241,6 +246,7 @@
 		760B2082D21E011136CFE3AD /* TurnExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnExtractor.swift; sourceTree = "<group>"; };
 		827C563FA43B5D2B554975A4 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		84947CCB612BE76AA52E70C6 /* ChiefControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefControls.swift; sourceTree = "<group>"; };
+		85EDCFE266EF656E0B9B7EE1 /* MessageSendRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendRecovery.swift; sourceTree = "<group>"; };
 		87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrandAssetTests.swift; sourceTree = "<group>"; };
 		88717209B56ED697ACFABE06 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		8A2AE8F38FEC823C7BCDEF9D /* WorkspaceInviteLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceInviteLinkTests.swift; sourceTree = "<group>"; };
@@ -294,11 +300,13 @@
 		D821FB95BD37D29DD2B5A127 /* RelayDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayDirectory.swift; sourceTree = "<group>"; };
 		DBCEEF83AF58058F29166B7C /* agent-support.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "agent-support.js"; sourceTree = "<group>"; };
 		DC730247A44DA157E01158C9 /* ChiefOpenCodeAgentHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefOpenCodeAgentHost.swift; sourceTree = "<group>"; };
+		DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendRecoveryTests.swift; sourceTree = "<group>"; };
 		E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrIdentity.swift; sourceTree = "<group>"; };
 		EA2D2AC4AA453ABAEFB5672A /* AgentTurnCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnCheckpoint.swift; sourceTree = "<group>"; };
 		ED421C1E43B5A7AACCEA89D1 /* KickoffToolEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KickoffToolEvidence.swift; sourceTree = "<group>"; };
 		EE9A152284C2548ABF0E6FBE /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		EF563DA3A76B89B15BD42C10 /* celld.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = celld.c; sourceTree = "<group>"; };
+		F072781A24DD601D61DA8E88 /* ProjectRepositoryTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectRepositoryTree.swift; sourceTree = "<group>"; };
 		F0B98616A2BDA9ED8E1751D1 /* MessageComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposer.swift; sourceTree = "<group>"; };
 		F0EDEC45AA1FA51F3C92BC12 /* RelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayClient.swift; sourceTree = "<group>"; };
 		F2DEF53D6AA13EFFFB6A1E68 /* AgentConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConfig.swift; sourceTree = "<group>"; };
@@ -362,11 +370,13 @@
 				A183871D0C0DBEE3B3992CFB /* ConversationReadStateTests.swift */,
 				A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */,
 				7520EE62054ECE3DF7878FDA /* KickoffToolEvidenceTests.swift */,
+				DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */,
 				87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */,
 				0D5FCF64562CE70799C63FF2 /* OAuthAuthenticationTests.swift */,
 				B7AA6C482E6F4AA97E65093D /* OnboardingDraftTests.swift */,
 				CBF361160DF12E332298891A /* OpenCodeStreamingClientTests.swift */,
 				CD293585DA2427CC5BF1E841 /* PluginOAuthLoopbackCallbackTests.swift */,
+				18D5C9650583F45692D9E7AB /* ProjectRepositoryTreeTests.swift */,
 				23E3118202DE9A5933B9155E /* WorkspaceIdentityTests.swift */,
 				8A2AE8F38FEC823C7BCDEF9D /* WorkspaceInviteLinkTests.swift */,
 			);
@@ -446,6 +456,7 @@
 				5D188214FC14EA0B2A446628 /* MessageComponents.swift */,
 				F0B98616A2BDA9ED8E1751D1 /* MessageComposer.swift */,
 				55CF783FD6781448D1FF97D8 /* MessageReferences.swift */,
+				85EDCFE266EF656E0B9B7EE1 /* MessageSendRecovery.swift */,
 				2CE707A588AF29146A09E6A1 /* ThreadParticipantStack.swift */,
 				B4C429A5EAF09999BC6A0BB4 /* ThreadView.swift */,
 			);
@@ -649,6 +660,7 @@
 		EEED9C9EBE0381B66E62C5F0 /* Projects */ = {
 			isa = PBXGroup;
 			children = (
+				F072781A24DD601D61DA8E88 /* ProjectRepositoryTree.swift */,
 				FA984E00D3577086B6840159 /* ProjectsView.swift */,
 			);
 			path = Projects;
@@ -890,6 +902,7 @@
 				855CA9DE85A346E2E26F4B3E /* MessageComponents.swift in Sources */,
 				4AD4BFEAE42D1EA39E5CA53B /* MessageComposer.swift in Sources */,
 				547279F61CECB38154CA247A /* MessageReferences.swift in Sources */,
+				F84A8C41C3020D66F742FCCD /* MessageSendRecovery.swift in Sources */,
 				F30A0C8A572B9E4B2D08139E /* MessageSkill.swift in Sources */,
 				A3D5A80C279A85DB1ADE204E /* MobileAuthenticationSession.swift in Sources */,
 				983EA3F045E0ACB8AA6A9EC1 /* MobileNotifications.swift in Sources */,
@@ -906,6 +919,7 @@
 				C2DF79E9AC1935A35D78C88A /* OpenCodeStreamingClient.swift in Sources */,
 				38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */,
 				E1EDB8495AD62275E2212AF1 /* PluginCatalogClient.swift in Sources */,
+				F9735FFBDA3F143A2682709C /* ProjectRepositoryTree.swift in Sources */,
 				A3FDCCE90813A3B5003A9603 /* ProjectsView.swift in Sources */,
 				5152FA96DCF73F242326BD52 /* RelayAPITools.swift in Sources */,
 				ACB425C2997D4C61C7662EC4 /* RelayClient.swift in Sources */,
@@ -952,11 +966,13 @@
 				3DAFBDEC61B4BEE80B297810 /* ConversationReadStateTests.swift in Sources */,
 				6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */,
 				86C7EEFF3B87F04891590874 /* KickoffToolEvidenceTests.swift in Sources */,
+				6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */,
 				E6D3F21E651FAC203533CB27 /* MobileBrandAssetTests.swift in Sources */,
 				2708F24C8F247A2C0217598B /* OAuthAuthenticationTests.swift in Sources */,
 				0797CE4808FC1010E10FA33F /* OnboardingDraftTests.swift in Sources */,
 				DF534CBE4FFCE4F0992F1F8B /* OpenCodeStreamingClientTests.swift in Sources */,
 				C61DB9F27942652DBC1DDC82 /* PluginOAuthLoopbackCallbackTests.swift in Sources */,
+				E3333E22D3AB55B9C036997E /* ProjectRepositoryTreeTests.swift in Sources */,
 				03408C68C9533E5C23ECBD49 /* WorkspaceIdentityTests.swift in Sources */,
 				58AB6FA4005D59E4D904BBAD /* WorkspaceInviteLinkTests.swift in Sources */,
 			);
@@ -1140,6 +1156,10 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-lworker_core",
 					"-lc++",
 				);
@@ -1173,6 +1193,10 @@
 					"$(SRCROOT)/Chief/Vendored/lib",
 				);
 				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-lworker_core",
 					"-lc++",

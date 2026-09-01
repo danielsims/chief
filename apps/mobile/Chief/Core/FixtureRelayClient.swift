@@ -42,6 +42,7 @@ actor FixtureRelayClient: RelayServing {
     }
 
     func send(
+        messageID: String = UUID().uuidString,
         body: String,
         workspaceID: String,
         conversationID: String,
@@ -50,7 +51,7 @@ actor FixtureRelayClient: RelayServing {
         components: [MessageComponent] = []
     ) async throws -> ConversationMessage {
         let message = ConversationMessage(
-            id: UUID().uuidString,
+            id: messageID,
             workspaceID: workspaceID,
             conversationID: conversationID,
             threadRootID: threadRootID,
@@ -509,6 +510,20 @@ enum DemoWorkspace {
                 providerID: "github",
                 canonicalRemoteURL: "https://github.com/danielsims/chief.git",
                 repositoryWebURL: "https://github.com/danielsims/chief",
+                repositoryFiles: [
+                    .init(
+                        path: "README.md",
+                        content: "# Chief\n\nA workspace where people and agents get work done together."
+                    ),
+                    .init(
+                        path: "apps/mobile/ChiefApp.swift",
+                        content: "import SwiftUI\n\n@main\nstruct ChiefApp: App {\n  var body: some Scene { WindowGroup { RootView() } }\n}"
+                    ),
+                    .init(
+                        path: "packages/relay-client/package.json",
+                        content: "{\n  \"name\": \"@chief/relay-client\"\n}"
+                    )
+                ],
                 defaultBranch: "main",
                 createdAt: "2026-08-22T00:00:00.000Z",
                 updatedAt: "2026-08-22T00:00:00.000Z"

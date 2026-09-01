@@ -271,6 +271,7 @@ struct ThreadView: View {
     let mentions = orderedUnique(
       composerMentionIDs + AgentMentionParser.mentions(in: draft)
     )
+    let messageID = UUID().uuidString
     draft = ""
     composerMentionIDs = []
     composerSkillIDs = []
@@ -287,6 +288,7 @@ struct ThreadView: View {
           relay: model.relay
         )
         let message = try await model.relay.send(
+          messageID: messageID,
           body: body,
           workspaceID: workspaceID,
           conversationID: conversationID,
@@ -298,7 +300,14 @@ struct ThreadView: View {
         model.conversations.merge(message)
         // The relay queues the addressed cell once; the live mailbox owns it.
       } catch {
-        draft = pendingText
+        if await reconcileDeliveredReply(messageID: messageID) {
+          sentReplyIDs.insert(messageID)
+          return
+        }
+        draft = MessageSendRecovery.restoredDraft(
+          pending: pendingText,
+          current: draft
+        )
         composerMentionIDs = pendingMentionIDs
         composerSkillIDs = pendingSkillIDs
         attachments = pendingAttachments
@@ -306,6 +315,31 @@ struct ThreadView: View {
         print("[Chief] thread send failed: \(error)")
       }
     }
+  }
+
+  private func reconcileDeliveredReply(messageID: String) async -> Bool {
+    for attempt in 0..<4 {
+      if model.conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).contains(where: { $0.id == messageID }) {
+        return true
+      }
+      if attempt == 1,
+        let remote = try? await model.relay.replies(
+          workspaceID: workspaceID,
+          conversationID: conversationID,
+          rootMessageID: root.id,
+          after: nil
+        ),
+        let delivered = remote.first(where: { $0.id == messageID })
+      {
+        model.conversations.merge(delivered)
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(150))
+    }
+    return false
   }
 
   private func loadChannelAgents() async {

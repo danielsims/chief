@@ -102,7 +102,9 @@ struct MessageComposer: View {
             .allowsHitTesting(false)
         }
       }
+      .frame(maxWidth: .infinity)
       .frame(height: editorHeight)
+      .clipped()
       .onChange(of: text) { _, value in
         if value.isEmpty { editorHeight = 48 }
         synchronizeReferences(in: value)

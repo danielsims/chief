@@ -86,6 +86,9 @@ targets:
           - "$(SRCROOT)/Chief/Vendored/lib"
         OTHER_LDFLAGS:
           - "$(inherited)"
+          - "-lc++"
+        "OTHER_LDFLAGS[sdk=iphoneos*]":
+          - "$(inherited)"
           - "-lworker_core"
           - "-lc++"
         ENABLE_BITCODE: NO
