@@ -84,10 +84,9 @@
   "vars": {
     "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",
     "RELAY_DEPLOYMENT": "chief-cloud",
-    // Full OTLP exporters use interval fibers and outbound I/O. Keep them out
-    // of production Durable Objects so idle objects can hibernate after 10s.
-    // The self-host observability profile enables full telemetry explicitly.
-    "RELAY_TELEMETRY_MODE": "errors",
+    // Production telemetry is disabled so observability cannot keep Durable
+    // Objects active. The self-host observability profile remains opt-in.
+    "RELAY_TELEMETRY_MODE": "off",
     "RELAY_TELEMETRY_INCLUDE_CONTENT": "false",
     "HOSTED_CELL_ENABLED": "true",
     "HOSTED_AGENT_COMPACTION_RATIO": "0.75",
@@ -96,15 +95,5 @@
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
   },
-  "observability": {
-    "enabled": true,
-    "logs": {
-      "enabled": true,
-      "invocation_logs": false,
-    },
-    "traces": {
-      "enabled": true,
-      "head_sampling_rate": 0.1,
-    },
-  },
+  "observability": { "enabled": false },
 }

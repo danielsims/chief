@@ -39,6 +39,6 @@ After those destinations exist, copy the `destinations` arrays from
 deploy the Worker. Destination names must exactly match the names configured in
 the Cloudflare dashboard.
 
-The relay must keep `RELAY_TELEMETRY_MODE=errors` in Chief Cloud. Cloudflare
+The relay must keep `RELAY_TELEMETRY_MODE=off` in Chief Cloud. Cloudflare
 exports native telemetry after execution, so no exporter fiber or periodic
 flush keeps a Durable Object alive.
