@@ -3,13 +3,17 @@ import type {
   AgentConfigResult,
   AgentLease,
   AgentRuntimeDescriptor,
+  AgentSummary,
   AppendMessageCommand,
   AppendMessageResult,
   ChannelMember,
   ChannelMembership,
   ConversationEvent,
+  CreateNativeAgentCommand,
   DirectParticipant,
   DirectStartResult,
+  EveAgentProvisioningInput,
+  EveAgentProvisioningResult,
   JsonObject,
   LogBatch,
   LogPage,
@@ -19,10 +23,12 @@ import type {
   MessageComponent,
   RegisterAgentKeyResult,
   WorkspaceId,
+  VercelDestinationCatalog,
 } from "@chief/relay-contracts";
 import {
   agentConfigResultSchema,
   agentLeaseSchema,
+  agentRemovalResultSchema,
   agentRuntimeDescriptorSchema,
   appendMessageResultSchema,
   channelMembershipsResultSchema,
@@ -30,8 +36,11 @@ import {
   completeAgentJobResultSchema,
   conversationEventPageSchema,
   conversationIdSchema,
+  createNativeAgentResultSchema,
   directStartCommandSchema,
   directStartResultSchema,
+  eveAgentProvisioningInputSchema,
+  eveAgentProvisioningResultSchema,
   logPageSchema,
   logReceiptSchema,
   machineCreateSchema,
@@ -45,6 +54,7 @@ import {
   renewAgentJobResultSchema,
   socketTicketSchema,
   upsertAgentActivityResultSchema,
+  vercelDestinationCatalogSchema,
   workspaceSecretListResultSchema,
   workspaceSecretResultSchema,
   workspaceSocketTicketSchema,
@@ -55,6 +65,7 @@ import type { RelayConversationSubscription } from "./relay-subscription";
 import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
 import { RelayClientBase } from "./relay-client-base";
 import { RelayClientError } from "./relay-client-error";
+import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
@@ -65,8 +76,11 @@ export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
 
 export class RelayClient extends RelayClientBase {
+  readonly externalAgents: RelayExternalAgentsClient;
+
   constructor(options: RelayClientOptions) {
     super(options);
+    this.externalAgents = new RelayExternalAgentsClient(options);
   }
 
   forWorkspace(workspaceId: WorkspaceId | string) {
@@ -141,6 +155,45 @@ export class RelayClient extends RelayClientBase {
     );
   }
 
+  async connectVercel(token: string): Promise<VercelDestinationCatalog> {
+    return await this.fetchJson(
+      this.workspaceUrl("vercel/connect"),
+      vercelDestinationCatalogSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      },
+    );
+  }
+
+  async listVercelDestinations(
+    teamId?: string,
+  ): Promise<VercelDestinationCatalog> {
+    const query = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+    return await this.fetchJson(
+      this.workspaceUrl(`vercel/destinations${query}`),
+      vercelDestinationCatalogSchema,
+      true,
+    );
+  }
+
+  async provisionVercelEve(
+    input: EveAgentProvisioningInput,
+  ): Promise<EveAgentProvisioningResult> {
+    return await this.fetchJson(
+      this.workspaceUrl("vercel/provision"),
+      eveAgentProvisioningResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(eveAgentProvisioningInputSchema.parse(input)),
+      },
+    );
+  }
+
   async listChannelMembers(conversationId: string): Promise<ChannelMember[]> {
     const conversation = conversationIdSchema.parse(conversationId);
     return (
@@ -161,7 +214,6 @@ export class RelayClient extends RelayClientBase {
       )
     ).memberships;
   }
-
   async startDirectMessage(
     participant: DirectParticipant,
   ): Promise<DirectStartResult> {
@@ -183,21 +235,37 @@ export class RelayClient extends RelayClientBase {
       },
     );
   }
-
   async loadAgentConfig(agentId: string): Promise<AgentConfigResult> {
-    return await this.fetchJson(
-      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
-      agentConfigResultSchema,
+    const url = this.workspaceUrl(
+      `agents/${encodeURIComponent(agentId)}/config`,
     );
+    return await this.fetchJson(url, agentConfigResultSchema);
   }
-
   async loadAgentRuntime(agentId: string): Promise<AgentRuntimeDescriptor> {
-    return await this.fetchJson(
-      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`),
-      agentRuntimeDescriptorSchema,
-    );
+    const url = this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`);
+    return await this.fetchJson(url, agentRuntimeDescriptorSchema);
   }
-
+  async removeAgent(agentId: string) {
+    const url = this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`);
+    return await this.fetchJson(url, agentRemovalResultSchema, true, {
+      method: "DELETE",
+    });
+  }
+  async createNativeAgent(
+    input: CreateNativeAgentCommand,
+  ): Promise<AgentSummary> {
+    const result = await this.fetchJson(
+      this.workspaceUrl("agents"),
+      createNativeAgentResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+    return result.agent;
+  }
   async saveAgentConfig(
     agentId: string,
     config: AgentConfig,

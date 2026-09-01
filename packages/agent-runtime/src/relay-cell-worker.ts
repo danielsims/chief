@@ -58,7 +58,7 @@ function relayClient() {
   });
 }
 
-function workspaceContext(job: AgentJob) {
+function workspaceContext(job: AgentJob, agentId: string) {
   const payload = job.payload;
   const name = parseJsonString(payload.name);
   const website = parseJsonString(payload.website);
@@ -71,9 +71,11 @@ function workspaceContext(job: AgentJob) {
   return [
     name ? `Workspace: ${name}` : undefined,
     website ? `Website: ${website}` : undefined,
-    selectedApps.length > 0
-      ? `Selected apps (relevance only): ${selectedApps.join(", ")}`
-      : undefined,
+    agentId === "setup"
+      ? selectedApps.length > 0
+        ? `Requested connections: ${selectedApps.join(", ")}. These are setup requests, not proof of access.`
+        : "Requested connections: none."
+      : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -188,7 +190,7 @@ async function executeJob(
           ]
             .filter(Boolean)
             .join("\n\n"),
-          workspaceContext(job),
+          workspaceContext(job, agentId),
         ),
       },
       conversationId,
@@ -243,7 +245,7 @@ async function executeJob(
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
       privateInstructions: [
-        workspaceContext(job),
+        workspaceContext(job, agentId),
         job.kind === "conversation.message"
           ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,

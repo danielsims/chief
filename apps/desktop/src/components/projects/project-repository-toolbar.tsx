@@ -49,7 +49,9 @@ export function ProjectRepositoryToolbar({
       <span className="text-muted-foreground ml-auto">
         {snapshot.clean
           ? "Working tree clean"
-          : `${snapshot.changedFiles} changed files`}
+          : snapshot.changedFiles === undefined
+            ? "Changes unavailable"
+            : `${snapshot.changedFiles} changed files`}
       </span>
     </div>
   );

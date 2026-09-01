@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, Trash2, X } from "lucide-react";
 import { Link } from "react-router";
 
 import type {
@@ -11,13 +11,27 @@ import type {
   DriverType,
   WorkspaceChannel,
 } from "@chief/agent-runtime/types";
+import type { RelayClient } from "@chief/relay-client";
 import { effectiveAgentToolPermissions } from "@chief/agent-runtime/agent-tool-permissions";
 import { Button } from "@chief/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@chief/ui/components/dialog";
+import { Input } from "@chief/ui/components/input";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentOverride as LocalAgentOverride } from "../../lib/agent-overrides";
 import type { AgentIntegrationOption } from "./agent-detail-sections";
+import {
+  agentExecution,
+  relayDeploymentTarget,
+} from "../../lib/agent-execution";
 import {
   getToolApprovals,
   getWorkspaceProvider,
@@ -36,7 +50,7 @@ export type { AgentIntegrationOption } from "./agent-detail-sections";
 
 type DetailTab = "configuration" | "channels" | "permissions";
 
-const detailTabs: readonly { id: DetailTab; label: string }[] = [
+const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "configuration", label: "Configuration" },
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
@@ -75,6 +89,9 @@ export function AgentDetail({
   onApplyExecutionToTeam,
   onClose,
   onUpdateChannelAgents,
+  onRemove,
+  externalAgentClient,
+  onExternalAgentChanged,
 }: {
   agent: AgentDefinition;
   workspaceId: string | null;
@@ -92,6 +109,9 @@ export function AgentDetail({
   ) => void;
   onClose?: () => void;
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
+  onRemove: (agentId: string) => Promise<void>;
+  externalAgentClient?: RelayClient["externalAgents"] | null;
+  onExternalAgentChanged?: () => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
   const enabled = override?.enabled ?? true;
@@ -112,6 +132,12 @@ export function AgentDetail({
   const sharedChannels = channels.filter(
     (channel) => channel.visibility !== "direct",
   );
+  const execution = agentExecution({
+    runtime: agent.runtime,
+    deploymentTarget,
+    provider: driver,
+    model,
+  });
 
   const save = (patch: {
     enabled?: boolean;
@@ -162,11 +188,6 @@ export function AgentDetail({
                 <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
                   {agent.name}
                 </h2>
-                {agent.delegates ? (
-                  <span className="bg-muted/60 text-muted-foreground rounded-full px-2 py-1 text-[9px] font-medium">
-                    Orchestrator
-                  </span>
-                ) : null}
               </div>
               <p className="text-muted-foreground mt-1.5 text-xs">
                 {agent.role}
@@ -212,18 +233,25 @@ export function AgentDetail({
         </p>
 
         <AgentExecutionCard
+          agentId={agent.id}
           agentName={agent.name}
-          deploymentTarget={deploymentTarget}
-          driver={driver}
-          model={model}
+          execution={execution}
           ready={ready}
           saving={saving}
           error={preferenceError}
-          onApply={save}
+          externalAgentClient={externalAgentClient}
+          onExternalAgentChanged={onExternalAgentChanged}
+          onApply={(draft) =>
+            save({
+              deploymentTarget: relayDeploymentTarget(draft.deployment),
+              driver: draft.provider,
+              model: draft.model,
+            })
+          }
           onApplyToTeam={(draft) =>
             onApplyExecutionToTeam(
-              draft.deploymentTarget,
-              draft.driver,
+              relayDeploymentTarget(draft.deployment),
+              draft.provider,
               draft.model,
             )
           }
@@ -235,7 +263,7 @@ export function AgentDetail({
         aria-label="Agent details"
         role="tablist"
       >
-        {detailTabs.map((tab) => {
+        {standardDetailTabs.map((tab) => {
           const active = activeTab === tab.id;
           return (
             <button
@@ -267,16 +295,19 @@ export function AgentDetail({
         className="max-w-4xl py-7 pb-12"
       >
         {activeTab === "configuration" ? (
-          <AgentConfigurationTab
-            approvals={approvals}
-            ready={ready}
-            capabilities={capabilities}
-            integrations={integrations}
-            assignedIntegrations={assignedIntegrations}
-            onApprovalChange={(value) => save({ approvals: value })}
-            onCapabilitiesChange={(value) => save({ capabilities: value })}
-            onIntegrationsChange={(value) => save({ integrations: value })}
-          />
+          <div className="space-y-10">
+            <AgentConfigurationTab
+              approvals={approvals}
+              ready={ready}
+              capabilities={capabilities}
+              integrations={integrations}
+              assignedIntegrations={assignedIntegrations}
+              onApprovalChange={(value) => save({ approvals: value })}
+              onCapabilitiesChange={(value) => save({ capabilities: value })}
+              onIntegrationsChange={(value) => save({ integrations: value })}
+            />
+            <AgentDangerZone agent={agent} ready={ready} onRemove={onRemove} />
+          </div>
         ) : null}
 
         {activeTab === "channels" ? (
@@ -297,5 +328,95 @@ export function AgentDetail({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function AgentDangerZone({
+  agent,
+  ready,
+  onRemove,
+}: {
+  agent: AgentDefinition;
+  ready: boolean;
+  onRemove: (agentId: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    setRemoving(true);
+    setError(null);
+    try {
+      await onRemove(agent.id);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Chief couldn't remove this agent.",
+      );
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="text-destructive text-sm font-medium">Delete agent</h3>
+      <div className="border-destructive/30 mt-3 flex items-center justify-between gap-6 rounded-2xl border px-4 py-4">
+        <div>
+          <p className="text-[13px] font-medium">Delete {agent.name}</p>
+          <p className="text-muted-foreground mt-1 text-[13px] leading-5 font-normal">
+            Deletes the agent, its conversations, and associated project
+            records. External Git repositories and deployments remain.
+          </p>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={!ready}
+          onClick={() => {
+            setConfirmation("");
+            setError(null);
+            setOpen(true);
+          }}
+        >
+          <Trash2 size={13} />
+          Delete agent
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {agent.name}</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the agent, its conversations, and its
+              associated project records from Chief. External Git repositories
+              and deployments remain. Type the agent name to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            placeholder={agent.name}
+          />
+          {error ? <p className="text-destructive text-xs">{error}</p> : null}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={confirmation !== agent.name || removing}
+              onClick={() => void remove()}
+            >
+              {removing ? "Deleting..." : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

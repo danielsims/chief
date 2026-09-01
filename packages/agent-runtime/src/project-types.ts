@@ -1,17 +1,25 @@
 export type ProjectRepositoryKind = "attached" | "cloned";
 export type ProjectProviderId =
-  "local" | "generic-git" | "github" | "gitlab" | "bitbucket";
+  "local" | "generic-git" | "github" | "chief-git" | "gitlab" | "bitbucket";
+
+export interface ProjectRepositorySourceFile {
+  path: string;
+  content: string;
+}
 
 /** A workspace-owned Git project. Repository paths live on runtime bindings. */
 export interface ProjectRecord {
   id: string;
   organizationId: string;
+  agentId?: string;
   name: string;
   description?: string;
   repositoryKind: ProjectRepositoryKind;
   providerId: ProjectProviderId;
   canonicalRemoteUrl?: string;
   repositoryWebUrl?: string;
+  /** Relay-owned source files, readable without materializing an agent cell. */
+  repositoryFiles?: ProjectRepositorySourceFile[];
   defaultBranch: string;
   createdAt: number;
   updatedAt: number;

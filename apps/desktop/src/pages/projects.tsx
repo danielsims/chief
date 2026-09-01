@@ -69,26 +69,34 @@ export function ProjectsPage() {
 
   return (
     <section className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-black/[0.055] px-6 pt-5 pb-4 dark:border-white/[0.055]">
-        <div className="flex items-start gap-4">
-          <div className="min-w-0 flex-1">
-            <PageTitle>Projects</PageTitle>
-            <p className="text-muted-foreground mt-1 max-w-2xl text-[13px] leading-5">
-              Git repositories shared across your workspace.
-            </p>
+      {selected ? null : (
+        <header className="shrink-0 border-b border-black/[0.055] px-6 pt-5 pb-4 dark:border-white/[0.055]">
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <PageTitle>Projects</PageTitle>
+              <p className="text-muted-foreground mt-1 max-w-2xl text-[13px] leading-5">
+                Git repositories shared across your workspace.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={projects.refresh}>
+              <RefreshCw size={13} />
+              Refresh
+            </Button>
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus size={14} />
+              Add project
+            </Button>
           </div>
-          <Button variant="outline" size="sm" onClick={projects.refresh}>
-            <RefreshCw size={13} />
-            Refresh
-          </Button>
-          <Button size="sm" onClick={() => setAdding(true)}>
-            <Plus size={14} />
-            Add project
-          </Button>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <div className="min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 py-6">
+      <div
+        className={
+          selected
+            ? "min-h-0 flex-1"
+            : "min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 py-6"
+        }
+      >
         {selected ? (
           <ProjectDetail
             key={selected.project.id}

@@ -2,6 +2,8 @@ import type { Principal } from "@chief/relay-contracts";
 import {
   agentConfigSchema,
   agentIdSchema,
+  agentSummarySchema,
+  createNativeAgentCommandSchema,
   isJsonObject,
   parseJsonObject,
 } from "@chief/relay-contracts";
@@ -10,6 +12,7 @@ import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
+import { requireNativeAgent, workspaceAgent } from "./workspace-agent-runtime";
 import {
   firstRow,
   parseChannelId,
@@ -17,6 +20,7 @@ import {
 } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import { readMachines } from "./workspace-machine-store";
+import { projectIdsOwnedByAgent } from "./workspace-project-store";
 
 export class WorkspaceAgentAccessService {
   private readonly channels: WorkspaceChannelStore;
@@ -28,10 +32,53 @@ export class WorkspaceAgentAccessService {
     this.channels = new WorkspaceChannelStore(storage, env);
   }
 
+  async create(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const input = createNativeAgentCommandSchema.parse(
+      await parseJson(request),
+    );
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json) {
+      throw new HttpError(
+        409,
+        "workspace_snapshot_unavailable",
+        "This workspace cannot add agents yet.",
+      );
+    }
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    if (snapshot.agents.some((agent) => agent.id === input.agentId)) {
+      throw new HttpError(409, "agent_exists", "This agent already exists.");
+    }
+    const agent = agentSummarySchema.parse({
+      id: input.agentId,
+      name: input.name,
+      role: input.role,
+      description: input.description,
+      instructions: input.instructions,
+      status: "idle",
+      runtime: { kind: "native-cell" },
+    });
+    const now = new Date().toISOString();
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        "INSERT INTO members (principal_kind, principal_id, role, created_at) VALUES ('agent', ?, 'member', ?)",
+        agent.id,
+        now,
+      );
+      this.storage.sql.exec(
+        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+        JSON.stringify({ ...snapshot, agents: [...snapshot.agents, agent] }),
+      );
+    });
+    return json({ agent });
+  }
+
   configGet(request: Request) {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, false);
     const agentId = requestedAgentId(request);
+    requireNativeAgent(this.storage, agentId);
     const row = firstRow<AgentConfigRow>(
       this.storage.sql.exec(
         "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
@@ -59,6 +106,18 @@ export class WorkspaceAgentAccessService {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
     const agentId = requestedAgentId(request);
+    const agent = workspaceAgent(this.storage, agentId);
+    if (agent.runtime.kind === "external-channel") {
+      return json({
+        workspaceId: context.workspaceId,
+        agentId,
+        address: agent.runtime.endpoint,
+        runtime: agent.runtime,
+        status: "ready",
+        deploymentTarget: null,
+        computer: null,
+      });
+    }
     const config = this.channels.agentConfiguration(agentId);
     const address = new URL(
       `/v1/workspaces/${encodeURIComponent(context.workspaceId)}/agents/${encodeURIComponent(agentId)}`,
@@ -89,6 +148,7 @@ export class WorkspaceAgentAccessService {
       throw new HttpError(400, "invalid_request", "Expected a JSON object.");
     }
     const agentId = agentIdSchema.parse(input.agentId);
+    requireNativeAgent(this.storage, agentId);
     const configInput = parseJsonObject(input.config);
     if (!configInput) {
       throw new HttpError(
@@ -109,6 +169,106 @@ export class WorkspaceAgentAccessService {
       updatedAt,
     );
     return json({ agentId, config: parsedConfig, updatedAt });
+  }
+
+  remove(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const agentId = requestedAgentId(request);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    const snapshot = workspace.snapshot_json
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json)
+      : null;
+    const existsInSnapshot =
+      snapshot?.agents.some((agent) => agent.id === agentId) === true;
+    if (
+      !existsInSnapshot &&
+      this.channels.memberRole("agent", agentId) === null
+    ) {
+      throw new HttpError(404, "agent_not_found", "The agent does not exist.");
+    }
+    const directConversationIds = this.storage.sql
+      .exec<{ conversation_id: string }>(
+        `SELECT c.conversation_id FROM channels c
+         INNER JOIN channel_members cm
+           ON cm.conversation_id = c.conversation_id
+         WHERE c.kind = 'direct'
+           AND cm.principal_kind = 'agent'
+           AND cm.principal_id = ?`,
+        agentId,
+      )
+      .toArray()
+      .map((row) => row.conversation_id);
+    const projectIds = projectIdsOwnedByAgent(
+      this.storage,
+      context.workspaceId,
+      agentId,
+    );
+
+    this.storage.transactionSync(() => {
+      for (const conversationId of directConversationIds) {
+        this.storage.sql.exec(
+          "DELETE FROM channel_members WHERE conversation_id = ?",
+          conversationId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM channel_membership_events WHERE conversation_id = ?",
+          conversationId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM channel_membership_batches WHERE conversation_id = ?",
+          conversationId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM channels WHERE conversation_id = ?",
+          conversationId,
+        );
+      }
+      this.storage.sql.exec(
+        "DELETE FROM channel_members WHERE principal_kind = 'agent' AND principal_id = ?",
+        agentId,
+      );
+      this.storage.sql.exec(
+        "DELETE FROM agent_keys WHERE agent_id = ?",
+        agentId,
+      );
+      this.storage.sql.exec(
+        "DELETE FROM agent_configs WHERE agent_id = ?",
+        agentId,
+      );
+      this.storage.sql.exec(
+        "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
+        agentId,
+      );
+      for (const projectId of projectIds) {
+        this.storage.sql.exec(
+          "DELETE FROM projects WHERE project_id = ?",
+          projectId,
+        );
+      }
+      if (snapshot) {
+        this.storage.sql.exec(
+          "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+          JSON.stringify({
+            ...snapshot,
+            agents: snapshot.agents.filter((agent) => agent.id !== agentId),
+            conversations: snapshot.conversations.filter(
+              (conversation) =>
+                !directConversationIds.includes(conversation.id),
+            ),
+            projects: snapshot.projects.filter(
+              (project) => !projectIds.includes(project.id),
+            ),
+          }),
+        );
+      }
+    });
+    return json({
+      workspaceId: context.workspaceId,
+      agentId,
+      removed: true,
+      directConversationIds,
+    });
   }
 
   authorizeConversation(request: Request) {
@@ -140,6 +300,7 @@ export class WorkspaceAgentAccessService {
         "An agent identity is required for agent runtime access.",
       );
     }
+    requireNativeAgent(this.storage, context.principal.agentId);
     if (!this.channels.agentConfiguration(context.principal.agentId).enabled) {
       throw new HttpError(
         403,
@@ -147,6 +308,14 @@ export class WorkspaceAgentAccessService {
         "This agent is disabled by workspace policy.",
       );
     }
+    return json({ ok: true });
+  }
+
+  authorizeNativeAgent(request: Request) {
+    const context = readTrustedContext(request);
+    this.channels.requirePrincipalMember(context.principal);
+    const agentId = requestedAgentId(request);
+    requireNativeAgent(this.storage, agentId);
     return json({ ok: true });
   }
 
@@ -161,6 +330,7 @@ export class WorkspaceAgentAccessService {
       );
     }
     const agentId = context.principal.agentId;
+    requireNativeAgent(this.storage, agentId);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
     if (!workspace.snapshot_json) {
       return json({ runtime: null, managed: false });
