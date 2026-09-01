@@ -116,7 +116,8 @@ export function resolveInferenceApiKey(
         );
       });
     }
-    const secretRef = config.inference.secretRef;
+    const secretRef =
+      "secretRef" in config.inference ? config.inference.secretRef : undefined;
     if (secretRef) {
       const target = new URL("https://workspace.internal/secrets");
       target.searchParams.set("name", secretRef);

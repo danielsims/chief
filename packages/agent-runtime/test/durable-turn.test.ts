@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { AgentInferenceRequest } from "@chief/agent-computer";
+
 import type { DurableTool } from "../src/durable-turn/types.js";
 import { MemoryCellPersistence } from "../src/cells/memory-persistence.js";
-import { shouldCompact } from "../src/durable-turn/context.js";
+import {
+  recentCompleteMessages,
+  shouldCompact,
+} from "../src/durable-turn/context.js";
 import {
   baseTurn,
   fakeInference,
@@ -181,6 +186,89 @@ void test("compaction uses the model context window and configurable ratio", asy
       policy: { compactionRatio: 0.8 },
     }),
     false,
+  );
+});
+
+void test("compacted history retains a complete multi-tool exchange", () => {
+  const calls = Array.from({ length: 12 }, (_, index) => ({
+    id: `call-${index + 1}`,
+    name: "read_probe",
+    arguments: { index },
+  }));
+  const messages = [
+    { role: "user" as const, content: "Inspect every source." },
+    { role: "assistant" as const, content: null, toolCalls: calls },
+    ...calls.map((call) => ({
+      role: "tool" as const,
+      content: JSON.stringify({ ok: true }),
+      toolCallId: call.id,
+      name: call.name,
+    })),
+  ];
+
+  const retained = recentCompleteMessages(messages);
+
+  assert.equal(retained[0]?.role, "assistant");
+  assert.equal(retained.length, 13);
+  assert.deepEqual(
+    retained.slice(1).map((message) => message.toolCallId),
+    calls.map((call) => call.id),
+  );
+});
+
+void test("tool feedback never splits one assistant tool-result batch", async () => {
+  const persistence = new MemoryCellPersistence();
+  const requests: AgentInferenceRequest[] = [];
+  let modelCalls = 0;
+  const inference = fakeInference((request) => {
+    requests.push(request);
+    modelCalls += 1;
+    if (modelCalls === 1) {
+      return {
+        content: null,
+        toolCalls: [
+          { id: "probe-1", name: "read_probe", arguments: { query: "same" } },
+        ],
+      };
+    }
+    if (modelCalls === 2) {
+      return {
+        content: null,
+        toolCalls: [
+          { id: "probe-2", name: "read_probe", arguments: { query: "same" } },
+          { id: "probe-3", name: "read_probe", arguments: { query: "other" } },
+        ],
+      };
+    }
+    return { content: "done", toolCalls: [] };
+  });
+  await runner(persistence).create(baseTurn());
+  for (let boundary = 0; boundary < 6; boundary += 1) {
+    await runner(persistence).advance({
+      inference,
+      tools: [readTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: {
+        execute: () => Promise.resolve({ ok: true }),
+      },
+    });
+  }
+
+  const continuation = requests[2];
+  assert.ok(continuation);
+  const secondBatchIndex = continuation.messages.findIndex(
+    (message) =>
+      message.role === "assistant" &&
+      message.toolCalls?.some((call) => call.id === "probe-2"),
+  );
+  assert.notEqual(secondBatchIndex, -1);
+  const secondBatch = continuation.messages.slice(
+    secondBatchIndex,
+    secondBatchIndex + 3,
+  );
+  assert.deepEqual(
+    secondBatch.map((message) => message.role),
+    ["assistant", "tool", "tool"],
   );
 });
 
@@ -406,5 +494,52 @@ void test("a durable turn reports inference and tool lifecycle boundaries", asyn
     "inference:completed",
     "tool:started",
     "tool:completed",
+  ]);
+});
+
+void test("a durable turn forwards provider-neutral inference progress before completion", async () => {
+  const persistence = new MemoryCellPersistence();
+  const events: string[] = [];
+  await runner(persistence).create(baseTurn());
+
+  await runner(persistence).advance({
+    inference: {
+      complete: async (_request, onProgress) => {
+        await onProgress?.({
+          type: "reasoning",
+          delta: "Inspecting ",
+          text: "Inspecting ",
+        });
+        await onProgress?.({
+          type: "reasoning",
+          delta: "the workspace.",
+          text: "Inspecting the workspace.",
+        });
+        events.push("provider:completed");
+        return {
+          content: "Done.",
+          reasoning: "Inspecting the workspace.",
+          toolCalls: [],
+        };
+      },
+    },
+    tools: [],
+    observer: {
+      inferenceProgress: (_turn, progress) => {
+        events.push(`progress:${progress.text}`);
+      },
+      inferenceCompleted: () => {
+        events.push("observer:completed");
+      },
+    },
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  });
+
+  assert.deepEqual(events, [
+    "progress:Inspecting ",
+    "progress:Inspecting the workspace.",
+    "provider:completed",
+    "observer:completed",
   ]);
 });

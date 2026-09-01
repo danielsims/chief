@@ -100,6 +100,124 @@ void test("a durable turn finalizes after its inference budget is exhausted", as
   });
 });
 
+void test("a durable turn retries one empty finalization and preserves enough output budget", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const finalizationBudgets: number[] = [];
+  const inference = fakeInference((request) => {
+    modelCalls += 1;
+    if (request.tools.length > 0) {
+      return {
+        content: null,
+        toolCalls: [
+          {
+            id: "probe-1",
+            name: "read_probe",
+            arguments: { query: "bounded" },
+          },
+        ],
+      };
+    }
+    finalizationBudgets.push(request.maxTokens ?? 0);
+    if (finalizationBudgets.length === 1) {
+      return {
+        content: null,
+        reasoning: "I need to summarize the verified result.",
+        toolCalls: [],
+      };
+    }
+    assert.ok(
+      request.messages.some((message) =>
+        /Return the concise final update now/iu.test(message.content ?? ""),
+      ),
+    );
+    return {
+      content: "I verified one useful result and stopped at the work limit.",
+      toolCalls: [],
+    };
+  });
+  await runner(persistence).create({ ...baseTurn(), maxInferenceSteps: 1 });
+
+  let terminal;
+  for (let step = 0; step < 6; step += 1) {
+    const result = await runner(persistence).advance({
+      inference,
+      tools: [readTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: { execute: () => Promise.resolve({ value: "verified" }) },
+    });
+    if (result.kind === "terminal") {
+      terminal = result;
+      break;
+    }
+  }
+
+  assert.ok(terminal);
+  assert.equal(modelCalls, 3);
+  assert.deepEqual(finalizationBudgets, [4_000, 4_000]);
+  assert.deepEqual(terminal.turn.phase, {
+    kind: "completed",
+    result: "I verified one useful result and stopped at the work limit.",
+  });
+});
+
+void test("an unadvertised tool call is returned to the model as a recoverable failure", async () => {
+  const persistence = new MemoryCellPersistence();
+  let modelCalls = 0;
+  const inference = fakeInference((request) => {
+    modelCalls += 1;
+    if (modelCalls === 1) {
+      return {
+        content: null,
+        toolCalls: [
+          {
+            id: "unknown-1",
+            name: "trends_save",
+            arguments: { title: "Unsupported" },
+          },
+        ],
+      };
+    }
+    assert.ok(
+      request.messages.some(
+        (message) =>
+          message.role === "tool" &&
+          /Unknown durable tool: trends_save/iu.test(message.content ?? ""),
+      ),
+    );
+    return {
+      content:
+        "I could not save that record, but I can still report the verified evidence.",
+      toolCalls: [],
+    };
+  });
+  await runner(persistence).create(baseTurn());
+
+  let terminal;
+  for (let step = 0; step < 4; step += 1) {
+    const result = await runner(persistence).advance({
+      inference,
+      tools: [readTool],
+      scheduleRecovery: () => Promise.resolve(),
+      executor: {
+        execute: (call) =>
+          Promise.reject(new Error(`Unknown durable tool: ${call.name}`)),
+      },
+    });
+    if (result.kind === "terminal") {
+      terminal = result;
+      break;
+    }
+  }
+
+  assert.ok(terminal);
+  assert.deepEqual(terminal.turn.phase, {
+    kind: "completed",
+    result:
+      "I could not save that record, but I can still report the verified evidence.",
+  });
+});
+
 void test("a durable turn persists transient interruption attempts", async () => {
   const persistence = new MemoryCellPersistence();
   const durable = runner(persistence);

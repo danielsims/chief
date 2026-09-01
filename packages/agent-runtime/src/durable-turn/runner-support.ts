@@ -95,7 +95,7 @@ export function effectFor(
   const tool = tools.find(
     (candidate) => candidate.definition.name === call.name,
   );
-  if (!tool) throw new Error(`Unknown durable tool: ${call.name}`);
+  if (!tool) return "idempotent" as const;
   return tool.effect;
 }
 

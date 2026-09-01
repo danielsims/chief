@@ -8,6 +8,7 @@ import { z } from "zod";
 import type {
   AgentInference,
   AgentInferenceMessage,
+  AgentInferenceProgressObserver,
   AgentInferenceRequest,
   AgentInferenceTool,
 } from "@chief/agent-computer";
@@ -17,7 +18,6 @@ import { jsonObjectSchema } from "@chief/relay-contracts";
 import type { HostedAgentTraceContext } from "./agent-tracing";
 
 const OPEN_CODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
-const OPEN_CODE_GO_MODEL = "deepseek-v4-flash";
 export const HOSTED_INFERENCE_TIMEOUT_MS = 45_000;
 const encodedToolArgumentsSchema = z.string().transform((value, context) => {
   try {
@@ -63,13 +63,18 @@ export class AiSdkAgentInference implements AgentInference {
     this.languageModel = languageModel(inference, apiKey, request);
   }
 
-  async complete(input: AgentInferenceRequest) {
+  async complete(
+    input: AgentInferenceRequest,
+    onProgress?: AgentInferenceProgressObserver,
+  ) {
     const prompt = aiSdkPrompt(input.messages);
-    const result = await tracedAI.generateText({
+    const options = {
       model: this.languageModel,
       ...prompt,
       tools: toolSet(input.tools),
-      maxOutputTokens: input.maxTokens,
+      ...(input.maxTokens === undefined
+        ? undefined
+        : { maxOutputTokens: input.maxTokens }),
       temperature: input.temperature,
       maxRetries: 0,
       timeout: HOSTED_INFERENCE_TIMEOUT_MS,
@@ -92,13 +97,46 @@ export class AiSdkAgentInference implements AgentInference {
           jobId: true,
         },
       },
-    });
+    };
+    if (onProgress) return await this.completeStreaming(options, onProgress);
+    const result = await tracedAI.generateText(options);
     return {
       content: result.text || null,
       ...(result.reasoningText
         ? { reasoning: result.reasoningText }
         : undefined),
       toolCalls: result.toolCalls.map((call) => ({
+        id: call.toolCallId,
+        name: call.toolName,
+        arguments: toolArgumentsSchema.parse(call.input),
+      })),
+    };
+  }
+
+  private async completeStreaming(
+    options: Parameters<typeof tracedAI.streamText>[0],
+    onProgress: AgentInferenceProgressObserver,
+  ) {
+    const result = tracedAI.streamText(options);
+    let reasoning = "";
+    for await (const part of result.stream) {
+      if (part.type !== "reasoning-delta" || !part.text) continue;
+      reasoning += part.text;
+      await onProgress({
+        type: "reasoning",
+        delta: part.text,
+        text: reasoning,
+      });
+    }
+    const [content, reasoningText, toolCalls] = await Promise.all([
+      result.text,
+      result.reasoningText,
+      result.toolCalls,
+    ]);
+    return {
+      content: content || null,
+      ...(reasoningText ? { reasoning: reasoningText } : undefined),
+      toolCalls: toolCalls.map((call) => ({
         id: call.toolCallId,
         name: call.toolName,
         arguments: toolArgumentsSchema.parse(call.input),
@@ -136,13 +174,24 @@ function languageModel(
         baseURL: OPEN_CODE_GO_BASE_URL,
         apiKey,
         ...(request ? { fetch: request } : undefined),
-      }).chatModel(OPEN_CODE_GO_MODEL);
+      }).chatModel(openCodeGoModel(inference.model));
     case "vercel-ai-gateway":
       return createGateway({
         apiKey,
         ...(request ? { fetch: request } : undefined),
       })(inference.model);
+    case "claude":
+    case "codex":
+      throw new Error(
+        `${inferenceProviderName(inference)} can only run on a connected device.`,
+      );
   }
+}
+
+function openCodeGoModel(model: string) {
+  return model.startsWith("opencode-go/")
+    ? model.slice("opencode-go/".length)
+    : model;
 }
 
 function inferenceProviderName(inference: AgentInferenceConfig) {
@@ -151,6 +200,10 @@ function inferenceProviderName(inference: AgentInferenceConfig) {
       return "OpenCode Go";
     case "vercel-ai-gateway":
       return "Vercel AI Gateway";
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "ChatGPT";
   }
 }
 

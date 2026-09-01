@@ -17,6 +17,14 @@ const chatExecutionSchema = z.object({
 });
 const stringMapSchema = z.record(z.string());
 const recordSchema = z.record(z.unknown());
+const eveEnvironmentSchema = z.object({
+  CHIEF_AGENT_ID: z.string(),
+  CHIEF_CHANNEL_TOKEN: z.string(),
+  CHIEF_DELIVERY_SIGNING_KEY_ID: z.string(),
+  CHIEF_DELIVERY_SIGNING_SECRET: z.string(),
+  CHIEF_RELAY_URL: z.string(),
+  CHIEF_WORKSPACE_ID: z.string(),
+});
 const browserRunMessageSchema = z.object({
   workspaceId: z.string(),
   conversationId: z.string(),
@@ -261,6 +269,34 @@ const clientMessageWireSchema = z.union([
     values: stringMapSchema,
   }),
   workspaceMessage("queryInputs", { keys: z.array(z.string()) }),
+  workspaceMessage("listVercelEveDestinations", {
+    requestId: z.string(),
+    teamId: z.string().optional(),
+  }),
+  workspaceMessage("provisionVercelEveAgent", {
+    requestId: z.string(),
+    input: z.object({
+      teamId: z.string().min(1),
+      project: z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("existing"),
+          projectId: z.string().min(1),
+          projectName: z.string().min(1),
+        }),
+        z.object({
+          kind: z.literal("new"),
+          projectName: z.string().min(1),
+        }),
+      ]),
+      agent: z.object({
+        name: z.string().min(1),
+        description: z.string(),
+        instructions: z.string().min(1),
+        model: z.string().min(1),
+      }),
+      environment: eveEnvironmentSchema,
+    }),
+  }),
   workspaceMessage("saveWorkspaceEnvironmentVariable", {
     key: z.string(),
     value: z.string(),

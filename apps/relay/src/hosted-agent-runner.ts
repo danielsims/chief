@@ -23,7 +23,10 @@ import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
 export const HOSTED_MAX_INFERENCE_STEPS = 24;
+export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
 export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
+export const HOSTED_MENTION_CONTEXT_GUIDANCE =
+  "When the current message only addresses your name, treat it as an invitation into the ongoing conversation. Use the attached recent channel messages to continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If the attached messages contain no actionable request, ask one short question and stop.";
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
   "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
 
@@ -36,7 +39,7 @@ export interface HostingContext {
     website: string;
     selectedApps: string[];
   };
-  agent?: { id: string; name: string; role: string };
+  agent?: { id: string; name: string; role: string; instructions?: string };
   config?: AgentConfig;
   machines?: Machine[];
 }
@@ -94,14 +97,14 @@ export async function prepareHostedAgentTurn(
   const threadRootId = rawThreadRootId
     ? messageIdSchema.parse(rawThreadRootId)
     : undefined;
+  const messageId = stringPayload(job, "messageId");
   const history = await recentConversationMessages(
     env,
     job,
     principal,
     conversationId,
-    threadRootId,
+    hostedHistoryThreadRootId(threadRootId, messageId),
   ).catch(() => [] satisfies ConversationMessage[]);
-  const messageId = stringPayload(job, "messageId");
   const instruction =
     stringPayload(job, "instruction") ??
     "Respond helpfully to the latest message.";
@@ -111,13 +114,10 @@ export async function prepareHostedAgentTurn(
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
-    systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context.\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
+    systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
-    maxInferenceSteps:
-      job.kind === "workspace.onboarding"
-        ? HOSTED_ONBOARDING_MAX_INFERENCE_STEPS
-        : HOSTED_MAX_INFERENCE_STEPS,
+    maxInferenceSteps: hostedInferenceStepBudget(job.kind),
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
       historyMessage(message, job.agentId),
@@ -125,13 +125,35 @@ export async function prepareHostedAgentTurn(
   };
 }
 
+export function hostedInferenceStepBudget(kind: string) {
+  if (kind === "workspace.onboarding") {
+    return HOSTED_ONBOARDING_MAX_INFERENCE_STEPS;
+  }
+  if (kind.startsWith("workspace.kickoff.")) {
+    return HOSTED_KICKOFF_MAX_INFERENCE_STEPS;
+  }
+  return HOSTED_MAX_INFERENCE_STEPS;
+}
+
 export function boundedHostedHistory(
   messages: ConversationMessage[],
   triggeringMessageId?: string,
 ) {
-  return messages
-    .filter((message) => message.id !== triggeringMessageId)
-    .slice(-HOSTED_HISTORY_MESSAGE_LIMIT);
+  const triggeringIndex = triggeringMessageId
+    ? messages.findIndex((message) => message.id === triggeringMessageId)
+    : -1;
+  const precedingMessages =
+    triggeringIndex >= 0
+      ? messages.slice(0, triggeringIndex)
+      : messages.filter((message) => message.id !== triggeringMessageId);
+  return precedingMessages.slice(-HOSTED_HISTORY_MESSAGE_LIMIT);
+}
+
+export function hostedHistoryThreadRootId(
+  threadRootId?: string,
+  triggeringMessageId?: string,
+) {
+  return threadRootId === triggeringMessageId ? undefined : threadRootId;
 }
 
 export function hostedCompletionContract(
@@ -206,9 +228,12 @@ function systemPrompt(
 ) {
   const agentId = job.agentId;
   const definition = getAgent(agentId);
-  const identity = definition?.instructions ?? genericIdentity(job, context);
+  const identity =
+    context.agent?.instructions ??
+    definition?.instructions ??
+    genericIdentity(job, context);
   const permissions = context.config?.toolPermissions ?? [];
-  const workspaceContext = workspaceContextBlock(job, context, browserEnabled);
+  const workspaceContext = hostedWorkspaceContext(job, context, browserEnabled);
   return assembleAgentPrompt({
     identity,
     capabilities: context.config?.capabilities,
@@ -229,7 +254,7 @@ If one part of a request is impossible with the tools in this turn, complete eve
 Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
 }
 
-function workspaceContextBlock(
+export function hostedWorkspaceContext(
   job: AgentJob,
   context: HostingContext,
   browserEnabled: boolean,
@@ -246,7 +271,13 @@ function workspaceContextBlock(
   const lines = [
     `Workspace: ${workspace?.name ?? job.workspaceId}.`,
     `Website: ${nonEmptyOr(website, "not supplied")}.`,
-    `Selected apps: ${nonEmptyOr(selectedApps, "none")}.`,
+    ...(job.agentId === "setup"
+      ? [
+          `Requested connections: ${nonEmptyOr(selectedApps, "none")}. These are setup requests, not proof of access.`,
+        ]
+      : [
+          "Requested integrations are intentionally omitted here. They are setup choices, not evidence about the product, market, or ideal customer.",
+        ]),
     `Assigned machines: ${nonEmptyOr(assignedMachines, "none")}.`,
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled

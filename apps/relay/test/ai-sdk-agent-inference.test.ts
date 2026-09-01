@@ -8,7 +8,7 @@ import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
 
 const requestSchema = z.object({
-  model: z.literal("deepseek-v4-flash"),
+  model: z.string(),
   messages: z.array(z.object({ role: z.string() }).passthrough()),
   tools: z
     .array(z.object({ type: z.literal("function") }).passthrough())
@@ -64,6 +64,113 @@ describe("AiSdkAgentInference", () => {
     expect(requestSignal).toBeInstanceOf(AbortSignal);
     expect(requestSignal?.aborted).toBe(false);
     expect(result).toEqual({ content: "ready", toolCalls: [] });
+  });
+
+  it("normalizes streamed provider reasoning into cumulative progress", async () => {
+    const request = async function (this: void) {
+      expect(this).toBeUndefined();
+      const chunks = [
+        {
+          id: "chatcmpl-stream",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-v4-flash",
+          choices: [
+            {
+              index: 0,
+              delta: { role: "assistant", reasoning_content: "Inspecting " },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: "chatcmpl-stream",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-v4-flash",
+          choices: [
+            {
+              index: 0,
+              delta: {
+                reasoning_content: "the workspace.",
+                content: "Done.",
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: "chatcmpl-stream",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-v4-flash",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        },
+      ];
+      const body = `${chunks
+        .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+        .join("")}data: [DONE]\n\n`;
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+    const progress: string[] = [];
+
+    const result = await inference.complete(
+      {
+        messages: [{ role: "user", content: "Inspect the workspace." }],
+        tools: [],
+        maxTokens: 120,
+        temperature: 0,
+      },
+      (update) => {
+        progress.push(update.text);
+      },
+    );
+
+    expect(progress).toEqual(["Inspecting ", "Inspecting the workspace."]);
+    expect(result).toEqual({
+      content: "Done.",
+      reasoning: "Inspecting the workspace.",
+      toolCalls: [],
+    });
+  });
+
+  it("sends the selected OpenCode Go model", async () => {
+    let requestBody: unknown;
+    const request = async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      requestBody = JSON.parse(z.string().parse(init?.body));
+      return Response.json({
+        choices: [{ message: { content: "ready", tool_calls: [] } }],
+      });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+      {
+        provider: "opencode",
+        model: "opencode-go/glm-5.3",
+        secretRef: "opencode",
+      },
+    );
+
+    await inference.complete({
+      messages: [{ role: "user", content: "Say ready." }],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(requestSchema.parse(requestBody).model).toBe("glm-5.3");
   });
 
   it("sends DeepSeek V4 Flash through the native Vercel AI Gateway provider", async () => {
