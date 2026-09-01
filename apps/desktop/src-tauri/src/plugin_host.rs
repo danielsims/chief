@@ -1,5 +1,6 @@
 use std::{
     fs::OpenOptions,
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -13,7 +14,14 @@ use std::os::unix::process::CommandExt;
 
 struct PluginHostProcess {
     child: Child,
+    connection: PluginHostConnection,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginHostConnection {
     token: String,
+    port: u16,
 }
 
 #[derive(Default)]
@@ -78,14 +86,14 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
 pub fn start_plugin_host(
     app: tauri::AppHandle,
     supervisor: tauri::State<'_, PluginHostSupervisor>,
-) -> Result<String, String> {
+) -> Result<PluginHostConnection, String> {
     let mut process = supervisor
         .0
         .lock()
         .map_err(|_| "Chief could not access its plugin host.".to_string())?;
     if let Some(current) = process.as_mut() {
         if current.child.try_wait().ok().flatten().is_none() {
-            return Ok(current.token.clone());
+            return Ok(current.connection.clone());
         }
     }
 
@@ -135,9 +143,11 @@ pub fn start_plugin_host(
     let mut bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut bytes);
     let token = hex::encode(bytes);
+    let port = available_loopback_port()?;
     command
         .current_dir(&root)
         .env("CHIEF_PLUGIN_HOST_TOKEN", &token)
+        .env("CHIEF_PLUGIN_HOST_PORT", port.to_string())
         .env("CHIEF_PLUGIN_ROOT", &plugin_root)
         .stdout(stdout)
         .stderr(Stdio::from(log));
@@ -146,11 +156,21 @@ pub fn start_plugin_host(
     let child = command
         .spawn()
         .map_err(|error| format!("Chief could not start its plugin host: {error}"))?;
+    let connection = PluginHostConnection { token, port };
     *process = Some(PluginHostProcess {
         child,
-        token: token.clone(),
+        connection: connection.clone(),
     });
-    Ok(token)
+    Ok(connection)
+}
+
+fn available_loopback_port() -> Result<u16, String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("Chief could not reserve a plugin host port: {error}"))?;
+    listener
+        .local_addr()
+        .map(|address| address.port())
+        .map_err(|error| format!("Chief could not resolve its plugin host port: {error}"))
 }
 
 fn terminate(child: &mut Child) {
