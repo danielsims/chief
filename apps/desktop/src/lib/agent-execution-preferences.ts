@@ -11,15 +11,17 @@ export function executionPreferencesForTeam(
   driver: DriverType,
   model?: string,
 ) {
-  return agents.map((agent): AgentPreference => {
-    const current = preferences.find((item) => item.agentId === agent.id);
-    return {
-      ...current,
-      agentId: agent.id,
-      enabled: current?.enabled ?? true,
-      deploymentTarget,
-      driver,
-      model,
-    };
-  });
+  return agents
+    .filter((agent) => agent.runtime?.kind !== "external-channel")
+    .map((agent): AgentPreference => {
+      const current = preferences.find((item) => item.agentId === agent.id);
+      return {
+        ...current,
+        agentId: agent.id,
+        enabled: current?.enabled ?? true,
+        deploymentTarget,
+        driver,
+        model,
+      };
+    });
 }

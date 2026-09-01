@@ -17,15 +17,27 @@ export const agentInferenceSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("opencode"),
-      model: z.literal("opencode-go/deepseek-v4-flash"),
+      model: z.string().trim().min(1).max(128),
       secretRef: secretNameSchema.optional(),
     })
     .strict(),
   z
     .object({
       provider: z.literal("vercel-ai-gateway"),
-      model: z.literal("deepseek/deepseek-v4-flash"),
+      model: z.string().trim().min(1).max(128),
       secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("claude"),
+      model: z.string().trim().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("codex"),
+      model: z.string().trim().min(1).max(128),
     })
     .strict(),
 ]);
@@ -103,6 +115,14 @@ export const defaultAgentConfig = agentConfigSchema.parse({
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+export const agentRemovalResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+    removed: z.literal(true),
+  })
+  .strict();
 
 export const agentRuntimeDescriptorSchema = z
   .object({

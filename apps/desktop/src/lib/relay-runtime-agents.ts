@@ -4,6 +4,7 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 
 import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
@@ -15,14 +16,24 @@ import {
 export function relayAgentDefinitions(
   snapshot: WorkspaceSnapshot,
 ): AgentDefinition[] {
-  return snapshot.agents.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    role: agent.role,
-    description:
-      "Runs in its own isolated cell and collaborates through the Chief relay.",
-    instructions: "",
-  }));
+  const defaults = new Map(defaultAgents.map((agent) => [agent.id, agent]));
+  return snapshot.agents.map((agent) => {
+    const definition = defaults.get(agent.id);
+    return {
+      ...definition,
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      description:
+        agent.description ??
+        definition?.description ??
+        (agent.role !== "External agent"
+          ? `${agent.name} handles ${agent.role.toLocaleLowerCase()} for this workspace.`
+          : `${agent.name} is an external agent connected to this workspace.`),
+      instructions: agent.instructions ?? definition?.instructions ?? "",
+      runtime: agent.runtime,
+    };
+  });
 }
 
 export async function relayAgentPreferencesMessage(
@@ -30,11 +41,22 @@ export async function relayAgentPreferencesMessage(
   snapshot: WorkspaceSnapshot,
   requestId?: string,
 ): Promise<Extract<ServerMessage, { type: "agentPreferences" }>> {
-  const preferences = await Promise.all(
-    snapshot.agents.map(async (agent) =>
+  const nativeAgents = snapshot.agents.filter(
+    (agent) => agent.runtime.kind === "native-cell",
+  );
+  const results = await Promise.allSettled(
+    nativeAgents.map(async (agent) =>
       relayAgentPreference(await relay.loadAgentConfig(agent.id)),
     ),
   );
+  const preferences = results.flatMap((result, index) => {
+    if (result.status === "fulfilled") return [result.value];
+    console.error(
+      `[Chief relay] Could not load ${nativeAgents[index]?.id ?? "agent"} configuration.`,
+      result.reason,
+    );
+    return [];
+  });
   return {
     type: "agentPreferences",
     workspaceId: snapshot.id,
@@ -48,6 +70,14 @@ export async function saveRelayAgentPreference(
   snapshot: WorkspaceSnapshot,
   message: Extract<ClientMessage, { type: "saveAgentPreference" }>,
 ) {
+  const agent = snapshot.agents.find(
+    (candidate) => candidate.id === message.preference.agentId,
+  );
+  if (agent?.runtime.kind !== "native-cell") {
+    throw new Error(
+      "External agents are configured through their channel runtime.",
+    );
+  }
   const current = await relay.loadAgentConfig(message.preference.agentId);
   await relay.saveAgentConfig(
     message.preference.agentId,

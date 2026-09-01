@@ -1,27 +1,41 @@
 import { z } from "zod";
 
-import { isoDateTimeSchema, workspaceIdSchema } from "./identifiers";
+import {
+  agentIdSchema,
+  isoDateTimeSchema,
+  workspaceIdSchema,
+} from "./identifiers";
 
 export const projectRepositoryKindSchema = z.enum(["attached", "cloned"]);
 export const projectProviderIdSchema = z.enum([
   "local",
   "generic-git",
   "github",
+  "chief-git",
   "gitlab",
   "bitbucket",
 ]);
+export const projectRepositorySourceFileSchema = z.object({
+  path: z.string().trim().min(1).max(1_024),
+  content: z.string().max(1_000_000),
+});
+export const projectRepositoryFilesSchema = z
+  .array(projectRepositorySourceFileSchema)
+  .max(1_000);
 
 /** Workspace-shared project metadata. Filesystem paths remain local to a cell. */
 export const relayProjectSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
     organizationId: workspaceIdSchema,
+    agentId: agentIdSchema.optional(),
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(2_000).optional(),
     repositoryKind: projectRepositoryKindSchema,
     providerId: projectProviderIdSchema,
     canonicalRemoteUrl: z.url().max(2_048).optional(),
     repositoryWebUrl: z.url().max(2_048).optional(),
+    repositoryFiles: projectRepositoryFilesSchema.optional(),
     defaultBranch: z.string().trim().min(1).max(512),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,

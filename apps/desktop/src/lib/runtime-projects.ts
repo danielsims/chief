@@ -9,6 +9,11 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 
+import {
+  relayProjectBrowser,
+  relayProjectSnapshots,
+} from "./relay-project-presentation";
+import { useRelaySession } from "./relay-session";
 import { useRuntime, useWorkspaceCapability } from "./runtime";
 
 const cache = new Map<string, ProjectRepositorySnapshot[]>();
@@ -46,14 +51,19 @@ function comparisonCacheKey(
 export function useProjects() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const { snapshot } = useRelaySession();
   const [received, setReceived] = useState<{
     workspaceId: string;
     projects: ProjectRepositorySnapshot[];
   } | null>(null);
+  const snapshotProjects =
+    cloudOrganizationId && snapshot?.id === cloudOrganizationId
+      ? relayProjectSnapshots(snapshot.projects)
+      : null;
   const projects = cloudOrganizationId
     ? received?.workspaceId === cloudOrganizationId
       ? received.projects
-      : (cache.get(cloudOrganizationId) ?? null)
+      : (cache.get(cloudOrganizationId) ?? snapshotProjects)
     : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,8 +99,8 @@ export function useProjects() {
   }, [capability, client, cloudOrganizationId]);
 
   useEffect(() => {
-    if (status === "connected" && capability && !projects) refresh();
-  }, [capability, projects, refresh, status]);
+    if (status === "connected" && capability) refresh();
+  }, [capability, refresh, status]);
 
   const waitForSave = useCallback(
     (requestId: string) =>
@@ -188,15 +198,15 @@ export function useProjects() {
 }
 
 export function useProjectBrowser(
-  projectId: string | undefined,
+  project: ProjectRecord | undefined,
   ref: string | undefined,
   path: string,
 ) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const key =
-    cloudOrganizationId && projectId && ref
-      ? browserCacheKey(cloudOrganizationId, projectId, ref, path)
+    cloudOrganizationId && project?.id && ref
+      ? browserCacheKey(cloudOrganizationId, project.id, ref, path)
       : undefined;
   const [received, setReceived] = useState<{
     key: string;
@@ -205,7 +215,11 @@ export function useProjectBrowser(
   const [error, setError] = useState<string | null>(null);
   const activeRequest = useRef<string | null>(null);
   const cached = key ? browserCache.get(key) : undefined;
-  const browser = received && received.key === key ? received.browser : cached;
+  const relayBrowser =
+    project && ref ? relayProjectBrowser(project, ref, path) : undefined;
+  const browser =
+    relayBrowser ??
+    (received && received.key === key ? received.browser : cached);
 
   useEffect(() => {
     if (!key) return;
@@ -231,7 +245,14 @@ export function useProjectBrowser(
   }, [client, cloudOrganizationId, key]);
 
   const refresh = useCallback(() => {
-    if (!cloudOrganizationId || !capability || !projectId || !ref || !key) {
+    if (
+      relayBrowser ||
+      !cloudOrganizationId ||
+      !capability ||
+      !project?.id ||
+      !ref ||
+      !key
+    ) {
       return;
     }
     const requestId = crypto.randomUUID();
@@ -240,16 +261,26 @@ export function useProjectBrowser(
       type: "browseProject",
       workspaceId: cloudOrganizationId,
       requestId,
-      projectId,
+      projectId: project.id,
       ref,
       ...(path ? { path } : undefined),
       executorCapability: capability,
     });
-  }, [capability, client, cloudOrganizationId, key, path, projectId, ref]);
+  }, [
+    capability,
+    client,
+    cloudOrganizationId,
+    key,
+    path,
+    project,
+    ref,
+    relayBrowser,
+  ]);
 
   useEffect(() => {
-    if (status === "connected" && capability && key && !cached) refresh();
-  }, [cached, capability, key, refresh, status]);
+    if (status === "connected" && capability && key && !cached && !relayBrowser)
+      refresh();
+  }, [cached, capability, key, refresh, relayBrowser, status]);
 
   return {
     browser,

@@ -1,0 +1,90 @@
+import type { ExternalAgentRegistrationPayload } from "@chief/relay-contracts";
+import {
+  externalAgentConnectionVerificationResultSchema,
+  externalAgentCredentialRotationResultSchema,
+  externalAgentDisconnectResultSchema,
+  externalAgentReconciliationListSchema,
+  externalAgentRecoveryResultSchema,
+  externalAgentRegistrationResultSchema,
+} from "@chief/relay-contracts";
+
+import { RelayClientBase } from "./relay-client-base";
+
+export class RelayExternalAgentsClient extends RelayClientBase {
+  async verifyConnection(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(agentId)}/external/verify`,
+      ),
+      externalAgentConnectionVerificationResultSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+  async register(input: ExternalAgentRegistrationPayload) {
+    return await this.fetchJson(
+      this.workspaceUrl("agents/external"),
+      externalAgentRegistrationResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          protocolVersion: 1,
+          occurredAt: new Date().toISOString(),
+          payload: input,
+        }),
+      },
+    );
+  }
+
+  async disconnect(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/external`),
+      externalAgentDisconnectResultSchema,
+      true,
+      { method: "DELETE" },
+    );
+  }
+
+  async rotateCredentials(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(agentId)}/external/credentials/rotate`,
+      ),
+      externalAgentCredentialRotationResultSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+
+  async reconciliations(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(agentId)}/channel/deliveries/reconciling`,
+      ),
+      externalAgentReconciliationListSchema,
+      true,
+    );
+  }
+
+  async recoverDelivery(
+    agentId: string,
+    deliveryId: string,
+    decision: "inspect" | "resend" | "drop",
+  ) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(agentId)}/channel/deliveries/${encodeURIComponent(deliveryId)}/recover`,
+      ),
+      externalAgentRecoveryResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision }),
+      },
+    );
+  }
+}

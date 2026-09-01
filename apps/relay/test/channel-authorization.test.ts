@@ -116,6 +116,78 @@ describe("channel authorization", () => {
     expect(write.status).toBe(403);
   });
 
+  it("lets an owner revoke and remove an externally registered agent", async () => {
+    const ctx = await setup();
+    const pubkey = hexKey(String(agentId));
+    await registerAgent(ctx, agentId, pubkey);
+    const createdProject = await rpc(
+      ctx,
+      ctx.principal,
+      "data-project-create",
+      {
+        name: "coordinator-agent",
+        agentId,
+        repositoryKind: "cloned",
+        providerId: "generic-git",
+        canonicalRemoteUrl: "https://example.com/coordinator-agent.git",
+        defaultBranch: "main",
+      },
+    );
+    expect(createdProject.status).toBe(201);
+
+    const removed = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      `agentId=${agentId}`,
+    );
+    expect(removed.status).toBe(200);
+    await expect(removed.json()).resolves.toMatchObject({
+      agentId,
+      removed: true,
+    });
+
+    const members = await rpc(ctx, ctx.principal, "members-list");
+    const body = (await members.json()) as {
+      members: Array<{ kind: string; principalId: string }>;
+    };
+    expect(
+      body.members.some(
+        (member) => member.kind === "agent" && member.principalId === agentId,
+      ),
+    ).toBe(false);
+    const projects = await rpc(ctx, ctx.principal, "data-projects-list");
+    await expect(projects.json()).resolves.toEqual({ projects: [] });
+  });
+
+  it("lets an owner remove and restore Chief without rebuilding the workspace", async () => {
+    const ctx = await setup();
+    const removed = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      "agentId=chief",
+    );
+    expect(removed.status).toBe(200);
+
+    const restored = await rpc(ctx, ctx.principal, "agent-create", {
+      agentId: "chief",
+      name: "Chief",
+      role: "Chief of staff",
+      description: "Leads the workspace and coordinates focused work.",
+      instructions: "Lead the workspace and coordinate focused work.",
+    });
+    expect(restored.status).toBe(200);
+    await expect(restored.json()).resolves.toMatchObject({
+      agent: {
+        id: "chief",
+        runtime: { kind: "native-cell" },
+      },
+    });
+  });
+
   it("enforces an owner policy change on agent relay capabilities", async () => {
     const ctx = await setup();
     const pubkey = hexKey(String(agentId));

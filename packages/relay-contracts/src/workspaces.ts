@@ -218,12 +218,105 @@ export const conversationSummarySchema = z.object({
   lastMessage: z.string().max(4_000).nullable(),
 });
 
-const agentSummarySchema = z.object({
+export const agentDefinitionSourceSchema = z
+  .object({
+    kind: z.literal("repository"),
+    projectId: z.string().trim().min(1).max(128),
+    repositoryId: z.string().trim().min(1).max(128),
+    repository: z.discriminatedUnion("provider", [
+      z
+        .object({
+          provider: z.literal("github"),
+          owner: z.string().trim().min(1).max(100),
+          name: z.string().trim().min(1).max(100),
+        })
+        .strict(),
+      z
+        .object({
+          provider: z.literal("chief-git"),
+          repositoryId: z.string().trim().min(1).max(128),
+        })
+        .strict(),
+    ]),
+    path: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_024)
+      .refine(
+        (path) =>
+          !path.startsWith("/") &&
+          !path.includes("\\") &&
+          path
+            .split("/")
+            .every((segment) => segment !== ".." && segment !== ""),
+        "Expected a repository-relative path without traversal.",
+      ),
+    requestedRef: z.string().trim().min(1).max(512),
+    verification: z.discriminatedUnion("status", [
+      z
+        .object({
+          status: z.literal("unresolved"),
+          reason: z.string().trim().min(1).max(500),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("verified"),
+          resolvedCommitSha: z.string().regex(/^[a-f\d]{40}$/iu),
+          contentDigest: z.string().regex(/^sha256:[a-f\d]{64}$/iu),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+
+export const workspaceAgentRuntimeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("native-cell") }).strict(),
+  z
+    .object({
+      kind: z.literal("external-channel"),
+      provider: z.literal("eve"),
+      endpoint: z.url().max(2_048),
+      connectionStatus: z.enum(["pending_setup", "connected", "degraded"]),
+      definition: agentDefinitionSourceSchema.optional(),
+      deployment: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("unattested") }).strict(),
+        z
+          .object({
+            status: z.literal("attested"),
+            resolvedCommitSha: z.string().regex(/^[a-f\d]{40}$/iu),
+            attestedAt: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+]);
+
+export const agentSummarySchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(120),
   role: z.string().min(1).max(120),
+  description: z.string().trim().min(1).max(1_000).optional(),
+  instructions: z.string().trim().min(1).max(40_000).optional(),
   status: z.enum(["idle", "working", "needsYou", "offline"]),
+  runtime: workspaceAgentRuntimeSchema.default({ kind: "native-cell" }),
 });
+
+export const createNativeAgentCommandSchema = z
+  .object({
+    agentId: z.string().trim().min(1).max(128),
+    name: z.string().trim().min(1).max(120),
+    role: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(1_000),
+    instructions: z.string().trim().min(1).max(40_000),
+  })
+  .strict();
+
+export const createNativeAgentResultSchema = z
+  .object({ agent: agentSummarySchema })
+  .strict();
 
 export const workspaceSnapshotSchema = z
   .object({
@@ -253,6 +346,12 @@ export type ProvisionWorkspaceCommand = z.infer<
   typeof provisionWorkspaceCommandSchema
 >;
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
+export type AgentDefinitionSource = z.infer<typeof agentDefinitionSourceSchema>;
+export type WorkspaceAgentRuntime = z.infer<typeof workspaceAgentRuntimeSchema>;
+export type AgentSummary = z.infer<typeof agentSummarySchema>;
+export type CreateNativeAgentCommand = z.infer<
+  typeof createNativeAgentCommandSchema
+>;
 export type SwitchWorkspaceCommand = z.infer<
   typeof switchWorkspaceCommandSchema
 >;

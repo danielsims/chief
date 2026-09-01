@@ -76,6 +76,74 @@ export function initializeWorkspaceSchema(
       config_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS external_agent_runtimes (
+      agent_id TEXT PRIMARY KEY,
+      endpoint_url TEXT NOT NULL,
+      connection_status TEXT NOT NULL DEFAULT 'pending_setup',
+      token_hash TEXT NOT NULL,
+      token_secret_ref TEXT NOT NULL,
+      delivery_signing_key_id TEXT NOT NULL DEFAULT '',
+      delivery_signing_secret_ref TEXT NOT NULL DEFAULT '',
+      registration_command_id TEXT NOT NULL UNIQUE,
+      registration_payload_hash TEXT NOT NULL,
+      registration_result_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS external_agent_definitions (
+      agent_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      repository_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      repository_identity TEXT NOT NULL,
+      path TEXT NOT NULL,
+      requested_ref TEXT NOT NULL,
+      verification_status TEXT NOT NULL DEFAULT 'unresolved',
+      resolved_commit_sha TEXT,
+      content_digest TEXT,
+      FOREIGN KEY (agent_id) REFERENCES external_agent_runtimes(agent_id) ON DELETE CASCADE,
+      FOREIGN KEY (repository_id) REFERENCES project_repositories(repository_id) ON DELETE RESTRICT,
+      FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE RESTRICT
+    );
+    CREATE TABLE IF NOT EXISTS external_agent_deployments (
+      agent_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      resolved_commit_sha TEXT,
+      attested_at TEXT,
+      FOREIGN KEY (agent_id) REFERENCES external_agent_runtimes(agent_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS external_agent_outbox (
+      agent_id TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      delivery_generation INTEGER NOT NULL DEFAULT 1,
+      capability_hash TEXT NOT NULL UNIQUE,
+      conversation_id TEXT NOT NULL,
+      thread_root_id TEXT,
+      session_address TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL,
+      delivering_since TEXT,
+      session_id TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (agent_id, delivery_id)
+    );
+    CREATE INDEX IF NOT EXISTS external_agent_outbox_due_idx
+      ON external_agent_outbox (status, next_attempt_at);
+    CREATE TABLE IF NOT EXISTS external_agent_inbound_receipts (
+      agent_id TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (agent_id, delivery_id)
+    );
     CREATE TABLE IF NOT EXISTS policy (
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL
@@ -100,6 +168,7 @@ export function initializeWorkspaceSchema(
       ON workspace_invites (secret_hash);
   `);
   migrateLegacyChannelSchema(storage);
+  migrateExternalAgentSchema(storage);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
       ON channels (workspace_id);
@@ -114,6 +183,41 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
+}
+
+function migrateExternalAgentSchema(storage: DurableObjectStorage) {
+  addColumns(storage, "external_agent_runtimes", [
+    ["connection_status", "TEXT NOT NULL DEFAULT 'pending_setup'"],
+    ["delivery_signing_key_id", "TEXT NOT NULL DEFAULT ''"],
+    ["delivery_signing_secret_ref", "TEXT NOT NULL DEFAULT ''"],
+  ]);
+  addColumns(storage, "external_agent_outbox", [
+    ["delivery_generation", "INTEGER NOT NULL DEFAULT 1"],
+  ]);
+  addColumns(storage, "external_agent_definitions", [
+    ["repository_id", "TEXT NOT NULL DEFAULT ''"],
+    ["provider_id", "TEXT NOT NULL DEFAULT ''"],
+    ["repository_identity", "TEXT NOT NULL DEFAULT ''"],
+    ["requested_ref", "TEXT NOT NULL DEFAULT ''"],
+    ["content_digest", "TEXT"],
+  ]);
+}
+
+function addColumns(
+  storage: DurableObjectStorage,
+  table: string,
+  columns: readonly (readonly [string, string])[],
+) {
+  const existing = new Set(
+    storage.sql
+      .exec<Record<string, SqlStorageValue>>(`PRAGMA table_info(${table})`)
+      .toArray()
+      .map((column) => (isJsonString(column.name) ? column.name : "")),
+  );
+  for (const [name, definition] of columns) {
+    if (existing.has(name)) continue;
+    storage.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
 }
 
 function migrateLegacyChannelSchema(storage: DurableObjectStorage) {

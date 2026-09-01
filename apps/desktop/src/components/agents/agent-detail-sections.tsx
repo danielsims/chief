@@ -69,7 +69,7 @@ function SectionHeading({
     <div className="mb-3 flex items-end justify-between gap-5">
       <div>
         <h3 className="text-sm font-medium">{title}</h3>
-        <p className="text-muted-foreground mt-1 text-xs leading-5">
+        <p className="text-muted-foreground mt-1 text-[13px] leading-5 font-normal">
           {description}
         </p>
       </div>
@@ -99,7 +99,7 @@ function SettingRow({
     <div className="flex min-h-16 items-center justify-between gap-6 px-4 py-3">
       <div className="min-w-0">
         <p className="text-[13px] font-medium">{title}</p>
-        <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
+        <p className="text-muted-foreground mt-0.5 text-[13px] leading-5 font-normal">
           {description}
         </p>
       </div>
@@ -262,7 +262,7 @@ export function AgentConfigurationTab({
           ) : (
             <div className="px-4 py-5">
               <p className="text-[13px] font-medium">No connected services</p>
-              <p className="text-muted-foreground mt-1 text-[11px] leading-4">
+              <p className="text-muted-foreground mt-1 text-[13px] leading-5 font-normal">
                 Add integrations at the workspace level before assigning them to
                 this agent.
               </p>
@@ -315,7 +315,7 @@ export function AgentChannelsTab({
                     <p className="truncate text-[13px] font-medium">
                       {channel.name}
                     </p>
-                    <p className="text-muted-foreground mt-0.5 line-clamp-1 text-[11px] leading-4">
+                    <p className="text-muted-foreground mt-0.5 line-clamp-1 text-[13px] leading-5 font-normal">
                       {channel.description || "Workspace channel"}
                     </p>
                   </div>
@@ -370,7 +370,7 @@ export function AgentPermissionsTab({
               enabled
             </span>
           </div>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-[11px] leading-5">
+          <p className="text-muted-foreground mt-1 max-w-2xl text-[13px] leading-5 font-normal">
             Executor remains the tool gate. Chief verifies this agent's exact
             session identity and channel access before local work can run.
           </p>

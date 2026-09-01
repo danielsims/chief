@@ -22,14 +22,12 @@ import type { PlaybookCategory } from "../lib/playbook-types";
 import { AgentAvatar as ChiefAgentAvatar } from "../components/agent-avatar";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
 import { PlaybookDocument } from "../components/playbooks/playbook-document";
-import { getWorkspaceProvider } from "../lib/agent-overrides";
 import { createChat } from "../lib/chat-log";
 import { PLAYBOOK_CATEGORIES, PLAYBOOKS } from "../lib/playbook-catalog";
 import {
   playbookRunPrompt,
   playbookSetupPrompt,
 } from "../lib/playbook-prompts";
-import { PROVIDER_META } from "../lib/providers";
 
 /**
  * Agents a registry backend will offer later. Shown here so the page reads
@@ -94,7 +92,7 @@ export function AgentAvatar({
       <ChiefAgentAvatar label={name} className="size-full" />
       <span
         className={cn(
-          "border-background absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
+          "border-background absolute right-0 bottom-0 size-3 rounded-full border-2",
           enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
         )}
       />
@@ -105,51 +103,34 @@ export function AgentAvatar({
 export function TeamAgentCard({
   agent,
   override,
-  workspaceId,
   selected,
   onSelect,
 }: {
   agent: AgentDefinition;
   override: AgentOverride | undefined;
-  workspaceId: string | null;
   selected: boolean;
   onSelect: () => void;
 }) {
   const enabled = override?.enabled ?? true;
-  const driver = override
-    ? (override.driver ?? null)
-    : getWorkspaceProvider(workspaceId);
-  const meta = driver ? PROVIDER_META[driver] : null;
-  const capabilityCount =
-    override?.capabilities?.length ?? agent.capabilities?.length ?? 0;
-
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-muted hover:bg-accent/70 group flex min-h-48 flex-col rounded-[18px] px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
-        selected &&
-          "bg-accent/40 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
+        "bg-background hover:bg-muted/35 group flex flex-col rounded-2xl border border-black/[0.1] px-5 py-4 text-left transition-[background-color,border-color,box-shadow] dark:border-white/[0.1]",
+        selected && "bg-accent/40 border-foreground/15 shadow-sm",
       )}
     >
-      <span className="flex w-full flex-1 flex-col">
-        <span className="flex min-h-24 items-center justify-center py-1">
-          <AgentAvatar name={agent.name} enabled={enabled} size="xl" />
-        </span>
-        <span className="mt-3 flex items-start gap-3">
+      <span className="flex w-full flex-col">
+        <span className="flex items-start gap-3.5">
+          <AgentAvatar name={agent.name} enabled={enabled} size="lg" />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <span className="block truncate text-sm font-semibold">
                 {agent.name}
               </span>
-              {agent.delegates ? (
-                <span className="text-muted-foreground bg-foreground/[0.045] rounded-full px-1.5 py-0.5 text-[8px] font-medium">
-                  Lead
-                </span>
-              ) : null}
             </span>
-            <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+            <span className="text-muted-foreground mt-0.5 block truncate text-[12px] leading-4">
               {agent.role}
             </span>
           </span>
@@ -158,23 +139,8 @@ export function TeamAgentCard({
             className="text-muted-foreground/60 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5"
           />
         </span>
-        <span className="mt-auto flex w-full items-center gap-2 pt-3 text-[10px]">
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
-            )}
-          />
-          <span className="text-muted-foreground">
-            {enabled ? "Active" : "Paused"}
-          </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-muted-foreground truncate">
-            {meta?.label ?? "Choose agent app"}
-          </span>
-          <span className="text-muted-foreground/40 ml-auto">
-            {capabilityCount} capabilities
-          </span>
+        <span className="text-muted-foreground mt-4 line-clamp-2 text-[12px] leading-5">
+          {agent.description}
         </span>
       </span>
     </button>
