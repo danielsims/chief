@@ -47,8 +47,23 @@ export interface AgentBrowser {
 export interface AgentInference {
   readonly model?: AgentInferenceModel;
   estimateTokens?(input: AgentInferenceRequest): number;
-  complete(input: AgentInferenceRequest): Promise<AgentInferenceResult>;
+  complete(
+    input: AgentInferenceRequest,
+    onProgress?: AgentInferenceProgressObserver,
+  ): Promise<AgentInferenceResult>;
 }
+
+/** Provider-neutral live inference progress. Provider adapters translate their
+ * native stream into this contract before the durable runtime observes it. */
+export type AgentInferenceProgress = {
+  type: "reasoning";
+  delta: string;
+  text: string;
+};
+
+export type AgentInferenceProgressObserver = (
+  progress: AgentInferenceProgress,
+) => Promise<void> | void;
 
 export interface AgentInferenceModel {
   id: string;
@@ -60,7 +75,7 @@ export interface AgentInferenceModel {
 export interface AgentInferenceRequest {
   messages: readonly AgentInferenceMessage[];
   tools: readonly AgentInferenceTool[];
-  maxTokens: number;
+  maxTokens?: number;
   temperature: number;
 }
 

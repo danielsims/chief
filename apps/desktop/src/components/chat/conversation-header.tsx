@@ -22,7 +22,7 @@ import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
 import {
   isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
+  workspaceAgentIdentity,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
@@ -41,6 +41,7 @@ interface ConversationHeaderProps {
   directAgentId: WorkspaceAgentId | null;
   directIdentity: { name: string } | null;
   directPresence: AgentPresence;
+  agents: readonly { id: string; name: string; role: string }[];
   onContinueArtifact: (artifact: { id: string; title: string }) => void;
   onOpenActivity: () => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
@@ -54,6 +55,7 @@ export function ConversationHeader({
   directAgentId,
   directIdentity,
   directPresence,
+  agents,
   onContinueArtifact,
   onOpenActivity,
   onOpenProfile,
@@ -121,6 +123,7 @@ export function ConversationHeader({
               />
               <ChannelMembersMenu
                 channel={channel}
+                agents={agents}
                 user={user}
                 onOpenProfile={onOpenProfile}
               />
@@ -220,15 +223,19 @@ export function ConversationHeader({
 
 function ChannelMembersMenu({
   channel,
+  agents,
   user,
   onOpenProfile,
 }: {
   channel: ConversationHeaderChannel;
+  agents: readonly { id: string; name: string; role: string }[];
   user: ConversationHeaderProps["user"];
   onOpenProfile: ConversationHeaderProps["onOpenProfile"];
 }) {
-  const agents = channel.agentIds.flatMap((agentId) =>
-    isWorkspaceAgentId(agentId) ? [agentId] : [],
+  const channelAgents = channel.agentIds.flatMap((agentId) =>
+    isWorkspaceAgentId(agentId) || agents.some((agent) => agent.id === agentId)
+      ? [{ id: agentId, ...workspaceAgentIdentity(agentId, agents) }]
+      : [],
   );
   const [open, setOpen] = useState(false);
   const selectProfile = (selection: ConversationProfileSelection) => {
@@ -253,10 +260,10 @@ function ChannelMembersMenu({
                 className="ring-card size-4 rounded-full object-cover ring-1"
               />
             ) : null}
-            {agents.slice(0, 3).map((agentId) => (
+            {channelAgents.slice(0, 3).map((agent) => (
               <AgentAvatar
-                key={agentId}
-                label={WORKSPACE_AGENT_IDENTITIES[agentId].name}
+                key={agent.id}
+                label={agent.name}
                 className="ring-card size-4 ring-1"
               />
             ))}
@@ -299,27 +306,26 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
-          {agents.map((agentId) => {
-            const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+          {channelAgents.map((agent) => {
             return (
               <button
-                key={agentId}
+                key={agent.id}
                 type="button"
                 onClick={() =>
                   selectProfile({
                     kind: "agent",
-                    agentId,
+                    agentId: agent.id,
                   })
                 }
                 className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
               >
-                <AgentAvatar label={identity.name} className="size-7" />
+                <AgentAvatar label={agent.name} className="size-7" />
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-medium">
-                    {identity.name}
+                    {agent.name}
                   </span>
                   <span className="text-muted-foreground block truncate text-[10px]">
-                    {identity.role}
+                    {agent.role}
                   </span>
                 </span>
               </button>

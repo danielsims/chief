@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type {
   AgentInferenceMessage,
+  AgentInferenceProgress,
   AgentInferenceRequest,
   AgentInferenceResult,
   AgentInferenceTool,
@@ -203,6 +204,10 @@ export interface DurableTurnObserver {
   inferenceCompleted?(
     turn: DurableTurn,
     result: AgentInferenceResult,
+  ): Promise<void> | void;
+  inferenceProgress?(
+    turn: DurableTurn,
+    progress: AgentInferenceProgress,
   ): Promise<void> | void;
   toolStarted?(
     turn: DurableTurn,

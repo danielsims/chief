@@ -43,6 +43,18 @@ export const emptyChatControls: ChatControlState = {
   toolProgress: {},
 };
 
+/** Prevents process state from one conversation appearing on another while
+ * React is switching the active chat and its subscription. */
+export function controlsForConversation(
+  controls: ChatControlState,
+  controlsChatKey: string | null,
+  activeChatKey: string | null,
+): ChatControlState {
+  return activeChatKey && controlsChatKey === activeChatKey
+    ? controls
+    : emptyChatControls;
+}
+
 /** Runtime events carry process state and interactions; durable content lives
  * exclusively in the AI SDK message array. */
 export function reduceChatControls(

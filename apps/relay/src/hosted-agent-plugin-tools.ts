@@ -123,30 +123,28 @@ const hostedPluginCatalogSchema = z.object({
     .default([]),
 });
 
-async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
+export async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
   const response = await fetch("https://integrations.sh/api.json", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw new Error("The plugin catalog is unavailable.");
   const document = hostedPluginCatalogSchema.parse(await response.json());
-  return document.data
-    .flatMap((entry) => {
-      if (entry.kind !== "mcp" || !entry.slug || !entry.name || !entry.domain)
-        return [];
-      return [
-        {
-          id: entry.slug,
-          name: entry.name,
-          description:
-            entry.description?.trim() ??
-            `Connect ${entry.name} to your Chief agents.`,
-          category: entry.categories?.[0] ?? "Integration",
-          domain: entry.domain,
-          ...(entry.icon ? { iconUrl: entry.icon } : undefined),
-        },
-      ];
-    })
-    .slice(0, 60);
+  return document.data.flatMap((entry) => {
+    if (entry.kind !== "mcp" || !entry.slug || !entry.name || !entry.domain)
+      return [];
+    return [
+      {
+        id: entry.slug,
+        name: entry.name,
+        description:
+          entry.description?.trim() ??
+          `Connect ${entry.name} to your Chief agents.`,
+        category: entry.categories?.[0] ?? "Integration",
+        domain: entry.domain,
+        ...(entry.icon ? { iconUrl: entry.icon } : undefined),
+      },
+    ];
+  });
 }
 
 function requiredString(input: JsonObject, key: string) {

@@ -1,6 +1,5 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-
 import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
