@@ -23,7 +23,7 @@ x-relay-environment: &relay-environment
   MINIFLARE_CACHE_DIR: /run/chief/miniflare
   # This label is query metadata, not a data-isolation boundary. The bundled
   # collector remains local to this Compose stack.
-  RELAY_DEPLOYMENT: ${RELAY_DEPLOYMENT:-local-development}
+  RELAY_DEPLOYMENT: ${RELAY_DEPLOYMENT:-local}
   RELAY_OTLP_ENDPOINT: ${RELAY_OTLP_ENDPOINT:-}
   RELAY_TELEMETRY_INCLUDE_CONTENT: ${RELAY_TELEMETRY_INCLUDE_CONTENT:-false}
   RELAY_TELEMETRY_MODE: ${RELAY_TELEMETRY_MODE:-errors}
