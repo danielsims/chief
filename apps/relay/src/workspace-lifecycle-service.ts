@@ -22,6 +22,10 @@ import {
   reconcileWorkspaceAgents,
 } from "./workspace-defaults";
 import {
+  externalAgentSnapshotRows,
+  reconcileExternalAgentSnapshot,
+} from "./workspace-external-agent-snapshot";
+import {
   delegationIncomplete,
   initialConversation,
   matchesBootstrapToken,
@@ -237,13 +241,20 @@ export class WorkspaceLifecycleService {
         "This workspace does not expose a managed snapshot.",
       );
     }
-    const reconciled = reconcileWorkspaceAgents(
+    const external = reconcileExternalAgentSnapshot(
       decodeWorkspaceSnapshot(workspace.snapshot_json),
+      externalAgentSnapshotRows(this.storage),
     );
-    if (reconciled.changed) {
+    const reconciled = reconcileWorkspaceAgents(external.snapshot);
+    const nextSnapshot = JSON.stringify(reconciled.snapshot);
+    if (
+      external.changed ||
+      reconciled.changed ||
+      nextSnapshot !== workspace.snapshot_json
+    ) {
       this.storage.sql.exec(
         "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
-        JSON.stringify(reconciled.snapshot),
+        nextSnapshot,
       );
     }
     return json(reconciled.snapshot);

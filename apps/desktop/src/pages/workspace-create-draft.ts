@@ -7,8 +7,10 @@ import {
 
 export type WorkspaceInferenceProvider = "opencode" | "vercelAiGateway" | null;
 export type WorkspaceHosting = "chief-cloud" | "self-hosted";
+export type WorkspaceCreateSurface = "create" | "hosting";
 
-const createDraftVersion = 5;
+const createDraftVersion = 6;
+export const WORKSPACE_CREATE_INFERENCE_STEP = 2;
 
 export interface CreateWorkspaceDraft {
   version: typeof createDraftVersion;
@@ -20,6 +22,8 @@ export interface CreateWorkspaceDraft {
   selectedApps: string[];
   hosting: WorkspaceHosting;
   relayUrl: string;
+  surface: WorkspaceCreateSurface;
+  vercelConnectionOpen: boolean;
 }
 
 export function createWorkspaceDraftKey(relayUrl: string, userId?: string) {
@@ -52,6 +56,8 @@ export function parseCreateWorkspaceDraft(
       !value.selectedApps.every((app) => isJsonString(app)) ||
       (value.hosting !== "chief-cloud" && value.hosting !== "self-hosted") ||
       !isJsonString(value.relayUrl) ||
+      (value.surface !== "create" && value.surface !== "hosting") ||
+      typeof value.vercelConnectionOpen !== "boolean" ||
       (value.provider !== undefined &&
         value.provider !== null &&
         value.provider !== "opencode" &&
@@ -72,6 +78,8 @@ export function parseCreateWorkspaceDraft(
       selectedApps: value.selectedApps,
       hosting: value.hosting,
       relayUrl: normalizedRelayUrl(value.relayUrl),
+      surface: value.surface,
+      vercelConnectionOpen: value.vercelConnectionOpen,
     };
   } catch {
     return null;

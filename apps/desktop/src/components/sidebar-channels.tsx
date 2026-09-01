@@ -42,7 +42,7 @@ import {
   isSidebarPinnedItem,
   placeSidebarPinnedItem,
   sidebarPinnedItemKey,
-  WORKSPACE_AGENT_IDENTITIES,
+  workspaceAgentIdentity,
 } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
 import { ChannelBrowserDialog } from "./channel-browser-dialog";
@@ -120,6 +120,7 @@ export function SidebarChannels({
   channelsNeedingUser,
   unreadChannelCounts,
   unreadDirectMessageCounts,
+  agents,
   onOpen,
   onOpenDirectMessage,
   onCreateChannel,
@@ -146,6 +147,7 @@ export function SidebarChannels({
   channelsNeedingUser: ReadonlySet<string>;
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
+  agents: readonly { id: string; name: string; role: string }[];
   onOpen: (
     channelId: WorkspaceChannelId,
     options?: { focusComposer?: boolean },
@@ -289,6 +291,9 @@ export function SidebarChannels({
                           key={sidebarPinnedItemKey(item)}
                           active={activeAgentId === item.id}
                           agentId={item.id}
+                          name={
+                            agents.find((agent) => agent.id === item.id)?.name
+                          }
                           compactAttention={compactAttention}
                           dragKind="sortable"
                           needsUser={directMessageAttentionTargets.has(item.id)}
@@ -436,6 +441,7 @@ export function SidebarChannels({
         onPinChange={setAgentPinned}
         pinnedAgentIds={pinnedAgentIds}
         unreadCounts={unreadDirectMessageCounts}
+        agents={agents}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
         {draggingItem ? (
@@ -444,7 +450,7 @@ export function SidebarChannels({
               <Hash size={14} strokeWidth={1.8} className="opacity-70" />
             ) : (
               <AgentAvatar
-                label={WORKSPACE_AGENT_IDENTITIES[draggingItem.id].name}
+                label={workspaceAgentIdentity(draggingItem.id, agents).name}
                 className="size-4"
               />
             )}
@@ -452,7 +458,7 @@ export function SidebarChannels({
               {draggingItem.kind === "channel"
                 ? (channels.find((channel) => channel.id === draggingItem.id)
                     ?.label ?? draggingItem.id)
-                : WORKSPACE_AGENT_IDENTITIES[draggingItem.id].name}
+                : workspaceAgentIdentity(draggingItem.id, agents).name}
             </span>
           </div>
         ) : null}

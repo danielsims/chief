@@ -5,6 +5,7 @@ import type { WorkspaceSubscription } from "@chief/relay-client";
 import type {
   ConversationEvent,
   ConversationMessage,
+  CreateNativeAgentCommand,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 import { agentIdSchema } from "@chief/relay-contracts";
@@ -15,8 +16,10 @@ import type {
   RuntimeMessageListener,
   RuntimeTransport,
 } from "./runtime-transport";
+import { hostedProviderModelsMessage } from "./hosted-provider-models";
 import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
-import { relayConversationId } from "./relay-channel-adapter";
+import { rememberRelayConversationId } from "./relay-channel-adapter";
+import { relayProjectSnapshots } from "./relay-project-presentation";
 import {
   relayAgentDefinitions,
   relayAgentPreferencesMessage,
@@ -72,11 +75,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.snapshot = snapshot;
     this.workspaceCursor = loadWorkspaceCursor(snapshot.id);
   }
-
   setStatusListener(listener: (status: RuntimeConnectionStatus) => void) {
     this.statusListener = listener;
   }
-
   connect() {
     this.closed = false;
     this.statusListener("connecting");
@@ -93,7 +94,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.recordError(parseRelayError(error));
       });
   }
-
   reconnectNow() {
     this.subscriptionGeneration += 1;
     this.captureAndCloseWorkspaceSubscription();
@@ -101,7 +101,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.connect();
     void this.ensureWorkspaceSubscription();
   }
-
   async startDirectMessage(agentId: string) {
     const result = await this.relay.startDirectMessage({
       kind: "agent",
@@ -110,7 +109,23 @@ export class RelayRuntimeClient implements RuntimeTransport {
     await this.listChats();
     return result.conversation.id;
   }
-
+  async removeAgent(agentId: string) {
+    await this.relay.removeAgent(agentId);
+    await this.refreshSnapshot();
+    await this.listChats();
+    this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
+    this.emit({
+      type: "projects",
+      workspaceId: this.snapshot.id,
+      projects: relayProjectSnapshots(this.snapshot.projects),
+    });
+    await this.listChannels();
+  }
+  async createNativeAgent(input: CreateNativeAgentCommand) {
+    await this.relay.createNativeAgent(input);
+    await this.refreshSnapshot();
+    this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
+  }
   send(message: ClientMessage) {
     void this.route(message).catch((error) => {
       const chatId = "chatId" in message ? message.chatId : undefined;
@@ -118,12 +133,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
       this.recordError(parseRelayError(error), chatId, requestId);
     });
   }
-
   subscribe(listener: RuntimeMessageListener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-
   destroy() {
     this.closed = true;
     this.subscriptionGeneration += 1;
@@ -131,7 +144,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.pendingWorkspaceSubscription = null;
     this.statusListener("disconnected");
   }
-
   private async route(message: ClientMessage) {
     if (this.closed) return;
     if (
@@ -163,6 +175,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.emit(
           await relayAgentPreferencesMessage(this.relay, this.snapshot),
         );
+        return;
+      case "listModels":
+        this.emit(await hostedProviderModelsMessage(message.driver));
         return;
       case "saveAgentPreference":
         await saveRelayAgentPreference(this.relay, this.snapshot, message);
@@ -203,11 +218,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
         return;
     }
   }
-
   private async refreshSnapshot() {
     this.snapshot = await this.relay.activeWorkspace();
   }
-
   private async listChannels() {
     const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
       this.relay,
@@ -228,7 +241,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     await this.ensureWorkspaceSubscription();
   }
-
   private async createChannel(
     message: Extract<ClientMessage, { type: "createChannel" }>,
   ) {
@@ -422,6 +434,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.workspaceSubscription.close();
     this.workspaceSubscription = null;
   }
+
   private async appendMessage(
     message: Extract<ClientMessage, { type: "sendMessage" }>,
   ) {
@@ -439,9 +452,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
       message: toChiefMessage(result.message),
     });
   }
+
   private rememberMessage(message: ConversationMessage) {
     this.messagesById.set(message.id, message);
   }
+
   private async toggleReaction(
     message: Extract<ClientMessage, { type: "reactToChannelMessage" }>,
   ) {
@@ -474,7 +489,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private emit(message: ServerMessage) {
     for (const listener of this.listeners) listener(message);
   }
-
   private recordError(error: Error, chatId?: string, requestId?: string) {
     console.error("[Chief relay] Runtime request failed", error);
     this.emit(relayRuntimeErrorMessage(error, chatId, requestId));
@@ -484,11 +498,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
     chatId: string,
     explicitConversationId?: string,
   ) {
-    const resolved =
-      explicitConversationId ??
-      this.conversationIdsByChat.get(chatId) ??
-      relayConversationId(chatId);
-    this.conversationIdsByChat.set(chatId, resolved);
-    return resolved;
+    return rememberRelayConversationId(
+      this.conversationIdsByChat,
+      chatId,
+      explicitConversationId,
+    );
   }
 }

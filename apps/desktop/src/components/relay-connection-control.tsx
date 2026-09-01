@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@chief/ui/components/popover";
 
+import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   CHIEF_CLOUD_AUTH_BASE_URL,
@@ -123,10 +124,15 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
     authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
     authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
   };
+  const connectedRelayUrls = new Set(
+    connectedRelayIdentities().map((identity) => identity.relayUrl),
+  );
   const savedRelays = [
     chiefCloud,
     ...knownRelayConnections().filter(
-      (connection) => connection.relayUrl !== chiefCloud.relayUrl,
+      (connection) =>
+        connection.relayUrl !== chiefCloud.relayUrl &&
+        connectedRelayUrls.has(connection.relayUrl),
     ),
   ];
   const [showsSelfHosted, setShowsSelfHosted] = useState(USING_CUSTOM_RELAY);
@@ -136,10 +142,6 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
 
   const connect = async (connection: (typeof savedRelays)[number]) => {
     if (working) return;
-    if (connection.relayUrl === new URL(RELAY_URL).origin) {
-      onDone?.();
-      return;
-    }
     setWorking(true);
     setError(null);
     try {
@@ -164,11 +166,6 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
         relayUrl,
         isTauri() ? tauriFetch : fetch,
       );
-      const nextRelay = connection.relayUrl;
-      if (nextRelay === RELAY_URL && USING_CUSTOM_RELAY) {
-        onDone?.();
-        return;
-      }
       await connectRelay(connection);
       onDone?.();
     } catch (caught) {
@@ -207,11 +204,9 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
                   <span className="block text-sm">
                     {cloud ? "Chief Cloud" : new URL(connection.relayUrl).host}
                   </span>
-                  {cloud ? (
-                    <span className="text-muted-foreground block truncate text-xs">
-                      Managed by Chief
-                    </span>
-                  ) : null}
+                  <span className="text-muted-foreground block truncate text-xs">
+                    {cloud ? "Managed by Chief" : "Self hosted"}
+                  </span>
                 </span>
                 {active ? (
                   <Check className="text-muted-foreground size-4 shrink-0" />

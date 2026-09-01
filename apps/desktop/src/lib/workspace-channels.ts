@@ -82,9 +82,30 @@ export const WORKSPACE_AGENT_IDENTITIES = {
   engineer: { name: "Engineer", role: "Product Engineering", color: "#fa9c57" },
 } as const;
 
-export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
+export type WorkspaceAgentId = string;
+export type StaticWorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
 
-export function isWorkspaceAgentId(value: string): value is WorkspaceAgentId {
+export interface WorkspaceAgentIdentity {
+  name: string;
+  role: string;
+  color?: string;
+}
+
+export function workspaceAgentIdentity(
+  agentId: string,
+  agents: readonly { id: string; name: string; role: string }[] = [],
+): WorkspaceAgentIdentity {
+  const runtime = agents.find((agent) => agent.id === agentId);
+  if (runtime) return runtime;
+  const known = Object.entries(WORKSPACE_AGENT_IDENTITIES).find(
+    ([id]) => id === agentId,
+  )?.[1];
+  return known ?? { name: agentId, role: "Agent" };
+}
+
+export function isWorkspaceAgentId(
+  value: string,
+): value is StaticWorkspaceAgentId {
   return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
 }
 
@@ -102,11 +123,7 @@ export function isSidebarPinnedItem(
   const item = parseJsonObject(value);
   if (!item) return false;
   if (!isJsonString(item.id)) return false;
-  return (
-    item.kind === "channel" ||
-    (item.kind === "agent" &&
-      Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, item.id))
-  );
+  return item.kind === "channel" || item.kind === "agent";
 }
 
 export const WORKSPACE_DIRECT_MESSAGES = [
@@ -201,10 +218,15 @@ export function resolvedChannelChatId(
   return chats.some((chat) => chat.id === legacy) ? legacy : scoped;
 }
 
-export function workspaceDirectMessage(agentId: string | null) {
-  return (
-    WORKSPACE_DIRECT_MESSAGES.find((message) => message.id === agentId) ?? null
-  );
+export function workspaceDirectMessage(
+  agentId: string | null,
+  agents: readonly { id: string }[] = [],
+) {
+  if (!agentId) return null;
+  return WORKSPACE_DIRECT_MESSAGES.some((message) => message.id === agentId) ||
+    agents.some((agent) => agent.id === agentId)
+    ? { id: agentId }
+    : null;
 }
 
 export function directMessageChatId(
@@ -217,11 +239,17 @@ export function directMessageChatId(
 export function directMessageAgentIdFromChatId(chatId: string | null) {
   if (!chatId?.startsWith("dm:")) return null;
   const agentId = chatId.slice(chatId.lastIndexOf(":") + 1);
-  return isWorkspaceAgentId(agentId) ? agentId : null;
+  return agentId || null;
 }
 
 export function directMessageIdsForChats() {
   return WORKSPACE_DIRECT_MESSAGES.map((message) => message.id);
+}
+
+export function directMessageIdsForAgents(agents: readonly { id: string }[]) {
+  return agents.length > 0
+    ? agents.map((agent) => agent.id)
+    : directMessageIdsForChats();
 }
 
 export function directMessageChatForAgent<Chat extends { agent: string }>(

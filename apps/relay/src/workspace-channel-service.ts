@@ -53,20 +53,27 @@ export class WorkspaceChannelService {
       );
     }
     const now = new Date().toISOString();
-    this.store.storage.transactionSync(() => {
-      const existing = firstRow<ChannelRow>(
-        this.store.storage.sql.exec(
-          "SELECT conversation_id FROM channels WHERE conversation_id = ?",
-          command.payload.conversationId,
-        ),
-      );
-      if (existing) {
-        throw new HttpError(
-          409,
-          "channel_already_exists",
-          "A channel with that id already exists.",
-        );
+    const existing = firstRow<ChannelRow>(
+      this.store.storage.sql.exec(
+        "SELECT * FROM channels WHERE conversation_id = ?",
+        command.payload.conversationId,
+      ),
+    );
+    if (existing) {
+      const matches =
+        existing.kind === "channel" &&
+        existing.name === command.payload.name &&
+        Number(existing.is_private) === (command.payload.isPrivate ? 1 : 0);
+      if (matches) {
+        return json(this.store.channelDetail(command.payload.conversationId));
       }
+      throw new HttpError(
+        409,
+        "channel_already_exists",
+        "A different channel already uses that id.",
+      );
+    }
+    this.store.storage.transactionSync(() => {
       this.store.storage.sql.exec(
         `INSERT INTO channels (
           conversation_id, workspace_id, name, kind, is_private, archived, description,

@@ -16,6 +16,7 @@ import type { MemberRow, WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
+import { requireNativeAgent } from "./workspace-agent-runtime";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -108,6 +109,7 @@ export class WorkspaceAccessService {
       );
     }
     const input = registerAgentKeyCommandSchema.parse(await parseJson(request));
+    requireNativeAgent(this.storage, input.agentId);
     const existingAgent = firstRow<AgentKeyRow>(
       this.storage.sql.exec(
         "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE agent_id = ?",

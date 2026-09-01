@@ -1,4 +1,7 @@
-import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type {
+  StaticWorkspaceAgentId,
+  WorkspaceAgentId,
+} from "../../lib/workspace-channels";
 import {
   isWorkspaceAgentId,
   WORKSPACE_AGENT_IDENTITIES,
@@ -28,7 +31,7 @@ const AGENT_IDS_BY_NAME = new Map(
       identity.name,
       agentId,
       ...(agentId === "brand" ? ["Brand"] : []),
-    ].map((name): [string, WorkspaceAgentId] => [
+    ].map((name): [string, StaticWorkspaceAgentId] => [
       name.toLocaleLowerCase(),
       agentId,
     ]);

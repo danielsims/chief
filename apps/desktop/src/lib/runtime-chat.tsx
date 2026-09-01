@@ -13,6 +13,7 @@ import { useAuth } from "./auth/auth-context";
 /** Durable NIP-29 events for channel timelines and message search. */
 import { useChannelEvents } from "./runtime-channels";
 import {
+  controlsForConversation,
   emptyChatControls,
   reduceChatControls,
   replayChatControls,
@@ -446,6 +447,11 @@ export function useRuntimeChat(
 
   const activeChatKey =
     cloudOrganizationId && chatId ? `${cloudOrganizationId}:${chatId}` : null;
+  const activeControls = controlsForConversation(
+    controls,
+    initializedChatKeyRef.current,
+    activeChatKey,
+  );
   const activeChatReady =
     Boolean(activeChatKey) &&
     (messagesChatKey === activeChatKey
@@ -474,7 +480,7 @@ export function useRuntimeChat(
 
   return {
     messages: visibleMessages,
-    controls,
+    controls: activeControls,
     dismissError,
     sendMessage,
     sendMessageWithContext,

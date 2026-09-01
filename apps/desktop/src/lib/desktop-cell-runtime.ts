@@ -14,10 +14,12 @@ export async function ensureDesktopCells(
 ) {
   if (!shouldStartDesktopCells(snapshot.runtime) || !isTauri()) return;
   const configurations = await Promise.all(
-    snapshot.agents.map(async (agent) => {
-      const configuration = await workspace.loadAgentConfig(agent.id);
-      return { agentId: agent.id, config: configuration.config };
-    }),
+    snapshot.agents
+      .filter((agent) => agent.runtime.kind === "native-cell")
+      .map(async (agent) => {
+        const configuration = await workspace.loadAgentConfig(agent.id);
+        return { agentId: agent.id, config: configuration.config };
+      }),
   );
   const agents = await Promise.all(
     configurations

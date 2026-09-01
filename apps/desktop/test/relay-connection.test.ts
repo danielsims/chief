@@ -5,9 +5,40 @@ import { isJsonString } from "@chief/relay-contracts";
 
 import { parseOrganizationInvitationUrl } from "../src/lib/organization-invitation";
 import {
+  forgetRelayConnection,
+  knownRelayConnections,
+  rememberRelayConnection,
   resolveRelayConnection,
   validateRelayConnection,
 } from "../src/lib/relay-connection";
+
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
+
+  get length() {
+    return this.values.size;
+  }
+
+  clear() {
+    this.values.clear();
+  }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number) {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+}
 
 void test("discovers the account issuer for a self-hosted relay", async () => {
   const connection = await validateRelayConnection(
@@ -142,6 +173,34 @@ void test("resolves both cloud and custom relay sessions for workspace switching
     resolveRelayConnection(custom.relayUrl, [custom], cloud),
     custom,
   );
+});
+
+void test("forgetting a self-hosted relay removes it from the connection list", () => {
+  const previous = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: new MemoryStorage(),
+  });
+  const connection = {
+    version: 1 as const,
+    relayUrl: "http://localhost:8080",
+    authBaseUrl: "http://localhost:8080",
+    authUiUrl: "http://localhost:8080",
+  };
+
+  try {
+    rememberRelayConnection(connection);
+    assert.deepEqual(knownRelayConnections(), [connection]);
+
+    forgetRelayConnection(connection.relayUrl);
+
+    assert.deepEqual(knownRelayConnections(), []);
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: previous,
+    });
+  }
 });
 
 void test("organization invitations retain their foreign relay boundary", () => {

@@ -81,6 +81,9 @@ void test("routes createChannel through the relay and emits the created channel"
     createProject() {
       throw new Error("not used in this test");
     },
+    createNativeAgent() {
+      throw new Error("not used in this test");
+    },
     listChannelMembers() {
       throw new Error("not used in this test");
     },
@@ -106,6 +109,9 @@ void test("routes createChannel through the relay and emits the created channel"
       throw new Error("not used in this test");
     },
     reactToMessage() {
+      throw new Error("not used in this test");
+    },
+    removeAgent() {
       throw new Error("not used in this test");
     },
     registerAgentKey() {

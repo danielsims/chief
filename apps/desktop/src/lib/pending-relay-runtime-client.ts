@@ -33,6 +33,18 @@ export class PendingRelayRuntimeClient implements RuntimeTransport {
     );
   }
 
+  removeAgent() {
+    return Promise.reject(
+      new Error(this.error ?? "The Chief relay is still connecting."),
+    );
+  }
+
+  createNativeAgent() {
+    return Promise.reject(
+      new Error(this.error ?? "The Chief relay is still connecting."),
+    );
+  }
+
   send() {
     for (const listener of this.listeners) {
       listener({

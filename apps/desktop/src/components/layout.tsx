@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Outlet, useLocation } from "react-router";
@@ -27,7 +28,13 @@ function readSidebarOpen() {
   return window.localStorage.getItem("chief:sidebar-open") !== "false";
 }
 
-export function Layout() {
+export function Layout({
+  children,
+  workspaceNavigationAvailable = true,
+}: {
+  children?: ReactNode;
+  workspaceNavigationAvailable?: boolean;
+}) {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const overview = location.pathname === "/";
@@ -37,7 +44,9 @@ export function Layout() {
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
   const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(true);
-  const activeSidebarOpen = settings ? settingsSidebarOpen : sidebarOpen;
+  const activeSidebarOpen =
+    workspaceNavigationAvailable &&
+    (settings ? settingsSidebarOpen : sidebarOpen);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -88,6 +97,7 @@ export function Layout() {
             hasWorkspaceRail={isAuthenticated}
             sidebarOpen={activeSidebarOpen}
             onToggleSidebar={toggleActiveSidebar}
+            canToggleSidebar={workspaceNavigationAvailable}
           />
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
             {activeSidebarOpen ? (
@@ -128,7 +138,7 @@ export function Layout() {
                   overview && "overflow-hidden px-8 pb-8",
                 )}
               >
-                <Outlet />
+                {children ?? <Outlet />}
               </div>
             </WorkspaceContentSurface>
           </div>

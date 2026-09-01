@@ -16,10 +16,57 @@ export interface RelaySessionState {
   error: string | null;
 }
 
+export type RelayConnectionIntent = "foreground" | "background";
+
 export function beginWorkspaceTransition(
   state: RelaySessionState,
 ): RelaySessionState {
   return { ...state, client: null, loading: true, error: null };
+}
+
+export function beginRelayConnection(
+  state: RelaySessionState,
+  accountId: string,
+  intent: RelayConnectionIntent = "foreground",
+): RelaySessionState {
+  if (intent === "background" && state.accountId === accountId) {
+    return state;
+  }
+
+  if (state.accountId !== accountId) {
+    return {
+      accountId,
+      client: null,
+      snapshot: null,
+      workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
+      loading: true,
+      error: null,
+    };
+  }
+
+  return {
+    ...state,
+    loading: state.snapshot === null,
+    error: null,
+  };
+}
+
+export function failRelayConnection(
+  state: RelaySessionState,
+  accountId: string,
+  error: string,
+  intent: RelayConnectionIntent,
+): RelaySessionState {
+  if (intent === "background" && state.accountId === accountId) {
+    return state;
+  }
+
+  return {
+    ...state,
+    accountId,
+    loading: false,
+    error,
+  };
 }
 
 export function workspaceSummaryFromSnapshot(

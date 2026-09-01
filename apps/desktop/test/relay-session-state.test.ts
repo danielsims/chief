@@ -5,7 +5,9 @@ import { RelayClient } from "@chief/relay-client";
 import { workspaceSnapshotSchema } from "@chief/relay-contracts";
 
 import {
+  beginRelayConnection,
   beginWorkspaceTransition,
+  failRelayConnection,
   workspaceSummaryFromSnapshot,
 } from "../src/lib/relay-session-state.js";
 
@@ -41,6 +43,97 @@ void test("workspace transitions retain the current screen while loading", () =>
   assert.equal(state.error, null);
   assert.equal(state.snapshot, snapshot);
   assert.equal(state.client, null);
+});
+
+void test("a retry with only an account client stays behind the loading boundary", () => {
+  const client = new RelayClient({
+    relayUrl: "https://relay.example.com",
+    getAuthorization: () => Promise.resolve("authorization"),
+  });
+  const state = beginRelayConnection(
+    {
+      accountId: "account-one",
+      client,
+      snapshot: null,
+      workspaces: [],
+      loading: false,
+      error: "This relay is unavailable.",
+    },
+    "account-one",
+  );
+
+  assert.equal(state.loading, true);
+  assert.equal(state.error, null);
+  assert.equal(state.client, client);
+});
+
+void test("a background refresh keeps an available workspace visible", () => {
+  const client = new RelayClient({
+    relayUrl: "https://relay.example.com",
+    getAuthorization: () => Promise.resolve("authorization"),
+  });
+  const state = beginRelayConnection(
+    {
+      accountId: "account-one",
+      client,
+      snapshot,
+      workspaces: [],
+      loading: false,
+      error: null,
+    },
+    "account-one",
+    "background",
+  );
+
+  assert.equal(state.loading, false);
+  assert.equal(state.snapshot, snapshot);
+});
+
+void test("a background refresh does not remount workspace creation", () => {
+  const client = new RelayClient({
+    relayUrl: "https://relay.example.com",
+    getAuthorization: () => Promise.resolve("authorization"),
+  });
+  const current = {
+    accountId: "account-one",
+    client,
+    snapshot: null,
+    workspaces: [],
+    loading: false,
+    error: null,
+  };
+
+  const state = beginRelayConnection(current, "account-one", "background");
+
+  assert.equal(state, current);
+  assert.equal(state.loading, false);
+  assert.equal(state.client, client);
+});
+
+void test("a failed background refresh preserves the visible application", () => {
+  const client = new RelayClient({
+    relayUrl: "https://relay.example.com",
+    getAuthorization: () => Promise.resolve("authorization"),
+  });
+  const current = {
+    accountId: "account-one",
+    client,
+    snapshot: null,
+    workspaces: [],
+    loading: false,
+    error: null,
+  };
+
+  const state = failRelayConnection(
+    current,
+    "account-one",
+    "This relay is unavailable.",
+    "background",
+  );
+
+  assert.equal(state, current);
+  assert.equal(state.error, null);
+  assert.equal(state.loading, false);
 });
 
 void test("a workspace snapshot produces directory metadata", () => {

@@ -179,9 +179,19 @@ export class AgentObject extends DurableObject<Env> {
         return yield* attempt("agent.job.list", () => queue.list(context));
       }
       if (request.method === "POST" && path.endsWith("/retry")) {
-        return yield* attempt("agent.job.retry", () =>
+        const response = yield* attempt("agent.job.retry", () =>
           queue.retry(request, context),
         );
+        const result = yield* attempt("agent.job.retry.decode", () =>
+          response.clone().json(),
+        );
+        const job = yield* sync(
+          "agent.job.retry.validate",
+          () => enqueuedAgentJobSchema.parse(result).job,
+        );
+        yield* runtime.resetRetriedTurn(job.id);
+        yield* runtime.scheduleNextAlarm();
+        return response;
       }
       if (request.method === "POST" && path.endsWith("/socket-tickets")) {
         return yield* attempt("agent.socket_ticket.create", () =>

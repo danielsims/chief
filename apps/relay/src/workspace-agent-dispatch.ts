@@ -5,8 +5,10 @@ import {
   agentIdSchema,
   channelMemberAddCommandSchema,
   conversationMessageSchema,
+  externalAgentDeliveryCommandSchema,
 } from "@chief/relay-contracts";
 
+import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -87,12 +89,37 @@ export async function dispatchWorkspaceMessage(
   );
   const threadRootId = owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
+  const externalAgents = new ExternalAgentChannelService(storage, env);
 
   await Promise.all(
     agentIds.map(async (agentId) => {
       const id = await deterministicUuid(
         `${context.workspaceId}:${message.id}:${agentId}:conversation-message`,
       );
+      const deliveredExternally = await externalAgents.enqueue(
+        context.workspaceId,
+        agentId,
+        externalAgentDeliveryCommandSchema.parse({
+          commandId: id,
+          protocolVersion: 1,
+          occurredAt: now,
+          payload: {
+            deliveryId: id,
+            continuation: {
+              capability: "placeholder-capability-replaced-by-workspace",
+            },
+            message: {
+              id: message.id,
+              body: message.body,
+              author: message.author,
+              createdAt: message.createdAt,
+            },
+          },
+        }),
+        message.conversationId,
+        threadRootId,
+      );
+      if (deliveredExternally) return;
       const command = {
         commandId: id,
         protocolVersion: 1,

@@ -23,8 +23,8 @@ import {
   listManagedWorkspaces,
   switchManagedWorkspace,
 } from "../src/workspace-authority";
+import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "../src/workspace-onboarding-job";
 import { hexKey } from "./helpers";
-import { performChiefDelegation } from "./managed-workspace-test-helpers";
 
 type RelayTestEnvironment = Parameters<typeof createManagedWorkspace>[0];
 
@@ -302,12 +302,6 @@ describe("managed workspace onboarding", () => {
       );
       expect(response.status).toBe(200);
     }
-    const delegation = await performChiefDelegation({
-      relay,
-      workspace,
-      workspaceId: snapshot.id,
-      chief,
-    });
     const agent = relay.AGENTS.get(
       relay.AGENTS.idFromName(`${snapshot.id}:chief`),
     );
@@ -350,12 +344,7 @@ describe("managed workspace onboarding", () => {
             outcome: {
               status: "completed",
               result: {
-                openingMessage: delegation.openingMessage,
-                publishedMessage: {
-                  conversationId: "mission-control",
-                  body: delegation.openingMessage,
-                  components: delegation.components,
-                },
+                openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE,
               },
             },
           }),
@@ -398,7 +387,7 @@ describe("managed workspace onboarding", () => {
     expect(leaseBody).toMatchObject({
       job: { kind: "workspace.onboarding", agentId: "chief" },
     });
-    expect(completed.status).toBe(200);
+    expect(completed.status, await completed.clone().text()).toBe(200);
     expect(finalizedSnapshot.onboardingComplete).toBe(true);
     expect(finalizedSnapshot.agents).toContainEqual(
       expect.objectContaining({ id: "chief", status: "idle" }),
@@ -407,10 +396,12 @@ describe("managed workspace onboarding", () => {
       id: "mission-control",
       lastMessage: expect.stringContaining("@Setup"),
     });
-    expect(messagePage.messages[0]).toMatchObject({
-      author: { kind: "agent", id: "chief" },
-      body: delegation.openingMessage,
-    });
+    expect(messagePage.messages).toContainEqual(
+      expect.objectContaining({
+        author: { kind: "agent", id: "chief" },
+        body: WORKSPACE_ONBOARDING_OPENING_MESSAGE,
+      }),
+    );
     expect(messagePage.messages).toHaveLength(6);
   });
 
