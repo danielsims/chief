@@ -279,7 +279,7 @@ actor ChiefAgentHost: ChiefAgentHosting {
           Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Every browser action requires an activityLabel: write a specific two-to-five-word present-tense label, no more than 48 characters, describing the visible purpose of that action. Never put secrets or typed values in it. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
 
           Authoritative workspace context from onboarding:
-          \(workspaceContext.systemPrompt)
+          \(workspaceContext.systemPrompt(for: agentID))
 
           Conversation boundary: your final text is automatically published
           back into the owning conversation (\(conversationID)). Do not call

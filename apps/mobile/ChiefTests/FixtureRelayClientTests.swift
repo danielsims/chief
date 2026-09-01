@@ -5,6 +5,7 @@ final class FixtureRelayClientTests: XCTestCase {
     func testFixturePersistsMessagesBeforeReturningThem() async throws {
         let relay = FixtureRelayClient()
         let message = try await relay.send(
+            messageID: "message-client-owned",
             body: "Ship it",
             workspaceID: "chief-demo",
             conversationID: "mission-control",
@@ -17,6 +18,7 @@ final class FixtureRelayClientTests: XCTestCase {
         )
 
         XCTAssertEqual(messages.last, message)
+        XCTAssertEqual(message.id, "message-client-owned")
         XCTAssertEqual(message.body, "Ship it")
     }
 }

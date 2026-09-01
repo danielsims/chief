@@ -257,6 +257,7 @@ private struct FailingRelay: RelayServing {
     -> [ConversationMessage]
   { throw error }
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
