@@ -8,18 +8,26 @@ import { withTrustedContext } from "./internal-context";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
+const workspaceVercelRoute =
+  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision)$/u;
+
 type VercelOperation = "connect" | "destinations" | "provision";
 
 export function routeWorkspaceVercel(
   env: Env,
   request: Request,
   requestId: string,
-  rawWorkspaceId: string | undefined,
-  operation: VercelOperation,
 ) {
   return Effect.gen(function* () {
+    const url = new URL(request.url);
+    const matched = workspaceVercelRoute.exec(url.pathname);
+    if (!matched) return undefined;
+    const operation = parseWorkspaceVercelOperation(matched[2]);
+    if (!operation) {
+      return relayError(404, "not_found", "Route not found.", requestId);
+    }
     const workspaceId = yield* sync("relay.workspace_vercel.scope", () =>
-      workspaceIdSchema.parse(decodeURIComponent(rawWorkspaceId ?? "")),
+      workspaceIdSchema.parse(decodeURIComponent(matched[1] ?? "")),
     );
     const expectedMethod = operation === "destinations" ? "GET" : "POST";
     if (request.method !== expectedMethod) {
@@ -54,4 +62,17 @@ export function routeWorkspaceVercel(
       ),
     );
   }).pipe(Effect.withSpan("relay.workspace_vercel"));
+}
+
+function parseWorkspaceVercelOperation(
+  value: string | undefined,
+): VercelOperation | undefined {
+  if (
+    value === "connect" ||
+    value === "destinations" ||
+    value === "provision"
+  ) {
+    return value;
+  }
+  return undefined;
 }

@@ -15,6 +15,7 @@ export function relayDiscovery(request: Request, url: URL, env: Env) {
       "conversations",
       "durable-agents",
       "projects",
+      "git",
       "artifacts",
       "logs",
     ],

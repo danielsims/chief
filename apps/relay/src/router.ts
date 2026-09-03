@@ -34,6 +34,7 @@ import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
+import { routeWorkspaceGit } from "./router-workspace-git";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import { routeWorkspaceVercel } from "./router-workspace-vercel";
 import {
@@ -72,8 +73,6 @@ const workspaceInviteClaimRoute =
 const orgJoinRoute = /^\/v1\/workspaces\/([^/]+)\/organization-membership$/u;
 const workspaceLogoRoute = /^\/v1\/workspaces\/([^/]+)\/logo$/u;
 const workspaceSecretsRoute = /^\/v1\/workspaces\/([^/]+)\/secrets$/u;
-const workspaceVercelRoute =
-  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision)$/u;
 
 export async function routeRelayRequest(
   request: Request,
@@ -215,6 +214,10 @@ function routeWorkspaceRequest(
     const url = new URL(request.url);
     const onboarding = yield* routeOnboardingTelemetry(env, request, requestId);
     if (onboarding) return onboarding;
+    const git = yield* routeWorkspaceGit(env, request, requestId);
+    if (git) return git;
+    const vercel = yield* routeWorkspaceVercel(env, request, requestId);
+    if (vercel) return vercel;
     if (
       url.pathname === "/v1/me/avatar" &&
       (request.method === "POST" || request.method === "DELETE")
@@ -443,33 +446,8 @@ function routeWorkspaceRequest(
     if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
       return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);
     }
-    const vercel = workspaceVercelRoute.exec(url.pathname);
-    if (vercel) {
-      const operation = parseWorkspaceVercelOperation(vercel[2]);
-      if (!operation) {
-        return relayError(404, "not_found", "Route not found.", requestId);
-      }
-      return yield* routeWorkspaceVercel(
-        env,
-        request,
-        requestId,
-        vercel[1],
-        operation,
-      );
-    }
     return yield* routeWorkspaceDataRequest(env, request, requestId, url);
   }).pipe(Effect.withSpan("relay.workspace"));
-}
-
-function parseWorkspaceVercelOperation(value: string | undefined) {
-  if (
-    value === "connect" ||
-    value === "destinations" ||
-    value === "provision"
-  ) {
-    return value;
-  }
-  return undefined;
 }
 
 async function routeConversationRequest(

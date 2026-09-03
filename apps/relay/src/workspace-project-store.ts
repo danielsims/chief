@@ -8,27 +8,19 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import type { ProjectRow } from "./workspace-project-git";
 import { HttpError, json, parseJson } from "./http";
-import { githubRepositoryIdentity } from "./project-repository";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import {
+  ensureProjectRepository,
+  firstRow,
+  normalizeProjectOwner,
+  serveProjectGit,
+} from "./workspace-project-git";
+
+export { chiefGitRepositoryFiles } from "./workspace-project-git";
 
 const SNAPSHOT_PROJECTS_MIGRATION = "snapshot-projects-v1";
-
-interface ProjectRow extends Record<string, SqlStorageValue> {
-  project_id: string;
-  agent_id: string | null;
-  name: string;
-  description: string | null;
-  repository_kind: "attached" | "cloned";
-  provider_id:
-    "local" | "generic-git" | "github" | "chief-git" | "gitlab" | "bitbucket";
-  canonical_remote_url: string | null;
-  repository_web_url: string | null;
-  repository_files_json: string | null;
-  default_branch: string;
-  created_at: string;
-  updated_at: string;
-}
 
 export function initializeWorkspaceProjects(storage: DurableObjectStorage) {
   storage.sql.exec(`
@@ -101,6 +93,13 @@ export async function routeWorkspaceProjects(
   if (operation === "data-project-delete") {
     return deleteProject(storage, request, workspaceId);
   }
+  if (
+    operation === "git-info-refs" ||
+    operation === "git-upload-pack" ||
+    operation === "git-receive-pack"
+  ) {
+    return await serveProjectGit(storage, request, operation);
+  }
   return null;
 }
 
@@ -148,9 +147,9 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
           );
         });
     if (!agent) continue;
-    const description = agent.description?.trim() ?? agent.role;
+    const description = agent.description.trim();
     const instructions =
-      agent.instructions?.trim() ?? `# ${agent.role}\n\n${description}`;
+      agent.instructions.trim() || `# ${agent.role}\n\n${description}`;
     const files = [
       {
         path: "README.md",
@@ -207,6 +206,7 @@ export function saveAgentProjectFiles(
     name: string;
     description: string;
     files: readonly { path: string; contents: string }[];
+    canonicalRemoteUrl: string;
   },
 ) {
   migrateSnapshotProjects(storage, workspaceId);
@@ -223,11 +223,14 @@ export function saveAgentProjectFiles(
   if (existing) {
     storage.sql.exec(
       `UPDATE projects
-       SET name = ?, description = ?, provider_id = ?, repository_files_json = ?, updated_at = ?
+       SET name = ?, description = ?, provider_id = ?, canonical_remote_url = ?,
+           repository_web_url = ?, repository_files_json = ?, updated_at = ?
        WHERE project_id = ?`,
       input.name,
       input.description,
       "chief-git",
+      input.canonicalRemoteUrl,
+      input.canonicalRemoteUrl.replace(/\.git$/u, ""),
       repositoryFiles,
       now,
       existing.project_id,
@@ -245,14 +248,21 @@ export function saveAgentProjectFiles(
       input.description,
       "cloned",
       "chief-git",
-      null,
-      null,
+      input.canonicalRemoteUrl,
+      input.canonicalRemoteUrl.replace(/\.git$/u, ""),
       repositoryFiles,
       "main",
       now,
       now,
     );
   }
+  const saved = firstRow<ProjectRow>(
+    storage.sql.exec(
+      "SELECT * FROM projects WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
+      input.agentId,
+    ),
+  );
+  if (saved) ensureProjectRepository(storage, saved);
   syncSnapshotProjects(storage, workspaceId);
 }
 
@@ -307,6 +317,7 @@ async function createProject(
   const row = firstRow<ProjectRow>(
     storage.sql.exec("SELECT * FROM projects WHERE project_id = ?", id),
   );
+  if (row) ensureProjectRepository(storage, row);
   if (!row) throw new Error("Created project could not be read back.");
   ensureProjectRepository(storage, row);
   return json(
@@ -466,43 +477,4 @@ export function projectIdsOwnedByAgent(
       );
     })
     .map((project) => project.project_id);
-}
-
-function ensureProjectRepository(
-  storage: DurableObjectStorage,
-  project: ProjectRow,
-) {
-  if (!project.canonical_remote_url) return;
-  const github = githubRepositoryIdentity(project.canonical_remote_url);
-  const provider = github
-    ? { id: "github", identity: `${github.owner}/${github.name}` }
-    : project.provider_id === "chief-git"
-      ? { id: "chief-git", identity: project.project_id }
-      : null;
-  if (!provider) return;
-  storage.sql.exec(
-    `INSERT OR IGNORE INTO project_repositories (
-      repository_id, project_id, provider_id, canonical_remote_url,
-      provider_repository_id, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    crypto.randomUUID(),
-    project.project_id,
-    provider.id,
-    project.canonical_remote_url,
-    provider.identity,
-    project.created_at,
-  );
-}
-
-function normalizeProjectOwner(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-|-$/gu, "");
-}
-
-function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  const next = cursor[Symbol.iterator]().next();
-  return next.done ? undefined : next.value;
 }

@@ -5,6 +5,7 @@ export const relayCapabilitySchema = z.enum([
   "conversations",
   "durable-agents",
   "projects",
+  "git",
   "artifacts",
   "logs",
 ]);
