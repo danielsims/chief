@@ -92,16 +92,33 @@ async function waitForHealth({ child, output, port, token }) {
 }
 
 async function stopChild(child) {
-  if (child.exitCode !== null) return;
+  if (childHasStopped(child)) return;
+  const gracefulExit = waitForChildExit(child, 2_000);
   child.kill("SIGTERM");
-  const exited = await Promise.race([
-    new Promise((resolveExit) => child.once("exit", () => resolveExit(true))),
-    new Promise((resolveTimeout) =>
-      setTimeout(() => resolveTimeout(false), 2_000),
-    ),
-  ]);
-  if (!exited && child.exitCode === null) {
-    child.kill("SIGKILL");
-    await new Promise((resolveExit) => child.once("exit", resolveExit));
+  if (await gracefulExit) return;
+
+  const forcedExit = waitForChildExit(child, 2_000);
+  child.kill("SIGKILL");
+  if (!(await forcedExit)) {
+    throw new Error("The packaged plugin host did not stop cleanly.");
   }
+}
+
+function childHasStopped(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (childHasStopped(child)) return Promise.resolve(true);
+  return new Promise((resolveExit) => {
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const finish = (exited) => {
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolveExit(exited || childHasStopped(child));
+    };
+    child.once("exit", onExit);
+    if (childHasStopped(child)) finish(true);
+  });
 }
