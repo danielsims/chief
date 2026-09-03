@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Vercel } from "@lobehub/icons";
-import { CircleAlert, Laptop, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
-import type { DriverType } from "@chief/agent-runtime/types";
+import type { AgentDefinition } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -15,45 +14,59 @@ import {
 } from "@chief/ui/components/select";
 
 import type {
-  AgentDeployment,
   AgentExecution,
   NativeDeployment,
   NativeExecutionDraft,
 } from "../../lib/agent-execution";
-import type { Provider } from "../../lib/providers";
 import { selectDeployment } from "../../lib/agent-execution";
 import { PROVIDER_META } from "../../lib/providers";
 import { useProviderModels } from "../../lib/runtime";
-import { ChiefMark } from "../chief-mark";
 import {
   nativeProvidersForDeployment,
   verifyEveConnectionWithRetry,
 } from "./agent-connection-model";
+import {
+  AgentEveDeploymentPanel,
+  hasEveDeploymentDraft,
+} from "./agent-eve-deployment-panel";
+import {
+  AgentExecutionError,
+  deploymentKey,
+  DeploymentOption,
+  executionDescription,
+  isDeploymentKind,
+  isProvider,
+  modelForProvider,
+  ProviderOption,
+} from "./agent-execution-options";
 
 export function AgentExecutionCard({
-  agentId,
-  agentName,
+  agent,
   execution,
   ready,
   saving,
   error,
   onApply,
   onApplyToTeam,
-  externalAgentClient,
+  relayClient,
   onExternalAgentChanged,
 }: {
-  agentId: string;
-  agentName: string;
+  agent: AgentDefinition;
   execution: AgentExecution;
   ready: boolean;
   saving: boolean;
   error: string | null;
   onApply: (draft: NativeExecutionDraft) => void;
   onApplyToTeam: (draft: NativeExecutionDraft) => void;
-  externalAgentClient?: RelayClient["externalAgents"] | null;
+  relayClient?: RelayClient | null;
   onExternalAgentChanged?: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<NativeExecutionDraft | null>(null);
+  const [deployingToEve, setDeployingToEve] = useState(() =>
+    hasEveDeploymentDraft(agent.id),
+  );
+  const agentId = agent.id;
+  const agentName = agent.name;
   const nativeDeployment: NativeDeployment | null =
     execution.deployment.kind === "vercel-eve" ? null : execution.deployment;
   const configured =
@@ -70,7 +83,7 @@ export function AgentExecutionCard({
         agentName={agentName}
         agentId={agentId}
         connectionStatus={execution.deployment.connectionStatus}
-        client={externalAgentClient ?? null}
+        client={relayClient?.externalAgents ?? null}
         onChanged={onExternalAgentChanged}
       />
     );
@@ -101,19 +114,27 @@ export function AgentExecutionCard({
         <div>
           <p className="text-[13px] font-medium">Runtime and model</p>
           <p className="text-muted-foreground mt-0.5 text-[12px] leading-5 font-normal">
-            {executionDescription({
-              agentName,
-              deployment: selectedDeployment,
-              provider: meta?.label,
-            })}
+            {deployingToEve
+              ? `${agentName} will run in Vercel Eve and connect through the Chief relay.`
+              : executionDescription({
+                  agentName,
+                  deployment: selectedDeployment,
+                  provider: meta?.label,
+                })}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            value={selectedDeployment.kind}
+            value={deployingToEve ? "vercel-eve" : selectedDeployment.kind}
             disabled={!ready}
             onValueChange={(value) => {
+              if (value === "vercel-eve") {
+                setDraft(null);
+                setDeployingToEve(true);
+                return;
+              }
               if (!isDeploymentKind(value)) return;
+              setDeployingToEve(false);
               const deployment = selectDeployment({
                 kind: value,
                 current: selectedDeployment,
@@ -136,22 +157,29 @@ export function AgentExecutionCard({
             }}
           >
             <SelectTrigger className="bg-background/70 h-9 w-auto min-w-36 rounded-xl px-2.5 text-xs">
-              <DeploymentOption deployment={selectedDeployment} />
+              <DeploymentOption
+                deployment={
+                  deployingToEve
+                    ? {
+                        kind: "vercel-eve",
+                        connectionStatus: "pending_setup",
+                      }
+                    : selectedDeployment
+                }
+              />
             </SelectTrigger>
             <SelectContent className="min-w-40">
               <SelectGroup>
                 <SelectLabel>Runs on</SelectLabel>
-                {(["chief-cloud", "on-device"] as const).map((kind) => (
-                  <SelectItem key={kind} value={kind}>
-                    <DeploymentOption
-                      deployment={selectDeployment({
-                        kind,
-                        current: selectedDeployment,
-                      })}
-                    />
-                  </SelectItem>
-                ))}
-                <SelectItem value="vercel-eve" disabled>
+                <SelectItem value="chief-cloud">
+                  <DeploymentOption
+                    deployment={selectDeployment({
+                      kind: "chief-cloud",
+                      current: selectedDeployment,
+                    })}
+                  />
+                </SelectItem>
+                <SelectItem value="vercel-eve">
                   <DeploymentOption
                     deployment={{
                       kind: "vercel-eve",
@@ -159,45 +187,59 @@ export function AgentExecutionCard({
                     }}
                   />
                 </SelectItem>
+                <SelectItem value="on-device">
+                  <DeploymentOption
+                    deployment={selectDeployment({
+                      kind: "on-device",
+                      current: selectedDeployment,
+                    })}
+                  />
+                </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
-          <Select
-            value={selectedProvider ?? undefined}
-            disabled={!ready}
-            onValueChange={(value) => {
-              if (!isProvider(value)) return;
-              setDraft({
-                deployment: selectedDeployment,
-                provider: value,
-                model: modelForProvider(value, selectedProvider, selectedModel),
-              });
-            }}
-          >
-            <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
-              {meta ? (
-                <span className="flex items-center gap-2">
-                  <meta.Icon size={14} />
-                  {meta.label}
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Choose provider</span>
-              )}
-            </SelectTrigger>
-            <SelectContent className="min-w-40">
-              <SelectGroup>
-                <SelectLabel>Agent providers</SelectLabel>
-                {nativeProvidersForDeployment(selectedDeployment.kind).map(
-                  (provider) => (
-                    <SelectItem key={provider} value={provider}>
-                      <ProviderOption provider={provider} />
-                    </SelectItem>
+          {!deployingToEve ? (
+            <Select
+              value={selectedProvider ?? undefined}
+              disabled={!ready}
+              onValueChange={(value) => {
+                if (!isProvider(value)) return;
+                setDraft({
+                  deployment: selectedDeployment,
+                  provider: value,
+                  model: modelForProvider(
+                    value,
+                    selectedProvider,
+                    selectedModel,
                   ),
+                });
+              }}
+            >
+              <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
+                {meta ? (
+                  <span className="flex items-center gap-2">
+                    <meta.Icon size={14} />
+                    {meta.label}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Choose provider</span>
                 )}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {selectedProvider ? (
+              </SelectTrigger>
+              <SelectContent className="min-w-40">
+                <SelectGroup>
+                  <SelectLabel>Agent providers</SelectLabel>
+                  {nativeProvidersForDeployment(selectedDeployment.kind).map(
+                    (provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        <ProviderOption provider={provider} />
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : null}
+          {!deployingToEve && selectedProvider ? (
             <Select
               value={selectedModel}
               disabled={!ready || providerModels.loading}
@@ -235,6 +277,14 @@ export function AgentExecutionCard({
         />
       ) : null}
       {error ? <AgentExecutionError message={error} /> : null}
+      {deployingToEve ? (
+        <AgentEveDeploymentPanel
+          agent={agent}
+          client={relayClient ?? null}
+          onCancel={() => setDeployingToEve(false)}
+          onDeployed={onExternalAgentChanged}
+        />
+      ) : null}
       {changed ? (
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
@@ -365,95 +415,4 @@ function ExternalAgentExecutionCard({
       ) : null}
     </div>
   );
-}
-
-function AgentExecutionError({ message }: { message: string }) {
-  return (
-    <div className="border-destructive/20 bg-destructive/5 mt-3 flex items-start gap-2.5 rounded-xl border px-3 py-2.5">
-      <CircleAlert size={14} className="text-destructive mt-0.5 shrink-0" />
-      <p className="text-muted-foreground text-[12px] leading-5 font-normal">
-        {message}
-      </p>
-    </div>
-  );
-}
-
-function ProviderOption({ provider }: { provider: Provider }) {
-  const { label, Icon } = PROVIDER_META[provider];
-  return (
-    <span className="flex items-center gap-2">
-      <Icon size={14} />
-      {label}
-    </span>
-  );
-}
-
-function DeploymentOption({ deployment }: { deployment: AgentDeployment }) {
-  if (deployment.kind === "chief-cloud") {
-    return (
-      <span className="flex items-center gap-2">
-        <ChiefMark className="size-3.5" />
-        Chief relay
-      </span>
-    );
-  }
-  if (deployment.kind === "vercel-eve") {
-    return (
-      <span className="flex items-center gap-2">
-        <Vercel size={14} />
-        Vercel Eve
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-2">
-      <Laptop size={14} />
-      On device
-    </span>
-  );
-}
-
-function executionDescription({
-  agentName,
-  deployment,
-  provider,
-}: {
-  agentName: string;
-  deployment: NativeDeployment;
-  provider?: string;
-}) {
-  const location =
-    deployment.kind === "chief-cloud"
-      ? "through the Chief relay"
-      : "on your device";
-  return provider
-    ? `${agentName} runs ${location} using ${provider}.`
-    : `${agentName} runs ${location}. Choose an agent provider.`;
-}
-
-function deploymentKey(deployment: NativeDeployment) {
-  return deployment.kind === "chief-cloud"
-    ? deployment.kind
-    : `${deployment.kind}:${deployment.relayTarget}`;
-}
-
-function modelForProvider(
-  provider: DriverType,
-  previousProvider: DriverType | null,
-  previousModel: string,
-) {
-  if (provider === previousProvider) return previousModel;
-  return provider === "remote"
-    ? "deepseek/deepseek-v4-flash"
-    : provider === "opencode"
-      ? "opencode-go/deepseek-v4-flash"
-      : "auto";
-}
-
-function isProvider(value: string): value is Provider {
-  return ["claude", "codex", "opencode", "remote"].includes(value);
-}
-
-function isDeploymentKind(value: string): value is NativeDeployment["kind"] {
-  return value === "chief-cloud" || value === "on-device";
 }

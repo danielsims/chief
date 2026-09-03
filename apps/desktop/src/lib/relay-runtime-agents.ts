@@ -25,15 +25,46 @@ export function relayAgentDefinitions(
       name: agent.name,
       role: agent.role,
       description:
-        agent.description ??
+        nonEmpty(agent.description) ??
         definition?.description ??
         (agent.role !== "External agent"
           ? `${agent.name} handles ${agent.role.toLocaleLowerCase()} for this workspace.`
           : `${agent.name} is an external agent connected to this workspace.`),
-      instructions: agent.instructions ?? definition?.instructions ?? "",
+      instructions:
+        nonEmpty(agent.instructions) ?? definition?.instructions ?? "",
+      delegates: agent.subagents.map((subagent) => subagent.id),
+      subagents: agent.subagents.map((subagent) => {
+        const authored = defaults.get(subagent.id);
+        return {
+          ...authored,
+          ...subagent,
+          description:
+            nonEmpty(subagent.description) ?? authored?.description ?? "",
+          instructions:
+            nonEmpty(subagent.instructions) ?? authored?.instructions ?? "",
+          capabilities: subagent.capabilities.filter(isAgentCapabilityId),
+        };
+      }),
       runtime: agent.runtime,
     };
   });
+}
+
+function nonEmpty(value: string) {
+  return value.length > 0 ? value : undefined;
+}
+
+function isAgentCapabilityId(
+  value: string,
+): value is NonNullable<AgentDefinition["capabilities"]>[number] {
+  return [
+    "analytics-chart",
+    "prospect-memory",
+    "trend-memory",
+    "content-calendar",
+    "campaign-memory",
+    "schedule-manager",
+  ].includes(value);
 }
 
 export async function relayAgentPreferencesMessage(

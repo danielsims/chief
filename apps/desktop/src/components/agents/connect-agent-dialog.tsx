@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Vercel } from "@lobehub/icons";
-import { Laptop, Server } from "lucide-react";
 
 import type {
   AgentPreference,
@@ -12,51 +10,34 @@ import type {
 import type { RelayClient } from "@chief/relay-client";
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
 import { agentIdSchema } from "@chief/relay-contracts";
-import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
-import { Input } from "@chief/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@chief/ui/components/select";
 
 import type { Provider } from "../../lib/providers";
 import type { RelayRuntimeIdentity } from "./agent-connection-model";
 import type { AgentIntegrationOption } from "./agent-detail-sections";
+import type { Deployment } from "./connect-agent-dialog-panel";
 import type { ConnectionResult } from "./connect-agent-dialog-sections";
 import type { EveConnectionPhase } from "./eve-provisioning-dialog";
 import { PROVIDER_META } from "../../lib/providers";
 import { useProviderModels } from "../../lib/runtime";
-import { ChiefMark } from "../chief-mark";
-import {
-  VercelConnection,
-  VercelDestinationFields,
-} from "../vercel-connection";
 import {
   chiefChannelConfiguration,
   chiefChannelEnvironment,
+  isReservedVercelProjectName,
   nativeProvidersForDeployment,
+  preferredVercelProjectName,
   suggestedVercelProjectName,
   verifyEveConnectionWithRetry,
 } from "./agent-connection-model";
-import {
-  ChoiceGrid,
-  ConnectionSetup,
-  Field,
-  Section,
-} from "./connect-agent-dialog-sections";
+import { ConnectAgentForm, slug, toggle } from "./connect-agent-dialog-panel";
+import { ConnectionSetup } from "./connect-agent-dialog-sections";
 import { EveProvisioningDialog } from "./eve-provisioning-dialog";
-
-type Deployment = "chief-cloud" | "on-device" | "vercel-eve";
 
 export function ConnectAgentDialog({
   client,
@@ -118,13 +99,13 @@ export function ConnectAgentDialog({
   const [vercelProjectNameOverride, setVercelProjectNameOverride] = useState<
     string | null
   >(null);
-  const [vercelProjectCollisionSuffix, setVercelProjectCollisionSuffix] =
-    useState(randomProjectSuffix);
   const [result, setResult] = useState<ConnectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [provisioningProgress, setProvisioningProgress] =
     useState<EveAgentProvisioningProgress | null>(null);
+  const [provisioningResult, setProvisioningResult] =
+    useState<EveAgentProvisioningResult | null>(null);
   const [provisioningPhase, setProvisioningPhase] =
     useState<EveConnectionPhase>("validating");
   const [copied, setCopied] = useState(false);
@@ -132,9 +113,9 @@ export function ConnectAgentDialog({
   const vercelProjectName =
     vercelProjectNameOverride ??
     suggestedVercelProjectName(
-      name,
+      name.trim() || "agent",
       vercelCatalog.projects.map((project) => project.name),
-      vercelProjectCollisionSuffix,
+      client?.workspaceId ?? "",
     );
   const effectiveModel = models.some((item) => item.value === model)
     ? model
@@ -204,6 +185,7 @@ export function ConnectAgentDialog({
     setError(null);
     setCopied(false);
     setProvisioningProgress(null);
+    setProvisioningResult(null);
     setProvisioningPhase("validating");
     setDeployment("chief-cloud");
     setVercelConnectionStatus("checking");
@@ -215,7 +197,6 @@ export function ConnectAgentDialog({
     setVercelProjectMode("");
     setVercelProjectId("");
     setVercelProjectNameOverride(null);
-    setVercelProjectCollisionSuffix(randomProjectSuffix());
     onOpenChange(false);
   };
   const create = async () => {
@@ -245,15 +226,27 @@ export function ConnectAgentDialog({
         const selectedProject = vercelCatalog.projects.find(
           (project) => project.id === vercelProjectId,
         );
-        const projectName =
+        let projectName =
           vercelProjectMode === "existing"
             ? selectedProject?.name
             : slug(vercelProjectName);
+        if (vercelProjectMode !== "existing") {
+          projectName = preferredVercelProjectName(
+            name.trim() || "agent",
+            projectName ?? "",
+          );
+          setVercelProjectNameOverride(projectName);
+        }
         if (!projectName) {
           throw new Error(
             vercelProjectMode === "existing"
               ? "Choose the Vercel project to deploy to."
               : "Enter the name of the Vercel project to create.",
+          );
+        }
+        if (isReservedVercelProjectName(projectName)) {
+          throw new Error(
+            `"${projectName}" is reserved for Chief's own Vercel project. Deploy this Eve agent under a different name.`,
           );
         }
         const endpoint = `https://${projectName}.vercel.app/channels/chief/messages`;
@@ -270,7 +263,7 @@ export function ConnectAgentDialog({
           registered = true;
           const connection = { agentId, ...registration.channel };
           setResult(connection);
-          await onProvisionEve(
+          const deployed = await onProvisionEve(
             {
               teamId: vercelTeamId,
               project:
@@ -282,7 +275,9 @@ export function ConnectAgentDialog({
                     }
                   : { kind: "new", projectName },
               agent: {
+                id: agentId,
                 name: name.trim(),
+                role: "External agent",
                 description: description.trim(),
                 instructions: instructions.trim(),
                 model: effectiveModel,
@@ -290,14 +285,16 @@ export function ConnectAgentDialog({
               environment: chiefChannelEnvironment(connection),
             },
             (next) => {
-              setProvisioningProgress(next);
+              setProvisioningProgress((current) => ({
+                ...next,
+                logs: next.logs ?? current?.logs,
+              }));
               setProvisioningPhase(next.phase);
             },
           );
           setProvisioningPhase("verifying");
           await verifyEveConnectionWithRetry(client.externalAgents, agentId);
-          close();
-          await onConnected();
+          setProvisioningResult(deployed);
           return;
         } catch (caught) {
           if (registered) {
@@ -365,322 +362,85 @@ export function ConnectAgentDialog({
             onSaving={setSaving}
           />
         ) : (
-          <>
-            <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-6">
-              <Section
-                title="Identity"
-                description="Define who this agent is and how it should work."
-              >
-                <Field label="Agent name">
-                  <Input
-                    className="bg-background"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Researcher"
-                  />
-                </Field>
-                <Field label="Description">
-                  <Input
-                    className="bg-background"
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    placeholder="Researches markets and returns source-backed findings."
-                  />
-                </Field>
-                <Field label="Instructions">
-                  <textarea
-                    className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-36 w-full resize-y rounded-lg border px-3 py-2.5 text-sm leading-6 outline-none focus-visible:ring-1"
-                    value={instructions}
-                    onChange={(event) => setInstructions(event.target.value)}
-                    placeholder={
-                      "# Identity\n\nDescribe this agent's role, workflow, tool use, and boundaries."
-                    }
-                  />
-                </Field>
-              </Section>
-              <Section
-                title="Runtime"
-                description="Choose where this agent runs."
-              >
-                <Field label="Runs on">
-                  <Select
-                    value={deployment}
-                    onValueChange={(value) => {
-                      if (!isDeployment(value)) return;
-                      if (value === "vercel-eve") {
-                        setError(null);
-                      }
-                      setDeployment(value);
-                      if (value === "on-device" && provider === "remote") {
-                        setProvider("opencode");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="bg-background h-10">
-                      <RuntimeOption
-                        deployment={deployment}
-                        relayIdentity={relayIdentity}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="chief-cloud">
-                        <RuntimeOption
-                          deployment="chief-cloud"
-                          relayIdentity={relayIdentity}
-                        />
-                      </SelectItem>
-                      <SelectItem value="vercel-eve">
-                        <RuntimeOption
-                          deployment="vercel-eve"
-                          relayIdentity={relayIdentity}
-                        />
-                      </SelectItem>
-                      <SelectItem value="on-device">
-                        <RuntimeOption
-                          deployment="on-device"
-                          relayIdentity={relayIdentity}
-                        />
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {deployment !== "vercel-eve" ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Agent provider">
-                      <Select
-                        value={provider}
-                        onValueChange={(value) => {
-                          if (isCreationProvider(value)) setProvider(value);
-                        }}
-                      >
-                        <SelectTrigger className="bg-background h-10">
-                          <span className="flex items-center gap-2">
-                            <SelectedProviderIcon size={15} />
-                            {selectedProviderMeta.label}
-                          </span>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableProviders.map((id) => {
-                            const ProviderIcon = PROVIDER_META[id].Icon;
-                            return (
-                              <SelectItem key={id} value={id}>
-                                <span className="flex items-center gap-2">
-                                  <ProviderIcon size={15} />
-                                  {PROVIDER_META[id].label}
-                                </span>
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Model">
-                      <Select
-                        value={effectiveModel}
-                        disabled={providerModels.loading}
-                        onValueChange={setModel}
-                      >
-                        <SelectTrigger className="bg-background h-10">
-                          <span className="truncate">
-                            {providerModels.loading
-                              ? "Loading models…"
-                              : (models.find(
-                                  (item) => item.value === effectiveModel,
-                                )?.label ?? effectiveModel)}
-                          </span>
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {models.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                ) : (
-                  <>
-                    <VercelConnection
-                      connected={vercelConnectionStatus === "connected"}
-                      credentialKind="account-access-token"
-                      disabled={vercelConnectionStatus === "checking"}
-                      onConnect={async (token) => {
-                        const catalog = await connectVercel(token);
-                        setVercelCatalog(catalog);
-                        setVercelConnectionStatus("connected");
-                      }}
-                    />
-                    {vercelConnectionStatus === "connected" ? (
-                      <VercelDestinationFields
-                        loading={vercelLoading}
-                        mode={vercelProjectMode}
-                        projectId={vercelProjectId}
-                        projectName={vercelProjectName}
-                        projects={vercelCatalog.projects}
-                        teamId={vercelTeamId}
-                        teams={vercelCatalog.teams}
-                        onMode={setVercelProjectMode}
-                        onProject={setVercelProjectId}
-                        onProjectName={setVercelProjectNameOverride}
-                        onTeam={(teamId) => {
-                          setVercelLoading(true);
-                          setVercelProjectId("");
-                          setVercelTeamId(teamId);
-                        }}
-                      />
-                    ) : null}
-                    {vercelConnectionStatus === "connected" ? (
-                      <Field label="Model">
-                        <Select
-                          value={effectiveModel}
-                          disabled={providerModels.loading}
-                          onValueChange={setModel}
-                        >
-                          <SelectTrigger className="bg-background h-10">
-                            <span className="truncate">
-                              {providerModels.loading
-                                ? "Loading models…"
-                                : (models.find(
-                                    (item) => item.value === effectiveModel,
-                                  )?.label ?? effectiveModel)}
-                            </span>
-                          </SelectTrigger>
-                          <SelectContent className="max-h-72">
-                            {models.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    ) : null}
-                  </>
-                )}
-              </Section>
-              {deployment !== "vercel-eve" && integrations.length > 0 ? (
-                <Section
-                  title="Connections"
-                  description="Give this agent access to connected services."
-                >
-                  <ChoiceGrid
-                    items={integrations.map((integration) => ({
-                      id: integration.provider,
-                      label: integration.displayName,
-                      selected: selectedIntegrations.includes(
-                        integration.provider,
-                      ),
-                    }))}
-                    onToggle={(id) =>
-                      toggle(id, selectedIntegrations, setSelectedIntegrations)
-                    }
-                  />
-                </Section>
-              ) : null}
-              {error ? (
-                <p className="text-destructive text-[13px]">{error}</p>
-              ) : null}
-            </div>
-            <DialogFooter className="border-t px-6 py-4">
-              <Button
-                className="w-full"
-                disabled={saving || !agentId}
-                onClick={() => void create()}
-              >
-                {saving ? "Creating…" : "Create agent"}
-              </Button>
-            </DialogFooter>
-          </>
+          <ConnectAgentForm
+            name={name}
+            description={description}
+            instructions={instructions}
+            deployment={deployment}
+            provider={provider}
+            models={models}
+            effectiveModel={effectiveModel}
+            providerModelsLoading={providerModels.loading}
+            availableProviders={availableProviders}
+            selectedProviderMeta={selectedProviderMeta}
+            SelectedProviderIcon={SelectedProviderIcon}
+            integrations={integrations}
+            selectedIntegrations={selectedIntegrations}
+            vercelCatalog={vercelCatalog}
+            vercelLoading={vercelLoading}
+            vercelConnectionStatus={vercelConnectionStatus}
+            vercelTeamId={vercelTeamId}
+            vercelProjectMode={vercelProjectMode}
+            vercelProjectId={vercelProjectId}
+            vercelProjectName={vercelProjectName}
+            error={error}
+            saving={saving}
+            agentId={agentId}
+            relayIdentity={relayIdentity}
+            onNameChange={setName}
+            onDescriptionChange={setDescription}
+            onInstructionsChange={setInstructions}
+            onDeploymentChange={(value) => {
+              if (value === "vercel-eve") setError(null);
+              setDeployment(value);
+              if (value === "on-device" && provider === "remote") {
+                setProvider("opencode");
+              }
+            }}
+            onProviderChange={setProvider}
+            onModelChange={setModel}
+            onToggleIntegration={(id) =>
+              toggle(id, selectedIntegrations, setSelectedIntegrations)
+            }
+            onConnectVercel={async (token) => {
+              const catalog = await connectVercel(token);
+              setVercelCatalog(catalog);
+              setVercelConnectionStatus("connected");
+            }}
+            onTeamChange={(teamId) => {
+              setVercelLoading(true);
+              setVercelProjectId("");
+              setVercelTeamId(teamId);
+            }}
+            onProjectModeChange={setVercelProjectMode}
+            onProjectChange={setVercelProjectId}
+            onProjectNameChange={setVercelProjectNameOverride}
+            onCreate={() => void create()}
+          />
         )}
       </DialogContent>
       <EveProvisioningDialog
         agentName={name.trim() || "agent"}
-        endpoint={
-          vercelProjectMode === "existing"
-            ? (vercelCatalog.projects.find(
-                (project) => project.id === vercelProjectId,
-              )?.name ?? "")
-            : vercelProjectName
+        workspaceName={name.trim() || "this workspace"}
+        open={
+          deployment === "vercel-eve" &&
+          (saving ||
+            provisioningResult !== null ||
+            (Boolean(error) && provisioningProgress !== null))
         }
-        open={deployment === "vercel-eve" && saving && result !== null}
         phase={provisioningPhase}
         progress={provisioningProgress}
+        result={provisioningResult}
+        error={saving ? null : error}
+        onClose={() => {
+          if (provisioningResult) {
+            close();
+            void onConnected();
+            return;
+          }
+          setProvisioningProgress(null);
+        }}
       />
     </Dialog>
-  );
-}
-
-function toggle(
-  id: string,
-  values: string[],
-  setValues: (values: string[]) => void,
-) {
-  setValues(
-    values.includes(id)
-      ? values.filter((value) => value !== id)
-      : [...values, id],
-  );
-}
-function slug(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 64);
-}
-
-function randomProjectSuffix() {
-  const values = new Uint32Array(1);
-  crypto.getRandomValues(values);
-  return String(1_000_000 + ((values.at(0) ?? 0) % 9_000_000));
-}
-
-function isCreationProvider(value: string): value is Provider {
-  return ["remote", "opencode", "claude", "codex"].includes(value);
-}
-
-function isDeployment(value: string): value is Deployment {
-  return ["chief-cloud", "vercel-eve", "on-device"].includes(value);
-}
-
-function RuntimeOption({
-  deployment,
-  relayIdentity,
-}: {
-  deployment: Deployment;
-  relayIdentity: RelayRuntimeIdentity;
-}) {
-  if (deployment === "chief-cloud") {
-    if (relayIdentity.kind === "self-hosted") {
-      return (
-        <span className="flex min-w-0 items-center gap-2">
-          <Server className="size-4 shrink-0" />
-          <span className="truncate">{relayIdentity.name}</span>
-          <span className="text-muted-foreground shrink-0">- Self hosted</span>
-        </span>
-      );
-    }
-    return (
-      <span className="flex items-center gap-2">
-        <ChiefMark className="size-4" />
-        Chief relay
-      </span>
-    );
-  }
-  if (deployment === "vercel-eve") {
-    return (
-      <span className="flex items-center gap-2">
-        <Vercel size={16} />
-        Vercel Eve
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-2">
-      <Laptop size={16} />
-      On device
-    </span>
   );
 }

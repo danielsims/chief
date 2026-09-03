@@ -1,10 +1,24 @@
+import type { AgentDefinition } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import type {
   AgentDefinitionSource,
   WorkspaceAgentRuntime,
 } from "@chief/relay-contracts";
+import { getAuthoredAgent } from "@chief/agent-runtime/agent-definitions";
+import {
+  availableVercelProjectName,
+  isReservedVercelProjectName,
+  preferredVercelProjectName,
+  suggestedVercelProjectName as suggestedWorkspaceVercelProjectName,
+} from "@chief/agent-runtime/vercel-eve-provisioning";
 
 import type { Provider } from "../../lib/providers";
+
+export {
+  availableVercelProjectName,
+  isReservedVercelProjectName,
+  preferredVercelProjectName,
+};
 
 export type AgentConnectionKind = "native" | "eve";
 
@@ -22,18 +36,14 @@ export function relayRuntimeIdentity(
 }
 
 export function suggestedVercelProjectName(
-  agentName: string,
-  existingProjectNames: readonly string[],
-  collisionSuffix: string,
+  workspaceName: string,
+  existingProjectNames: readonly string[] = [],
+  _workspaceId = "",
 ) {
-  const baseName = projectSlug(agentName);
-  if (!baseName) return "";
-  const existingNames = new Set(
-    existingProjectNames.map((name) => name.toLowerCase()),
+  return suggestedWorkspaceVercelProjectName(
+    workspaceName,
+    existingProjectNames,
   );
-  return existingNames.has(baseName.toLowerCase())
-    ? `${baseName.slice(0, Math.max(1, 63 - collisionSuffix.length))}-${collisionSuffix}`
-    : baseName;
 }
 
 export function nativeProvidersForDeployment(
@@ -44,13 +54,30 @@ export function nativeProvidersForDeployment(
     : ["opencode", "codex", "claude"];
 }
 
-function projectSlug(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 64);
+export function eveDeploymentInstructions(
+  agent: Pick<
+    AgentDefinition,
+    "baseInstructions" | "description" | "id" | "instructions" | "name" | "role"
+  >,
+) {
+  const configuredInstructions = [
+    agent.instructions.trim(),
+    agent.baseInstructions?.trim(),
+    getAuthoredAgent(agent.id)?.instructions.trim(),
+  ].find((instructions) => Boolean(instructions));
+  if (configuredInstructions) return configuredInstructions;
+
+  const description = agent.description.trim();
+  return [
+    "# Identity",
+    "",
+    `You are ${agent.name}, the workspace's ${agent.role}.`,
+    description ? `\n${description}` : "",
+    "",
+    "Work through Chief for messaging, channels, workspace context, and approved tools. Follow the workspace's current priorities and return clear, reviewable results.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function externalAgentSourcePresentation(
@@ -135,15 +162,19 @@ export function chiefChannelEnvironment(input: {
 export async function verifyEveConnectionWithRetry(
   client: RelayClient["externalAgents"],
   agentId: string,
+  selectedApps?: readonly string[],
 ) {
-  const retryDelays = [0, 1_000, 2_000, 4_000, 8_000] as const;
+  // Vercel can report a deployment as ready before its production route and
+  // environment have converged at every edge. Keep deployment pending
+  // through that window instead of presenting a completed deploy as failed.
+  const retryDelays = [0, 1_000, 2_000, 4_000, 8_000, 16_000, 32_000] as const;
   let lastError: unknown;
   for (const delay of retryDelays) {
     if (delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
     try {
-      await client.verifyConnection(agentId);
+      await client.verifyConnection(agentId, selectedApps);
       return;
     } catch (error) {
       lastError = error;

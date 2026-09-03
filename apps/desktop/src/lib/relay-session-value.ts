@@ -24,6 +24,7 @@ export interface RelaySessionValue {
   createWorkspace: (
     command: CreateWorkspaceCommand,
     apiKey: string,
+    options?: { reconnect?: boolean },
   ) => Promise<WorkspaceSnapshot>;
   previewWorkspaceInvite: (
     workspaceId: string,

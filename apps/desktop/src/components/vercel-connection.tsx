@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@chief/ui/components/select";
+import { cn } from "@chief/ui/lib/utils";
 
 import { providerCredentialHelp } from "../lib/provider-credential-help";
 
@@ -33,7 +34,7 @@ export const VERCEL_CONNECTION_PROMPT = {
 const credentialCopy = {
   "account-access-token": {
     connectedDescription: "Choose the team and project this agent will use.",
-    connectedTitle: "AI Gateway key added",
+    connectedTitle: "Vercel connected",
     description:
       "Create a scoped token in Vercel and paste it once. Chief stores it encrypted on this workspace’s relay.",
     helpLabel: providerCredentialHelp["vercel-access-token"].label,
@@ -42,7 +43,7 @@ const credentialCopy = {
   },
   "ai-gateway-api-key": {
     connectedDescription: "Chief will use this key for hosted agent inference.",
-    connectedTitle: "Vercel connected",
+    connectedTitle: "AI Gateway key added",
     description:
       "Create an AI Gateway key in Vercel and paste it once. Chief stores it encrypted on this workspace’s relay.",
     helpLabel: providerCredentialHelp["vercel-ai-gateway-key"].label,
@@ -66,6 +67,8 @@ export function VercelConnection({
   credentialKind,
   disabled = false,
   expanded,
+  presentation = "card",
+  onCancel,
   onExpandedChange,
   onConnect,
 }: {
@@ -73,6 +76,8 @@ export function VercelConnection({
   credentialKind: VercelCredentialKind;
   disabled?: boolean;
   expanded?: boolean;
+  presentation?: "card" | "plain";
+  onCancel?: () => void;
   onExpandedChange?: (expanded: boolean) => void;
   onConnect: (credential: string) => Promise<void> | void;
 }) {
@@ -95,7 +100,12 @@ export function VercelConnection({
 
   if (!visibleForm) {
     return (
-      <div className="bg-background flex items-center justify-between gap-4 rounded-lg border p-4">
+      <div
+        className={cn(
+          "flex items-center justify-between gap-4",
+          presentation === "card" && "bg-background rounded-lg border p-4",
+        )}
+      >
         <div className="min-w-0">
           <p className="text-sm font-medium">
             {connected ? copy.connectedTitle : VERCEL_CONNECTION_PROMPT.title}
@@ -124,38 +134,21 @@ export function VercelConnection({
   const connecting = visibleForm.kind === "connecting";
 
   return (
-    <div className="bg-background space-y-3 rounded-lg border p-4">
-      <div>
-        <p className="text-sm font-medium">{VERCEL_CONNECTION_PROMPT.title}</p>
-        <p className="text-muted-foreground mt-1 text-[13px] leading-5">
-          {copy.description}
-        </p>
-      </div>
-      <Input
-        autoComplete="off"
-        className="bg-background"
-        type="password"
+    <div
+      className={cn(
+        "space-y-3",
+        presentation === "card" && "bg-background rounded-lg border p-4",
+      )}
+    >
+      <VercelCredentialField
+        credentialKind={credentialKind}
         value={visibleForm.credential}
-        placeholder={copy.placeholder}
         disabled={disabled || connecting}
-        onChange={(event) =>
-          setForm({
-            kind: "editing",
-            credential: event.target.value,
-            error: null,
-          })
+        error={visibleForm.kind === "editing" ? visibleForm.error : null}
+        onChange={(credential) =>
+          setForm({ kind: "editing", credential, error: null })
         }
       />
-      <button
-        type="button"
-        className="text-muted-foreground hover:text-foreground w-full text-left text-[13px] leading-5 underline-offset-4 hover:underline"
-        onClick={() => void openExternalUrl(copy.helpUrl)}
-      >
-        {copy.helpLabel}
-      </button>
-      {visibleForm.kind === "editing" && visibleForm.error ? (
-        <p className="text-destructive text-[13px]">{visibleForm.error}</p>
-      ) : null}
       <div className="flex flex-wrap justify-end gap-2">
         <Button
           type="button"
@@ -164,6 +157,7 @@ export function VercelConnection({
           onClick={() => {
             setForm({ kind: "collapsed" });
             onExpandedChange?.(false);
+            onCancel?.();
           }}
         >
           Cancel
@@ -187,6 +181,49 @@ export function VercelConnection({
   );
 }
 
+export function VercelCredentialField({
+  credentialKind,
+  value,
+  disabled = false,
+  error = null,
+  onChange,
+}: {
+  credentialKind: VercelCredentialKind;
+  value: string;
+  disabled?: boolean;
+  error?: string | null;
+  onChange: (credential: string) => void;
+}) {
+  const copy = credentialCopy[credentialKind];
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">{VERCEL_CONNECTION_PROMPT.title}</p>
+        <p className="text-muted-foreground mt-1 text-[13px] leading-5">
+          {copy.description}
+        </p>
+      </div>
+      <Input
+        autoComplete="off"
+        className="bg-background"
+        type="password"
+        value={value}
+        placeholder={copy.placeholder}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-full text-left text-[13px] leading-5 underline-offset-4 hover:underline"
+        onClick={() => void openExternalUrl(copy.helpUrl)}
+      >
+        {copy.helpLabel}
+      </button>
+      {error ? <p className="text-destructive text-[13px]">{error}</p> : null}
+    </div>
+  );
+}
+
 export function VercelDestinationFields({
   loading,
   mode,
@@ -204,9 +241,9 @@ export function VercelDestinationFields({
   mode: "" | "existing" | "new";
   projectId: string;
   projectName: string;
-  projects: VercelProjectOption[];
+  projects: readonly VercelProjectOption[];
   teamId: string;
-  teams: VercelTeamOption[];
+  teams: readonly VercelTeamOption[];
   onMode: (value: "" | "existing" | "new") => void;
   onProject: (value: string) => void;
   onProjectName: (value: string) => void;

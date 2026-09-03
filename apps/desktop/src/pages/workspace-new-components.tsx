@@ -1,14 +1,25 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OpenCode, Vercel } from "@lobehub/icons";
-import { ArrowLeft, Check, Server } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
+import type {
+  VercelProjectOption,
+  VercelTeamOption,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 
-import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
+import type {
+  EveProjectMode,
+  WorkspaceAgentRuntime,
+  WorkspaceInferenceProvider,
+} from "./workspace-create-draft";
 import { ChiefMark } from "../components/chief-mark";
-import { VercelConnection } from "../components/vercel-connection";
+import {
+  VercelCredentialField,
+  VercelDestinationFields,
+} from "../components/vercel-connection";
 import { providerCredentialHelp } from "../lib/provider-credential-help";
 import {
   ProviderOption,
@@ -21,22 +32,22 @@ export function CreateForm({
   website,
   provider,
   apiKey,
-  vercelConnectionOpen,
+  vercelAccessToken,
   selectedApps,
   working,
   connected,
-  hosting,
-  relayUrl,
-  relayConnected,
+  agentRuntime,
+  eveDestination,
+  relayRuntimeLabel,
   error,
   step,
   onNameChange,
   onWebsiteChange,
-  onChiefCloud,
-  onSelfHosted,
+  onAgentRuntimeChange,
   onProviderChange,
   onApiKeyChange,
-  onVercelConnectionOpenChange,
+  onVercelAccessTokenChange,
+  onEveDestinationChange,
   onSelectedAppsChange,
   onStepChange,
   onBackToHome,
@@ -46,26 +57,40 @@ export function CreateForm({
   website: string;
   provider: WorkspaceInferenceProvider;
   apiKey: string;
-  vercelConnectionOpen: boolean;
+  vercelAccessToken: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
   connected: boolean;
-  hosting: "chief-cloud" | "self-hosted";
-  relayUrl: string;
-  relayConnected: boolean;
+  agentRuntime: WorkspaceAgentRuntime;
+  eveDestination: {
+    loading: boolean;
+    teamId: string;
+    projectMode: EveProjectMode;
+    projectId: string;
+    projectName: string;
+    teams: readonly VercelTeamOption[];
+    projects: readonly VercelProjectOption[];
+    ready: boolean;
+  };
+  relayRuntimeLabel: string;
   error: string | null;
   step: number;
   onNameChange: (value: string) => void;
   onWebsiteChange: (value: string) => void;
-  onChiefCloud: () => void;
-  onSelfHosted: () => void;
+  onAgentRuntimeChange: (value: WorkspaceAgentRuntime) => void;
   onProviderChange: (value: Exclude<WorkspaceInferenceProvider, null>) => void;
   onApiKeyChange: (value: string) => void;
-  onVercelConnectionOpenChange: (value: boolean) => void;
+  onVercelAccessTokenChange: (value: string) => void;
+  onEveDestinationChange: {
+    onTeam: (value: string) => void;
+    onMode: (value: EveProjectMode) => void;
+    onProject: (value: string) => void;
+    onProjectName: (value: string) => void;
+  };
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
   onBackToHome: () => void;
-  onSubmit: (event: React.FormEvent) => void;
+  onSubmit: () => void;
 }) {
   const appListRef = useRef<HTMLDivElement>(null);
   const [canScrollApps, setCanScrollApps] = useState(false);
@@ -78,29 +103,37 @@ export function CreateForm({
       ),
     );
   }, []);
+  const lastStep = 3;
+  const destinationStep = agentRuntime === "vercel-eve" ? 2 : -1;
+  const inferenceStep = agentRuntime === "relay-cell" ? 2 : -1;
+  const appsStep = lastStep;
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== appsStep) return;
     const frame = requestAnimationFrame(updateAppScrollCue);
     window.addEventListener("resize", updateAppScrollCue);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", updateAppScrollCue);
     };
-  }, [step, updateAppScrollCue]);
+  }, [appsStep, step, updateAppScrollCue]);
   const advance = (event: React.FormEvent) => {
     event.preventDefault();
-    if (step < 3) {
+    if (step < lastStep) {
       onStepChange(step + 1);
       return;
     }
-    onSubmit(event);
+    onSubmit();
   };
   const canContinue =
     step === 0
       ? Boolean(name.trim())
-      : step === 2
-        ? provider !== null && Boolean(apiKey.trim())
-        : true;
+      : step === 1
+        ? agentRuntime === "relay-cell" || Boolean(vercelAccessToken.trim())
+        : step === destinationStep
+          ? eveDestination.ready
+          : step === inferenceStep
+            ? provider !== null && Boolean(apiKey.trim())
+            : true;
   const back = () => {
     if (step === 0) onBackToHome();
     else onStepChange(step - 1);
@@ -122,21 +155,23 @@ export function CreateForm({
           step === 0
             ? "What’s the name of this workspace?"
             : step === 1
-              ? "Where should this workspace live?"
-              : step === 2
-                ? "What inference provider will your agents use?"
-                : "What apps do you already use?"
+              ? "Where will you deploy your agents?"
+              : step === destinationStep
+                ? "Choose a Vercel project"
+                : step === inferenceStep
+                  ? "Which inference provider should your agents use?"
+                  : "What apps do you already use?"
         }
         detail={
           step === 0
             ? "Add a website if there’s one your agents should understand."
             : step === 1
-              ? "Choose Chief Cloud or a relay you control. Agent runtimes are configured per agent."
-              : step === 2
-                ? hosting === "self-hosted"
-                  ? "Inference runs through OpenCode inside your self-hosted relay."
-                  : "Chief Cloud keeps the team available across devices."
-                : "Choose the apps your team already uses."
+              ? "Choose the default runtime for this workspace. You can connect other agent deployments later."
+              : step === destinationStep
+                ? "Chief and its subagents will deploy as one Eve project. The workspace is created when you finish this form."
+                : step === inferenceStep
+                  ? "Choose how this agent deployment accesses its models."
+                  : "Choose the apps your team already uses."
         }
       />
 
@@ -164,92 +199,93 @@ export function CreateForm({
             </Field>
           </div>
         ) : step === 1 ? (
-          <div>
+          <div className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-2">
               <ProviderOption
-                label="Chief Cloud"
-                selected={hosting === "chief-cloud"}
-                onClick={onChiefCloud}
+                label={relayRuntimeLabel}
+                detail="Run Chief and its subagents in the Cell runtime attached to this relay."
+                selected={agentRuntime === "relay-cell"}
+                onClick={() => onAgentRuntimeChange("relay-cell")}
                 icon={<ChiefMark className="size-7" />}
               />
               <ProviderOption
-                label="Self-hosted"
-                selected={hosting === "self-hosted"}
-                onClick={onSelfHosted}
-                icon={<Server size={27} />}
+                label="Vercel Eve"
+                detail="Deploy Chief and its subagents as one Vercel Eve project."
+                selected={agentRuntime === "vercel-eve"}
+                onClick={() => onAgentRuntimeChange("vercel-eve")}
+                icon={<Vercel size={27} />}
               />
             </div>
-            {hosting === "self-hosted" ? (
-              <div className="border-border/70 mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium">
-                    {relayConnected ? "Connected relay" : "Selected relay"}
-                  </span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    {relayHost(relayUrl)}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={onSelfHosted}
-                  className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
-                >
-                  Change
-                </button>
+            {agentRuntime === "vercel-eve" ? (
+              <div className="border-t pt-4">
+                <VercelCredentialField
+                  credentialKind="account-access-token"
+                  value={vercelAccessToken}
+                  disabled={working}
+                  onChange={onVercelAccessTokenChange}
+                />
               </div>
             ) : null}
           </div>
-        ) : step === 2 ? (
-          <div className="space-y-3">
+        ) : step === destinationStep ? (
+          <VercelDestinationFields
+            loading={eveDestination.loading}
+            mode={eveDestination.projectMode}
+            projectId={eveDestination.projectId}
+            projectName={eveDestination.projectName}
+            projects={eveDestination.projects}
+            teamId={eveDestination.teamId}
+            teams={eveDestination.teams}
+            onMode={onEveDestinationChange.onMode}
+            onProject={onEveDestinationChange.onProject}
+            onProjectName={onEveDestinationChange.onProjectName}
+            onTeam={onEveDestinationChange.onTeam}
+          />
+        ) : step === inferenceStep ? (
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
               <ProviderOption
                 label="Vercel AI Gateway"
-                detail="One API for hundreds of models, with budgets, usage monitoring, and fallbacks."
+                detail="Use models available through Vercel AI Gateway."
                 selected={provider === "vercelAiGateway"}
                 onClick={() => onProviderChange("vercelAiGateway")}
                 icon={<Vercel size={27} />}
               />
               <ProviderOption
                 label="OpenCode"
-                detail="An open-source coding agent for the terminal, desktop, and IDE."
+                detail="Run inference through OpenCode on the relay."
                 selected={provider === "opencode"}
                 onClick={() => onProviderChange("opencode")}
                 icon={<OpenCode size={27} />}
               />
             </div>
             {provider === "vercelAiGateway" ? (
-              <div className="mt-4">
-                <VercelConnection
-                  connected={Boolean(apiKey.trim())}
-                  credentialKind="ai-gateway-api-key"
-                  disabled={working}
-                  expanded={vercelConnectionOpen}
-                  onExpandedChange={onVercelConnectionOpenChange}
-                  onConnect={onApiKeyChange}
-                />
-              </div>
+              <VercelCredentialField
+                credentialKind="ai-gateway-api-key"
+                value={apiKey}
+                disabled={working}
+                onChange={onApiKeyChange}
+              />
             ) : provider === "opencode" ? (
-              <div className="mt-4">
-                <Field label="OpenCode API key" htmlFor="cloud-api-key">
-                  <Input
-                    id="cloud-api-key"
-                    type="password"
-                    autoComplete="off"
-                    value={apiKey}
-                    onChange={(event) => onApiKeyChange(event.target.value)}
-                    placeholder="sk-…"
-                    disabled={working}
-                  />
-                  <a
-                    className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
-                    href={providerCredentialHelp["opencode-access-token"].url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {providerCredentialHelp["opencode-access-token"].label}
-                  </a>
-                </Field>
-              </div>
+              <Field label="OpenCode API key" htmlFor="cloud-api-key">
+                <Input
+                  id="cloud-api-key"
+                  type="password"
+                  autoComplete="off"
+                  value={apiKey}
+                  onChange={(event) => onApiKeyChange(event.target.value)}
+                  placeholder="sk-…"
+                  disabled={working}
+                />
+                <a
+                  className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
+                  href={providerCredentialHelp["opencode-access-token"].url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {providerCredentialHelp["opencode-access-token"].label}
+                </a>
+              </Field>
             ) : null}
           </div>
         ) : (
@@ -308,21 +344,19 @@ export function CreateForm({
         <Button
           type="submit"
           disabled={!canContinue || working || !connected}
-          loading={working && step === 3}
+          loading={working}
         >
-          {step === 3 ? "Enter workspace" : "Continue"}
+          {working && agentRuntime === "vercel-eve" && step === 1
+            ? "Checking Vercel…"
+            : working && agentRuntime === "vercel-eve" && step === lastStep
+              ? "Creating workspace…"
+              : step === lastStep
+                ? "Create workspace"
+                : "Continue"}
         </Button>
       </div>
     </form>
   );
-}
-
-function relayHost(value: string) {
-  try {
-    return new URL(value).host;
-  } catch {
-    return value;
-  }
 }
 
 function QuestionHeader({ title, detail }: { title: string; detail: string }) {

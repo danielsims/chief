@@ -4,7 +4,12 @@ import type {
   WorkspaceSummary,
 } from "@chief/relay-contracts";
 
-import { RELAY_URL } from "./config";
+import {
+  CHIEF_CLOUD_AUTH_BASE_URL,
+  CHIEF_CLOUD_AUTH_UI_URL,
+  CHIEF_CLOUD_RELAY_URL,
+  RELAY_URL,
+} from "./config";
 import { knownWorkspaceSummaries } from "./relay-connection";
 
 export interface RelaySessionState {
@@ -104,4 +109,58 @@ export function visibleRelaySessionState(
   return state.accountId === accountId
     ? state
     : initialRelaySessionState(accountId, sessionToken);
+}
+
+export function chiefCloudRelayConnection() {
+  return {
+    version: 1 as const,
+    relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
+    authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
+    authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
+  };
+}
+
+export function directoryWorkspacesForSnapshot(
+  accountId: string,
+  snapshotId: string | null | undefined,
+) {
+  return knownWorkspaceSummaries(RELAY_URL, accountId).map((summary) => ({
+    ...summary,
+    isActive: summary.id === snapshotId,
+  }));
+}
+
+export function workspacesAfterCreate(
+  snapshot: WorkspaceSnapshot,
+  workspaces: WorkspaceSummary[],
+) {
+  const summary = workspaceSummaryFromSnapshot(snapshot);
+  return [
+    summary,
+    ...workspaces.filter((candidate) => candidate.id !== snapshot.id),
+  ];
+}
+
+export function workspaceSwitchMemory({
+  previousRelayUrl,
+  previousWorkspaceId,
+  targetRelayUrl,
+  workspaceId,
+}: {
+  previousRelayUrl: string;
+  previousWorkspaceId: string | undefined;
+  targetRelayUrl: string;
+  workspaceId: string;
+}) {
+  return {
+    target: { workspaceId, relayUrl: targetRelayUrl },
+    ...(previousWorkspaceId
+      ? {
+          previous: {
+            workspaceId: previousWorkspaceId,
+            relayUrl: previousRelayUrl,
+          },
+        }
+      : undefined),
+  };
 }

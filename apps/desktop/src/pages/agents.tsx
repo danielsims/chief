@@ -20,6 +20,10 @@ import {
   useRuntime,
   useWorkspaceChannels,
 } from "../lib/runtime";
+import {
+  provisionEveAgent,
+  rememberVercelAccessToken,
+} from "../lib/vercel-eve-runtime";
 import { TeamAgentCard } from "./agents-components";
 
 export function AgentsPage() {
@@ -40,12 +44,48 @@ export function AgentsPage() {
   const overrides = agentPreferences.preferences;
   const ready = Boolean(cloudOrganizationId) && !agentPreferences.loading;
   const agentId = searchParams.get("agent");
-  const selectedAgent = agents.find((agent) => agent.id === agentId);
+  const profileId = searchParams.get("profile");
+  const resolvedAgent = agents.find((agent) => agent.id === agentId);
+  const resolvedParent =
+    resolvedAgent ??
+    agents.find((agent) =>
+      agent.subagents?.some((subagent) => subagent.id === agentId),
+    );
+  const [retainedAgent, setRetainedAgent] = useState<{
+    agent: (typeof agents)[number];
+    agentId: string;
+    workspaceId: string | null;
+  } | null>(null);
+  if (resolvedParent && agentId) {
+    if (
+      retainedAgent?.agentId !== agentId ||
+      retainedAgent.agent !== resolvedParent ||
+      retainedAgent.workspaceId !== cloudOrganizationId
+    ) {
+      setRetainedAgent({
+        agent: resolvedParent,
+        agentId,
+        workspaceId: cloudOrganizationId,
+      });
+    }
+  } else if (!agentId && retainedAgent !== null) {
+    setRetainedAgent(null);
+  } else if (
+    cloudOrganizationId &&
+    retainedAgent?.workspaceId &&
+    retainedAgent.workspaceId !== cloudOrganizationId
+  ) {
+    setRetainedAgent(null);
+  }
+  const selectedAgent =
+    resolvedParent ??
+    (retainedAgent?.agentId === agentId ? retainedAgent.agent : undefined);
   const detailMode = selectedAgent !== undefined;
   const closeDetail = () => {
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
       params.delete("agent");
+      params.delete("profile");
       return params;
     });
   };
@@ -104,6 +144,25 @@ export function AgentsPage() {
               <AgentDetail
                 key={selectedAgent.id}
                 agent={selectedAgent}
+                selectedProfileId={
+                  profileId &&
+                  selectedAgent.subagents?.some(
+                    (subagent) => subagent.id === profileId,
+                  )
+                    ? profileId
+                    : agentId && agentId !== selectedAgent.id
+                      ? agentId
+                      : selectedAgent.id
+                }
+                onSelectProfile={(nextId) => {
+                  setSearchParams((current) => {
+                    const params = new URLSearchParams(current);
+                    params.set("agent", selectedAgent.id);
+                    if (nextId === selectedAgent.id) params.delete("profile");
+                    else params.set("profile", nextId);
+                    return params;
+                  });
+                }}
                 workspaceId={cloudOrganizationId}
                 override={overrides.find(
                   (item) => item.agentId === selectedAgent.id,
@@ -113,7 +172,7 @@ export function AgentsPage() {
                 ready={ready}
                 saving={agentPreferences.saving}
                 preferenceError={agentPreferences.error}
-                externalAgentClient={relay.client?.externalAgents ?? null}
+                relayClient={relay.client}
                 onExternalAgentChanged={relay.refresh}
                 onSave={agentPreferences.save}
                 onApplyExecutionToTeam={applyExecutionToTeam}
@@ -187,6 +246,7 @@ export function AgentsPage() {
           if (!relay.client) {
             throw new Error("Chief is still connecting to this workspace.");
           }
+          rememberVercelAccessToken(relay.client.workspaceId, token);
           return await relay.client.connectVercel(token);
         }}
         onConnected={relay.refresh}
@@ -198,10 +258,11 @@ export function AgentsPage() {
           if (!relay.client) {
             throw new Error("Chief is still connecting to this workspace.");
           }
-          onProgress?.({ phase: "validating" });
-          const result = await relay.client.provisionVercelEve(input);
-          onProgress?.({ phase: "checking", ...result });
-          return result;
+          return await provisionEveAgent({
+            client: relay.client,
+            input,
+            onProgress,
+          });
         }}
       />
     </div>
