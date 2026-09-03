@@ -12,6 +12,8 @@ const rotateRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/external\/credentials\/rotate$/u;
 const verifyRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/external\/verify$/u;
+const endpointRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/external\/endpoint$/u;
 const messageRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/messages$/u;
 const activityRoute =
@@ -39,14 +41,37 @@ export async function routeExternalAgentRequest(
     });
     const headers = new Headers(authenticated.request.headers);
     headers.set("x-chief-internal-operation", "external-agent-verify");
+    const body = await authenticated.request.text();
+    const init: RequestInit = { method: "POST", headers };
+    if (body) init.body = body;
+    return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
+      withTrustedContext(new Request(request.url, init), {
+        principal,
+        requestId,
+        workspaceId,
+      }),
+    );
+  }
+  const endpointUpdate = endpointRoute.exec(url.pathname);
+  if (endpointUpdate && request.method === "POST") {
+    const workspaceId = workspaceIdSchema.parse(endpointUpdate[1]);
+    agentIdSchema.parse(endpointUpdate[2]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    const headers = new Headers(authenticated.request.headers);
+    headers.set("x-chief-internal-operation", "external-agent-endpoint");
     return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
       withTrustedContext(
-        new Request(request.url, { method: "POST", headers }),
-        {
-          principal,
-          requestId,
-          workspaceId,
-        },
+        new Request(request.url, {
+          method: "POST",
+          headers,
+          body: await authenticated.request.text(),
+        }),
+        { principal, requestId, workspaceId },
       ),
     );
   }

@@ -20,6 +20,7 @@ import {
   decodeWorkspaceSnapshot,
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
+  workspaceAgentProfiles,
 } from "./workspace-defaults";
 import {
   externalAgentSnapshotRows,
@@ -159,7 +160,7 @@ export class WorkspaceLifecycleService {
       name: input.name,
       website: input.website,
       selectedApps: input.selectedApps,
-      runtime: input.runtime,
+      runtime: input.agentRuntime === "relay-cell" ? input.runtime : null,
       imageURL: null,
       onboardingComplete: false,
       conversations: [
@@ -203,9 +204,10 @@ export class WorkspaceLifecycleService {
         createdAt,
       );
       this.channels.seedSnapshotAgents(snapshot, createdAt);
-      for (const agent of snapshot.agents) {
+      for (const agent of workspaceAgentProfiles(snapshot)) {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
+          enabled: input.agentRuntime === "relay-cell",
           deploymentTarget: input.runtime,
           inference: preparedSecret
             ? {

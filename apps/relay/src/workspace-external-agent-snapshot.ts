@@ -14,12 +14,13 @@ export interface ExternalAgentSnapshotRow extends Record<
   endpoint_url: string;
   connection_status: string;
   registration_result_json: string | null;
+  replaces_native: number;
 }
 
 export function externalAgentSnapshotRows(storage: DurableObjectStorage) {
   return storage.sql
     .exec<ExternalAgentSnapshotRow>(
-      "SELECT agent_id, endpoint_url, connection_status, registration_result_json FROM external_agent_runtimes",
+      "SELECT agent_id, endpoint_url, connection_status, registration_result_json, replaces_native FROM external_agent_runtimes",
     )
     .toArray();
 }
@@ -31,6 +32,9 @@ export function reconcileExternalAgentSnapshot(
   if (rows.length === 0) return { snapshot, changed: false };
   const externalAgents = new Map(
     rows.flatMap((row) => {
+      if (row.replaces_native === 1 && row.connection_status !== "connected") {
+        return [];
+      }
       const parsedJson = parseRegistrationResult(row.registration_result_json);
       const stored = z
         .object({ agent: agentSummarySchema })

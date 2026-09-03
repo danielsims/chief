@@ -18,7 +18,10 @@ import {
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
-import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import {
+  decodeWorkspaceSnapshot,
+  workspaceAgentProfiles,
+} from "./workspace-defaults";
 import { readMachines } from "./workspace-machine-store";
 import { projectIdsOwnedByAgent } from "./workspace-project-store";
 
@@ -47,7 +50,11 @@ export class WorkspaceAgentAccessService {
       );
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    if (snapshot.agents.some((agent) => agent.id === input.agentId)) {
+    if (
+      workspaceAgentProfiles(snapshot).some(
+        (agent) => agent.id === input.agentId,
+      )
+    ) {
       throw new HttpError(409, "agent_exists", "This agent already exists.");
     }
     const agent = agentSummarySchema.parse({
@@ -179,8 +186,18 @@ export class WorkspaceAgentAccessService {
     const snapshot = workspace.snapshot_json
       ? decodeWorkspaceSnapshot(workspace.snapshot_json)
       : null;
-    const existsInSnapshot =
-      snapshot?.agents.some((agent) => agent.id === agentId) === true;
+    const rootAgent = snapshot?.agents.find((agent) => agent.id === agentId);
+    const nestedAgent = snapshot?.agents
+      .flatMap((agent) => agent.subagents)
+      .find((agent) => agent.id === agentId);
+    if (nestedAgent) {
+      throw new HttpError(
+        409,
+        "subagent_owned_by_root",
+        "This subagent is managed through its root agent.",
+      );
+    }
+    const existsInSnapshot = rootAgent !== undefined;
     if (
       !existsInSnapshot &&
       this.channels.memberRole("agent", agentId) === null
@@ -204,6 +221,10 @@ export class WorkspaceAgentAccessService {
       context.workspaceId,
       agentId,
     );
+    const removedAgentIds = [
+      agentId,
+      ...(rootAgent?.subagents.map((subagent) => subagent.id) ?? []),
+    ];
 
     this.storage.transactionSync(() => {
       for (const conversationId of directConversationIds) {
@@ -224,22 +245,24 @@ export class WorkspaceAgentAccessService {
           conversationId,
         );
       }
-      this.storage.sql.exec(
-        "DELETE FROM channel_members WHERE principal_kind = 'agent' AND principal_id = ?",
-        agentId,
-      );
-      this.storage.sql.exec(
-        "DELETE FROM agent_keys WHERE agent_id = ?",
-        agentId,
-      );
-      this.storage.sql.exec(
-        "DELETE FROM agent_configs WHERE agent_id = ?",
-        agentId,
-      );
-      this.storage.sql.exec(
-        "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
-        agentId,
-      );
+      for (const removedAgentId of removedAgentIds) {
+        this.storage.sql.exec(
+          "DELETE FROM channel_members WHERE principal_kind = 'agent' AND principal_id = ?",
+          removedAgentId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM agent_keys WHERE agent_id = ?",
+          removedAgentId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM agent_configs WHERE agent_id = ?",
+          removedAgentId,
+        );
+        this.storage.sql.exec(
+          "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
+          removedAgentId,
+        );
+      }
       for (const projectId of projectIds) {
         this.storage.sql.exec(
           "DELETE FROM projects WHERE project_id = ?",
@@ -336,14 +359,7 @@ export class WorkspaceAgentAccessService {
       return json({ runtime: null, managed: false });
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
-    if (!agent) {
-      throw new HttpError(
-        404,
-        "agent_not_found",
-        "The hosted agent is not part of this workspace.",
-      );
-    }
+    const agent = workspaceAgent(this.storage, agentId);
     return json({
       managed: true,
       runtime: this.channels.agentConfiguration(agentId).deploymentTarget,

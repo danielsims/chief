@@ -88,6 +88,7 @@ export class ExternalAgentOutbox {
         ...command.payload,
         deliveryGeneration: 1,
         sessionAddress,
+        agentId,
         continuation: { capability },
       },
     });

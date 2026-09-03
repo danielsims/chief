@@ -36,7 +36,10 @@ export interface ChannelTestContext {
   };
 }
 
-export async function setupChannelTest(): Promise<ChannelTestContext> {
+export async function setupChannelTest(options?: {
+  agentRuntime?: "relay-cell" | "vercel-eve";
+}): Promise<ChannelTestContext> {
+  const agentRuntime = options?.agentRuntime ?? "relay-cell";
   const relay: Parameters<typeof createManagedWorkspace>[0] = {
     ...env,
     BETTER_AUTH_SECRET: "test-auth-secret",
@@ -57,8 +60,10 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     commandId: crypto.randomUUID(),
     name: "Channel test",
     website: "https://heychief.sh",
-    runtime: "phone" as const,
-    inferenceProvider: "openCodeGo",
+    runtime: agentRuntime === "vercel-eve" ? "cloud" : "phone",
+    agentRuntime,
+    inferenceProvider:
+      agentRuntime === "vercel-eve" ? "vercelAiGateway" : "openCodeGo",
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
@@ -67,7 +72,8 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     identity,
     provisionWorkspaceCommandSchema.parse({
       workspace: command,
-      secrets: { opencode: "test-opencode-key" },
+      secrets:
+        agentRuntime === "vercel-eve" ? {} : { opencode: "test-opencode-key" },
     }),
   );
   const snapshot = workspaceSnapshotSchema.parse(await created.json());

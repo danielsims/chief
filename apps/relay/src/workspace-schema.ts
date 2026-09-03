@@ -87,6 +87,7 @@ export function initializeWorkspaceSchema(
       registration_command_id TEXT NOT NULL UNIQUE,
       registration_payload_hash TEXT NOT NULL,
       registration_result_json TEXT,
+      replaces_native INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -190,6 +191,7 @@ function migrateExternalAgentSchema(storage: DurableObjectStorage) {
     ["connection_status", "TEXT NOT NULL DEFAULT 'pending_setup'"],
     ["delivery_signing_key_id", "TEXT NOT NULL DEFAULT ''"],
     ["delivery_signing_secret_ref", "TEXT NOT NULL DEFAULT ''"],
+    ["replaces_native", "INTEGER NOT NULL DEFAULT 0"],
   ]);
   addColumns(storage, "external_agent_outbox", [
     ["delivery_generation", "INTEGER NOT NULL DEFAULT 1"],

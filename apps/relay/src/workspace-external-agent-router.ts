@@ -23,6 +23,7 @@ type ExternalAgentOperation =
   | "external-agent-recover"
   | "external-agent-reconciliations"
   | "external-agent-disconnect"
+  | "external-agent-endpoint"
   | "external-agent-verify"
   | "external-agent-rotate";
 
@@ -37,6 +38,7 @@ export const externalAgentRouter = {
       value === "external-agent-recover" ||
       value === "external-agent-reconciliations" ||
       value === "external-agent-disconnect" ||
+      value === "external-agent-endpoint" ||
       value === "external-agent-verify" ||
       value === "external-agent-rotate"
     );
@@ -55,6 +57,15 @@ export const externalAgentRouter = {
         new URL(request.url).pathname,
       );
       return new ExternalAgentAdministration(storage, env).verifyConnection(
+        request,
+        decodeURIComponent(match?.[1] ?? ""),
+      );
+    }
+    if (operation === "external-agent-endpoint") {
+      const match = /\/agents\/([^/]+)\/external\/endpoint$/u.exec(
+        new URL(request.url).pathname,
+      );
+      return new ExternalAgentAdministration(storage, env).updateEndpoint(
         request,
         decodeURIComponent(match?.[1] ?? ""),
       );

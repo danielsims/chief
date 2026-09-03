@@ -5,8 +5,6 @@ import {
   agentConfigSchema,
   channelDetailSchema,
   channelRecordSchema,
-  conversationIdSchema,
-  workspaceIdSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -15,7 +13,22 @@ import {
   effectiveAgentConfigFor,
   hasAgentPermission,
 } from "./workspace-agent-config";
-import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import {
+  channelRecordFromRow,
+  firstRow,
+  principalKindId,
+} from "./workspace-channel-rows";
+import {
+  decodeWorkspaceSnapshot,
+  workspaceAgentProfiles,
+} from "./workspace-defaults";
+
+export {
+  channelRecordFromRow,
+  firstRow,
+  parseChannelId,
+  principalKindId,
+} from "./workspace-channel-rows";
 
 const channelMemberRowSchema = z.object({
   conversation_id: z.string(),
@@ -165,7 +178,7 @@ export class WorkspaceChannelStore {
     if (principal.kind !== "agent") return;
     const config = this.agentConfiguration(principal.agentId);
     if (
-      !config.enabled ||
+      !this.agentIsLive(principal.agentId) ||
       !hasAgentPermission(config.toolPermissions, capability)
     ) {
       throw new HttpError(
@@ -174,6 +187,19 @@ export class WorkspaceChannelStore {
         `Workspace policy does not grant this agent the ${capability} capability.`,
       );
     }
+  }
+
+  agentIsLive(agentId: string) {
+    const runtime = firstRow<{ connection_status: string }>(
+      this.storage.sql.exec(
+        "SELECT connection_status FROM external_agent_runtimes WHERE agent_id = ?",
+        agentId,
+      ),
+    );
+    return (
+      this.agentConfiguration(agentId).enabled ||
+      runtime?.connection_status === "connected"
+    );
   }
 
   requireWorkspaceMember(
@@ -330,7 +356,7 @@ export class WorkspaceChannelStore {
     );
     if (!workspace?.snapshot_json) return names;
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    for (const agent of snapshot.agents) {
+    for (const agent of workspaceAgentProfiles(snapshot)) {
       names.set(`agent:${agent.id}`, agent.name);
     }
     return names;
@@ -376,7 +402,7 @@ export class WorkspaceChannelStore {
    * later register a signing key for the same principal, while a cloud cell can
    * execute immediately under the relay's trusted Durable Object boundary. */
   seedSnapshotAgents(snapshot: WorkspaceSnapshot, createdAt: string) {
-    for (const agent of snapshot.agents) {
+    for (const agent of workspaceAgentProfiles(snapshot)) {
       this.storage.sql.exec(
         `INSERT INTO members (principal_kind, principal_id, role, created_at)
          VALUES ('agent', ?, 'member', ?)
@@ -444,49 +470,4 @@ export class WorkspaceChannelStore {
       );
     }
   }
-}
-
-export function principalKindId(principal: Principal) {
-  if (principal.kind === "user")
-    return { kind: "user" as const, id: principal.userId };
-  if (principal.kind === "agent")
-    return { kind: "agent" as const, id: principal.agentId };
-  return { kind: "service" as const, id: principal.service };
-}
-
-export function channelRecordFromRow(
-  row: Pick<
-    ChannelRow,
-    | "conversation_id"
-    | "workspace_id"
-    | "name"
-    | "is_private"
-    | "archived"
-    | "created_at"
-  >,
-) {
-  return {
-    id: conversationIdSchema.parse(String(row.conversation_id)),
-    workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
-    name: String(row.name),
-    isPrivate: Number(row.is_private) === 1,
-    archived: Number(row.archived) === 1,
-    createdAt: String(row.created_at),
-  };
-}
-
-export function parseChannelId(value: string | null) {
-  if (value === null) {
-    throw new HttpError(
-      400,
-      "missing_conversation",
-      "A conversationId query parameter is required.",
-    );
-  }
-  return conversationIdSchema.parse(decodeURIComponent(value));
-}
-
-export function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  const next = cursor[Symbol.iterator]().next();
-  return next.done ? undefined : next.value;
 }

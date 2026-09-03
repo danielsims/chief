@@ -67,6 +67,7 @@ describe("workspace snapshot decode", () => {
         agent_id: "chief",
         endpoint_url: "https://chief-eve.vercel.app/channels/chief/messages",
         connection_status: "connected",
+        replaces_native: 1,
         registration_result_json: JSON.stringify({
           agent: {
             id: "chief",
@@ -91,6 +92,37 @@ describe("workspace snapshot decode", () => {
       provider: "eve",
       endpoint: "https://chief-eve.vercel.app/channels/chief/messages",
       connectionStatus: "connected",
+    });
+  });
+
+  it("keeps a native agent active while its Eve replacement is staged", () => {
+    const reconciled = reconcileExternalAgentSnapshot(valid, [
+      {
+        agent_id: "chief",
+        endpoint_url: "https://chief-eve.vercel.app/channels/chief/messages",
+        connection_status: "pending_setup",
+        replaces_native: 1,
+        registration_result_json: JSON.stringify({
+          agent: {
+            id: "chief",
+            name: "Chief",
+            role: "Chief of staff",
+            status: "idle",
+            runtime: {
+              kind: "external-channel",
+              provider: "eve",
+              endpoint: "https://chief-eve.vercel.app/channels/chief/messages",
+              connectionStatus: "pending_setup",
+              deployment: { status: "unattested" },
+            },
+          },
+        }),
+      },
+    ]);
+
+    expect(reconciled.changed).toBe(false);
+    expect(reconciled.snapshot.agents[0]?.runtime).toEqual({
+      kind: "native-cell",
     });
   });
 

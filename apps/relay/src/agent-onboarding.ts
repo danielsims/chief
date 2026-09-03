@@ -6,14 +6,13 @@ import type {
 } from "@chief/relay-contracts";
 import {
   agentPublishedMessageSchema,
-  channelCreateCommandSchema,
   channelMemberAddCommandSchema,
-  channelMembersResultSchema,
   isJsonString,
   messagePageSchema,
   workspaceOnboardingResultSchema,
 } from "@chief/relay-contracts";
 
+import { ensureKickoffWorkChannel } from "./agent-kickoff-delivery";
 import {
   channelIdForKey,
   deterministicUuid,
@@ -251,15 +250,21 @@ async function enqueueKickoff(
       );
     }
     const conversationId = await channelIdForKey(entry.operationKey);
-    if (entry.agentId === "prospector") {
-      await ensureProspectorChannel(env, job, agent, conversationId);
-    }
+    await ensureKickoffWorkChannel(env, job, agent, entry, conversationId);
+    const instruction = `${entry.payload.instruction} The exact Mission Control threadRootId is ${JSON.stringify(threadRootId)}.`;
+    const commandId = await deterministicUuid(
+      `${job.id}:kickoff-command:${entry.agentId}`,
+    );
+    const jobId = await deterministicUuid(
+      `${job.id}:kickoff-job:${entry.agentId}`,
+    );
+    const occurredAt = new Date().toISOString();
     const command = {
-      commandId: crypto.randomUUID(),
+      commandId,
       protocolVersion: 1,
-      occurredAt: new Date().toISOString(),
+      occurredAt,
       payload: {
-        id: crypto.randomUUID(),
+        id: jobId,
         agentId: entry.agentId,
         kind: entry.kind,
         payload: {
@@ -269,7 +274,7 @@ async function enqueueKickoff(
             : job.id,
           conversationId,
           kickoffThreadRootId: threadRootId,
-          instruction: `${entry.payload.instruction} The exact Mission Control threadRootId is ${JSON.stringify(threadRootId)}.`,
+          instruction,
         },
         availableAt: new Date(startedAt + index * 1_400).toISOString(),
       },
@@ -306,51 +311,6 @@ async function enqueueKickoff(
       );
     }
   }
-}
-
-async function ensureProspectorChannel(
-  env: Env,
-  job: AgentJob,
-  agent: AgentPrincipal,
-  conversationId: string,
-) {
-  await workspaceOperation(env, job, agent, "channels-create", {
-    body: channelCreateCommandSchema.parse({
-      commandId: await deterministicUuid(`${job.id}:prospecting:channel`),
-      protocolVersion: 1,
-      occurredAt: job.createdAt,
-      payload: { conversationId, name: "prospecting", isPrivate: false },
-    }),
-  });
-  const missionControl = channelMembersResultSchema.parse(
-    await workspaceOperation(env, job, agent, "channels-members-list", {
-      conversationId: "mission-control",
-    }),
-  );
-  const owner = missionControl.members.find(
-    (member) => member.kind === "user" && member.role === "owner",
-  );
-  if (!owner) {
-    throw new HttpError(
-      502,
-      "workspace_owner_missing",
-      "Chief could not find the workspace owner for Prospecting.",
-    );
-  }
-  await workspaceOperation(env, job, agent, "channels-members-add", {
-    body: channelMemberAddCommandSchema.parse({
-      commandId: await deterministicUuid(`${job.id}:prospecting:members`),
-      protocolVersion: 1,
-      occurredAt: job.createdAt,
-      payload: {
-        conversationId,
-        members: [
-          { kind: "user", principalId: owner.principalId },
-          { kind: "agent", principalId: "prospector" },
-        ],
-      },
-    }),
-  });
 }
 
 async function missionControlMessages(

@@ -23,6 +23,7 @@ const provision = (commandId: string, name: string) =>
       name,
       website: "https://heychief.sh",
       runtime: "phone",
+      agentRuntime: "relay-cell",
       inferenceProvider: "openCodeGo",
       inferenceModel: "deepseek-v4-flash",
       selectedApps: [],

@@ -107,20 +107,25 @@ export async function createManagedWorkspace(
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  const onboarding = enqueueOnboarding(
-    env,
-    identity,
-    { ...entry, command },
-    false,
-  );
-  if (context) {
-    context.waitUntil(
-      onboarding.catch((error: unknown) => {
-        console.error("[Workspace] Initial onboarding enqueue failed:", error);
-      }),
+  if (command.agentRuntime === "relay-cell") {
+    const onboarding = enqueueOnboarding(
+      env,
+      identity,
+      { ...entry, command },
+      false,
     );
-  } else {
-    await onboarding;
+    if (context) {
+      context.waitUntil(
+        onboarding.catch((error: unknown) => {
+          console.error(
+            "[Workspace] Initial onboarding enqueue failed:",
+            error,
+          );
+        }),
+      );
+    } else {
+      await onboarding;
+    }
   }
   return response;
 }
@@ -197,8 +202,12 @@ export async function activeManagedWorkspace(
       "The workspace returned an invalid snapshot.",
     );
   }
-  snapshot.runtime = entry.command?.runtime ?? null;
-  if (snapshot.onboardingComplete === false && entry.command) {
+  snapshot.runtime =
+    entry.command?.agentRuntime === "relay-cell" ? entry.command.runtime : null;
+  if (
+    snapshot.onboardingComplete === false &&
+    entry.command?.agentRuntime === "relay-cell"
+  ) {
     const repair = enqueueOnboarding(
       env,
       identity,

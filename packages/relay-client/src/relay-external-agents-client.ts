@@ -1,8 +1,10 @@
 import type { ExternalAgentRegistrationPayload } from "@chief/relay-contracts";
 import {
+  externalAgentConnectionVerificationInputSchema,
   externalAgentConnectionVerificationResultSchema,
   externalAgentCredentialRotationResultSchema,
   externalAgentDisconnectResultSchema,
+  externalAgentEndpointUpdateResultSchema,
   externalAgentReconciliationListSchema,
   externalAgentRecoveryResultSchema,
   externalAgentRegistrationResultSchema,
@@ -11,14 +13,22 @@ import {
 import { RelayClientBase } from "./relay-client-base";
 
 export class RelayExternalAgentsClient extends RelayClientBase {
-  async verifyConnection(agentId: string) {
+  async verifyConnection(agentId: string, selectedApps?: readonly string[]) {
     return await this.fetchJson(
       this.workspaceUrl(
         `agents/${encodeURIComponent(agentId)}/external/verify`,
       ),
       externalAgentConnectionVerificationResultSchema,
       true,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          externalAgentConnectionVerificationInputSchema.parse({
+            selectedApps,
+          }),
+        ),
+      },
     );
   }
   async register(input: ExternalAgentRegistrationPayload) {
@@ -45,6 +55,21 @@ export class RelayExternalAgentsClient extends RelayClientBase {
       externalAgentDisconnectResultSchema,
       true,
       { method: "DELETE" },
+    );
+  }
+
+  async updateEndpoint(agentId: string, endpoint: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(agentId)}/external/endpoint`,
+      ),
+      externalAgentEndpointUpdateResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      },
     );
   }
 

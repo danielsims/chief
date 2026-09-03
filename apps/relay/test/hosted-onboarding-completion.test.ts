@@ -47,6 +47,7 @@ describe("hosted Chief onboarding completion", () => {
       name: "Hosted Chief",
       website: "https://heychief.sh",
       runtime: "cloud" as const,
+      agentRuntime: "relay-cell",
       inferenceProvider: "openCodeGo",
       inferenceModel: "deepseek-v4-flash",
       selectedApps: [],

@@ -162,6 +162,7 @@ export const createWorkspaceCommandSchema = z
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
     runtime: z.enum(["phone", "desktop", "cloud"]),
+    agentRuntime: z.enum(["relay-cell", "vercel-eve"]),
     inferenceProvider: z.enum([
       "openCodeGo",
       "opencode",
@@ -186,6 +187,7 @@ export const provisionWorkspaceCommandSchema = z
   })
   .strict()
   .superRefine((provision, context) => {
+    if (provision.workspace.agentRuntime === "vercel-eve") return;
     if (provision.workspace.runtime === "phone") return;
     const provider = provision.workspace.inferenceProvider;
     if (
@@ -294,14 +296,21 @@ export const workspaceAgentRuntimeSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-export const agentSummarySchema = z.object({
-  id: z.string().min(1).max(128),
-  name: z.string().min(1).max(120),
-  role: z.string().min(1).max(120),
-  description: z.string().trim().min(1).max(1_000).optional(),
-  instructions: z.string().trim().min(1).max(40_000).optional(),
+export const agentProfileSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    name: z.string().min(1).max(120),
+    role: z.string().min(1).max(120),
+    description: z.string().trim().max(1_000).default(""),
+    instructions: z.string().trim().max(40_000).default(""),
+    capabilities: z.array(z.string().trim().min(1).max(128)).default([]),
+  })
+  .strict();
+
+export const agentSummarySchema = agentProfileSchema.extend({
   status: z.enum(["idle", "working", "needsYou", "offline"]),
   runtime: workspaceAgentRuntimeSchema.default({ kind: "native-cell" }),
+  subagents: z.array(agentProfileSchema).default([]),
 });
 
 export const createNativeAgentCommandSchema = z
@@ -348,6 +357,7 @@ export type ProvisionWorkspaceCommand = z.infer<
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
 export type AgentDefinitionSource = z.infer<typeof agentDefinitionSourceSchema>;
 export type WorkspaceAgentRuntime = z.infer<typeof workspaceAgentRuntimeSchema>;
+export type AgentProfile = z.infer<typeof agentProfileSchema>;
 export type AgentSummary = z.infer<typeof agentSummarySchema>;
 export type CreateNativeAgentCommand = z.infer<
   typeof createNativeAgentCommandSchema
