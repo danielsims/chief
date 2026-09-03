@@ -322,80 +322,14 @@ export interface ExecutorCapability {
   token: string;
 }
 
-export interface EveAgentEnvironment {
-  CHIEF_AGENT_ID: string;
-  CHIEF_CHANNEL_TOKEN: string;
-  CHIEF_DELIVERY_SIGNING_KEY_ID: string;
-  CHIEF_DELIVERY_SIGNING_SECRET: string;
-  CHIEF_RELAY_URL: string;
-  CHIEF_WORKSPACE_ID: string;
-}
-
-export interface VercelTeamOption {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-export interface VercelProjectOption {
-  id: string;
-  name: string;
-  framework?: string;
-  productionDeploymentUrl?: string;
-}
-
-export interface VercelEveDestinationCatalog {
-  teams: VercelTeamOption[];
-  projects: VercelProjectOption[];
-  selectedTeamId?: string;
-}
-
-export type VercelEveProjectDestination =
-  | { kind: "existing"; projectId: string; projectName: string }
-  | { kind: "new"; projectName: string };
-
-export interface EveAgentProvisioningInput {
-  teamId: string;
-  project: VercelEveProjectDestination;
-  agent: {
-    name: string;
-    description: string;
-    instructions: string;
-    model: string;
-  };
-  environment: EveAgentEnvironment;
-}
-
-export interface EveAgentProvisioningResult {
-  projectId: string;
-  deploymentId: string;
-  deploymentUrl: string;
-  inspectorUrl?: string;
-}
-
-export type EveAgentProvisioningPhase =
-  | "validating"
-  | "uploading"
-  | "deploying"
-  | "configuring"
-  | "redeploying"
-  | "waiting"
-  | "checking";
-
-export interface EveAgentProvisioningProgress {
-  phase: EveAgentProvisioningPhase;
-  projectId?: string;
-  deploymentId?: string;
-  deploymentUrl?: string;
-  inspectorUrl?: string;
-}
+export type * from "./eve-provisioning-types.js";
 
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
  * state, resolved when the runtime opens a chat, never part of the
  * definition.
  */
-export interface AgentDefinition {
+export interface AgentProfile {
   id: string;
   name: string;
   role: string;
@@ -407,8 +341,13 @@ export interface AgentDefinition {
   baseInstructions?: string;
   /** Optional, composable tool + UI behaviors available to this agent. */
   capabilities?: AgentCapabilityId[];
+}
+
+export interface AgentDefinition extends AgentProfile {
   /** Chief can delegate to these agent ids. */
   delegates?: string[];
+  /** Authored specialists packaged inside this root agent's deployment. */
+  subagents?: AgentProfile[];
   /** Where this agent executes. Native cells remain the default. */
   runtime?: WorkspaceAgentRuntime;
 }
