@@ -114,6 +114,113 @@ describe("AgentObject", () => {
     });
   });
 
+  it("fails a kickoff job when the result cannot be saved instead of leaving it leased", async () => {
+    const stub = agentStub();
+    const availableAt = new Date(Date.now() - 5_000).toISOString();
+    const jobId = "8a0c1e24-6b7d-4f11-9c2a-3e5f7d9b1c40";
+    await post(stub, "enqueue", {
+      commandId: "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+      protocolVersion: 1,
+      occurredAt: availableAt,
+      payload: {
+        id: jobId,
+        agentId,
+        kind: "workspace.kickoff.engineering",
+        payload: { conversationId: "engineering" },
+        availableAt,
+      },
+    });
+    const claimed = await post(stub, "claim", {
+      workerId: "worker-kickoff",
+      leaseSeconds: 60,
+    });
+    const lease = (await claimed.json()) as { leaseToken: string };
+    const completed = await post(stub, "complete", {
+      leaseToken: lease.leaseToken,
+      outcome: {
+        status: "completed",
+        result: {
+          publishedMessage: {
+            conversationId: "engineering",
+            body: "On it. Continuing in #engineering.",
+          },
+        },
+      },
+    });
+    const listed = await ownerRequest(stub, "jobs", "GET");
+    const list = agentJobListSchema.parse(await listed.json());
+    const next = await post(stub, "claim", {
+      workerId: "worker-after-kickoff",
+      leaseSeconds: 60,
+    });
+    expect(completed.status).toBe(200);
+    expect(await completed.json()).toMatchObject({
+      job: { id: jobId, status: "failed" },
+    });
+    expect(list.jobs.find((job) => job.id === jobId)).toMatchObject({
+      status: "failed",
+    });
+    expect(next.status).toBe(204);
+  });
+
+  it("stops automatically retrying after a few failed claims", async () => {
+    const stub = agentStub();
+    const availableAt = new Date(Date.now() - 5_000).toISOString();
+    const jobId = "3c1d0a77-2c8a-4f61-9a3e-6d1f8c2e9b10";
+    await post(stub, "enqueue", {
+      commandId: "d4e5f607-1829-4a3b-9c0d-1e2f3a4b5c6d",
+      protocolVersion: 1,
+      occurredAt: availableAt,
+      payload: {
+        id: jobId,
+        agentId,
+        kind: "workspace.kickoff.engineering",
+        payload: { conversationId: "engineering" },
+        availableAt,
+      },
+    });
+    for (let round = 0; round < 3; round += 1) {
+      const claimed = await post(stub, "claim", {
+        workerId: `worker-${round}`,
+        leaseSeconds: 60,
+      });
+      expect(claimed.status).toBe(200);
+      const lease = (await claimed.json()) as { leaseToken: string };
+      await post(stub, "complete", {
+        leaseToken: lease.leaseToken,
+        outcome: {
+          status: "failed",
+          error: "Transient executor disconnect.",
+          retryAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      });
+    }
+    const exhausted = await post(stub, "claim", {
+      workerId: "worker-exhausted",
+      leaseSeconds: 60,
+    });
+    const listed = await ownerRequest(stub, "jobs", "GET");
+    const list = agentJobListSchema.parse(await listed.json());
+    expect(exhausted.status).toBe(204);
+    expect(list.jobs.find((job) => job.id === jobId)).toMatchObject({
+      status: "failed",
+      attempt: 3,
+    });
+    const retried = await ownerRequest(stub, `jobs/${jobId}/retry`, "POST");
+    const resumed = await post(stub, "claim", {
+      workerId: "worker-resumed",
+      leaseSeconds: 60,
+    });
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({
+      job: { status: "pending", attempt: 0 },
+    });
+    expect(resumed.status).toBe(200);
+    expect(await resumed.json()).toMatchObject({
+      job: { status: "leased", attempt: 1 },
+    });
+  });
+
   it("renews a live job lease without incrementing its attempt", async () => {
     const stub = agentStub();
     const availableAt = new Date(Date.now() - 5_000).toISOString();
@@ -192,7 +299,7 @@ describe("AgentObject", () => {
     });
     expect(retried.status).toBe(200);
     expect(await retried.json()).toMatchObject({
-      job: { id: jobId, status: "pending", lastError: null },
+      job: { id: jobId, status: "pending", attempt: 0, lastError: null },
     });
   });
 
