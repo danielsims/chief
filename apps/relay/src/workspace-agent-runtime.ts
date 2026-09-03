@@ -13,18 +13,28 @@ export function workspaceAgent(
   >(
     storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
   );
-  const agent = row?.snapshot_json
-    ? decodeWorkspaceSnapshot(row.snapshot_json).agents.find(
-        (candidate) => candidate.id === agentId,
-      )
+  const snapshot = row?.snapshot_json
+    ? decodeWorkspaceSnapshot(row.snapshot_json)
     : undefined;
-  if (!agent)
+  const rootAgent = snapshot?.agents.find(
+    (candidate) => candidate.id === agentId,
+  );
+  if (rootAgent) return rootAgent;
+  const subagent = snapshot?.agents
+    .flatMap((agent) => agent.subagents)
+    .find((candidate) => candidate.id === agentId);
+  if (!subagent)
     throw new HttpError(
       404,
       "agent_not_found",
       "This agent is not part of the workspace.",
     );
-  return agent;
+  return {
+    ...subagent,
+    status: "idle",
+    runtime: { kind: "native-cell" },
+    subagents: [],
+  };
 }
 
 export function requireNativeAgent(
@@ -53,8 +63,12 @@ export function requireNativeAgent(
       id: agentId,
       name: agentId,
       role: "Agent",
+      description: "",
+      instructions: "",
+      capabilities: [],
       status: "idle",
       runtime: { kind: "native-cell" },
+      subagents: [],
     };
   }
   if (agent.runtime.kind !== "native-cell") {

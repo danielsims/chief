@@ -38,13 +38,13 @@ import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
-import { WorkspaceVercelService } from "./workspace-vercel-service";
 import {
   consumeSocketAllowance,
   MAX_REPLAY_EVENTS_PER_CONNECTION,
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
+import { WorkspaceVercelService } from "./workspace-vercel-service";
 
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -115,7 +115,7 @@ export class WorkspaceObject extends DurableObject<Env> {
           routeWorkspaceDirect(ctx.storage, env, request),
         );
       }
-      if (operation?.startsWith("data-")) {
+      if (operation?.startsWith("data-") || operation?.startsWith("git-")) {
         return yield* attempt("workspace.data", () =>
           routeData(request, operation),
         );

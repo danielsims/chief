@@ -258,8 +258,7 @@ function eligibleAgentIds(
     ) {
       continue;
     }
-    const config = store.agentConfiguration(parsed.data);
-    if (!config.enabled) continue;
+    if (!store.agentIsLive(parsed.data)) continue;
     ready.push(parsed.data);
   }
   return ready;

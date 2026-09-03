@@ -36,7 +36,7 @@ export function routeOnboardingTelemetry(
       "chief.onboarding.session.id": event.sessionId,
       "chief.onboarding.stage": event.stage,
       "chief.onboarding.event": event.event,
-      "chief.onboarding.hosting": event.hosting,
+      "chief.onboarding.agent_runtime": event.agentRuntime,
       "chief.onboarding.provider": event.provider,
       "chief.onboarding.selected_app_count": event.selectedAppCount,
       "chief.onboarding.error.code": event.errorCode,

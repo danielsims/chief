@@ -2,14 +2,18 @@ import { z } from "zod";
 
 import {
   agentIdSchema,
+  agentSummarySchema,
+  externalAgentConnectionVerificationInputSchema,
   externalAgentConnectionVerificationResultSchema,
   externalAgentCredentialRotationResultSchema,
   externalAgentDeliveryRecoverySchema,
+  externalAgentEndpointUpdateResultSchema,
+  externalAgentEndpointUpdateSchema,
 } from "@chief/relay-contracts";
 
 import {
-  fetchVerifiedEveEndpoint,
   randomToken,
+  requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
@@ -18,6 +22,7 @@ import { readTrustedContext } from "./internal-context";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import { completeEveWorkspaceOnboarding } from "./workspace-eve-onboarding";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
@@ -26,6 +31,7 @@ interface RuntimeRow extends Record<string, SqlStorageValue> {
   delivery_signing_key_id: string;
   delivery_signing_secret_ref: string;
   registration_result_json: string;
+  replaces_native: number;
 }
 
 export class ExternalAgentAdministration {
@@ -35,7 +41,7 @@ export class ExternalAgentAdministration {
 
   constructor(
     private readonly storage: DurableObjectStorage,
-    env: Env,
+    private readonly env: Env,
   ) {
     this.channels = new WorkspaceChannelStore(storage, env);
     this.outbox = new ExternalAgentOutbox(storage, env);
@@ -53,6 +59,32 @@ export class ExternalAgentAdministration {
     const context = readTrustedContext(request);
     requireWorkspaceAdministrator(this.channels, context.principal);
     const agentId = agentIdSchema.parse(rawAgentId);
+    let verificationInput: unknown = {};
+    const verificationBody = (await request.text()).trim();
+    if (verificationBody) {
+      try {
+        verificationInput = JSON.parse(verificationBody);
+      } catch {
+        throw new HttpError(
+          400,
+          "invalid_json",
+          "The Eve connection verification request is not valid JSON.",
+        );
+      }
+    }
+    const verification =
+      externalAgentConnectionVerificationInputSchema.safeParse(
+        verificationInput,
+      );
+    if (!verification.success) {
+      throw new HttpError(
+        400,
+        "external_agent_verification_invalid",
+        verification.error.issues[0]?.message ??
+          "The Eve connection verification request is invalid.",
+      );
+    }
+    const { selectedApps } = verification.data;
     const runtime = firstRow<RuntimeRow>(
       this.storage.sql.exec(
         "SELECT endpoint_url, token_secret_ref, delivery_signing_secret_ref, registration_result_json FROM external_agent_runtimes WHERE agent_id = ?",
@@ -75,33 +107,113 @@ export class ExternalAgentAdministration {
         "external_agent_secret_missing",
         "Rotate the connection credential before verifying this agent.",
       );
-    const healthUrl = new URL(runtime.endpoint_url);
-    healthUrl.pathname = healthUrl.pathname.replace(/\/messages$/u, "/health");
-    const response = await fetchVerifiedEveEndpoint(healthUrl.toString(), {
-      method: "GET",
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
+    requireVerifiedEveEndpoint(runtime.endpoint_url);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json)
       throw new HttpError(
         409,
-        "external_agent_not_ready",
-        `Eve connection verification returned HTTP ${response.status}.`,
+        "workspace_snapshot_unavailable",
+        "This workspace cannot update agents.",
+      );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    let registrationPayload: unknown;
+    try {
+      registrationPayload = JSON.parse(runtime.registration_result_json);
+    } catch {
+      throw new HttpError(
+        409,
+        "external_agent_registration_invalid",
+        "This external agent registration is invalid.",
       );
     }
-    const ready = z
-      .object({
-        status: z.literal("ready"),
-        agentId: agentIdSchema,
-        workspaceId: z.string(),
-      })
-      .parse(await response.json());
-    if (ready.agentId !== agentId || ready.workspaceId !== context.workspaceId)
+    const storedAgentResult = z
+      .object({ agent: agentSummarySchema })
+      .safeParse(registrationPayload);
+    if (!storedAgentResult.success)
       throw new HttpError(
         409,
-        "external_agent_identity_mismatch",
-        "The Eve deployment is configured for another Chief agent or workspace.",
+        "external_agent_registration_invalid",
+        "This external agent registration is invalid.",
+      );
+    const storedAgent = storedAgentResult.data.agent;
+    if (storedAgent.runtime.kind !== "external-channel") {
+      throw new HttpError(
+        409,
+        "external_agent_registration_invalid",
+        "This external agent registration is invalid.",
+      );
+    }
+    const connectedAgent = {
+      ...storedAgent,
+      runtime: {
+        ...storedAgent.runtime,
+        endpoint: runtime.endpoint_url,
+        connectionStatus: "connected" as const,
+      },
+    };
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        "UPDATE external_agent_runtimes SET connection_status = 'connected', updated_at = ? WHERE agent_id = ?",
+        new Date().toISOString(),
+        agentId,
+      );
+      this.storage.sql.exec(
+        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+        JSON.stringify({
+          ...snapshot,
+          selectedApps: selectedApps ?? snapshot.selectedApps,
+          agents: snapshot.agents.map((agent) =>
+            agent.id === agentId
+              ? {
+                  ...connectedAgent,
+                  subagents:
+                    connectedAgent.subagents.length > 0
+                      ? connectedAgent.subagents
+                      : agent.subagents,
+                }
+              : agent,
+          ),
+        }),
+      );
+    });
+    if (agentId === "chief") {
+      await completeEveWorkspaceOnboarding({
+        env: this.env,
+        storage: this.storage,
+        channels: this.channels,
+        workspaceId: context.workspaceId,
+        createdAt: workspace.created_at,
+        createdByUserId: workspace.created_by_user_id,
+        snapshot,
+        selectedApps,
+      });
+    }
+    return json(
+      externalAgentConnectionVerificationResultSchema.parse({
+        status: "connected",
+      }),
+    );
+  }
+
+  async updateEndpoint(request: Request, rawAgentId: string) {
+    const context = readTrustedContext(request);
+    requireWorkspaceAdministrator(this.channels, context.principal);
+    const agentId = agentIdSchema.parse(rawAgentId);
+    const { endpoint } = externalAgentEndpointUpdateSchema.parse(
+      await parseJson(request),
+    );
+    requireVerifiedEveEndpoint(endpoint);
+    const runtime = firstRow<RuntimeRow>(
+      this.storage.sql.exec(
+        "SELECT endpoint_url, token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_result_json, replaces_native FROM external_agent_runtimes WHERE agent_id = ?",
+        agentId,
+      ),
+    );
+    if (!runtime)
+      throw new HttpError(
+        404,
+        "external_agent_not_found",
+        "This external agent is not registered.",
       );
     const workspace = this.channels.requireWorkspace(context.workspaceId);
     if (!workspace.snapshot_json)
@@ -113,7 +225,8 @@ export class ExternalAgentAdministration {
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     this.storage.transactionSync(() => {
       this.storage.sql.exec(
-        "UPDATE external_agent_runtimes SET connection_status = 'connected', updated_at = ? WHERE agent_id = ?",
+        "UPDATE external_agent_runtimes SET endpoint_url = ?, updated_at = ? WHERE agent_id = ?",
+        endpoint,
         new Date().toISOString(),
         agentId,
       );
@@ -125,7 +238,7 @@ export class ExternalAgentAdministration {
             agent.id === agentId && agent.runtime.kind === "external-channel"
               ? {
                   ...agent,
-                  runtime: { ...agent.runtime, connectionStatus: "connected" },
+                  runtime: { ...agent.runtime, endpoint },
                 }
               : agent,
           ),
@@ -133,9 +246,7 @@ export class ExternalAgentAdministration {
       );
     });
     return json(
-      externalAgentConnectionVerificationResultSchema.parse({
-        status: "connected",
-      }),
+      externalAgentEndpointUpdateResultSchema.parse({ updated: true, agentId }),
     );
   }
 
@@ -169,7 +280,7 @@ export class ExternalAgentAdministration {
     const agentId = agentIdSchema.parse(rawAgentId);
     const runtime = firstRow<RuntimeRow>(
       this.storage.sql.exec(
-        "SELECT token_secret_ref, delivery_signing_secret_ref FROM external_agent_runtimes WHERE agent_id = ?",
+        "SELECT token_secret_ref, delivery_signing_secret_ref, replaces_native FROM external_agent_runtimes WHERE agent_id = ?",
         agentId,
       ),
     );
@@ -187,6 +298,12 @@ export class ExternalAgentAdministration {
         "This workspace cannot update agents.",
       );
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const externalAgent = snapshot.agents.find(
+      (agent) =>
+        agent.id === agentId && agent.runtime.kind === "external-channel",
+    );
+    const replacesNative = runtime.replaces_native === 1;
+    const restoreNative = replacesNative && externalAgent;
     this.storage.transactionSync(() => {
       this.storage.sql.exec(
         "DELETE FROM external_agent_inbound_receipts WHERE agent_id = ?",
@@ -200,15 +317,25 @@ export class ExternalAgentAdministration {
         "DELETE FROM external_agent_runtimes WHERE agent_id = ?",
         agentId,
       );
-      this.storage.sql.exec(
-        "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
-        agentId,
-      );
+      if (!replacesNative) {
+        this.storage.sql.exec(
+          "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
+          agentId,
+        );
+      }
       this.storage.sql.exec(
         "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
         JSON.stringify({
           ...snapshot,
-          agents: snapshot.agents.filter((agent) => agent.id !== agentId),
+          agents: restoreNative
+            ? snapshot.agents.map((agent) =>
+                agent.id === agentId
+                  ? { ...externalAgent, runtime: { kind: "native-cell" } }
+                  : agent,
+              )
+            : replacesNative
+              ? snapshot.agents
+              : snapshot.agents.filter((agent) => agent.id !== agentId),
         }),
       );
       this.secrets.delete(context.workspaceId, runtime.token_secret_ref);

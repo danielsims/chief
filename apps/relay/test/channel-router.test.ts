@@ -143,6 +143,7 @@ async function setupWorkspace() {
     name: "Router channel test",
     website: "https://heychief.sh",
     runtime: "phone",
+    agentRuntime: "relay-cell",
     inferenceProvider: "openCodeGo",
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],

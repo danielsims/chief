@@ -36,6 +36,7 @@ export const externalAgentRegistrationPayloadSchema = z
     instructions: z.string().trim().min(1).max(40_000).optional(),
     endpoint: z.url().max(2_048),
     definition: externalAgentDefinitionInputSchema.optional(),
+    replaceNative: z.boolean().default(false),
   })
   .strict();
 
@@ -61,6 +62,14 @@ export const externalAgentDisconnectResultSchema = z
   .object({ disconnected: z.literal(true), agentId: agentIdSchema })
   .strict();
 
+export const externalAgentEndpointUpdateSchema = z
+  .object({ endpoint: z.url().max(2_048) })
+  .strict();
+
+export const externalAgentEndpointUpdateResultSchema = z
+  .object({ updated: z.literal(true), agentId: agentIdSchema })
+  .strict();
+
 export const externalAgentCredentialRotationResultSchema = z
   .object({
     channel: z
@@ -78,6 +87,15 @@ export const externalAgentConnectionVerificationResultSchema = z
   .object({ status: z.literal("connected") })
   .strict();
 
+export const externalAgentConnectionVerificationInputSchema = z
+  .object({
+    selectedApps: z
+      .array(z.string().trim().min(1).max(128))
+      .max(100)
+      .optional(),
+  })
+  .strict();
+
 export const chiefChannelContinuationSchema = z
   .object({
     capability: z.string().trim().min(43).max(256),
@@ -91,6 +109,7 @@ export const externalAgentDeliveryPayloadSchema = z
     // Assigned by Chief's durable outbox. Internal enqueue commands omit it;
     // every request delivered to Eve contains it.
     sessionAddress: z.string().trim().min(32).max(256).optional(),
+    agentId: agentIdSchema.optional(),
     continuation: chiefChannelContinuationSchema,
     message: z
       .object({
@@ -189,7 +208,7 @@ export const externalAgentInboundActivityResultSchema = z
   .object({ messageId: messageIdSchema })
   .strict();
 
-export type ExternalAgentRegistrationPayload = z.infer<
+export type ExternalAgentRegistrationPayload = z.input<
   typeof externalAgentRegistrationPayloadSchema
 >;
 export type ChiefChannelContinuation = z.infer<

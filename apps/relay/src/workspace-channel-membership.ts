@@ -27,7 +27,7 @@ import {
   parseChannelId,
   principalKindId,
 } from "./workspace-channel-store";
-import { defaultWorkspaceAgents } from "./workspace-defaults";
+import { defaultWorkspaceAgentProfiles } from "./workspace-defaults";
 
 interface ChannelMembershipBatchRow extends Record<string, SqlStorageValue> {
   command_id: string;
@@ -191,7 +191,7 @@ export class WorkspaceChannelMembership {
         name:
           target.kind === "user"
             ? "you"
-            : (defaultWorkspaceAgents.find(
+            : (defaultWorkspaceAgentProfiles.find(
                 (agent) => agent.id === target.principalId,
               )?.name ?? humanizeIdentifier(target.principalId)),
       })),
@@ -261,8 +261,9 @@ export class WorkspaceChannelMembership {
           : actor.service;
     const actorName =
       actor.kind === "agent"
-        ? (defaultWorkspaceAgents.find((agent) => agent.id === actor.agentId)
-            ?.name ?? humanizeIdentifier(actor.agentId))
+        ? (defaultWorkspaceAgentProfiles.find(
+            (agent) => agent.id === actor.agentId,
+          )?.name ?? humanizeIdentifier(actor.agentId))
         : actor.kind === "user"
           ? "You"
           : "Chief";

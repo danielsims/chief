@@ -1,35 +1,25 @@
 import type { ExternalAgentDeliveryCommand } from "@chief/relay-contracts";
 import {
-  agentIdSchema,
-  appendMessageCommandSchema,
-  appendMessageResultSchema,
-  externalAgentInboundActivityResultSchema,
-  externalAgentInboundActivitySchema,
-  externalAgentInboundMessageSchema,
-  externalAgentInboundResultSchema,
   externalAgentRegistrationResultSchema,
   registerExternalAgentCommandSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
-import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import {
-  deterministicUuid,
+  receiveExternalAgentActivity,
+  receiveExternalAgentMessage,
+} from "./external-agent-channel-inbound";
+import {
   randomToken,
-  requireChannelToken,
   requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
-import {
-  externalConversationFetch,
-  requireExternalThreadRoot,
-} from "./external-agent-conversation";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { externalAgentRegistrationReplay } from "./external-agent-registration-result";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
-import { releaseInternalResponse } from "./internal-response";
 import {
+  GitHubProjectRepository,
   projectRepository,
   ProjectRepositoryResolver,
 } from "./project-repository";
@@ -40,6 +30,7 @@ import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
   agent_id: string;
+  connection_status: "pending_setup" | "connected" | "degraded";
   endpoint_url: string;
   token_hash: string;
   token_secret_ref: string;
@@ -48,19 +39,9 @@ interface RuntimeRow extends Record<string, SqlStorageValue> {
   registration_command_id: string;
   registration_payload_hash: string;
   registration_result_json: string | null;
-}
-interface ContinuationRow extends Record<string, SqlStorageValue> {
-  conversation_id: string;
-  thread_root_id: string | null;
-  session_id: string;
-}
-interface ReceiptRow extends Record<string, SqlStorageValue> {
-  payload_hash: string;
-  message_id: string;
-  status: "claimed" | "accepted";
+  replaces_native: number;
 }
 
-const EXTERNAL_AGENT_PUBKEY = "0".repeat(64);
 export class ExternalAgentChannelService {
   private readonly channels: WorkspaceChannelStore;
   private readonly outbox: ExternalAgentOutbox;
@@ -74,15 +55,28 @@ export class ExternalAgentChannelService {
     this.channels = new WorkspaceChannelStore(storage, env);
     this.outbox = new ExternalAgentOutbox(storage, env);
     this.secrets = new WorkspaceSecretStore(storage, env.RELAY_SECRET_KEY);
-    this.repositories = repositories ?? new ProjectRepositoryResolver();
+    this.repositories =
+      repositories ??
+      new ProjectRepositoryResolver(new GitHubProjectRepository(), storage);
   }
 
   async register(request: Request) {
     const context = readTrustedContext(request);
     requireWorkspaceAdministrator(this.channels, context.principal);
-    const command = registerExternalAgentCommandSchema.parse(
+    const parsedCommand = registerExternalAgentCommandSchema.safeParse(
       await parseJson(request),
     );
+    if (!parsedCommand.success) {
+      const issue = parsedCommand.error.issues[0];
+      const issuePath = issue?.path.join(".");
+      const field = issuePath?.length ? issuePath : "request";
+      throw new HttpError(
+        400,
+        "external_agent_registration_invalid",
+        `Invalid agent deployment field "${field}": ${issue?.message ?? "Check the agent configuration."}`,
+      );
+    }
+    const command = parsedCommand.data;
     requireVerifiedEveEndpoint(command.payload.endpoint);
     const payloadHash = await sha256(JSON.stringify(command.payload));
     const replay = firstRow<RuntimeRow>(
@@ -104,9 +98,43 @@ export class ExternalAgentChannelService {
         this.secrets,
       );
     }
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json)
+      throw new HttpError(
+        409,
+        "workspace_snapshot_unavailable",
+        "This workspace cannot register external agents.",
+      );
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const existingAgent = snapshot.agents.find(
+      (agent) => agent.id === command.payload.agentId,
+    );
+    const replacesNative = Boolean(
+      command.payload.replaceNative &&
+      existingAgent?.runtime.kind === "native-cell",
+    );
+    const existingRuntime = this.runtime(command.payload.agentId);
     if (
-      this.runtime(command.payload.agentId) ||
-      this.channels.memberRole("agent", command.payload.agentId)
+      existingRuntime?.replaces_native === 1 &&
+      existingRuntime.connection_status !== "connected" &&
+      replacesNative
+    ) {
+      this.storage.sql.exec(
+        "UPDATE external_agent_runtimes SET endpoint_url = ?, updated_at = ? WHERE agent_id = ?",
+        command.payload.endpoint,
+        new Date().toISOString(),
+        command.payload.agentId,
+      );
+      return await externalAgentRegistrationReplay(
+        context.workspaceId,
+        existingRuntime,
+        this.secrets,
+      );
+    }
+    if (
+      existingRuntime ||
+      (this.channels.memberRole("agent", command.payload.agentId) &&
+        !replacesNative)
     )
       throw new HttpError(
         409,
@@ -179,23 +207,19 @@ export class ExternalAgentChannelService {
       deliverySigningSecret,
     );
     const now = new Date().toISOString();
-    const workspace = this.channels.requireWorkspace(context.workspaceId);
-    if (!workspace.snapshot_json)
-      throw new HttpError(
-        409,
-        "workspace_snapshot_unavailable",
-        "This workspace cannot register external agents.",
-      );
-    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     const agent = {
-      id: command.payload.agentId,
-      name: command.payload.name,
-      role: command.payload.role,
-      description:
-        command.payload.description ??
-        `${command.payload.name} works with your team through Chief.`,
-      instructions: command.payload.instructions,
-      status: "idle" as const,
+      ...(replacesNative && existingAgent
+        ? existingAgent
+        : {
+            id: command.payload.agentId,
+            name: command.payload.name,
+            role: command.payload.role,
+            description:
+              command.payload.description ??
+              `${command.payload.name} works with your team through Chief.`,
+            instructions: command.payload.instructions,
+            status: "idle" as const,
+          }),
       runtime: {
         kind: "external-channel" as const,
         provider: "eve" as const,
@@ -216,7 +240,7 @@ export class ExternalAgentChannelService {
     });
     const nextSnapshot = workspaceSnapshotSchema.parse({
       ...snapshot,
-      agents: [...snapshot.agents, agent],
+      agents: replacesNative ? snapshot.agents : [...snapshot.agents, agent],
     });
     const concurrentReplay = this.storage.transactionSync(() => {
       const claimed = firstRow<RuntimeRow>(
@@ -226,7 +250,10 @@ export class ExternalAgentChannelService {
         ),
       );
       if (claimed) return claimed;
-      if (this.runtime(agent.id) || this.channels.memberRole("agent", agent.id))
+      if (
+        this.runtime(agent.id) ||
+        (this.channels.memberRole("agent", agent.id) && !replacesNative)
+      )
         throw new HttpError(
           409,
           "agent_runtime_conflict",
@@ -235,7 +262,7 @@ export class ExternalAgentChannelService {
       this.secrets.writePrepared(preparedToken);
       this.secrets.writePrepared(preparedDeliverySigningSecret);
       this.storage.sql.exec(
-        `INSERT INTO external_agent_runtimes (agent_id, endpoint_url, token_hash, token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_command_id, registration_payload_hash, registration_result_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO external_agent_runtimes (agent_id, endpoint_url, token_hash, token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_command_id, registration_payload_hash, registration_result_json, replaces_native, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         agent.id,
         command.payload.endpoint,
         tokenHash,
@@ -251,6 +278,7 @@ export class ExternalAgentChannelService {
             deliverySigningKeyId,
           },
         }),
+        replacesNative ? 1 : 0,
         now,
         now,
       );
@@ -278,11 +306,13 @@ export class ExternalAgentChannelService {
         "INSERT INTO external_agent_deployments (agent_id, status) VALUES (?, 'unattested')",
         agent.id,
       );
-      this.storage.sql.exec(
-        "INSERT INTO members (principal_kind, principal_id, role, created_at) VALUES ('agent', ?, 'member', ?)",
-        agent.id,
-        now,
-      );
+      if (!replacesNative) {
+        this.storage.sql.exec(
+          "INSERT INTO members (principal_kind, principal_id, role, created_at) VALUES ('agent', ?, 'member', ?)",
+          agent.id,
+          now,
+        );
+      }
       this.storage.sql.exec(
         "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
         JSON.stringify(nextSnapshot),
@@ -326,203 +356,15 @@ export class ExternalAgentChannelService {
   }
 
   async receive(request: Request, rawAgentId: string) {
-    const context = readTrustedContext(request);
-    const agentId = agentIdSchema.parse(rawAgentId);
-    const runtime = this.runtime(agentId);
-    if (!runtime)
-      throw new HttpError(
-        404,
-        "external_agent_not_found",
-        "This external agent is not registered.",
-      );
-    await requireChannelToken(request, runtime.token_hash);
-    const input = externalAgentInboundMessageSchema.parse(
-      await parseJson(request),
-    );
-    const continuation = firstRow<ContinuationRow>(
-      this.storage.sql.exec(
-        `SELECT conversation_id, thread_root_id, session_id FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
-        agentId,
-        await sha256(input.continuation.capability),
-      ),
-    );
-    if (!continuation || continuation.session_id !== input.sessionId)
-      throw new HttpError(
-        403,
-        "external_continuation_invalid",
-        "This continuation was not issued to this agent session.",
-      );
-    const payloadHash = await sha256(JSON.stringify(input));
-    const messageId = await deterministicUuid(
-      `${context.workspaceId}:${agentId}:external:${input.deliveryId}`,
-    );
-    const receipt = firstRow<ReceiptRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM external_agent_inbound_receipts WHERE agent_id = ? AND delivery_id = ?",
-        agentId,
-        input.deliveryId,
-      ),
-    );
-    if (receipt && receipt.payload_hash !== payloadHash)
-      throw new HttpError(
-        409,
-        "external_delivery_conflict",
-        "This delivery id was already used with different content.",
-      );
-    if (receipt?.status === "accepted")
-      return json(
-        externalAgentInboundResultSchema.parse({
-          duplicate: true,
-          messageId: receipt.message_id,
-        }),
-      );
-    const now = new Date().toISOString();
-    if (!receipt)
-      this.storage.sql.exec(
-        `INSERT INTO external_agent_inbound_receipts (agent_id, delivery_id, payload_hash, message_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'claimed', ?, ?)`,
-        agentId,
-        input.deliveryId,
-        payloadHash,
-        messageId,
-        now,
-        now,
-      );
-    const principal = {
-      kind: "agent" as const,
-      agentId,
-      pubkey: EXTERNAL_AGENT_PUBKEY,
-      workspaceId: context.workspaceId,
-      role: "member" as const,
-    };
-    this.channels.requirePrincipalMember(principal);
-    this.channels.requireAgentCapability(principal, "messages.send");
-    this.channels.requireChannelVisible(
-      continuation.conversation_id,
-      principal,
-    );
-    await requireExternalThreadRoot(
-      this.env,
-      context.workspaceId,
-      continuation,
-      principal,
-      context.requestId,
-    );
-    const command = appendMessageCommandSchema.parse({
-      commandId: messageId,
-      protocolVersion: 1,
-      occurredAt: now,
-      payload: {
-        messageId,
-        conversationId: continuation.conversation_id,
-        threadRootId: continuation.thread_root_id ?? undefined,
-        body: input.body,
-        mentions: [],
-        components: [],
-      },
-    });
-    const appendRequest = new Request("https://relay.internal/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(command),
-    });
-    const response = await externalConversationFetch(
-      this.env,
-      context.workspaceId,
-      continuation.conversation_id,
-      appendRequest,
-      principal,
-      context.requestId,
-    );
-    if (!response.ok) return response;
-    const result = appendMessageResultSchema.parse(
-      await response.clone().json(),
-    );
-    const dispatched = await dispatchAppendedMessage(this.env, {
-      request: appendRequest,
-      response,
-      principal,
-      requestId: context.requestId,
-      workspaceId: context.workspaceId,
-      conversationId: continuation.conversation_id,
-    });
-    if (!dispatched.ok) return dispatched;
-    await releaseInternalResponse(dispatched);
-    this.storage.sql.exec(
-      "UPDATE external_agent_inbound_receipts SET status = 'accepted', updated_at = ? WHERE agent_id = ? AND delivery_id = ?",
-      new Date().toISOString(),
-      agentId,
-      input.deliveryId,
-    );
-    return json(
-      externalAgentInboundResultSchema.parse({
-        duplicate: result.duplicate,
-        messageId: result.message.id,
-      }),
-    );
+    return receiveExternalAgentMessage(this.inboundHost(), request, rawAgentId);
   }
 
   async receiveActivity(request: Request, rawAgentId: string) {
-    const context = readTrustedContext(request);
-    const agentId = agentIdSchema.parse(rawAgentId);
-    const runtime = this.runtime(agentId);
-    if (!runtime)
-      throw new HttpError(
-        404,
-        "external_agent_not_found",
-        "This external agent is not registered.",
-      );
-    await requireChannelToken(request, runtime.token_hash);
-    const input = externalAgentInboundActivitySchema.parse(
-      await parseJson(request),
+    return receiveExternalAgentActivity(
+      this.inboundHost(),
+      request,
+      rawAgentId,
     );
-    const continuation = firstRow<ContinuationRow>(
-      this.storage.sql.exec(
-        `SELECT conversation_id, thread_root_id, session_id FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
-        agentId,
-        await sha256(input.continuation.capability),
-      ),
-    );
-    if (!continuation || continuation.session_id !== input.sessionId)
-      throw new HttpError(
-        403,
-        "external_continuation_invalid",
-        "This continuation was not issued to this agent session.",
-      );
-    const messageId = await deterministicUuid(
-      `${context.workspaceId}:${agentId}:external:${input.deliveryId}:activity:${input.component.id}`,
-    );
-    const principal = {
-      kind: "agent" as const,
-      agentId,
-      pubkey: EXTERNAL_AGENT_PUBKEY,
-      workspaceId: context.workspaceId,
-      role: "member" as const,
-    };
-    const response = await externalConversationFetch(
-      this.env,
-      context.workspaceId,
-      continuation.conversation_id,
-      new Request(
-        `https://relay.internal/messages/${encodeURIComponent(messageId)}/activity`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            messageId,
-            conversationId: continuation.conversation_id,
-            ...(continuation.thread_root_id
-              ? { threadRootId: continuation.thread_root_id }
-              : undefined),
-            component: input.component,
-          }),
-        },
-      ),
-      principal,
-      context.requestId,
-    );
-    if (!response.ok) return response;
-    await releaseInternalResponse(response);
-    return json(externalAgentInboundActivityResultSchema.parse({ messageId }));
   }
 
   runtime(agentId: string) {
@@ -532,6 +374,15 @@ export class ExternalAgentChannelService {
         agentId,
       ),
     );
+  }
+
+  private inboundHost() {
+    return {
+      storage: this.storage,
+      env: this.env,
+      channels: this.channels,
+      runtime: (agentId: string) => this.runtime(agentId),
+    };
   }
 }
 

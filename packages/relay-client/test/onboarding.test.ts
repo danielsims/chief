@@ -34,7 +34,7 @@ void test("records privacy-safe onboarding events at the account relay boundary"
     sessionId: commandIdSchema.parse("21545a96-d835-4de6-858f-8a28eaada32f"),
     stage: "apps",
     event: "advanced",
-    hosting: "self-hosted",
+    agentRuntime: "relay-cell",
     provider: "opencode",
     selectedAppCount: 2,
   });
@@ -45,7 +45,7 @@ void test("records privacy-safe onboarding events at the account relay boundary"
       sessionId: "21545a96-d835-4de6-858f-8a28eaada32f",
       stage: "apps",
       event: "advanced",
-      hosting: "self-hosted",
+      agentRuntime: "relay-cell",
       provider: "opencode",
       selectedAppCount: 2,
     },

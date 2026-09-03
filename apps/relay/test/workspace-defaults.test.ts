@@ -2,9 +2,33 @@ import { describe, expect, it } from "vitest";
 
 import { workspaceSnapshotSchema } from "@chief/relay-contracts";
 
-import { reconcileWorkspaceAgents } from "../src/workspace-defaults";
+import {
+  defaultWorkspaceAgents,
+  reconcileWorkspaceAgents,
+} from "../src/workspace-defaults";
 
 describe("workspace defaults", () => {
+  it("creates one directly addressable Chief with nested specialists", () => {
+    expect(defaultWorkspaceAgents).toHaveLength(1);
+    expect(defaultWorkspaceAgents[0].id).toBe("chief");
+    expect(
+      defaultWorkspaceAgents[0].subagents.map((agent) => agent.id),
+    ).toEqual([
+      "brand",
+      "content",
+      "analyst",
+      "prospector",
+      "ads",
+      "engineer",
+      "setup",
+    ]);
+    expect(
+      defaultWorkspaceAgents[0].subagents.every(
+        (agent) => agent.instructions.trim().length > 0,
+      ),
+    ).toBe(true);
+  });
+
   it("preserves an intentionally reduced agent roster", () => {
     const snapshot = workspaceSnapshotSchema.parse({
       id: "workspace-00000000-0000-4000-8000-000000000001",

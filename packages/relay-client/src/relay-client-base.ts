@@ -115,9 +115,11 @@ export class RelayClientBase {
   }
   async createWorkspace(command: CreateWorkspaceCommand, credential: string) {
     const secrets =
-      command.inferenceProvider === "vercelAiGateway"
-        ? { vercelAiGateway: credential }
-        : { opencode: credential };
+      command.agentRuntime === "vercel-eve"
+        ? {}
+        : command.inferenceProvider === "vercelAiGateway"
+          ? { vercelAiGateway: credential }
+          : { opencode: credential };
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
       workspaceSnapshotSchema,
