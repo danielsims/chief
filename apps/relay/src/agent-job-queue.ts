@@ -14,7 +14,11 @@ import {
 } from "@chief/relay-contracts";
 
 import type { readTrustedContext } from "./internal-context";
-import { listAgentJobs, retryAgentJob } from "./agent-job-administration";
+import {
+  listAgentJobs,
+  markJobFailed,
+  retryAgentJob,
+} from "./agent-job-administration";
 import {
   actorPubkey,
   firstAgentRow,
@@ -24,6 +28,10 @@ import {
 import { validateSpecialistKickoff } from "./agent-kickoff-verification";
 import { publishAgentMessage } from "./agent-message-publisher";
 import { publishOnboardingResult } from "./agent-onboarding";
+import {
+  HOSTED_JOB_MAX_ATTEMPTS,
+  hostedAutomaticRetryAt,
+} from "./agent-runtime-support";
 import { HttpError, json, parseJson } from "./http";
 
 type TrustedContext = ReturnType<typeof readTrustedContext>;
@@ -116,6 +124,9 @@ export class AgentJobQueue {
     ).toISOString();
     const previous = agentJobSchema.parse(JSON.parse(candidate.job_json));
     requireAgentOwnsJob(context.principal, previous.agentId);
+    if (previous.attempt >= HOSTED_JOB_MAX_ATTEMPTS) {
+      return await this.exhaustAutomaticRetries(previous, now.toISOString());
+    }
     const job = agentJobSchema.parse({
       ...previous,
       status: "leased",
@@ -156,8 +167,12 @@ export class AgentJobQueue {
     requireAgentOwnsJob(context.principal, previous.agentId);
     const now = new Date().toISOString();
     const retryAt =
-      input.outcome.status === "failed" ? input.outcome.retryAt : undefined;
-    const job = agentJobSchema.parse({
+      input.outcome.status === "failed" && input.outcome.retryAt
+        ? hostedAutomaticRetryAt(previous.attempt, input.outcome.error)
+          ? input.outcome.retryAt
+          : undefined
+        : undefined;
+    let job = agentJobSchema.parse({
       ...previous,
       status: retryAt ? "pending" : input.outcome.status,
       lastError: input.outcome.status === "failed" ? input.outcome.error : null,
@@ -169,27 +184,42 @@ export class AgentJobQueue {
       job.status === "completed" && input.outcome.status === "completed"
         ? agentJobCompletionResultSchema.parse(input.outcome.result)
         : null;
-    if (result?.publishedMessage && job.kind !== "workspace.onboarding") {
-      if (job.kind.startsWith("workspace.kickoff.")) {
-        await validateSpecialistKickoff(this.env, job, context.principal);
+    try {
+      if (result?.publishedMessage && job.kind !== "workspace.onboarding") {
+        if (job.kind.startsWith("workspace.kickoff.")) {
+          await validateSpecialistKickoff(this.env, job, context.principal);
+        }
+        await publishAgentMessage(
+          this.env,
+          job,
+          result.publishedMessage,
+          job.id,
+          actorPubkey(context.principal),
+        );
       }
-      await publishAgentMessage(
-        this.env,
-        job,
-        result.publishedMessage,
-        job.id,
-        actorPubkey(context.principal),
-      );
-    }
-    if (result && job.kind === "workspace.onboarding") {
-      await publishOnboardingResult(
-        this.env,
-        job,
-        context.principal,
-        parseJsonObject(result) ?? {},
-        (targetJob, message, commandId, pubkey) =>
-          publishAgentMessage(this.env, targetJob, message, commandId, pubkey),
-      );
+      if (result && job.kind === "workspace.onboarding") {
+        await publishOnboardingResult(
+          this.env,
+          job,
+          context.principal,
+          parseJsonObject(result) ?? {},
+          (targetJob, message, commandId, pubkey) =>
+            publishAgentMessage(
+              this.env,
+              targetJob,
+              message,
+              commandId,
+              pubkey,
+            ),
+        );
+      }
+    } catch (cause) {
+      job = agentJobSchema.parse({
+        ...job,
+        status: "failed",
+        lastError: parsePersistedJobError(cause),
+        availableAt: previous.availableAt,
+      });
     }
     this.storage.sql.exec(
       `UPDATE jobs SET job_json = ?, status = ?, available_at = ?,
@@ -207,6 +237,12 @@ export class AgentJobQueue {
       await this.scheduleNextAlarm();
     }
     return json({ job, outcome: input.outcome });
+  }
+
+  private async exhaustAutomaticRetries(previous: AgentJob, now: string) {
+    markJobFailed(this.storage, previous, now);
+    await this.scheduleNextAlarm();
+    return new Response(null, { status: 204 });
   }
 
   async renew(request: Request, context: TrustedContext) {
@@ -304,6 +340,10 @@ export class AgentJobQueue {
       row.lease_expires_at !== null &&
       Date.parse(row.lease_expires_at) > now.getTime();
     if (leaseActive && row.lease_token !== currentToken) return undefined;
+    if (!leaseActive && previous.attempt >= HOSTED_JOB_MAX_ATTEMPTS) {
+      markJobFailed(this.storage, previous, now.toISOString());
+      return undefined;
+    }
     const leaseToken = leaseActive
       ? (row.lease_token ?? currentToken)
       : crypto.randomUUID();
@@ -392,6 +432,7 @@ export class AgentJobQueue {
       const repaired = agentJobSchema.parse({
         ...refreshed,
         status: "pending",
+        attempt: 0,
         lastError: null,
         availableAt: now,
         leaseExpiresAt: null,
@@ -450,4 +491,10 @@ export class AgentJobQueue {
       ),
     );
   }
+}
+
+function parsePersistedJobError(value: unknown) {
+  return value instanceof Error
+    ? value.message.slice(0, 4_000)
+    : "The agent result could not be saved.";
 }

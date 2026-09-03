@@ -1,4 +1,4 @@
-import type { Principal } from "@chief/relay-contracts";
+import type { AgentJob, Principal } from "@chief/relay-contracts";
 import {
   agentJobListSchema,
   agentJobSchema,
@@ -52,6 +52,7 @@ export function retryAgentJob(
   const job = agentJobSchema.parse({
     ...previous,
     status: "pending",
+    attempt: 0,
     lastError: null,
     availableAt: now,
     leaseExpiresAt: null,
@@ -63,6 +64,29 @@ export function retryAgentJob(
      WHERE job_id = ?`,
     JSON.stringify(job),
     now,
+    now,
+    job.id,
+  );
+  return job;
+}
+
+export function markJobFailed(
+  storage: DurableObjectStorage,
+  previous: AgentJob,
+  now: string,
+) {
+  const job = agentJobSchema.parse({
+    ...previous,
+    status: "failed",
+    lastError:
+      previous.lastError ?? "Stopped after too many automatic retries.",
+    leaseExpiresAt: null,
+    updatedAt: now,
+  });
+  storage.sql.exec(
+    `UPDATE jobs SET job_json = ?, status = 'failed', lease_token = NULL,
+     lease_expires_at = NULL, updated_at = ? WHERE job_id = ?`,
+    JSON.stringify(job),
     now,
     job.id,
   );
