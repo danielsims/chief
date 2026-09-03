@@ -106,7 +106,13 @@ export async function proxyRelayAuth(request: Request) {
 function safeAuthorizationRedirect(value: string, webOrigin: string) {
   try {
     const destination = new URL(value);
-    if (destination.protocol === "https:" && destination.origin === webOrigin) {
+    if (
+      destination.origin === webOrigin &&
+      (destination.protocol === "https:" ||
+        (destination.protocol === "http:" &&
+          (destination.hostname === "localhost" ||
+            destination.hostname === "127.0.0.1")))
+    ) {
       return destination.toString();
     }
     if (

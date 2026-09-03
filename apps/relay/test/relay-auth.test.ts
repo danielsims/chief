@@ -81,4 +81,29 @@ describe("relay-local authentication", () => {
     expect(location.searchParams.get("state")).toBe("pkce-state");
     expect(location.searchParams.get("sig")).toBeTruthy();
   });
+
+  it("accepts the first-party HTTPS desktop callback as a registered redirect", async () => {
+    const authorize = new URL("https://relay.test/api/auth/oauth2/authorize");
+    authorize.search = new URLSearchParams({
+      client_id: "chief-desktop",
+      redirect_uri: "https://heychief.sh/auth/desktop",
+      response_type: "code",
+      scope: "openid profile email offline_access",
+      state: "pkce-https-state",
+      code_challenge: "A".repeat(43),
+      code_challenge_method: "S256",
+      resource: "https://relay.test",
+    }).toString();
+    const response = await routeRelayAuth(
+      new Request(authorize, { redirect: "manual" }),
+      relayEnv,
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/sign-in");
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://heychief.sh/auth/desktop",
+    );
+  });
 });
