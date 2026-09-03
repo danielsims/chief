@@ -7,20 +7,20 @@ import { isJsonNumber } from "@chief/relay-contracts";
 import type { PkceAttempt } from "./pkce";
 import type { StoredSession } from "./session";
 import { dispatchChiefNavigation, parseChiefDeepLink } from "../app-navigation";
-import { AUTH_BASE_URL, RELAY_URL } from "../config";
+import { AUTH_BASE_URL, AUTH_UI_BASE_URL, RELAY_URL } from "../config";
 import { fetchWithTimeout } from "../fetch-with-timeout";
 import {
   parseOrganizationInvitationUrl,
   storePendingOrganizationInvitation,
 } from "../organization-invitation";
 import { authUserInfoSchema } from "./better-auth-contracts";
+import { desktopAuthorizationRedirectUri } from "./desktop-redirect";
 import { oauthIssuerMatches } from "./oauth-issuer";
 import { OAuthTokenError } from "./oauth-token-error";
 import { clearPkceVerifier, getPkceAttempt } from "./pkce";
 
 export const DEEP_LINK_SCHEME = "chief-desktop";
 const CLIENT_ID = "chief-desktop";
-const REDIRECT_URI = "chief-desktop:///auth";
 const oauthTokenSchema = z.object({
   access_token: z.string(),
   expires_in: z.number().optional(),
@@ -207,7 +207,7 @@ async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
         client_id: CLIENT_ID,
         code,
         code_verifier: attempt.verifier,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: desktopAuthorizationRedirectUri(AUTH_UI_BASE_URL),
       }).toString(),
     },
   );

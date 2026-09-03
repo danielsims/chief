@@ -8,13 +8,6 @@
       "when": 1787288375386,
       "tag": "0000_relay_auth",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1787289772762,
-      "tag": "0001_workspace_organizations",
-      "breakpoints": true
     }
   ]
 }

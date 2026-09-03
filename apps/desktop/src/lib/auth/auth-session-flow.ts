@@ -11,6 +11,7 @@ import {
 } from "../config";
 import { validateStoredSession } from "./better-auth-client";
 import { refreshOAuthSession } from "./client";
+import { desktopAuthorizationRedirectUri } from "./desktop-redirect";
 import { shouldInvalidateOAuthSession } from "./oauth-token-error";
 import {
   generateCodeChallenge,
@@ -39,7 +40,10 @@ export async function openRelayAuthorization(
 
   const signInUrl = new URL("/api/auth/oauth2/authorize", connection.authUiUrl);
   signInUrl.searchParams.set("client_id", "chief-desktop");
-  signInUrl.searchParams.set("redirect_uri", "chief-desktop:///auth");
+  signInUrl.searchParams.set(
+    "redirect_uri",
+    desktopAuthorizationRedirectUri(connection.authUiUrl),
+  );
   signInUrl.searchParams.set("response_type", "code");
   signInUrl.searchParams.set("scope", "openid profile email offline_access");
   signInUrl.searchParams.set("code_challenge", codeChallenge);
