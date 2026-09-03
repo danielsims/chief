@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { buildGitRepository } from "@chief/agent-runtime/git-objects";
+import { projectRepositoryFilesSchema } from "@chief/relay-contracts";
+
 import { firstRow } from "./workspace-channel-store";
 
 interface ProjectRepositoryRow extends Record<string, SqlStorageValue> {
@@ -65,16 +68,71 @@ export function projectRepository(
 }
 
 export class ProjectRepositoryResolver {
-  constructor(private readonly github = new GitHubProjectRepository()) {}
+  constructor(
+    private readonly github = new GitHubProjectRepository(),
+    private readonly storage?: DurableObjectStorage,
+  ) {}
 
   resolve(repository: ProjectRepository, path: string, requestedRef: string) {
     if (repository.provider.provider === "github")
       return this.github.resolve(repository, path, requestedRef);
-    return Promise.resolve({
-      status: "unresolved" as const,
-      reason:
-        "This Chief Git repository is not materialized on this relay yet.",
-    });
+    return this.resolveChiefGit(repository, requestedRef);
+  }
+
+  private async resolveChiefGit(
+    repository: ProjectRepository,
+    requestedRef: string,
+  ): Promise<ProjectRepositoryResolution> {
+    const files = this.projectFiles(repository.projectId);
+    if (!files?.length) {
+      return {
+        status: "unresolved",
+        reason:
+          "This Chief Git repository has not been published on this relay yet.",
+      };
+    }
+    const git = await buildGitRepository(files);
+    const ref = requestedRef.replace(/^refs\/heads\//u, "");
+    if (
+      ref !== "HEAD" &&
+      ref !== "main" &&
+      ref !== git.commitSha &&
+      ref !== git.commitSha.slice(0, 7)
+    ) {
+      return {
+        status: "unresolved",
+        reason: "The requested revision is not on the Chief Git main branch.",
+      };
+    }
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        JSON.stringify(
+          files.map((file) => ({ path: file.path, content: file.content })),
+        ),
+      ),
+    );
+    return {
+      status: "verified",
+      resolvedCommitSha: git.commitSha,
+      contentDigest: `sha256:${[...new Uint8Array(digest)]
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")}`,
+    };
+  }
+
+  private projectFiles(projectId: string) {
+    if (!this.storage) return undefined;
+    const row = firstRow<{ repository_files_json: string | null }>(
+      this.storage.sql.exec(
+        "SELECT repository_files_json FROM projects WHERE project_id = ?",
+        projectId,
+      ),
+    );
+    if (!row?.repository_files_json) return undefined;
+    return projectRepositoryFilesSchema
+      .parse(JSON.parse(row.repository_files_json))
+      .map((file) => ({ path: file.path, content: file.content }));
   }
 }
 

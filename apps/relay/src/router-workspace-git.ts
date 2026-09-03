@@ -8,28 +8,30 @@ import { withTrustedContext } from "./internal-context";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
-const workspaceVercelRoute =
-  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision)$/u;
+const gitRoute =
+  /^\/git\/([^/]+)\/([^/]+?)(?:\.git)?\/(info\/refs|git-upload-pack|git-receive-pack)$/u;
 
-type VercelOperation = "connect" | "destinations" | "provision";
-
-export function routeWorkspaceVercel(
+export function routeWorkspaceGit(
   env: Env,
   request: Request,
   requestId: string,
 ) {
   return Effect.gen(function* () {
     const url = new URL(request.url);
-    const matched = workspaceVercelRoute.exec(url.pathname);
+    const matched = gitRoute.exec(url.pathname);
     if (!matched) return undefined;
-    const operation = parseWorkspaceVercelOperation(matched[2]);
-    if (!operation) {
-      return relayError(404, "not_found", "Route not found.", requestId);
-    }
-    const workspaceId = yield* sync("relay.workspace_vercel.scope", () =>
+    const workspaceId = yield* sync("relay.git.scope", () =>
       workspaceIdSchema.parse(decodeURIComponent(matched[1] ?? "")),
     );
-    const expectedMethod = operation === "destinations" ? "GET" : "POST";
+    const repo = decodeURIComponent(matched[2] ?? "").replace(/\.git$/u, "");
+    const resource = matched[3];
+    const operation =
+      resource === "info/refs"
+        ? "git-info-refs"
+        : resource === "git-upload-pack"
+          ? "git-upload-pack"
+          : "git-receive-pack";
+    const expectedMethod = operation === "git-info-refs" ? "GET" : "POST";
     if (request.method !== expectedMethod) {
       return relayError(
         405,
@@ -49,9 +51,14 @@ export function routeWorkspaceVercel(
       }),
     );
     const headers = new Headers(authenticated.request.headers);
-    headers.set("x-chief-internal-operation", `vercel-${operation}`);
+    headers.set("x-chief-internal-operation", operation);
+    headers.set("x-chief-git-repo", repo);
+    if (operation === "git-info-refs") {
+      const service = url.searchParams.get("service")?.trim();
+      if (service) headers.set("x-chief-git-service", service);
+    }
     const forwarded = new Request(authenticated.request, { headers });
-    return yield* attempt("relay.workspace_vercel.forward", () =>
+    return yield* attempt("relay.git.forward", () =>
       env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
         withTrustedContext(forwarded, {
           principal,
@@ -61,18 +68,5 @@ export function routeWorkspaceVercel(
         }),
       ),
     );
-  }).pipe(Effect.withSpan("relay.workspace_vercel"));
-}
-
-function parseWorkspaceVercelOperation(
-  value: string | undefined,
-): VercelOperation | undefined {
-  if (
-    value === "connect" ||
-    value === "destinations" ||
-    value === "provision"
-  ) {
-    return value;
-  }
-  return undefined;
+  }).pipe(Effect.withSpan("relay.git"));
 }
