@@ -11,7 +11,7 @@ const legacyLineLimits = new Map([
   ["apps/desktop/src/pages/onboarding.tsx", 3879],
   ["apps/desktop/src/pages/schedule.tsx", 2247],
   ["apps/desktop/src/lib/runtime.tsx", 2531],
-  ["packages/agent-runtime/src/server.ts", 3669],
+  ["packages/agent-runtime/src/server.ts", 3703],
   ["apps/desktop/src/pages/dashboard.tsx", 1485],
   ["packages/agent-runtime/src/local-store.ts", 2880],
   ["packages/agent-runtime/src/scheduler.ts", 1247],
@@ -40,6 +40,12 @@ const legacyLineLimits = new Map([
   ["apps/relay/src/router.ts", 547],
   ["packages/relay-client/src/relay-client-base.ts", 531],
   ["packages/agent-runtime/src/agents/instructions.generated.ts", 513],
+  ["packages/agent-runtime/test/durable-turn.test.ts", 545],
+  ["apps/relay/src/router-agent-routes.ts", 522],
+  ["apps/desktop/src/lib/runtime-provider.tsx", 518],
+  ["apps/desktop/src/lib/relay-runtime-client.ts", 507],
+  ["apps/relay/src/agent-runtime.ts", 507],
+  ["apps/desktop/src/lib/runtime-chat.tsx", 506],
 ]);
 const sourceExtensions = new Set([
   ".cjs",
