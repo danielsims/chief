@@ -1,3 +1,8 @@
+import type { EveAgentProvisioningStreamEvent } from "@chief/relay-contracts";
+import {
+  chiefGitRemoteUrl,
+  chiefGitRepoSlug,
+} from "@chief/agent-runtime/git-objects";
 import {
   eveProjectFiles,
   listVercelEveDestinations,
@@ -10,6 +15,7 @@ import {
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { mintAiGatewayKey } from "./workspace-ai-gateway";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { saveAgentProjectFiles } from "./workspace-project-store";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
@@ -44,6 +50,15 @@ export class WorkspaceVercelService {
       VERCEL_DEPLOYMENT_SECRET,
       token,
     );
+    if (!(await this.secrets.get(context.workspaceId, "vercel-ai-gateway"))) {
+      const teamId = catalog.selectedTeamId ?? catalog.teams[0]?.id;
+      const key = await mintAiGatewayKey(
+        token,
+        teamId,
+        "Chief hosted agents",
+      ).catch(() => token);
+      await this.secrets.set(context.workspaceId, "vercel-ai-gateway", key);
+    }
     return json(catalog);
   }
 
@@ -77,18 +92,58 @@ export class WorkspaceVercelService {
       );
     }
     const token = await this.vercelToken(context.workspaceId);
-    const result = await this.vercelRequest(
-      "vercel_provision_failed",
-      "Chief could not deploy this agent to Vercel Eve.",
-      () => provisionVercelEveDeployment({ token, input }),
-    );
-    saveAgentProjectFiles(this.storage, context.workspaceId, {
-      agentId: input.environment.CHIEF_AGENT_ID,
-      name: input.project.projectName,
-      description: input.agent.description,
-      files: eveProjectFiles(input),
+    const sourceFiles = eveProjectFiles(input);
+    const encoder = new TextEncoder();
+    const storage = this.storage;
+    const workspaceId = context.workspaceId;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: EveAgentProvisioningStreamEvent) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        };
+        try {
+          const repo = chiefGitRepoSlug(input.project.projectName);
+          const remoteUrl = chiefGitRemoteUrl(
+            input.environment.CHIEF_RELAY_URL,
+            workspaceId,
+            repo,
+          );
+          saveAgentProjectFiles(storage, workspaceId, {
+            agentId: input.environment.CHIEF_AGENT_ID,
+            name: input.project.projectName,
+            description: input.agent.description,
+            files: sourceFiles,
+            canonicalRemoteUrl: remoteUrl,
+          });
+          const result = await provisionVercelEveDeployment({
+            token,
+            input,
+            sourceFiles,
+            git: { remoteUrl },
+            pollIntervalMs: 8_000,
+            onProgress: (progress) => send({ kind: "progress", progress }),
+          });
+          send({ kind: "complete", result });
+        } catch (cause) {
+          send({
+            kind: "error",
+            code: "vercel_provision_failed",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Chief could not deploy this agent to Vercel Eve.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
     });
-    return json(result);
+    return new Response(stream, {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/x-ndjson; charset=utf-8",
+      },
+    });
   }
 
   private async vercelToken(workspaceId: string) {

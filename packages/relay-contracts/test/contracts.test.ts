@@ -22,6 +22,7 @@ const workspaceProvision = (runtime: "phone" | "cloud") => ({
     name: "Chief",
     website: "https://heychief.sh",
     runtime,
+    agentRuntime: "relay-cell" as const,
     inferenceProvider: runtime === "phone" ? "onDevice" : "openCodeGo",
     inferenceModel: runtime === "phone" ? "gemma-4-e2b" : "auto",
     selectedApps: [],
@@ -63,6 +64,18 @@ void test("hosted workspaces accept a workspace-scoped Vercel AI Gateway credent
       secrets: { opencode: "wrong-provider-key" },
     }).success,
     false,
+  );
+});
+
+void test("Vercel Eve workspaces do not require relay inference credentials", () => {
+  const input = workspaceProvision("cloud");
+
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      workspace: { ...input.workspace, agentRuntime: "vercel-eve" },
+    }).success,
+    true,
   );
 });
 

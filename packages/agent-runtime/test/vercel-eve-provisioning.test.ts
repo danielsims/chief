@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { z } from "zod";
 
 import {
   listVercelEveDestinations,
   provisionVercelEveDeployment,
 } from "../src/vercel-eve-provisioning.js";
+
+const deployedFilesSchema = z.object({
+  files: z
+    .array(z.object({ data: z.string().optional() }).passthrough())
+    .optional(),
+});
 
 const environment = {
   CHIEF_AGENT_ID: "researcher",
@@ -14,6 +21,95 @@ const environment = {
   CHIEF_RELAY_URL: "https://relay.example.com",
   CHIEF_WORKSPACE_ID: "workspace-1",
 };
+
+function deployedFileContents(body: string | null) {
+  const parsed = deployedFilesSchema.safeParse(JSON.parse(body ?? "{}"));
+  if (!parsed.success) return "";
+  return (parsed.data.files ?? [])
+    .map((file) =>
+      file.data ? Buffer.from(file.data, "base64").toString("utf8") : "",
+    )
+    .join("\n");
+}
+
+function deploymentBody(
+  requests: { method: string; url: URL; body: string | null }[],
+) {
+  return (
+    requests.find(
+      (request) =>
+        request.method === "POST" &&
+        request.url.pathname === "/v13/deployments",
+    )?.body ?? null
+  );
+}
+
+function vercelProjectNameFromPath(pathname: string) {
+  return pathname.startsWith("/v9/projects/") && pathname !== "/v9/projects"
+    ? decodeURIComponent(pathname.slice("/v9/projects/".length))
+    : null;
+}
+
+function newEveProjectFetcher({
+  existingProjects = {},
+  listedProjects,
+  onDeploy,
+  readyState = "READY",
+  eventText = "Running eve build",
+}: {
+  existingProjects?: Record<string, { id: string; name: string }>;
+  listedProjects?: { id: string; name: string }[];
+  onDeploy?: (body: string | null) => void;
+  readyState?: string;
+  eventText?: string;
+}): typeof fetch {
+  return async (request, init) => {
+    const url = new URL(new Request(request).url);
+    const method = init?.method ?? "GET";
+    const body = init?.body ? await new Response(init.body).text() : null;
+    if (url.pathname === "/v2/teams") {
+      return Response.json({
+        teams: [{ id: "team_chief", name: "Chief", slug: "chief" }],
+      });
+    }
+    if (url.pathname === "/v9/projects") {
+      return Response.json({
+        projects: listedProjects ?? Object.values(existingProjects),
+      });
+    }
+    const projectName = vercelProjectNameFromPath(url.pathname);
+    if (method === "GET" && projectName) {
+      const existing = existingProjects[projectName];
+      return existing
+        ? Response.json(existing)
+        : new Response("Not found", { status: 404 });
+    }
+    if (method === "POST" && url.pathname === "/v13/deployments") {
+      onDeploy?.(body);
+      return Response.json({
+        id: "dpl_eve",
+        projectId: "prj_new",
+        readyState: "QUEUED",
+        url: "agent-build.vercel.app",
+      });
+    }
+    if (url.pathname.endsWith("/events")) {
+      return Response.json([{ payload: { text: eventText } }]);
+    }
+    if (url.pathname.endsWith("/env")) {
+      if (method === "POST") return Response.json({ created: [] });
+      return Response.json({
+        envs: Object.keys(environment).map((key) => ({ key })),
+      });
+    }
+    return Response.json({
+      id: "dpl_eve",
+      projectId: "prj_new",
+      readyState,
+      url: "agent-build.vercel.app",
+    });
+  };
+}
 
 void test("lists destinations only for an explicitly selected Vercel team", async () => {
   const requested: URL[] = [];
@@ -72,7 +168,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
       body: init?.body ? await new Response(init.body).text() : null,
     });
     if (url.hostname === "researcher-build.vercel.app") {
-      return Response.json({ status: "ready" });
+      throw new Error(`Unexpected request to the Eve site ${url.href}`);
     }
     if (url.pathname === "/v2/teams") {
       return Response.json({
@@ -90,7 +186,6 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
         ],
       });
     }
-    if (url.pathname === "/v2/files") return Response.json({});
     if (method === "POST" && url.pathname === "/v13/deployments") {
       return Response.json({
         id: "dpl_researcher",
@@ -99,8 +194,20 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
         url: "researcher-build.vercel.app",
       });
     }
-    if (method === "POST" && url.pathname.endsWith("/env")) {
-      return Response.json({ created: [] });
+    if (url.pathname.endsWith("/events")) {
+      return Response.json([
+        {
+          type: "stdout",
+          created: 1_700_000_000_000,
+          payload: { text: "Running eve build" },
+        },
+      ]);
+    }
+    if (url.pathname.endsWith("/env")) {
+      if (method === "POST") return Response.json({ created: [] });
+      return Response.json({
+        envs: Object.keys(environment).map((key) => ({ key })),
+      });
     }
     return Response.json({
       id: "dpl_researcher",
@@ -110,11 +217,15 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
     });
   };
 
+  const logs: string[] = [];
   const result = await provisionVercelEveDeployment({
     token: "vercel-token",
     fetcher,
     pollIntervalMs: 0,
-    onProgress: (progress) => phases.push(progress.phase),
+    onProgress: (progress) => {
+      phases.push(progress.phase);
+      for (const line of progress.logs ?? []) logs.push(line.text);
+    },
     input: {
       teamId: "team_chief",
       project: {
@@ -136,12 +247,9 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.equal(result.deploymentUrl, "https://researcher-build.vercel.app");
   assert.equal(
     requests.filter((request) => request.url.pathname === "/v2/files").length,
-    4,
+    0,
   );
-  const uploadedSources = requests
-    .filter((request) => request.url.pathname === "/v2/files")
-    .map((request) => request.body ?? "")
-    .join("\n");
+  const uploadedSources = deployedFileContents(deploymentBody(requests));
   assert.match(uploadedSources, /"reasoning\.appended"/u);
   assert.match(uploadedSources, /"reasoning\.completed"/u);
   assert.match(uploadedSources, /"actions\.requested"/u);
@@ -149,6 +257,10 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.match(uploadedSources, /postToChief\("activity"/u);
   assert.match(uploadedSources, /authorization/u);
   assert.match(uploadedSources, /timingSafeEqual/u);
+  assert.match(uploadedSources, /"eve": "\^0\.50\.0"/u);
+  assert.match(uploadedSources, /"node": "24\.x"/u);
+  assert.match(uploadedSources, /"typecheck": "tsc"/u);
+  assert.match(uploadedSources, /eve\/workflow-modules/u);
   assert.doesNotMatch(
     uploadedSources,
     /x-chief-external-channel-authorization/u,
@@ -160,18 +272,119 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.ok(deployment);
   assert.equal(deployment.url.searchParams.get("teamId"), "team_chief");
   assert.match(deployment.body ?? "", /prj_researcher/);
+  assert.match(deployment.body ?? "", /"framework":"eve"/u);
+  assert.match(deployment.body ?? "", /"gitMetadata"/u);
+  assert.match(deployment.body ?? "", /\/git\/workspace-1\/researcher\.git/u);
+  assert.doesNotMatch(deployment.body ?? "", /"outputDirectory"/u);
   const environmentRequest = requests.find((request) =>
     request.url.pathname.endsWith("/env"),
   );
   assert.match(environmentRequest?.body ?? "", /"type":"sensitive"/);
-  assert.deepEqual(phases, [
-    "validating",
-    "uploading",
-    "deploying",
-    "configuring",
-    "waiting",
-    "checking",
-  ]);
+  assert.equal(
+    requests.some(
+      (request) =>
+        request.method === "PATCH" &&
+        request.url.pathname === "/v9/projects/prj_researcher" &&
+        (request.body ?? "").includes('"ssoProtection":null'),
+    ),
+    true,
+  );
+  assert.equal(
+    requests.some((request) => request.url.hostname.endsWith(".vercel.app")),
+    false,
+  );
+  assert.ok(
+    requests.filter((request) => request.url.pathname.endsWith("/events"))
+      .length <= 2,
+  );
+  assert.equal(logs.includes("Running eve build"), true);
+  assert.equal(phases[0], "validating");
+  assert.ok(phases.includes("waiting"));
+  assert.equal(phases.at(-1), "checking");
+});
+
+void test("creates the next numbered Vercel project when the preferred name is taken", async () => {
+  const requests: string[] = [];
+  const logs: string[] = [];
+  let deployedBody = "";
+  const fetcher = newEveProjectFetcher({
+    existingProjects: {
+      "program-eve": { id: "prj_program", name: "program-eve" },
+    },
+    onDeploy: (body) => {
+      deployedBody = body ?? "";
+    },
+  });
+  const result = await provisionVercelEveDeployment({
+    token: "vercel-token",
+    fetcher: async (request, init) => {
+      const url = new URL(new Request(request).url);
+      requests.push(`${init?.method ?? "GET"} ${url.pathname}`);
+      return await fetcher(request, init);
+    },
+    pollIntervalMs: 0,
+    onProgress: (progress) => {
+      for (const line of progress.logs ?? []) logs.push(line.text);
+    },
+    input: {
+      teamId: "team_chief",
+      project: { kind: "new", projectName: "program-eve" },
+      agent: {
+        name: "Chief",
+        description: "Coordinates the workspace.",
+        instructions: "Coordinate the workspace.",
+        model: "openai/gpt-5.6-terra",
+      },
+      environment,
+    },
+  });
+  assert.equal(result.deploymentId, "dpl_eve");
+  assert.match(deployedBody, /"name":"program-eve-2"/u);
+  assert.equal(
+    logs.some((line) =>
+      line.includes('"program-eve" is taken. Using program-eve-2.'),
+    ),
+    true,
+  );
+  assert.equal(
+    requests.some((request) => request.startsWith("DELETE ")),
+    false,
+  );
+});
+
+void test("does not treat a stale project list as proof a deleted name is taken", async () => {
+  let deployedBody = "";
+  const logs: string[] = [];
+  await provisionVercelEveDeployment({
+    token: "vercel-token",
+    fetcher: newEveProjectFetcher({
+      existingProjects: {},
+      listedProjects: [{ id: "prj_gone", name: "program-chief" }],
+      onDeploy: (body) => {
+        deployedBody = body ?? "";
+      },
+    }),
+    pollIntervalMs: 0,
+    onProgress: (progress) => {
+      for (const line of progress.logs ?? []) logs.push(line.text);
+    },
+    input: {
+      teamId: "team_chief",
+      project: { kind: "new", projectName: "program-chief" },
+      agent: {
+        name: "Chief",
+        description: "Coordinates the workspace.",
+        instructions: "Coordinate the workspace.",
+        model: "openai/gpt-5.6-terra",
+      },
+      environment,
+    },
+  });
+  assert.match(deployedBody, /"name":"program-chief"/u);
+  assert.equal(
+    logs.some((line) => line.includes("is taken")),
+    false,
+  );
 });
 
 void test("rejects a project that does not belong to the selected team", async () => {
@@ -207,55 +420,55 @@ void test("rejects a project that does not belong to the selected team", async (
   );
 });
 
-void test("deletes a newly created Vercel project when its Chief channel fails", async () => {
-  let deletedProject = "";
-  const fetcher: typeof fetch = async (request, init) => {
-    await Promise.resolve();
-    const url = new URL(new Request(request).url);
-    const method = init?.method ?? "GET";
-    if (url.hostname === "broken-eve.vercel.app") {
-      return new Response("Not ready", { status: 500 });
-    }
-    if (url.pathname === "/v2/teams") {
-      return Response.json({
-        teams: [{ id: "team_chief", name: "Chief", slug: "chief" }],
-      });
-    }
-    if (url.pathname === "/v9/projects") {
-      return Response.json({ projects: [] });
-    }
-    if (url.pathname === "/v2/files") return Response.json({});
-    if (method === "POST" && url.pathname === "/v13/deployments") {
-      return Response.json({
-        id: "dpl_broken",
-        projectId: "prj_broken",
-        readyState: "QUEUED",
-        url: "broken-eve.vercel.app",
-      });
-    }
-    if (method === "POST" && url.pathname.endsWith("/env")) {
-      return Response.json({ created: [] });
-    }
-    if (method === "DELETE") {
-      deletedProject = url.pathname;
-      return Response.json({});
-    }
-    return Response.json({
-      id: "dpl_broken",
-      projectId: "prj_broken",
-      readyState: "READY",
-      url: "broken-eve.vercel.app",
-    });
-  };
-
+void test("refuses to deploy Eve onto Chief's own Vercel project", async () => {
   await assert.rejects(
     provisionVercelEveDeployment({
       token: "vercel-token",
-      fetcher,
-      pollIntervalMs: 0,
+      fetcher: () =>
+        Promise.reject(
+          new Error("Vercel should not be contacted for a reserved project."),
+        ),
       input: {
         teamId: "team_chief",
-        project: { kind: "new", projectName: "broken-eve" },
+        project: {
+          kind: "existing",
+          projectId: "prj_web",
+          projectName: "chief-web",
+        },
+        agent: {
+          name: "Chief",
+          description: "Coordinates the workspace.",
+          instructions: "Coordinate the workspace.",
+          model: "openai/gpt-5.6-terra",
+        },
+        environment,
+      },
+    }),
+    /reserved for Chief's own Vercel project/u,
+  );
+});
+
+void test("explains HTML responses from Vercel instead of treating them as JSON", async () => {
+  await assert.rejects(
+    provisionVercelEveDeployment({
+      token: "vercel-token",
+      fetcher: async (request) => {
+        await Promise.resolve();
+        const url = new URL(new Request(request).url);
+        if (url.pathname === "/v2/teams") {
+          return new Response(
+            "<!DOCTYPE html><html><body>Login</body></html>",
+            {
+              status: 401,
+              headers: { "content-type": "text/html" },
+            },
+          );
+        }
+        return Response.json({});
+      },
+      input: {
+        teamId: "team_chief",
+        project: { kind: "new", projectName: "html-eve" },
         agent: {
           name: "Researcher",
           description: "Researches questions.",
@@ -265,7 +478,6 @@ void test("deletes a newly created Vercel project when its Chief channel fails",
         environment,
       },
     }),
-    /Chief channel returned HTTP 500/,
+    /web page/u,
   );
-  assert.equal(deletedProject, "/v9/projects/prj_broken");
 });
