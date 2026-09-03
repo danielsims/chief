@@ -26,9 +26,9 @@ import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
 import {
-  isExplicitWorkspaceEntry,
   pendingCreateRelayKey,
   shouldResumeWorkspaceCreate,
+  shouldStayOnWorkspaceCreate,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
@@ -104,7 +104,15 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     RELAY_URL,
   );
 
-  if (relay.loading) {
+  const staysOnWorkspaceCreate = shouldStayOnWorkspaceCreate(
+    location.search,
+    window.sessionStorage,
+  );
+
+  if (
+    relay.loading &&
+    !(location.pathname === "/workspaces/new" && staysOnWorkspaceCreate)
+  ) {
     return <WorkspaceEntryState />;
   }
 
@@ -113,11 +121,11 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   }
 
   if (resumesWorkspaceCreate && location.pathname !== "/workspaces/new") {
-    return <Navigate to="/workspaces/new?intent=add" replace />;
+    return <Navigate to="/workspaces/new?intent=create" replace />;
   }
 
   if (location.pathname === "/workspaces/new") {
-    if (relay.snapshot && !isExplicitWorkspaceEntry(location.search)) {
+    if (relay.snapshot && !staysOnWorkspaceCreate) {
       return <Navigate to="/" replace />;
     }
     return children;

@@ -90,6 +90,9 @@ void test("uses the live roster for direct messages created through Eve", () => 
   assert.deepEqual(workspaceDirectMessage("researcher-agent", agents), {
     id: "researcher-agent",
   });
+  assert.deepEqual(directMessageIdsForAgents([{ id: "chief" }]), ["chief"]);
+  assert.equal(workspaceDirectMessage("engineer", [{ id: "chief" }]), null);
+  assert.deepEqual(directMessageIdsForAgents([]), ["chief"]);
 });
 
 void test("gives every agent a workspace-scoped lazy direct destination", () => {

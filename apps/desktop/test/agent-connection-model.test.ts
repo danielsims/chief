@@ -3,12 +3,62 @@ import test from "node:test";
 
 import {
   chiefChannelConfiguration,
+  eveDeploymentInstructions,
   externalAgentSourcePresentation,
+  isReservedVercelProjectName,
   nativeProvidersForDeployment,
+  preferredVercelProjectName,
   relayRuntimeIdentity,
   suggestedVercelProjectName,
   validateEveConnection,
 } from "../src/components/agents/agent-connection-model.ts";
+
+void test("Eve deployment preserves configured agent instructions", () => {
+  assert.equal(
+    eveDeploymentInstructions({
+      id: "custom-researcher",
+      name: "Researcher",
+      role: "researcher",
+      description: "Finds source-backed answers.",
+      instructions: "  Follow the evidence.  ",
+    }),
+    "Follow the evidence.",
+  );
+});
+
+void test("Eve deployment gives bundled agents a complete instruction document", () => {
+  const instructions = eveDeploymentInstructions({
+    id: "custom-chief",
+    name: "Chief",
+    role: "chief of staff",
+    description: "Coordinates the workspace.",
+    instructions: "",
+  });
+
+  assert.match(instructions, /^# Identity/mu);
+  assert.match(
+    instructions,
+    /You are Chief, the workspace's chief of staff\./u,
+  );
+  assert.match(instructions, /Coordinates the workspace\./u);
+  assert.ok(instructions.length > 1);
+});
+
+void test("Eve deployment restores the canonical repository instructions for bundled agents", () => {
+  const instructions = eveDeploymentInstructions({
+    id: "chief",
+    name: "Chief",
+    role: "Workspace Lead",
+    description: "Coordinates the workspace.",
+    instructions: "",
+  });
+
+  assert.match(
+    instructions,
+    /You are Chief, this workspace's lead operator\./u,
+  );
+  assert.match(instructions, /## Your team/u);
+});
 
 void test("runtime labels preserve the active relay trust boundary", () => {
   assert.deepEqual(
@@ -31,16 +81,40 @@ void test("runtime labels preserve the active relay trust boundary", () => {
   );
 });
 
-void test("Vercel project names follow the agent name and avoid clashes", () => {
+void test("Vercel project names use the workspace and skip Chief's own projects", () => {
   assert.equal(
-    suggestedVercelProjectName("Example Agent", [], "8734589"),
-    "example-agent",
+    suggestedVercelProjectName("Acme", [], "ws_abcdef123456"),
+    "acme-chief",
   );
   assert.equal(
-    suggestedVercelProjectName("Example Agent", ["example-agent"], "8734589"),
-    "example-agent-8734589",
+    suggestedVercelProjectName("Chief", ["chief"], "ws_abcdef123456"),
+    "chief-chief",
   );
-  assert.equal(suggestedVercelProjectName("  ", [], "8734589"), "");
+  assert.equal(
+    suggestedVercelProjectName(
+      "Chief",
+      ["chief", "chief-chief"],
+      "ws_abcdef123456",
+    ),
+    "chief-chief-2",
+  );
+  assert.equal(suggestedVercelProjectName("  ", [], ""), "workspace-chief");
+  assert.notEqual(suggestedVercelProjectName("Chief", [], ""), "chief");
+  assert.notEqual(suggestedVercelProjectName("Chief Web", [], ""), "chief-web");
+  assert.equal(isReservedVercelProjectName("chief-web"), true);
+  assert.equal(isReservedVercelProjectName("program-chief"), false);
+  assert.equal(
+    preferredVercelProjectName("Program", "program-eve"),
+    "program-chief",
+  );
+  assert.equal(
+    preferredVercelProjectName("Program", "program-eve-2"),
+    "program-chief",
+  );
+  assert.equal(
+    preferredVercelProjectName("Program", "custom-agent"),
+    "custom-agent",
+  );
 });
 
 void test("on-device agents expose every supported local harness", () => {

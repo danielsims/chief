@@ -131,7 +131,9 @@ export function TeamAgentCard({
               </span>
             </span>
             <span className="text-muted-foreground mt-0.5 block truncate text-[12px] leading-4">
-              {agent.role}
+              {agent.subagents?.length
+                ? `${agent.role} · ${agent.subagents.length} subagent${agent.subagents.length === 1 ? "" : "s"}`
+                : agent.role}
             </span>
           </span>
           <ChevronRight

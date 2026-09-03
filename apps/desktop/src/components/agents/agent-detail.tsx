@@ -45,6 +45,10 @@ import {
   AgentPermissionsTab,
 } from "./agent-detail-sections";
 import { AgentExecutionCard } from "./agent-execution-card";
+import {
+  AgentIdentityNavigator,
+  SubagentDetail,
+} from "./agent-identity-navigator";
 
 export type { AgentIntegrationOption } from "./agent-detail-sections";
 
@@ -90,8 +94,10 @@ export function AgentDetail({
   onClose,
   onUpdateChannelAgents,
   onRemove,
-  externalAgentClient,
+  relayClient,
   onExternalAgentChanged,
+  selectedProfileId,
+  onSelectProfile,
 }: {
   agent: AgentDefinition;
   workspaceId: string | null;
@@ -110,10 +116,26 @@ export function AgentDetail({
   onClose?: () => void;
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
   onRemove: (agentId: string) => Promise<void>;
-  externalAgentClient?: RelayClient["externalAgents"] | null;
+  relayClient?: RelayClient | null;
   onExternalAgentChanged?: () => Promise<void>;
+  selectedProfileId?: string;
+  onSelectProfile?: (agentId: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
+  const [internalProfileId, setInternalProfileId] = useState(agent.id);
+  const requestedProfileId = selectedProfileId ?? internalProfileId;
+  const activeProfileId =
+    requestedProfileId === agent.id ||
+    agent.subagents?.some((subagent) => subagent.id === requestedProfileId)
+      ? requestedProfileId
+      : agent.id;
+  const selectProfile = (nextId: string) => {
+    setInternalProfileId(nextId);
+    onSelectProfile?.(nextId);
+  };
+  const selectedSubagent = agent.subagents?.find(
+    (subagent) => subagent.id === activeProfileId,
+  );
   const enabled = override?.enabled ?? true;
   const driver = override
     ? (override.driver ?? null)
@@ -179,153 +201,184 @@ export function AgentDetail({
 
   return (
     <div className={cn("min-h-full", !enabled && "opacity-65")}>
-      <header>
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="flex min-w-0 items-center gap-4">
-            <DetailAgentAvatar name={agent.name} enabled={enabled} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
-                  {agent.name}
-                </h2>
-              </div>
-              <p className="text-muted-foreground mt-1.5 text-xs">
-                {agent.role}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-muted-foreground mr-1 flex items-center gap-2 text-[11px]">
-              {enabled ? "Active" : "Paused"}
-              <Switch
-                checked={enabled}
-                disabled={!ready}
-                onCheckedChange={(checked) => save({ enabled: checked })}
-              />
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              render={
-                <Link
-                  to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
-                />
-              }
-            >
-              <MessageCircle size={13} />
-              Message
-            </Button>
-            {onClose ? (
-              <button
-                type="button"
-                aria-label="Close agent details"
-                onClick={onClose}
-                className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center rounded-lg transition-colors"
-              >
-                <X size={14} />
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <p className="text-muted-foreground mt-5 max-w-3xl text-[13px] leading-6">
-          {agent.description}
-        </p>
-
-        <AgentExecutionCard
-          agentId={agent.id}
-          agentName={agent.name}
-          execution={execution}
-          ready={ready}
-          saving={saving}
-          error={preferenceError}
-          externalAgentClient={externalAgentClient}
-          onExternalAgentChanged={onExternalAgentChanged}
-          onApply={(draft) =>
-            save({
-              deploymentTarget: relayDeploymentTarget(draft.deployment),
-              driver: draft.provider,
-              model: draft.model,
-            })
-          }
-          onApplyToTeam={(draft) =>
-            onApplyExecutionToTeam(
-              relayDeploymentTarget(draft.deployment),
-              draft.provider,
-              draft.model,
-            )
-          }
-        />
-      </header>
-
-      <nav
-        className="mt-7 flex items-center gap-6 border-b border-black/[0.06] dark:border-white/[0.065]"
-        aria-label="Agent details"
-        role="tablist"
-      >
-        {standardDetailTabs.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              id={`agent-detail-tab-${tab.id}`}
-              role="tab"
-              aria-controls="agent-detail-panel"
-              aria-selected={active}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "text-muted-foreground hover:text-foreground relative h-10 text-xs font-medium transition-colors",
-                active && "text-foreground",
-              )}
-            >
-              {tab.label}
-              {active ? (
-                <span className="bg-foreground absolute right-0 bottom-[-1px] left-0 h-px" />
-              ) : null}
-            </button>
-          );
-        })}
-      </nav>
-
       <div
-        id="agent-detail-panel"
-        role="tabpanel"
-        aria-labelledby={`agent-detail-tab-${activeTab}`}
-        className="max-w-4xl py-7 pb-12"
+        className={cn(
+          agent.subagents?.length &&
+            "grid items-start gap-8 lg:grid-cols-[210px_minmax(0,1fr)]",
+        )}
       >
-        {activeTab === "configuration" ? (
-          <div className="space-y-10">
-            <AgentConfigurationTab
-              approvals={approvals}
-              ready={ready}
-              capabilities={capabilities}
-              integrations={integrations}
-              assignedIntegrations={assignedIntegrations}
-              onApprovalChange={(value) => save({ approvals: value })}
-              onCapabilitiesChange={(value) => save({ capabilities: value })}
-              onIntegrationsChange={(value) => save({ integrations: value })}
-            />
-            <AgentDangerZone agent={agent} ready={ready} onRemove={onRemove} />
-          </div>
-        ) : null}
-
-        {activeTab === "channels" ? (
-          <AgentChannelsTab
-            agentId={agent.id}
-            channels={sharedChannels}
-            ready={ready}
-            onUpdateChannelAgents={onUpdateChannelAgents}
+        {agent.subagents?.length ? (
+          <AgentIdentityNavigator
+            agent={agent}
+            selectedId={activeProfileId}
+            onSelect={selectProfile}
           />
         ) : null}
+        <div className="min-w-0">
+          {selectedSubagent ? (
+            <SubagentDetail profile={selectedSubagent} parent={agent} />
+          ) : (
+            <>
+              <header>
+                <div className="flex flex-wrap items-start justify-between gap-5">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <DetailAgentAvatar name={agent.name} enabled={enabled} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
+                          {agent.name}
+                        </h2>
+                      </div>
+                      <p className="text-muted-foreground mt-1.5 text-xs">
+                        {agent.role}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-muted-foreground mr-1 flex items-center gap-2 text-[11px]">
+                      {enabled ? "Active" : "Paused"}
+                      <Switch
+                        checked={enabled}
+                        disabled={!ready}
+                        onCheckedChange={(checked) =>
+                          save({ enabled: checked })
+                        }
+                      />
+                    </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      render={
+                        <Link
+                          to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
+                        />
+                      }
+                    >
+                      <MessageCircle size={13} />
+                      Message
+                    </Button>
+                    {onClose ? (
+                      <button
+                        type="button"
+                        aria-label="Close agent details"
+                        onClick={onClose}
+                        className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center rounded-lg transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
 
-        {activeTab === "permissions" ? (
-          <AgentPermissionsTab
-            permissions={toolPermissions}
-            ready={ready}
-            onChange={(value) => save({ toolPermissions: value })}
-          />
-        ) : null}
+                <p className="text-muted-foreground mt-5 max-w-3xl text-[13px] leading-6">
+                  {agent.description}
+                </p>
+
+                <AgentExecutionCard
+                  agent={agent}
+                  execution={execution}
+                  ready={ready}
+                  saving={saving}
+                  error={preferenceError}
+                  relayClient={relayClient}
+                  onExternalAgentChanged={onExternalAgentChanged}
+                  onApply={(draft) =>
+                    save({
+                      deploymentTarget: relayDeploymentTarget(draft.deployment),
+                      driver: draft.provider,
+                      model: draft.model,
+                    })
+                  }
+                  onApplyToTeam={(draft) =>
+                    onApplyExecutionToTeam(
+                      relayDeploymentTarget(draft.deployment),
+                      draft.provider,
+                      draft.model,
+                    )
+                  }
+                />
+              </header>
+
+              <nav
+                className="mt-7 flex items-center gap-6 border-b border-black/[0.06] dark:border-white/[0.065]"
+                aria-label="Agent details"
+                role="tablist"
+              >
+                {standardDetailTabs.map((tab) => {
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      id={`agent-detail-tab-${tab.id}`}
+                      role="tab"
+                      aria-controls="agent-detail-panel"
+                      aria-selected={active}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={cn(
+                        "text-muted-foreground hover:text-foreground relative h-10 text-xs font-medium transition-colors",
+                        active && "text-foreground",
+                      )}
+                    >
+                      {tab.label}
+                      {active ? (
+                        <span className="bg-foreground absolute right-0 bottom-[-1px] left-0 h-px" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div
+                id="agent-detail-panel"
+                role="tabpanel"
+                aria-labelledby={`agent-detail-tab-${activeTab}`}
+                className="max-w-4xl py-7 pb-12"
+              >
+                {activeTab === "configuration" ? (
+                  <div className="space-y-10">
+                    <AgentConfigurationTab
+                      approvals={approvals}
+                      ready={ready}
+                      capabilities={capabilities}
+                      integrations={integrations}
+                      assignedIntegrations={assignedIntegrations}
+                      onApprovalChange={(value) => save({ approvals: value })}
+                      onCapabilitiesChange={(value) =>
+                        save({ capabilities: value })
+                      }
+                      onIntegrationsChange={(value) =>
+                        save({ integrations: value })
+                      }
+                    />
+                    <AgentDangerZone
+                      agent={agent}
+                      ready={ready}
+                      onRemove={onRemove}
+                    />
+                  </div>
+                ) : null}
+
+                {activeTab === "channels" ? (
+                  <AgentChannelsTab
+                    agentId={agent.id}
+                    channels={sharedChannels}
+                    ready={ready}
+                    onUpdateChannelAgents={onUpdateChannelAgents}
+                  />
+                ) : null}
+
+                {activeTab === "permissions" ? (
+                  <AgentPermissionsTab
+                    permissions={toolPermissions}
+                    ready={ready}
+                    onChange={(value) => save({ toolPermissions: value })}
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

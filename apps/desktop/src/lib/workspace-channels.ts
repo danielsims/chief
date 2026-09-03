@@ -223,10 +223,12 @@ export function workspaceDirectMessage(
   agents: readonly { id: string }[] = [],
 ) {
   if (!agentId) return null;
-  return WORKSPACE_DIRECT_MESSAGES.some((message) => message.id === agentId) ||
-    agents.some((agent) => agent.id === agentId)
-    ? { id: agentId }
-    : null;
+  if (agents.length > 0) {
+    return agents.some((agent) => agent.id === agentId)
+      ? { id: agentId }
+      : null;
+  }
+  return agentId === "chief" ? { id: agentId } : null;
 }
 
 export function directMessageChatId(
@@ -247,9 +249,7 @@ export function directMessageIdsForChats() {
 }
 
 export function directMessageIdsForAgents(agents: readonly { id: string }[]) {
-  return agents.length > 0
-    ? agents.map((agent) => agent.id)
-    : directMessageIdsForChats();
+  return agents.length > 0 ? agents.map((agent) => agent.id) : ["chief"];
 }
 
 export function directMessageChatForAgent<Chat extends { agent: string }>(

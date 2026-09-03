@@ -11,12 +11,7 @@ import type { RelayConnectionIntent } from "./relay-session-state";
 import type { RelaySessionValue } from "./relay-session-value";
 import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
-import {
-  CHIEF_CLOUD_AUTH_BASE_URL,
-  CHIEF_CLOUD_AUTH_UI_URL,
-  CHIEF_CLOUD_RELAY_URL,
-  RELAY_URL,
-} from "./config";
+import { RELAY_URL } from "./config";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
 import {
   clearPendingOrganizationInvitation,
@@ -39,12 +34,16 @@ import { RelaySessionContext } from "./relay-session-context";
 import {
   beginRelayConnection,
   beginWorkspaceTransition,
+  chiefCloudRelayConnection,
+  directoryWorkspacesForSnapshot,
   failRelayConnection,
   initialRelaySessionState,
   visibleRelaySessionState,
-  workspaceSummaryFromSnapshot,
+  workspacesAfterCreate,
+  workspaceSwitchMemory,
 } from "./relay-session-state";
 import { setRelayWorkspaceOverride } from "./relay-workspace-override";
+import { hasActiveWorkspaceCreateSession } from "./workspace-entry";
 import {
   clearWorkspaceSwitch,
   findRecoveryWorkspace,
@@ -158,13 +157,10 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           const cellsStarted = snapshot
             ? ensureDesktopCells(snapshot, client)
             : Promise.resolve();
-          const directoryWorkspaces = knownWorkspaceSummaries(
-            RELAY_URL,
+          const directoryWorkspaces = directoryWorkspacesForSnapshot(
             accountId,
-          ).map((summary) => ({
-            ...summary,
-            isActive: summary.id === snapshot?.id,
-          }));
+            snapshot?.id,
+          );
           if (generation !== connectionGeneration.current) return;
           setRelayWorkspaceOverride(snapshot?.id ?? null);
           if (snapshot) {
@@ -197,11 +193,9 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
                 setState((current) => ({
                   ...current,
                   accountId,
-                  workspaces: knownWorkspaceSummaries(RELAY_URL, accountId).map(
-                    (summary) => ({
-                      ...summary,
-                      isActive: summary.id === current.snapshot?.id,
-                    }),
+                  workspaces: directoryWorkspacesForSnapshot(
+                    accountId,
+                    current.snapshot?.id,
                   ),
                 }));
               })
@@ -261,6 +255,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const refreshWhenVisible = () => {
       if (document.visibilityState !== "visible") return;
+      if (hasActiveWorkspaceCreateSession(window.sessionStorage)) return;
       const now = Date.now();
       if (now - lastBackgroundRefreshAt.current < 5_000) return;
       lastBackgroundRefreshAt.current = now;
@@ -293,47 +288,35 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         const connection = resolveRelayConnection(
           workspaceRelay,
           knownRelayConnections(),
-          {
-            version: 1,
-            relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
-            authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
-            authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
-          },
+          chiefCloudRelayConnection(),
         );
         if (!connection) {
           throw new Error("This workspace's relay is no longer available.");
         }
-        rememberWorkspaceSwitch(workspaceLocation.accountId, {
-          target: { workspaceId, relayUrl: workspaceRelay },
-          ...(state.snapshot?.id
-            ? {
-                previous: {
-                  workspaceId: state.snapshot.id,
-                  relayUrl: new URL(RELAY_URL).origin,
-                },
-              }
-            : undefined),
-        });
+        rememberWorkspaceSwitch(
+          workspaceLocation.accountId,
+          workspaceSwitchMemory({
+            workspaceId,
+            targetRelayUrl: workspaceRelay,
+            previousWorkspaceId: state.snapshot?.id,
+            previousRelayUrl: new URL(RELAY_URL).origin,
+          }),
+        );
         await connectRelay(connection);
         return;
       }
       if (!state.client) {
         throw new Error("This relay is not connected.");
       }
-      rememberWorkspaceSwitch(accountId, {
-        target: {
+      rememberWorkspaceSwitch(
+        accountId,
+        workspaceSwitchMemory({
           workspaceId,
-          relayUrl: new URL(RELAY_URL).origin,
-        },
-        ...(state.snapshot?.id
-          ? {
-              previous: {
-                workspaceId: state.snapshot.id,
-                relayUrl: new URL(RELAY_URL).origin,
-              },
-            }
-          : undefined),
-      });
+          targetRelayUrl: new URL(RELAY_URL).origin,
+          previousWorkspaceId: state.snapshot?.id,
+          previousRelayUrl: new URL(RELAY_URL).origin,
+        }),
+      );
       connectionGeneration.current += 1;
       setRelayWorkspaceOverride(null);
       setState((current) => ({
@@ -386,12 +369,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       const connection = resolveRelayConnection(
         previous.relayUrl,
         knownRelayConnections(),
-        {
-          version: 1,
-          relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
-          authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
-          authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
-        },
+        chiefCloudRelayConnection(),
       );
       if (connection) {
         const previousLocation = workspaceForRelayIdentities(
@@ -410,12 +388,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     clearWorkspaceSwitch(accountId);
-    const chiefCloud = {
-      version: 1 as const,
-      relayUrl: new URL(CHIEF_CLOUD_RELAY_URL).origin,
-      authBaseUrl: new URL(CHIEF_CLOUD_AUTH_BASE_URL).origin,
-      authUiUrl: new URL(CHIEF_CLOUD_AUTH_UI_URL).origin,
-    };
+    const chiefCloud = chiefCloudRelayConnection();
     if (new URL(RELAY_URL).origin !== chiefCloud.relayUrl) {
       await connectRelay(chiefCloud);
       return;
@@ -477,11 +450,15 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   );
 
   const createWorkspace = useCallback(
-    async (command: CreateWorkspaceCommand, apiKey: string) => {
+    async (
+      command: CreateWorkspaceCommand,
+      apiKey: string,
+      options?: { reconnect?: boolean },
+    ) => {
       if (!state.client) throw new Error("The relay is not connected.");
       if (!accountId) throw new Error("Sign in before creating a workspace.");
       const apiKeyValue = apiKey.trim();
-      if (!apiKeyValue) {
+      if (command.agentRuntime === "relay-cell" && !apiKeyValue) {
         throw new Error(
           command.inferenceProvider === "vercelAiGateway"
             ? "Enter a Vercel AI Gateway API key before creating a workspace."
@@ -490,17 +467,16 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       }
       const snapshot = await state.client.createWorkspace(command, apiKeyValue);
       const workspace = state.client.forWorkspace(snapshot.id);
-      await ensureDesktopCells(snapshot, workspace);
+      if (command.agentRuntime === "relay-cell") {
+        await ensureDesktopCells(snapshot, workspace);
+      }
 
-      const summary = workspaceSummaryFromSnapshot(snapshot);
-      const nextWorkspaces = [
-        summary,
-        ...state.workspaces.filter((candidate) => candidate.id !== snapshot.id),
-      ];
+      const nextWorkspaces = workspacesAfterCreate(snapshot, state.workspaces);
       rememberRelayWorkspaces(RELAY_URL, accountId, nextWorkspaces);
+      if (options?.reconnect === false) return snapshot;
       connectionGeneration.current += 1;
       connectionPromise.current = null;
-      await connect();
+      await connect("background");
       return snapshot;
     },
     [accountId, connect, state],

@@ -20,6 +20,15 @@ import {
 
 import { channelActionFromComponent } from "./channel-actions";
 
+function workspaceAgentById(snapshot: WorkspaceSnapshot, agentId: string) {
+  return (
+    snapshot.agents.find((agent) => agent.id === agentId) ??
+    snapshot.agents
+      .flatMap((agent) => agent.subagents)
+      .find((agent) => agent.id === agentId)
+  );
+}
+
 const activityComponentKinds = new Set([
   "agent.activity",
   "thinking",
@@ -140,8 +149,8 @@ export function toChannelMessageEvent(
           type: "agent" as const,
           id: message.author.id,
           name:
-            snapshot.agents.find((agent) => agent.id === message.author.id)
-              ?.name ?? message.author.id,
+            workspaceAgentById(snapshot, message.author.id)?.name ??
+            message.author.id,
         }
       : {
           type: "user" as const,
@@ -209,8 +218,12 @@ export function directAgentId(
 
 export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
   const normalized = name.toLowerCase();
+  const profiles = snapshot.agents.flatMap((agent) => [
+    agent,
+    ...agent.subagents,
+  ]);
   return (
-    snapshot.agents.find(
+    profiles.find(
       (agent) =>
         normalized.includes(agent.id.toLowerCase()) ||
         normalized.includes(agent.name.toLowerCase()),
