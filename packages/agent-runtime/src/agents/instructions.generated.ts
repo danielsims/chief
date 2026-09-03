@@ -456,22 +456,44 @@ spend, and proposing creative and budget changes with quantified impact.
 };
 
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-export const generatedAgentDefinitions: AgentDefinition[] = agentManifests.map(
-  (agent) => {
-    const instructions = agentInstructionById[agent.id];
-    if (!instructions)
-      throw new Error(`Missing instructions for agent ${agent.id}.`);
-    const definition: AgentDefinition = {
+const composedDefinitions: AgentDefinition[] = agentManifests.map((agent) => {
+  const instructions = agentInstructionById[agent.id];
+  if (!instructions)
+    throw new Error(`Missing instructions for agent ${agent.id}.`);
+  const definition: AgentDefinition = {
+    ...agent,
+    capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
+    delegates: agent.delegates ? [...agent.delegates] : undefined,
+    instructions,
+  };
+  const capabilities = (agent.capabilities ?? []).map((id) => {
+    const capability = availableCapabilities.find((item) => item.id === id);
+    if (!capability) throw new Error(`Unknown capability ${id}.`);
+    return capability;
+  });
+  return composeAgentCapabilities(definition, capabilities);
+});
+
+export const generatedAgentDefinitions: AgentDefinition[] =
+  composedDefinitions.map((agent) => {
+    if (!agent.delegates?.length) return agent;
+    const byId = new Map(composedDefinitions.map((item) => [item.id, item]));
+    return {
       ...agent,
-      capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
-      delegates: agent.delegates ? [...agent.delegates] : undefined,
-      instructions,
+      subagents: agent.delegates.flatMap((delegateId) => {
+        const delegate = byId.get(delegateId);
+        return delegate
+          ? [
+              {
+                id: delegate.id,
+                name: delegate.name,
+                role: delegate.role,
+                description: delegate.description,
+                instructions: delegate.instructions,
+                capabilities: delegate.capabilities,
+              },
+            ]
+          : [];
+      }),
     };
-    const capabilities = (agent.capabilities ?? []).map((id) => {
-      const capability = availableCapabilities.find((item) => item.id === id);
-      if (!capability) throw new Error(`Unknown capability ${id}.`);
-      return capability;
-    });
-    return composeAgentCapabilities(definition, capabilities);
-  },
-);
+  });
