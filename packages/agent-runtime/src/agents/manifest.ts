@@ -29,9 +29,33 @@ export const agentManifests: readonly AgentManifest[] = [
 ];
 
 /** Browser-safe fallback roster. The runtime supplies composed instructions. */
-export const agentRoster: AgentDefinition[] = agentManifests.map((agent) => ({
-  ...agent,
-  capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
-  delegates: agent.delegates ? [...agent.delegates] : undefined,
-  instructions: "",
-}));
+export const agentRoster: AgentDefinition[] = agentManifests.map((agent) => {
+  const definition: AgentDefinition = {
+    ...agent,
+    capabilities: agent.capabilities ? [...agent.capabilities] : undefined,
+    delegates: agent.delegates ? [...agent.delegates] : undefined,
+    instructions: "",
+  };
+  if (!agent.delegates?.length) return definition;
+  const byId = new Map(agentManifests.map((item) => [item.id, item]));
+  return {
+    ...definition,
+    subagents: agent.delegates.flatMap((delegateId) => {
+      const delegate = byId.get(delegateId);
+      return delegate
+        ? [
+            {
+              id: delegate.id,
+              name: delegate.name,
+              role: delegate.role,
+              description: delegate.description,
+              instructions: "",
+              capabilities: delegate.capabilities
+                ? [...delegate.capabilities]
+                : undefined,
+            },
+          ]
+        : [];
+    }),
+  };
+});

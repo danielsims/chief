@@ -18,6 +18,10 @@ void test("the default Chief team includes a delegated product engineer", () => 
   assert.match(engineer.instructions, /small, durable code changes/);
   assert.ok(chief.delegates?.includes("engineer"));
   assert.equal(
+    chief.subagents?.some((agent) => agent.id === "engineer"),
+    true,
+  );
+  assert.equal(
     defaultAgents.filter((agent) => agent.id === "engineer").length,
     1,
   );
