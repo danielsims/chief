@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronUp,
@@ -30,8 +30,10 @@ import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
 import { chiefAccountConnection } from "../lib/auth/auth-session-flow";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
+import { clearStoredRelaySession } from "../lib/auth/session";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../lib/config";
 import {
+  forgetMissingConnectedRelays,
   knownRelayConnections,
   knownWorkspacesForRelayIdentities,
   resolveRelayConnection,
@@ -55,18 +57,31 @@ export function SidebarProfileMenu() {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [identities, setIdentities] = useState(sortedRelayIdentities);
   const relay = useRelaySession();
   const userStatus = useUserStatus(cloudOrganizationId, user?.id ?? null);
   const activeWorkspaceId = relay.snapshot?.id ?? null;
-  const identities = connectedRelayIdentities().sort((left, right) => {
-    const cloudOrder =
-      Number(isChiefCloud(right.relayUrl)) -
-      Number(isChiefCloud(left.relayUrl));
-    return cloudOrder || right.lastUsedAt - left.lastUsedAt;
-  });
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void forgetMissingConnectedRelays({
+      identities: connectedRelayIdentities(),
+      chiefCloudRelayUrl: CHIEF_CLOUD_RELAY_URL,
+      forgetSession: clearStoredRelaySession,
+    }).then((removed) => {
+      if (!cancelled && removed.length > 0) {
+        setIdentities(sortedRelayIdentities());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const setProfileMenuOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
+    if (nextOpen) setIdentities(sortedRelayIdentities());
     if (!nextOpen) setWorkspaceMenuId(null);
   };
 
@@ -401,6 +416,15 @@ function workspaceMenuKey(location: ConnectedWorkspace): string {
 
 function relayLabel(relayUrl: string): string {
   return isChiefCloud(relayUrl) ? "Chief Cloud" : new URL(relayUrl).host;
+}
+
+function sortedRelayIdentities() {
+  return connectedRelayIdentities().sort((left, right) => {
+    const cloudOrder =
+      Number(isChiefCloud(right.relayUrl)) -
+      Number(isChiefCloud(left.relayUrl));
+    return cloudOrder || right.lastUsedAt - left.lastUsedAt;
+  });
 }
 
 function isChiefCloud(relayUrl: string): boolean {
