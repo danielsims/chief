@@ -12,9 +12,7 @@ struct ConversationMessageRow: View {
 
   @State private var activeSheet: MessageSheet?
   @State private var showsDeleteConfirmation = false
-  @State private var showsUserProfile = false
-  @State private var showsAgentProfile = false
-  @State private var profileAgentID: String?
+  @State private var openProfile: MessageProfile?
 
   @ViewBuilder
   var body: some View {
@@ -42,7 +40,7 @@ struct ConversationMessageRow: View {
       if !message.reactions.isEmpty {
         reactionPills
       }
-      if showsThreadSummary, replyCount > 0 || replyingAgent != nil {
+      if showsThreadSummary, replyCount > 0 {
         threadSummary
       }
     }
@@ -55,12 +53,17 @@ struct ConversationMessageRow: View {
       activeSheet = .actions
     }
     .sheet(item: $activeSheet, content: sheet)
-    .navigationDestination(isPresented: $showsUserProfile) {
-      UserProfileView()
-    }
-    .navigationDestination(isPresented: $showsAgentProfile) {
-      if let profileAgent {
-        AgentDetailView(agent: profileAgent)
+    .navigationDestination(item: $openProfile) { destination in
+      switch destination {
+      case .agent(let agentID):
+        let card = model.workspace?.agentCard(for: agentID) ?? .chiefFallback(for: agentID)
+        AgentDetailView(agent: card.agent, highlightedSubagentID: card.subagentID)
+      case .person(let userID, let name):
+        if userID == model.session?.user.id {
+          UserProfileView()
+        } else {
+          PersonProfileView(userID: userID, name: name)
+        }
       }
     }
     .alert("Delete this message?", isPresented: $showsDeleteConfirmation) {
@@ -78,7 +81,7 @@ struct ConversationMessageRow: View {
   @ViewBuilder
   private var avatar: some View {
     if showsAuthor {
-      Button(action: openProfile) {
+      Button(action: openAuthorProfile) {
         switch message.author {
         case .agent(_, let name): AgentMark(name: name, size: 34)
         case .user(_, let name): UserMessageAvatar(name: name)
@@ -159,9 +162,9 @@ struct ConversationMessageRow: View {
       HStack(spacing: 9) {
         ThreadParticipantStack(
           participants: threadParticipants,
-          replyingAgentID: replyingAgent?.id
+          replyingAgentID: nil
         )
-        Text(replyCount == 0 ? "Replying…" : "\(replyCount) \(replyCount == 1 ? "reply" : "replies")")
+        Text("\(replyCount) \(replyCount == 1 ? "reply" : "replies")")
           .font(.system(size: 12, weight: .semibold))
         if let lastReply = replies.last {
           Text(RelativeDateTimeFormatter.threadActivity.localizedString(
@@ -219,22 +222,7 @@ struct ConversationMessageRow: View {
       }
       return seen.insert(participant.id).inserted ? participant : nil
     }
-    if let replyingAgent, seen.insert(replyingAgent.id).inserted {
-      participants.append(.agent(id: replyingAgent.id, name: replyingAgent.name))
-    }
     return participants
-  }
-
-  private var replyingAgent: AgentActivityPresence? {
-    guard let expectedAgentID else { return nil }
-    return model.workingAgentPresences(
-      workspaceID: message.workspaceID,
-      conversationID: message.conversationID
-    ).first { $0.id == expectedAgentID }
-  }
-
-  private var expectedAgentID: String? {
-    AgentMentionParser.mentions(in: message.body).first
   }
 
   private var unreadReplyCount: Int {
@@ -288,22 +276,15 @@ struct ConversationMessageRow: View {
     Set(model.workspace?.conversations.filter { $0.kind == .channel }.map(\.name) ?? [])
   }
 
-  private var profileAgent: AgentSummary? {
-    guard let profileAgentID else { return nil }
-    return model.workspace?.agents.first { $0.id == profileAgentID }
-  }
-
-  private func openProfile() {
+  private func openAuthorProfile() {
     Haptics.medium()
     switch message.author {
     case .agent(let id, _):
-      profileAgentID = id
-      showsAgentProfile = true
-    case .user:
-      showsUserProfile = true
+      openProfile = .agent(id)
+    case .user(let id, let name):
+      openProfile = .person(userID: id, name: name)
     case .system:
-      profileAgentID = "chief"
-      showsAgentProfile = true
+      openProfile = .agent("chief")
     }
   }
 
@@ -353,6 +334,11 @@ struct ConversationMessageRow: View {
       )
     }
   }
+}
+
+private enum MessageProfile: Hashable {
+  case agent(String)
+  case person(userID: String, name: String)
 }
 
 private enum MessageSheet: String, Identifiable {

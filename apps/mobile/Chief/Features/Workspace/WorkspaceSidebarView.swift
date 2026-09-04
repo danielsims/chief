@@ -253,7 +253,7 @@ private struct AgentRow: View {
         AgentMark(name: agent.name, size: 34, working: agent.status == .working)
         VStack(alignment: .leading, spacing: 2) {
           Text(agent.name).font(.system(size: 15, weight: .medium))
-          Text(agent.status == .working ? "Working now" : agent.role)
+          Text(agent.subagentCountLabel.map { "\(agent.role) · \($0)" } ?? (agent.status == .working ? "Working now" : agent.role))
             .font(.system(size: 13))
             .foregroundStyle(ChiefTheme.secondary)
         }

@@ -10,15 +10,53 @@ struct AgentDetailView: View {
   @State private var config: AgentConfig
   @State private var saving = false
   @State private var saveFailed = false
+  @State private var selectedSubagentID: String?
 
-  init(agent: AgentSummary) {
+  init(agent: AgentSummary, highlightedSubagentID: String? = nil) {
     self.agent = agent
     _config = State(initialValue: AgentConfig.defaults(for: agent.id))
+    _selectedSubagentID = State(initialValue: highlightedSubagentID)
   }
 
   var body: some View {
     List {
+      if let specialist = selectedSubagent {
+        Section("Specialist") { specialistIdentity(specialist) }
+      }
+
       Section { agentIdentity }
+
+      if !agent.subagents.isEmpty {
+        Section("Subagents") {
+          ForEach(agent.subagents) { subagent in
+            Button {
+              Haptics.selection()
+              selectedSubagentID =
+                selectedSubagentID?.lowercased() == subagent.id.lowercased()
+                ? nil : subagent.id
+            } label: {
+              HStack(spacing: 12) {
+                AgentMark(name: subagent.name, size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(subagent.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.primary)
+                  Text(subagent.role)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChiefTheme.secondary)
+                }
+                Spacer(minLength: 8)
+                if selectedSubagentID?.lowercased() == subagent.id.lowercased() {
+                  Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChiefTheme.accent)
+                }
+              }
+            }
+            .accessibilityLabel("\(subagent.name), \(subagent.role)")
+          }
+        }
+      }
 
       Section {
         ChiefBooleanRow(
@@ -89,8 +127,20 @@ struct AgentDetailView: View {
     }
   }
 
+  private var selectedSubagent: AgentProfile? {
+    guard let selectedSubagentID else { return nil }
+    if let match = agent.profile(id: selectedSubagentID), match.id != agent.id {
+      return match
+    }
+    if let catalog = WorkspaceAgentCatalog.agent(forID: selectedSubagentID) {
+      return AgentProfile(id: catalog.id, name: catalog.name, role: catalog.role)
+    }
+    let name = selectedSubagentID.replacingOccurrences(of: "-", with: " ").capitalized
+    return AgentProfile(id: selectedSubagentID, name: name, role: "Specialist")
+  }
+
   private var agentIdentity: some View {
-    HStack(spacing: 14) {
+    HStack(alignment: .top, spacing: 14) {
       AgentMark(name: agent.name, size: 52, working: agent.status == .working)
       VStack(alignment: .leading, spacing: 3) {
         Text(agent.name)
@@ -98,9 +148,44 @@ struct AgentDetailView: View {
         Text(agent.role)
           .font(.system(size: 14))
           .foregroundStyle(ChiefTheme.secondary)
+        if let count = agent.subagentCountLabel {
+          Text(count)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
         Text(agent.status == .working ? "Working now" : "Available")
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.tertiary)
+        if !agent.description.isEmpty {
+          Text(agent.description)
+            .font(.system(size: 13))
+            .foregroundStyle(ChiefTheme.secondary)
+            .padding(.top, 4)
+        }
+      }
+    }
+    .padding(.vertical, 6)
+  }
+
+  private func specialistIdentity(_ specialist: AgentProfile) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 14) {
+        AgentMark(name: specialist.name, size: 44)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(specialist.name)
+            .font(.system(size: 18, weight: .semibold, design: .rounded))
+          Text(specialist.role)
+            .font(.system(size: 14))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
+      }
+      Text("Works privately inside \(agent.name). Message \(agent.name) to delegate work here.")
+        .font(.system(size: 13))
+        .foregroundStyle(ChiefTheme.secondary)
+      if !specialist.description.isEmpty {
+        Text(specialist.description)
+          .font(.system(size: 13))
+          .foregroundStyle(ChiefTheme.secondary)
       }
     }
     .padding(.vertical, 6)
