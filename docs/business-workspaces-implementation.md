@@ -250,3 +250,15 @@ Browser review exercised actual SchedulePage and FilesLibrary with fixture data,
 including irrelevant activity that stayed absent, month/week/month navigation,
 file alignment, the schedule detail dialog and its actions menu. Temporary review
 source is retained outside the repository in `/tmp/chief-refinement-review`.
+
+Latest delivery for these corrections: commit `718a9d66`, production relay version
+`64afa2d8-4d0e-4fb9-881b-43abbf21607c`, with a passing production health check.
+The rebuilt DMG at the same path supersedes the earlier package. Its SHA-256 is
+`03e6c919ff8d8cc730694170b5bee8f1d3a5c0ac6db617853255b79b9cba7388`.
+All 18 typechecks and commit lint/source-size checks passed, along with six
+existing prompt and Eve-generation checks. The signed build and the app mounted
+from the DMG both passed signature and packaged-runtime startup verification.
+Notarization remains unavailable in this build environment.
+Evidence: `/tmp/chief-refinement-commit.log`, `/tmp/chief-refinement-prompts.log`,
+`/tmp/chief-refinement-deploy.log`, `/tmp/chief-refinement-health.json`,
+`/tmp/chief-refinement-dmg.log`, `/tmp/chief-refinement-mounted-runtime.log`.
