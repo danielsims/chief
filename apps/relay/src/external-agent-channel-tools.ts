@@ -2,6 +2,7 @@ import type { JsonObject } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   appendMessageResultSchema,
+  artifactMessageComponents,
   channelListResultSchema,
   externalAgentToolCallSchema,
   externalAgentToolResultSchema,
@@ -11,6 +12,7 @@ import {
   parseJsonValue,
   reactToMessagePayloadSchema,
   toJsonObject,
+  workspaceFilesResultSchema,
 } from "@chief/relay-contracts";
 
 import type { ExternalAgentInboundHost } from "./external-agent-continuation";
@@ -216,13 +218,26 @@ async function postMessage(
       : undefined);
   const idempotencyKey =
     optionalString(call.input, "idempotencyKey") ??
-    `${call.deliveryId}:${conversationId}`;
+    `${call.deliveryId}:${conversationId}:${await deterministicUuid(JSON.stringify({ content: call.input.content, artifactIds: call.input.artifactIds, threadRootId }))}`;
   const messageId = await deterministicUuid(
     `${resolved.context.workspaceId}:${resolved.agentId}:tool:channels.messages.post:${idempotencyKey}`,
   );
   host.channels.requirePrincipalMember(resolved.principal);
   host.channels.requireAgentCapability(resolved.principal, "messages.send");
   host.channels.requireChannelVisible(conversationId, resolved.principal);
+  const fileResponse = call.input.artifactIds
+    ? await routeWorkspaceData(
+        host.storage,
+        new Request("https://workspace.internal"),
+        "data-files-list",
+        resolved.principal,
+        resolved.context.workspaceId,
+        host.channels,
+      )
+    : undefined;
+  const files = fileResponse
+    ? workspaceFilesResultSchema.parse(await fileResponse.json()).files
+    : [];
   const command = appendMessageCommandSchema.parse({
     commandId: messageId,
     protocolVersion: 1,
@@ -233,7 +248,11 @@ async function postMessage(
       ...(threadRootId ? { threadRootId } : undefined),
       body: requiredString(call.input, "content"),
       mentions: mentionIds(call.input, "mentions"),
-      components: [],
+      components: artifactMessageComponents(
+        call.input.artifactIds,
+        files,
+        conversationId,
+      ),
     },
   });
   const appendRequest = new Request("https://relay.internal/messages", {

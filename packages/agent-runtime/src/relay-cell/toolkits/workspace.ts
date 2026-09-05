@@ -73,18 +73,39 @@ export const relayCellWorkspaceTools = [
   ),
   defineRelayCellTool(
     "files.write",
-    "workspace.write",
-    async ({ client, conversationId }, input) =>
-      await client.saveWorkspaceFile({
+    "messages.send",
+    async ({ client, conversationId }, input) => {
+      const existing = input.id
+        ? (await client.listWorkspaceFiles()).find(
+            (file) => file.id === input.id,
+          )
+        : undefined;
+      return await client.saveWorkspaceFile({
         id: optionalString(input, "id"),
-        path: optionalString(input, "path") ?? `documents/${randomUUID()}.md`,
+        path:
+          optionalString(input, "path") ??
+          existing?.path ??
+          `artifacts/${randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
         title: requiredString(input, "name"),
-        mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
+        mimeType:
+          input.kind === "email"
+            ? "message/rfc822"
+            : input.format === "html"
+              ? "text/html"
+              : input.format === "csv"
+                ? "text/csv"
+                : input.format === "json"
+                  ? "application/json"
+                  : "text/markdown",
         content: requiredString(input, "content"),
-        conversationId,
+        conversationId:
+          optionalString(input, "conversationId") ??
+          existing?.conversationId ??
+          conversationId,
         expectedVersion: input.expectedVersionId
           ? Number(requiredString(input, "expectedVersionId"))
           : undefined,
-      }),
+      });
+    },
   ),
 ];

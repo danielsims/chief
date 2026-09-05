@@ -11,6 +11,16 @@ export const writeFileTool = defineLocalTool({
       path: input.path,
       content: input.content,
       kind: input.kind,
+      mimeType:
+        input.kind === "email"
+          ? "message/rfc822"
+          : input.format === "html"
+            ? "text/html"
+            : input.format === "csv"
+              ? "text/csv"
+              : input.format === "json"
+                ? "application/json"
+                : "text/markdown",
       expectedVersionId: input.expectedVersionId,
       createdBy: "agent",
       sourceAgentId: input.agentId,

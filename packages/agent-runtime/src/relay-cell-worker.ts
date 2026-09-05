@@ -256,7 +256,10 @@ async function executeJob(
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
         const allow = relayCellToolNames.some(
-          (name) => tool === name || tool === `mcp__chief_relay__${name}`,
+          (name) =>
+            tool === name ||
+            tool === `mcp__chief_relay__${name}` ||
+            tool === `mcp.chief_relay.${name}`,
         );
         agentSession.respondPermission(
           event.requestId,

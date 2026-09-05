@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { artifactReferencePayloadSchema } from "./artifacts";
 import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
 import {
   agentIdSchema,
@@ -142,15 +143,17 @@ export const messageComponentSchema = z
   .strict()
   .superRefine((component, context) => {
     const schema =
-      component.kind === "plugin.recommendation"
-        ? pluginRecommendationPayloadSchema
-        : component.kind === "plugin.authorization"
-          ? pluginAuthorizationPayloadSchema
-          : component.kind === "project.recommendation"
-            ? projectRecommendationPayloadSchema
-            : component.kind === "channel-action"
-              ? channelMemberAddedPayloadSchema
-              : undefined;
+      component.kind === "artifact.reference"
+        ? artifactReferencePayloadSchema
+        : component.kind === "plugin.recommendation"
+          ? pluginRecommendationPayloadSchema
+          : component.kind === "plugin.authorization"
+            ? pluginAuthorizationPayloadSchema
+            : component.kind === "project.recommendation"
+              ? projectRecommendationPayloadSchema
+              : component.kind === "channel-action"
+                ? channelMemberAddedPayloadSchema
+                : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {

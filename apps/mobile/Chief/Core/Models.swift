@@ -421,6 +421,7 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let name: String
   let role: String
+  var canMessage: Bool? = nil
   var description: String
   var instructions: String
   var capabilities: [String]
@@ -446,6 +447,7 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
     id = try container.decode(String.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
     role = try container.decode(String.self, forKey: .role)
+    canMessage = try container.decodeIfPresent(Bool.self, forKey: .canMessage)
     description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
     instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
@@ -470,6 +472,8 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let name: String
   let role: String
+  var canMessage: Bool? = nil
+  var canRunOnDevice: Bool? = nil
   var description: String
   var instructions: String
   var capabilities: [String]
@@ -501,6 +505,8 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
     id = try container.decode(String.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
     role = try container.decode(String.self, forKey: .role)
+    canMessage = try container.decodeIfPresent(Bool.self, forKey: .canMessage)
+    canRunOnDevice = try container.decodeIfPresent(Bool.self, forKey: .canRunOnDevice)
     status = try container.decode(Status.self, forKey: .status)
     description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
     instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
@@ -514,7 +520,7 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
   }
 
   func with(status: Status) -> AgentSummary {
-    AgentSummary(
+    var result = AgentSummary(
       id: id,
       name: name,
       role: role,
@@ -524,6 +530,9 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
       capabilities: capabilities,
       subagents: subagents
     )
+    result.canMessage = canMessage
+    result.canRunOnDevice = canRunOnDevice
+    return result
   }
 
   func profile(id agentID: String) -> AgentProfile? {
@@ -860,6 +869,7 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     try values.encode(kind, forKey: .kind)
     try values.encode(version, forKey: .version)
     var rawPayload = payload.mapValues(JSONValue.string)
+    if kind == "artifact.reference", let version = payload["version"].flatMap(Double.init) { rawPayload["version"] = .number(version) }
     if kind == "plugin.recommendation" {
       for key in ["enabled", "trusted"] {
         if let value = payload[key].flatMap(Bool.init) {

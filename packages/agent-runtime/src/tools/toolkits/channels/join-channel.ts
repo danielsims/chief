@@ -1,8 +1,7 @@
-import { defineLocalTool } from "../../tool.js";
-import { executeChannelTool } from "./execute.js";
+import { defineAgentTool } from "../../definition.js";
 import { channelVersionInputSchema } from "./input.js";
 
-export const joinChannelTool = defineLocalTool({
+export const joinChannelDefinition = defineAgentTool({
   method: "POST",
   path: "/local-tools/channels/{channelId}/join",
   operation: {
@@ -10,5 +9,4 @@ export const joinChannelTool = defineLocalTool({
     summary: "Join an active public channel",
   },
   inputSchema: channelVersionInputSchema,
-  execute: (request) => executeChannelTool(request, request.input),
 });

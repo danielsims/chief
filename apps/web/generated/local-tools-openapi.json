@@ -537,6 +537,38 @@
                       { "type": "string", "minLength": 1 }
                     ]
                   },
+                  "collaborators": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        { "type": "string" },
+                        { "type": "string", "minLength": 1 }
+                      ]
+                    },
+                    "maxItems": 12,
+                    "default": []
+                  },
+                  "expectedOutcome": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "default": ""
+                  },
+                  "constraints": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "default": ""
+                  },
+                  "maxDurationMinutes": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1440,
+                    "default": 60
+                  },
+                  "triggerMode": {
+                    "type": "string",
+                    "enum": ["cron", "webhook"],
+                    "default": "cron"
+                  },
                   "title": {
                     "allOf": [
                       { "type": "string" },
@@ -1536,7 +1568,7 @@
         "operationId": "channels.messages.post",
         "summary": "Publish a message or thread reply",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Publishes deliberate user-facing content into a shared channel. Address people and agents with @Name and include their principal IDs in mentions. Channel members.list returns each person's name, role, and id. Never invent a @chief (user) tag. Ordinary agent working output is private and does not appear in the channel.",
+        "description": "Publishes deliberate user-facing content into a shared channel. Address people and agents with @Name and include their principal IDs in mentions. Channel members.list returns each person's name, role, and id. Never invent a @chief (user) tag. To present work, first create or revise it with files.write (or publish binary media), then pass its file ID in artifactIds. This inserts clickable cards opening those artifacts in this channel’s Canvas. Only artifacts belonging to this channel can be attached. Ordinary agent working output is private and does not appear in the channel.",
         "parameters": [
           {
             "name": "channelId",
@@ -1552,6 +1584,16 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "artifactIds": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        { "type": "string" },
+                        { "type": "string", "minLength": 1 }
+                      ]
+                    },
+                    "maxItems": 12
+                  },
                   "content": {
                     "allOf": [
                       { "type": "string" },
@@ -2189,7 +2231,7 @@
         "operationId": "files.write",
         "summary": "Create or revise a workspace document",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
+        "description": "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. For interactive artifacts use format html with a self-contained HTML document, inline CSS and JavaScript, no external libraries or network calls. Use format csv or json for structured data. After saving, call channels.messages.post with artifactIds containing the file ID to place a Canvas card in chat. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2211,6 +2253,12 @@
                       { "type": "string", "minLength": 1 }
                     ]
                   },
+                  "format": {
+                    "type": "string",
+                    "enum": ["markdown", "html", "csv", "json"],
+                    "default": "markdown"
+                  },
+                  "conversationId": { "type": "string" },
                   "kind": {
                     "type": "string",
                     "enum": ["document", "email"],

@@ -23,3 +23,5 @@ export * from "./message-preview";
 export * from "./missions";
 export * from "./schedules";
 export * from "./schedule-runs";
+
+export * from "./artifacts";

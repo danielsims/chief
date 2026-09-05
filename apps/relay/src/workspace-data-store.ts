@@ -324,6 +324,13 @@ async function saveFile(
   );
   if (prior && !canRead(prior.conversation_id))
     throw new HttpError(404, "workspace_file_not_found", "File not found.");
+  if (prior && prior.conversation_id !== input.conversationId) {
+    throw new HttpError(
+      409,
+      "artifact_channel_fixed",
+      "Create a new artifact to share this work in another channel.",
+    );
+  }
   if (prior?.asset_json) {
     throw new HttpError(
       409,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ExternalAgentToolCall, JsonObject } from "@chief/relay-contracts";
 import {
   channelCreateCommandSchema,
+  channelJoinCommandSchema,
   channelMemberAddCommandSchema,
   missionCreateSchema,
   missionExperimentInputSchema,
@@ -41,6 +42,29 @@ export async function routeExternalWorkspaceTool(
 ): Promise<JsonObject | undefined> {
   const { input, operationId } = call;
   switch (operationId) {
+    case "channels.join": {
+      host.channels.requirePrincipalMember(resolved.principal);
+      host.channels.requireAgentCapability(resolved.principal, "channels.read");
+      const conversationId = requiredString(input, "channelId");
+      const command = channelJoinCommandSchema.parse({
+        commandId: await deterministicUuid(
+          `${call.deliveryId}:join:${conversationId}`,
+        ),
+        protocolVersion: 1,
+        occurredAt: new Date().toISOString(),
+        payload: { conversationId },
+      });
+      return readResult(
+        await new WorkspaceChannelService(host.channels).channelsJoin(
+          requestFor(resolved, command),
+          {
+            ...resolved.context,
+            principal: resolved.principal,
+            conversationId,
+          },
+        ),
+      );
+    }
     case "channels.create":
       return createChannel(host, resolved, input);
     case "channels.members.add":
@@ -84,9 +108,18 @@ export async function routeExternalWorkspaceTool(
           path:
             optionalString(input, "path") ??
             existing?.path ??
-            `documents/${id}.md`,
+            `artifacts/${id}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
           title: requiredString(input, "name"),
-          mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
+          mimeType:
+            input.kind === "email"
+              ? "message/rfc822"
+              : input.format === "html"
+                ? "text/html"
+                : input.format === "csv"
+                  ? "text/csv"
+                  : input.format === "json"
+                    ? "application/json"
+                    : "text/markdown",
           content: requiredString(input, "content"),
           conversationId:
             optionalString(input, "conversationId") ??
@@ -209,7 +242,7 @@ async function fileOperation(
   host.channels.requirePrincipalMember(resolved.principal);
   host.channels.requireAgentCapability(
     resolved.principal,
-    operation === "data-file-save" ? "workspace.write" : "workspace.read",
+    operation === "data-file-save" ? "messages.send" : "workspace.read",
   );
   const response = await routeWorkspaceData(
     host.storage,
