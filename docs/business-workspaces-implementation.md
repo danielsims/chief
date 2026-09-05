@@ -285,3 +285,46 @@ runtime checks. The production relay remains on the preceding deployed version;
 no relay code changed. Notarization remains unavailable. Verification logs:
 `/tmp/chief-chat-lifecycle-commit.log`, `/tmp/chief-chat-lifecycle-dmg.log`,
 `/tmp/chief-chat-lifecycle-mounted-runtime.log`.
+
+### Latest review corrections and scheduled teams
+
+All follow-up changes remain uncommitted pending Daniel's review.
+
+- Codex ACP 1.6.2 and native Codex 0.148.0 are installed on demand, not bundled in
+  the DMG. Assignment starts setup, a progress toast tracks download, SHA512-pinned
+  archives are verified before extraction and cached atomically. Network failures
+  retry. Isolated download and ACP initialize passed without invoking a model.
+- Durable scheduled teams and signed webhooks are documented in
+  `docs/scheduled-mission-runs.md`, including the public API and sender example.
+  Cron/manual/webhook triggers share one run model, immutable brief and phase
+  handoffs. Stop, retry, deadlines, approval and channel access are enforced.
+- Calendar remains the primary schedule view. Direct create/edit supports the
+  team, mission, expected result, constraints and timing. Run history links to
+  evidence in the originating thread.
+- Blank month cells now have subtle diagonal hatching. The Schedules popover is
+  flat, with readable 14px empty text. Files sorting uses the shared Radix/shadcn
+  Select. Repository connection uses restrained tabs and readable copy; private
+  credential instructions are only expanded when relevant.
+- Overview surfaces actual recent agent-created files with links to their output,
+  and only shows analytics with real data. Missing metrics are not rendered as
+  zero. Upcoming work includes native relay jobs and its empty state fills and
+  centres in the available card space.
+- Verification: all 18 typechecks, repository lint/source-size and focused critical
+  relay tests. The focused relay set covers schedules, external inbound/tools and
+  native agent queues (20 cases). Codex setup/adapter checks cover five cases.
+  Browser-reviewed actual editor, details, webhook settings, Files Select,
+  schedule popover and hatched calendar. Live subscription business turns and
+  physical iOS notifications still need Daniel's normal test pass.
+
+Release verification (2026-09-05 21:10 AEST):
+
+- Production relay version: `b59705d6-3c93-4bd8-894c-4bf386b6ede7`.
+  `/health` returns OK; unauthenticated webhook management returns 401.
+- Rebuilt DMG: `apps/desktop/src-tauri/target/release/bundle/dmg/Chief_0.1.0_aarch64.dmg`.
+  Size: 58,083,688 bytes. SHA256:
+  `ca7835935e22124d28be07e648d0e2101a4ada1d388da8914e943a0722554450`.
+- Mounted the DMG read-only, verified its app signature, and passed the packaged
+  plugin-host startup check from the mounted copy. No Codex ACP/native distribution
+  is present in packaged resources. Apple notarization was skipped because the
+  required Apple credentials are not configured; Developer ID signing passed.
+- HEAD remains `83851513`; follow-up implementation has not been committed.
