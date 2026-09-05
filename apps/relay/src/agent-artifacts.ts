@@ -1,6 +1,14 @@
 import type { AgentComputer } from "@chief/agent-computer";
+import type {
+  AgentPrincipal,
+  Principal,
+  WorkspaceId,
+} from "@chief/relay-contracts";
+import { workspaceFileSchema } from "@chief/relay-contracts";
 
 import { HttpError, relayError } from "./http";
+import { withTrustedContext } from "./internal-context";
+import { saveWorkspaceMedia } from "./workspace-media";
 
 const MAX_AGENT_ARTIFACT_BYTES = 8 * 1_024 * 1_024;
 
@@ -8,8 +16,8 @@ export async function publishAgentArtifact(
   computer: AgentComputer,
   env: Env,
   input: {
-    workspaceId: string;
-    agentId: string;
+    principal: AgentPrincipal;
+    conversationId: string;
     path: string;
     name: string;
     contentType: string;
@@ -33,33 +41,51 @@ export async function publishAgentArtifact(
       "Agent artifacts must be 8MB or smaller.",
     );
   }
-  const artifactId = crypto.randomUUID();
-  const key = artifactKey(input.workspaceId, input.agentId, artifactId);
-  await env.ARTIFACTS.put(key, content, {
-    customMetadata: {
-      workspaceId: input.workspaceId,
-      agentId: input.agentId,
-      name: input.name,
-      contentType: input.contentType,
-    },
-    httpMetadata: { contentType: input.contentType },
+  const file = await saveWorkspaceMedia(env, input.principal, {
+    content,
+    name: input.name,
+    contentType: input.contentType,
+    conversationId: input.conversationId,
   });
   const origin = new URL(env.AUTH_BASE_URL).origin;
   return {
-    artifactId,
-    name: input.name,
-    contentType: input.contentType,
+    artifactId: file.id,
+    fileId: file.id,
+    name: file.title,
+    contentType: file.mimeType,
     bytes: content.byteLength,
-    url: `${origin}/v1/workspaces/${encodeURIComponent(input.workspaceId)}/agents/${encodeURIComponent(input.agentId)}/artifacts/${artifactId}`,
+    url: `${origin}/v1/workspaces/${encodeURIComponent(input.principal.workspaceId)}/agents/${encodeURIComponent(input.principal.agentId)}/artifacts/${file.id}`,
   };
 }
 
 export async function getAgentArtifact(
   env: Env,
-  workspaceId: string,
+  principal: Principal,
+  workspaceId: WorkspaceId,
   agentId: string,
   artifactId: string,
 ) {
+  const metadata = await env.WORKSPACES.get(
+    env.WORKSPACES.idFromName(workspaceId),
+  ).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "x-chief-internal-operation": "data-file-get",
+          "x-chief-workspace-file-id": artifactId,
+        },
+      }),
+      { principal, workspaceId, requestId: crypto.randomUUID() },
+    ),
+  );
+  if (!metadata.ok) {
+    await metadata.body?.cancel();
+    return relayError(404, "artifact_not_found", "The artifact was not found.");
+  }
+  const file = workspaceFileSchema.parse(await metadata.json());
+  if (file.asset?.agentId !== agentId || file.asset.artifactId !== artifactId)
+    return relayError(404, "artifact_not_found", "The artifact was not found.");
   const object = await env.ARTIFACTS.get(
     artifactKey(workspaceId, agentId, artifactId),
   );
@@ -70,12 +96,13 @@ export async function getAgentArtifact(
     object.httpMetadata?.contentType ??
     object.customMetadata?.contentType ??
     "application/octet-stream";
-  const name = safeFileName(object.customMetadata?.name ?? "artifact");
+  const originalName = object.customMetadata?.name ?? "artifact";
+  const name = safeFileName(originalName);
   return new Response(object.body, {
     headers: {
       "content-type": contentType,
-      "content-disposition": `inline; filename="${name}"`,
-      "cache-control": "private, max-age=300",
+      "content-disposition": `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(originalName).replaceAll("'", "%27")}`,
+      "cache-control": "private, no-store",
       "content-security-policy": "sandbox; default-src 'none'",
       "x-content-type-options": "nosniff",
     },
@@ -87,6 +114,6 @@ function artifactKey(workspaceId: string, agentId: string, artifactId: string) {
 }
 
 function safeFileName(value: string) {
-  const safe = value.replace(/["\\\r\n]/gu, "_").trim();
+  const safe = value.replace(/[^\x20-\x7e]|["\\]/gu, "_").trim();
   return safe || "artifact";
 }

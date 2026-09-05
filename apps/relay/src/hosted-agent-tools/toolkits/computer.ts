@@ -102,10 +102,10 @@ export const hostedComputerTools = [
   ),
   defineHostedAgentTool(
     "computer.artifacts.publish",
-    async ({ computer, env, job }, input) =>
+    async ({ computer, env, job, principal }, input) =>
       await publishAgentArtifact(computer, env, {
-        workspaceId: job.workspaceId,
-        agentId: job.agentId,
+        principal,
+        conversationId: requiredString(job.payload, "conversationId"),
         path: requiredString(input, "path"),
         name: requiredString(input, "name"),
         contentType: requiredString(input, "contentType"),

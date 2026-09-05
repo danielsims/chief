@@ -9,7 +9,10 @@ export const computerPublishArtifactDefinition = defineAgentTool({
   path: "/local-tools/computer/artifacts",
   operation: {
     operationId: "computer.artifacts.publish",
-    summary: "Publish an agent computer file as a Chief artifact",
+    description:
+      "Publish an existing file up to 8 MB. Use a /workspace-relative path, a filename with its extension, and the matching MIME type. The output persists in Files and can be previewed or downloaded by workspace members.",
+    summary:
+      "Save an image, video, audio, PDF, or other file to the workspace Files library",
   },
   inputSchema: z.object({
     path: computerPathSchema,

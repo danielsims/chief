@@ -13,9 +13,9 @@ import {
   toJsonObject,
 } from "@chief/relay-contracts";
 
+import type { ExternalAgentInboundHost } from "./external-agent-continuation";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import { deterministicUuid } from "./external-agent-channel-security";
-import type { ExternalAgentInboundHost } from "./external-agent-continuation";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import { externalConversationFetch } from "./external-agent-conversation";
 import {
@@ -125,6 +125,7 @@ async function executeExternalAgentTool(
         "data-projects-list",
         resolved.principal,
         resolved.context.workspaceId,
+        host.channels,
       );
       if (!projects) {
         throw new HttpError(

@@ -64,17 +64,30 @@ export const relayCellWorkspaceTools = [
     files: await client.listWorkspaceFiles(),
   })),
   defineRelayCellTool(
+    "files.read",
+    "workspace.read",
+    async ({ client }, input) => {
+      const file = (await client.listWorkspaceFiles()).find(
+        (candidate) => candidate.id === requiredString(input, "fileId"),
+      );
+      if (!file) throw new Error("File not found.");
+      return { file };
+    },
+  ),
+  defineRelayCellTool(
     "files.write",
     "workspace.write",
     async ({ client, conversationId }, input) =>
       await client.saveWorkspaceFile({
         id: optionalString(input, "id"),
-        path: optionalString(input, "path") ?? `/documents/${randomUUID()}.md`,
+        path: optionalString(input, "path") ?? `documents/${randomUUID()}.md`,
         title: requiredString(input, "name"),
         mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
         content: requiredString(input, "content"),
         conversationId,
-        expectedVersion: parseJsonNumber(input.expectedVersionId),
+        expectedVersion: input.expectedVersionId
+          ? Number(requiredString(input, "expectedVersionId"))
+          : undefined,
       }),
   ),
 ];

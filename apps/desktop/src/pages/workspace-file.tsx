@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ArrowLeft,
+  Download,
   Eye,
   FileText,
   Mail,
@@ -14,6 +15,12 @@ import { Button } from "@chief/ui/components/button";
 
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { DocumentEditor } from "../components/files/document-editor";
+import {
+  downloadFileBlob,
+  fileDownloadName,
+  fileSize,
+} from "../components/files/file-presentation";
+import { MediaPreview } from "../components/files/media-preview";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
 import { useWorkspaceEmailPreview, useWorkspaceFile } from "../lib/runtime";
@@ -50,9 +57,11 @@ export function WorkspaceFilePage() {
     );
   }
 
+  if (file.asset) return <WorkspaceMediaFile key={file.id} file={file} />;
+
   return (
     <WorkspaceFileEditor
-      key={`${file.id}:${file.currentVersionId}`}
+      key={file.id}
       file={file}
       workspaceId={cloudOrganizationId}
       saving={saving}
@@ -78,12 +87,31 @@ function WorkspaceFileEditor({
   const navigate = useNavigate();
   const [name, setName] = useState(file.name);
   const [content, setContent] = useState(file.content);
+  const [baseline, setBaseline] = useState(file);
   const [view, setView] = useState<"edit" | "preview">("preview");
-  const emailPreview = useWorkspaceEmailPreview(workspaceId, file);
+  const emailPreview = useWorkspaceEmailPreview(
+    workspaceId,
+    file.provider === "local" ? file : null,
+  );
   const dirty = name.trim() !== file.name || content !== file.content;
+  const newerRevision =
+    baseline.currentVersionId !== file.currentVersionId && dirty;
+  if (
+    baseline.currentVersionId !== file.currentVersionId &&
+    ((name === baseline.name && content === baseline.content) ||
+      (name.trim() === file.name && content === file.content))
+  ) {
+    setBaseline(file);
+    setName(file.name);
+    setContent(file.content);
+  }
+  const loadLatest = () => {
+    setBaseline(file);
+    setName(file.name);
+    setContent(file.content);
+  };
   const continueWithAgent = () => {
     if (dirty || saving) return;
-    const chat = createChat(`Continue ${file.name}`);
     const draft = [
       `Continue working from the saved workspace file \`${file.path}\`.`,
       `Use file id \`${file.id}\` at revision \`${file.currentVersionId}\` as the source of truth.`,
@@ -92,8 +120,11 @@ function WorkspaceFileEditor({
         : "Consult the right specialist if useful.",
       "Read it before making changes and save any revision back to the same file.",
     ].join(" ");
+    const destination = file.sourceConversationId
+      ? `channel=${encodeURIComponent(file.sourceConversationId)}`
+      : `chat=${encodeURIComponent(createChat(`Continue ${file.name}`).id)}`;
     void navigate(
-      `/conversations?chat=${encodeURIComponent(chat.id)}&draft=${encodeURIComponent(draft)}`,
+      `/conversations?${destination}&draft=${encodeURIComponent(draft)}`,
     );
   };
 
@@ -129,7 +160,9 @@ function WorkspaceFileEditor({
               ? "Saving..."
               : dirty
                 ? "Unsaved changes"
-                : "Saved locally"}
+                : file.provider === "relay"
+                  ? "Saved to workspace"
+                  : "Saved locally"}
         </span>
         <div className="flex border p-0.5">
           <button
@@ -150,10 +183,23 @@ function WorkspaceFileEditor({
         <Button
           variant="outline"
           size="sm"
-          disabled={!dirty || saving}
+          disabled={!dirty || saving || newerRevision}
           onClick={() => save(content, name)}
         >
           Save
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Download saved file"
+          onClick={() =>
+            downloadFileBlob(
+              new Blob([file.content], { type: file.mimeType }),
+              fileDownloadName(file),
+            )
+          }
+        >
+          <Download size={14} />
         </Button>
         <Button
           size="sm"
@@ -165,13 +211,26 @@ function WorkspaceFileEditor({
         </Button>
       </header>
 
+      {newerRevision ? (
+        <div className="bg-muted/40 mt-3 flex items-center justify-between gap-4 rounded-lg border p-4 text-xs">
+          <p>
+            A newer revision is available. Your edits are still here. Copy any
+            changes you need before loading the latest version.
+          </p>
+          <Button size="sm" variant="outline" onClick={loadLatest}>
+            Load latest
+          </Button>
+        </div>
+      ) : null}
       {error ? (
         <div className="border-destructive/40 bg-destructive/5 text-destructive mt-3 border px-4 py-3 text-xs">
           {error}
         </div>
       ) : null}
 
-      {view === "preview" && file.kind === "email" ? (
+      {view === "preview" &&
+      file.kind === "email" &&
+      file.provider === "local" ? (
         <div className="bg-card/20 mt-5 border p-4">
           {dirty ? (
             <div className="text-muted-foreground border-b px-3 pb-3 text-xs">
@@ -194,6 +253,11 @@ function WorkspaceFileEditor({
             />
           ) : null}
         </div>
+      ) : file.mimeType !== "text/markdown" &&
+        file.mimeType !== "text/plain" ? (
+        <pre className="bg-card/20 mt-5 overflow-auto rounded-lg border p-8 text-xs leading-6">
+          {content}
+        </pre>
       ) : view === "preview" ? (
         <article className="chat-markdown bg-card/20 mt-5 min-h-[520px] border px-14 py-12 text-[15px] leading-7">
           <StreamingMarkdown>{content}</StreamingMarkdown>
@@ -203,6 +267,48 @@ function WorkspaceFileEditor({
           <DocumentEditor value={content} onChange={setContent} />
         </div>
       )}
+    </section>
+  );
+}
+
+function WorkspaceMediaFile({ file }: { file: WorkspaceFileSnapshot }) {
+  const navigate = useNavigate();
+  return (
+    <section className="mx-auto max-w-6xl pt-4 pb-16">
+      <button
+        type="button"
+        onClick={() => navigate("/files")}
+        className="text-muted-foreground hover:text-foreground mb-6 flex items-center gap-2 text-xs"
+      >
+        <ArrowLeft size={14} /> All files
+      </button>
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl tracking-tight">{file.name}</h1>
+          <p className="text-muted-foreground mt-2 text-xs">
+            {file.mimeType} · {file.asset ? fileSize(file.asset.bytes) : ""} ·
+            Saved to workspace
+          </p>
+        </div>
+        {file.sourceConversationId ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              navigate(
+                `/conversations?channel=${encodeURIComponent(file.sourceConversationId ?? "")}`,
+              )
+            }
+          >
+            <MessageSquare size={13} /> Open source conversation
+          </Button>
+        ) : null}
+      </header>
+      <MediaPreview file={file} />
+      <div className="text-muted-foreground mt-5 flex flex-wrap justify-between gap-3 text-xs">
+        <span>Created by {file.sourceAgentId ?? "your team"}</span>
+        <span>{new Date(file.updatedAt).toLocaleString()}</span>
+      </div>
     </section>
   );
 }

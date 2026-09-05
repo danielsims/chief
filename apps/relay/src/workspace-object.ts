@@ -377,6 +377,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       operation,
       context.principal,
       context.workspaceId,
+      channels,
     );
   }
 

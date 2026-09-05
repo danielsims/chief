@@ -4,12 +4,23 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { agentIdSchema } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
-import { registerTestAgent, setupChannelTest } from "./channel-test-helpers";
+import {
+  channelEnvelope,
+  channelRpc,
+  registerTestAgent,
+  setupChannelTest,
+} from "./channel-test-helpers";
 import { hexKey } from "./helpers";
 
 describe("workspace data", () => {
   it("persists an agent-authored brand profile as shared context and a versioned file", async () => {
     const ctx = await setupChannelTest();
+    await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-create",
+      channelEnvelope({ conversationId: "marketing", name: "marketing" }),
+    );
     const brandId = agentIdSchema.parse("brand");
     const pubkey = hexKey("workspace-data-brand");
     await registerTestAgent(ctx, brandId, pubkey);
@@ -124,6 +135,12 @@ describe("workspace data", () => {
 
   it("persists versioned agent files without allowing path traversal", async () => {
     const ctx = await setupChannelTest();
+    await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-create",
+      channelEnvelope({ conversationId: "engineering", name: "engineering" }),
+    );
     const engineerId = agentIdSchema.parse("engineer");
     const pubkey = hexKey("workspace-file-engineer");
     await registerTestAgent(ctx, engineerId, pubkey);
