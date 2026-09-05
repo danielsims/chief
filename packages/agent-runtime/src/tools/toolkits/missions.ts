@@ -82,6 +82,21 @@ export const updateMissionStatusDefinition = defineAgentTool({
   }),
 });
 export const missionToolDefinitions = [
+  defineAgentTool({
+    method: "POST",
+    path: "/local-tools/missions/run-step",
+    operation: {
+      operationId: "missions.reportRunStep",
+      summary:
+        "Complete your scheduled run step or explain a blocker with evidence",
+    },
+    inputSchema: z.object({
+      runId: boundedText(256),
+      stepId: z.string().uuid(),
+      status: z.enum(["completed", "blocked"]),
+      evidence: boundedText(4000),
+    }),
+  }),
   listMissionsDefinition,
   createMissionDefinition,
   recordMissionExperimentDefinition,

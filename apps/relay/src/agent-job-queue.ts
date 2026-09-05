@@ -9,12 +9,14 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
+  messageIdSchema,
   parseJsonObject,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedContext } from "./internal-context";
 import {
+  cancelAgentWorkflow,
   listAgentJobs,
   markJobFailed,
   retryAgentJob,
@@ -224,12 +226,13 @@ export class AgentJobQueue {
     this.storage.sql.exec(
       `UPDATE jobs SET job_json = ?, status = ?, available_at = ?,
        lease_token = NULL, lease_expires_at = NULL, updated_at = ?
-       WHERE job_id = ?`,
+       WHERE job_id = ? AND lease_token = ?`,
       JSON.stringify(job),
       job.status,
       job.availableAt,
       now,
       job.id,
+      input.leaseToken,
     );
     if (job.status === "pending" && Date.parse(job.availableAt) <= Date.now()) {
       this.broadcastAvailable(job, now);
@@ -369,8 +372,16 @@ export class AgentJobQueue {
     return { job, leaseToken };
   }
 
-  list(context: TrustedContext) {
-    return json(listAgentJobs(this.storage, context.principal));
+  list(context: TrustedContext, workflowId?: string) {
+    return json(listAgentJobs(this.storage, context.principal, workflowId));
+  }
+
+  async cancelWorkflow(request: Request, context: TrustedContext) {
+    const input = parseJsonObject(await parseJson(request));
+    const workflowId = messageIdSchema.parse(input?.workflowId);
+    cancelAgentWorkflow(this.storage, context.principal, workflowId);
+    await this.scheduleNextAlarm();
+    return new Response(null, { status: 204 });
   }
 
   retry(request: Request, context: TrustedContext) {

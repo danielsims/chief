@@ -15,6 +15,10 @@ import { releaseInternalResponse } from "./internal-response";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
+import {
+  readScheduleRun,
+  scheduleRunIsActive,
+} from "./workspace-schedule-runs";
 
 const dispatchMessageSchema = z
   .object({
@@ -22,6 +26,7 @@ const dispatchMessageSchema = z
     replyAgentId: agentIdSchema.optional(),
     workflowId: z.string().trim().min(1).max(128).optional(),
     missionId: z.string().trim().min(1).max(100).optional(),
+    scheduleRunId: z.string().trim().min(1).max(256).optional(),
   })
   .strict();
 
@@ -44,6 +49,7 @@ export async function dispatchWorkspaceMessage(
     replyAgentId,
     workflowId = message.id,
     missionId,
+    scheduleRunId,
   } = dispatchMessageSchema.parse(await parseJson(request));
   const authorMatchesPrincipal =
     (context.principal.kind === "user" &&
@@ -64,6 +70,17 @@ export async function dispatchWorkspaceMessage(
     );
   }
 
+  // Scheduled handoffs belong to the run coordinator. Agent prose mentioning a
+  // coworker must not create a second, competing turn outside that sequence.
+  if (context.principal.kind === "agent" && message.threadRootId) {
+    const scheduled = storage.sql
+      .exec(
+        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
+        message.threadRootId,
+      )
+      .toArray()[0];
+    if (scheduled) return json({ agentIds: [] });
+  }
   const store = new WorkspaceChannelStore(storage, env);
   await refreshMemberDisplayNames(storage, env);
   store.requireWorkspace(context.workspaceId);
@@ -79,12 +96,14 @@ export async function dispatchWorkspaceMessage(
         ? [{ id: member.principalId, name: member.name }]
         : [],
     );
-  const mentions = normalizedChannelMentions({
-    availableAgentIds: store.workspaceAgentIds(),
-    people,
-    content: message.body,
-    explicitMentions: message.mentions,
-  });
+  const mentions = scheduleRunId
+    ? message.mentions
+    : normalizedChannelMentions({
+        availableAgentIds: store.workspaceAgentIds(),
+        people,
+        content: message.body,
+        explicitMentions: message.mentions,
+      });
   await addMentionedAgentsToChannel({
     context,
     conversationId: message.conversationId,
@@ -92,13 +111,30 @@ export async function dispatchWorkspaceMessage(
     messageId: message.id,
     store,
   });
-  const agentIds = eligibleAgentIds(
+  let agentIds = eligibleAgentIds(
     store,
     channel,
     mentions,
     replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
   );
+  if (scheduleRunId) {
+    const run = readScheduleRun(storage, scheduleRunId)?.run;
+    const step = run?.steps.find((step) => step.id === message.id);
+    if (
+      !run ||
+      !step ||
+      !scheduleRunIsActive(run) ||
+      run.threadRootId !== workflowId ||
+      run.schedule.conversationId !== message.conversationId
+    )
+      throw new HttpError(
+        409,
+        "schedule_run_stopped",
+        "This scheduled step is no longer active.",
+      );
+    agentIds = [step.agentId];
+  }
   const threadRootId = owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
   const externalAgents = new ExternalAgentChannelService(storage, env);
@@ -139,11 +175,12 @@ export async function dispatchWorkspaceMessage(
         payload: {
           id,
           agentId,
-          kind: "conversation.message",
+          kind: scheduleRunId ? "schedule.step" : "conversation.message",
           payload: {
             conversationId: message.conversationId,
             messageId: message.id,
             workflowId,
+            ...(scheduleRunId ? { scheduleRunId } : undefined),
             ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             mentions,

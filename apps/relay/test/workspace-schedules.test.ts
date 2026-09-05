@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   directStartResultSchema,
+  scheduleWebhookSecretSchema,
   workspaceScheduleSchema,
   workspaceSchedulesResultSchema,
 } from "@chief/relay-contracts";
@@ -14,6 +16,7 @@ import {
   drainWorkspaceSchedules,
   enqueueScheduleOccurrence,
 } from "../src/workspace-schedule-dispatch";
+import { readScheduleRun } from "../src/workspace-schedule-runs";
 import {
   nextScheduleTime,
   readWorkspaceSchedule,
@@ -148,10 +151,10 @@ describe("durable relay schedules", () => {
         await drainWorkspaceSchedules(state.storage, ctx.env);
         const rows = [
           ...state.storage.sql.exec(
-            "SELECT state FROM workspace_schedule_dispatches",
+            "SELECT state FROM workspace_schedule_runs",
           ),
         ];
-        expect(rows).toEqual([{ state: "sent" }]);
+        expect(rows).toEqual([{ state: "running" }]);
       },
     );
     const messages = await testConversationMessages(
@@ -161,7 +164,7 @@ describe("durable relay schedules", () => {
     );
     expect(
       messages.filter((message) => message.body.includes(input.title)),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     const agent = ctx.env.AGENTS.get(
       ctx.env.AGENTS.idFromName(`${ctx.workspaceId}:${agentId}`),
     );
@@ -181,7 +184,7 @@ describe("durable relay schedules", () => {
     );
     expect(await claim.json()).toMatchObject({
       job: {
-        kind: "conversation.message",
+        kind: "schedule.step",
         payload: {
           conversationId: input.conversationId,
           instruction: expect.stringContaining(input.instructions),
@@ -369,12 +372,257 @@ it("cancels queued iterations after their mission is paused", async () => {
   await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
     await drainWorkspaceSchedules(state.storage, ctx.env);
     expect([
-      ...state.storage.sql.exec(
-        "SELECT state FROM workspace_schedule_dispatches",
-      ),
+      ...state.storage.sql.exec("SELECT state FROM workspace_schedule_runs"),
     ]).toEqual([{ state: "cancelled" }]);
     expect(
       readWorkspaceSchedule(state.storage, input.id)?.schedule.status,
     ).toBe("paused");
   });
+});
+
+it("authenticates and deduplicates webhook deliveries before dispatching work", async () => {
+  const { ctx, input } = await setup();
+  await rpc(ctx, ctx.principal, "schedules-save", {
+    ...input,
+    triggerMode: "webhook",
+  });
+  await rpc(
+    ctx,
+    ctx.principal,
+    "schedules-action",
+    { action: "approve", commandId: crypto.randomUUID() },
+    input.id,
+  );
+  const stub = ctx.env.WORKSPACES.get(
+    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  );
+  const created = await stub.fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "webhooks-create",
+          "x-chief-public-origin": "https://relay.test",
+        },
+        body: JSON.stringify({
+          name: "Campaign results",
+          scheduleId: input.id,
+        }),
+      }),
+      {
+        principal: ctx.principal,
+        workspaceId: ctx.workspaceId,
+        requestId: crypto.randomUUID(),
+      },
+    ),
+  );
+  const { webhook, secret } = scheduleWebhookSecretSchema.parse(
+    await created.json(),
+  );
+  if (!secret) throw new Error("Expected signing secret");
+  const deliveryId = crypto.randomUUID();
+  const body = JSON.stringify({ signups: 42 });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(atob(secret.slice(6)), (c) => c.charCodeAt(0)),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sign = async (payload: string) =>
+    btoa(
+      String.fromCharCode(
+        ...new Uint8Array(
+          await crypto.subtle.sign(
+            "HMAC",
+            key,
+            new TextEncoder().encode(`${deliveryId}.${timestamp}.${payload}`),
+          ),
+        ),
+      ),
+    );
+  const signature = await sign(body);
+  const deliver = (payload = body, signed = signature) =>
+    stub.fetch(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "webhooks-deliver",
+          "x-chief-workspace-id": ctx.workspaceId,
+          "x-chief-webhook-id": webhook.id,
+          "webhook-id": deliveryId,
+          "webhook-timestamp": timestamp,
+          "webhook-signature": `v1,${signed}`,
+        },
+        body: payload,
+      }),
+    );
+  expect((await deliver(body, "invalid")).status).toBe(401);
+  expect((await deliver('{"signups":999}')).status).toBe(401);
+  const accepted = await deliver();
+  expect(accepted.status).toBe(202);
+  const receipt = (await accepted.json()) as { runId: string };
+  expect(await (await deliver()).json()).toMatchObject({
+    runId: receipt.runId,
+    duplicate: true,
+  });
+  expect(
+    (await deliver('{"signups":999}', await sign('{"signups":999}'))).status,
+  ).toBe(409);
+  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
+    const run = readScheduleRun(state.storage, receipt.runId)?.run;
+    expect(run?.input).toEqual({ signups: 42 });
+    expect(run?.schedule.triggerMode).toBe("webhook");
+    expect(
+      state.storage.sql
+        .exec("SELECT id FROM workspace_schedule_runs")
+        .toArray(),
+    ).toHaveLength(1);
+    await state.storage.deleteAlarm();
+  });
+});
+
+it("waits for each phase's durable result before handing work to the next teammate", async () => {
+  const { ctx, principal, input } = await setup();
+  const teammate = agentIdSchema.parse("researcher");
+  const teammateKey = hexKey("scheduled-researcher");
+  await registerTestAgent(ctx, teammate, teammateKey);
+  await channelRpc(ctx, ctx.principal, "agent-config-set", {
+    agentId: teammate,
+    config: {
+      enabled: true,
+      deploymentTarget: "phone",
+      inference: { provider: "opencode", model: "test" },
+      approvals: "auto",
+      capabilities: [],
+      integrations: [],
+      toolPermissions: [
+        "workspace.read",
+        "workspace.write",
+        "messages.read",
+        "messages.send",
+      ],
+    },
+  });
+  await channelRpc(
+    ctx,
+    ctx.principal,
+    "channels-create",
+    channelEnvelope({
+      conversationId: "scheduled-team",
+      name: "scheduled-team",
+      isPrivate: false,
+    }),
+  );
+  for (const id of [agentId, teammate])
+    await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-members-add",
+      channelEnvelope({
+        conversationId: "scheduled-team",
+        kind: "agent",
+        principalId: id,
+      }),
+    );
+  expect(
+    (
+      await rpc(ctx, ctx.principal, "schedules-save", {
+        ...input,
+        conversationId: "scheduled-team",
+        collaborators: [teammate],
+        triggerMode: "webhook",
+      })
+    ).status,
+  ).toBe(200);
+  await rpc(
+    ctx,
+    ctx.principal,
+    "schedules-action",
+    { action: "approve", commandId: crypto.randomUUID() },
+    input.id,
+  );
+  const runId = crypto.randomUUID();
+  await rpc(
+    ctx,
+    ctx.principal,
+    "schedules-action",
+    { action: "run", commandId: runId },
+    input.id,
+  );
+  const stub = ctx.env.WORKSPACES.get(
+    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  );
+  const drain = () =>
+    runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
+      state.storage.sql.exec(
+        "UPDATE workspace_schedule_runs SET next_check_at = 0 WHERE state IN ('queued','running')",
+      );
+      await drainWorkspaceSchedules(state.storage, ctx.env);
+      await state.storage.deleteAlarm();
+      return readScheduleRun(state.storage, runId)?.run;
+    });
+  const initial = await drain();
+  expect(initial?.steps.map((step) => step.state)).toEqual([
+    "running",
+    "pending",
+    "pending",
+  ]);
+  for (const [index, id] of [agentId, teammate, agentId].entries()) {
+    const actor =
+      id === teammate
+        ? testAgentPrincipal(ctx, teammate, teammateKey)
+        : principal;
+    const agentRpc = (path: string, payload: JsonObject) =>
+      ctx.env.AGENTS.get(
+        ctx.env.AGENTS.idFromName(`${ctx.workspaceId}:${id}`),
+      ).fetch(
+        withTrustedContext(
+          new Request(`https://agent.internal/${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          }),
+          {
+            principal: actor,
+            workspaceId: ctx.workspaceId,
+            requestId: crypto.randomUUID(),
+          },
+        ),
+      );
+    const claimed = await agentRpc("claim", {
+      workerId: "team-test",
+      leaseSeconds: 60,
+    });
+    const lease = (await claimed.json()) as {
+      leaseToken: string;
+      job: { payload: { messageId: string } };
+    };
+    expect(lease.job.payload.messageId).toBe(initial?.steps[index]?.id);
+    const complete = await agentRpc("complete", {
+      leaseToken: lease.leaseToken,
+      outcome: {
+        status: "completed",
+        result: {
+          publishedMessage: {
+            conversationId: "scheduled-team",
+            threadRootId: initial?.threadRootId ?? "",
+            body: `Evidence from phase ${index}`,
+          },
+        },
+      },
+    });
+    expect(complete.status, await complete.clone().text()).toBe(200);
+    const next = await drain();
+    expect(
+      next?.steps
+        .slice(0, index + 1)
+        .every((step) => step.state === "completed"),
+    ).toBe(true);
+    if (index < 2) expect(next?.steps[index + 1]?.state).toBe("running");
+    else expect(next?.state).toBe("completed");
+  }
 });

@@ -34,6 +34,7 @@ import { routeMissionRequest } from "./router-missions";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
+import { routeScheduleRunRequest } from "./router-schedule-runs";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
 import { routeWorkspaceGit } from "./router-workspace-git";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
@@ -102,6 +103,10 @@ export async function routeRelayRequest(
       routeIdentityAndPush(env, request),
     );
     if (identityResponse) return identityResponse;
+    const scheduleResponse = yield* attempt("relay.schedule_runs", () =>
+      routeScheduleRunRequest(env, request, requestId),
+    );
+    if (scheduleResponse) return scheduleResponse;
     const missionResponse = yield* attempt("relay.missions", () =>
       routeMissionRequest(env, request, requestId),
     );

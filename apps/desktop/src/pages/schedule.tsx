@@ -31,11 +31,11 @@ import {
   startOfMonth,
   startOfWeek,
 } from "./schedule-calendar-core";
+import { ScheduleComposer } from "./schedule-composer";
 import {
   RecurringWorkApprovalDialog,
   ScheduleEventDetailDialog,
 } from "./schedule-dialogs";
-import { RecurringWorkEditDialog } from "./schedule-editor";
 import { MonthJump, ScheduleList } from "./schedule-inbox";
 import {
   FocusedCalendarView,
@@ -66,6 +66,7 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
@@ -119,10 +120,7 @@ export function SchedulePage() {
     }
     return null;
   }, [revisionChat.messages]);
-  const createSchedule = () => {
-    const params = new URLSearchParams({ dm: "chief", compose: "recurring" });
-    void navigate(`/conversations?${params.toString()}`);
-  };
+  const createSchedule = () => setCreating(true);
   const openWorkReview = (work: RecurringWorkRecord) => {
     if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
@@ -137,6 +135,12 @@ export function SchedulePage() {
       id: approvalWork.id,
       agentId: approvalWork.agentId,
       title: approvalWork.title,
+      collaborators: approvalWork.collaborators,
+      missionId: approvalWork.missionId,
+      expectedOutcome: approvalWork.expectedOutcome,
+      constraints: approvalWork.constraints,
+      maxDurationMinutes: approvalWork.maxDurationMinutes,
+      triggerMode: approvalWork.triggerMode,
       cron: approvalWork.cron,
       timezone: approvalWork.timezone,
       onceAt: approvalWork.onceAt,
@@ -150,7 +154,7 @@ export function SchedulePage() {
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields from the current draft, including the team, mission, outcome, constraints, trigger mode and time limit, changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -450,18 +454,24 @@ export function SchedulePage() {
         onEdit={(work) => setEditWorkId(work.id)}
         onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
       />
-      <RecurringWorkEditDialog
-        key={editWork?.id ?? "closed"}
-        work={editWork}
-        onClose={() => setEditWorkId(null)}
-        onSave={(work, patch) =>
-          workspaceData.saveRecurringWork({
-            ...work,
-            ...patch,
-            updatedAt: Date.now(),
-          })
-        }
-      />
+      {creating || editWork ? (
+        <ScheduleComposer
+          key={editWork?.id ?? "new"}
+          work={editWork}
+          onClose={() => {
+            setCreating(false);
+            setEditWorkId(null);
+          }}
+          onSaved={() => {
+            if (cloudOrganizationId && capability)
+              client.send({
+                type: "listWorkspaceData",
+                workspaceId: cloudOrganizationId,
+                executorCapability: capability,
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

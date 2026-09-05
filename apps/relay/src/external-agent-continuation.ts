@@ -1,14 +1,19 @@
-import type { AgentId, AgentPrincipal, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  AgentId,
+  AgentPrincipal,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import { agentIdSchema } from "@chief/relay-contracts";
 
-import {
-  requireChannelToken,
-  sha256,
-} from "./external-agent-channel-security";
+import type { WorkspaceChannelStore } from "./workspace-channel-store";
+import { requireChannelToken, sha256 } from "./external-agent-channel-security";
 import { HttpError } from "./http";
 import { readTrustedContext } from "./internal-context";
-import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { firstRow } from "./workspace-channel-store";
+import {
+  readScheduleRun,
+  scheduleRunIsActive,
+} from "./workspace-schedule-runs";
 
 export interface ExternalAgentInboundHost {
   storage: DurableObjectStorage;
@@ -19,10 +24,14 @@ export interface ExternalAgentInboundHost {
 
 export const EXTERNAL_AGENT_PUBKEY = "0".repeat(64);
 
-export interface ExternalContinuationRow extends Record<string, SqlStorageValue> {
+export interface ExternalContinuationRow extends Record<
+  string,
+  SqlStorageValue
+> {
   conversation_id: string;
   thread_root_id: string | null;
   session_id: string;
+  payload_json: string;
 }
 
 export function externalAgentPrincipal(
@@ -57,7 +66,7 @@ export async function resolveExternalContinuation(
   await requireChannelToken(request, runtime.token_hash);
   const continuation = firstRow<ExternalContinuationRow>(
     host.storage.sql.exec(
-      `SELECT conversation_id, thread_root_id, session_id FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
+      `SELECT conversation_id, thread_root_id, session_id, payload_json FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
       agentId,
       await sha256(input.continuation.capability),
     ),
@@ -68,6 +77,29 @@ export async function resolveExternalContinuation(
       "external_continuation_invalid",
       "This continuation was not issued to this agent session.",
     );
+  }
+  if (continuation.thread_root_id) {
+    const scheduled = host.storage.sql
+      .exec<{ id: string }>(
+        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
+        continuation.thread_root_id,
+      )
+      .toArray()[0];
+    const run = scheduled
+      ? readScheduleRun(host.storage, scheduled.id)?.run
+      : undefined;
+    if (
+      run &&
+      (!scheduleRunIsActive(run) ||
+        (run.startedAt !== undefined &&
+          Date.now() >=
+            run.startedAt + run.schedule.maxDurationMinutes * 60_000))
+    )
+      throw new HttpError(
+        409,
+        "schedule_run_stopped",
+        "This scheduled run is no longer active.",
+      );
   }
   return {
     context,

@@ -175,8 +175,17 @@ export class AgentObject extends DurableObject<Env> {
           queue.renew(request, context),
         );
       }
+      if (request.method === "POST" && path.endsWith("/cancel-workflow"))
+        return yield* attempt("agent.job.cancel_workflow", () =>
+          queue.cancelWorkflow(request, context),
+        );
       if (request.method === "GET" && path.endsWith("/jobs")) {
-        return yield* attempt("agent.job.list", () => queue.list(context));
+        return yield* attempt("agent.job.list", () =>
+          queue.list(
+            context,
+            new URL(request.url).searchParams.get("workflowId") ?? undefined,
+          ),
+        );
       }
       if (request.method === "POST" && path.endsWith("/retry")) {
         const response = yield* attempt("agent.job.retry", () =>

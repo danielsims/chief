@@ -11,6 +11,7 @@ import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { readWorkspaceMission } from "./workspace-missions";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
+import { cancelQueuedScheduleRuns } from "./workspace-schedule-runs";
 import {
   nextScheduleTime,
   presentWorkspaceSchedule,
@@ -49,6 +50,9 @@ export async function routeWorkspaceSchedule(
   const id = request.headers.get("x-chief-schedule-id");
   if (operation === "schedules-save") {
     const input = workspaceScheduleInputSchema.parse(await parseJson(request));
+    input.collaborators = [...new Set(input.collaborators)].filter(
+      (id) => id !== input.agentId,
+    );
     if (id && id !== input.id)
       throw new HttpError(
         409,
@@ -70,9 +74,19 @@ export async function routeWorkspaceSchedule(
         "schedule_agent_not_in_channel",
         "Add the agent to this channel before scheduling work.",
       );
+    for (const collaborator of input.collaborators) {
+      if (
+        !channels.channelMembership(input.conversationId, "agent", collaborator)
+      )
+        throw new HttpError(
+          409,
+          "schedule_collaborator_missing",
+          `Add ${collaborator} to this channel first.`,
+        );
+    }
     try {
       new Intl.DateTimeFormat("en", { timeZone: input.timezone }).format();
-      if (input.onceAt === undefined) {
+      if (input.onceAt === undefined && input.triggerMode === "cron") {
         if (input.cron.split(/\s+/u).length !== 5)
           throw new Error("Use a five-field cron expression.");
         validateCron(input.cron, input.timezone);
@@ -91,8 +105,10 @@ export async function routeWorkspaceSchedule(
       if (
         !mission ||
         mission.conversationId !== input.conversationId ||
-        (mission.ownerAgentId !== input.agentId &&
-          !mission.collaborators.includes(input.agentId))
+        ![input.agentId, ...input.collaborators].every(
+          (id) =>
+            mission.ownerAgentId === id || mission.collaborators.includes(id),
+        )
       ) {
         throw new HttpError(
           409,
@@ -137,13 +153,11 @@ export async function routeWorkspaceSchedule(
     };
     if (schedule.status === "active")
       schedule.nextAt =
-        input.onceAt !== undefined
-          ? Math.max(now, input.onceAt)
-          : nextScheduleTime(schedule, now);
-    storage.sql.exec(
-      "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
-      input.id,
-    );
+        input.triggerMode === "webhook"
+          ? undefined
+          : input.onceAt !== undefined
+            ? Math.max(now, input.onceAt)
+            : nextScheduleTime(schedule, now);
     writeWorkspaceSchedule(storage, {
       schedule,
       approvedBy: userEditingApproved ? context.principal : null,
@@ -172,10 +186,7 @@ export async function routeWorkspaceSchedule(
       "DELETE FROM workspace_schedules WHERE id = ?",
       stored.schedule.id,
     );
-    storage.sql.exec(
-      "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
-      stored.schedule.id,
-    );
+    cancelQueuedScheduleRuns(storage, stored.schedule.id);
     await wakeWorkspaceSchedules(storage);
     return json({ deleted: true });
   }
@@ -217,17 +228,16 @@ export async function routeWorkspaceSchedule(
     if (action === "pause") {
       stored.schedule.status = "paused";
       delete stored.schedule.nextAt;
-      storage.sql.exec(
-        "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
-        stored.schedule.id,
-      );
+      cancelQueuedScheduleRuns(storage, stored.schedule.id);
     } else if (action === "approve") {
       stored.approvedBy = context.principal;
       stored.schedule.status = "active";
       stored.schedule.nextAt =
-        stored.schedule.onceAt !== undefined
-          ? Math.max(now, stored.schedule.onceAt)
-          : nextScheduleTime(stored.schedule, now);
+        stored.schedule.triggerMode === "webhook"
+          ? undefined
+          : stored.schedule.onceAt !== undefined
+            ? Math.max(now, stored.schedule.onceAt)
+            : nextScheduleTime(stored.schedule, now);
     } else {
       requireScheduleApproval(stored.approvedBy);
       if (action === "run") {
@@ -235,9 +245,11 @@ export async function routeWorkspaceSchedule(
       } else {
         stored.schedule.status = "active";
         stored.schedule.nextAt =
-          stored.schedule.onceAt !== undefined
-            ? Math.max(now, stored.schedule.onceAt)
-            : nextScheduleTime(stored.schedule, now);
+          stored.schedule.triggerMode === "webhook"
+            ? undefined
+            : stored.schedule.onceAt !== undefined
+              ? Math.max(now, stored.schedule.onceAt)
+              : nextScheduleTime(stored.schedule, now);
       }
     }
     storage.sql.exec(

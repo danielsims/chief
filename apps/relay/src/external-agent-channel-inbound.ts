@@ -1,15 +1,16 @@
 import {
   appendMessageCommandSchema,
   appendMessageResultSchema,
+  externalAgentDeliveryCommandSchema,
   externalAgentInboundActivityResultSchema,
   externalAgentInboundActivitySchema,
   externalAgentInboundMessageSchema,
   externalAgentInboundResultSchema,
 } from "@chief/relay-contracts";
 
+import type { ExternalAgentInboundHost } from "./external-agent-continuation";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import { deterministicUuid, sha256 } from "./external-agent-channel-security";
-import type { ExternalAgentInboundHost } from "./external-agent-continuation";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import {
   externalConversationFetch,
@@ -18,6 +19,12 @@ import {
 import { HttpError, json, parseJson } from "./http";
 import { releaseInternalResponse } from "./internal-response";
 import { firstRow } from "./workspace-channel-store";
+import {
+  readScheduleRun,
+  scheduleRunIsActive,
+  writeScheduleRun,
+} from "./workspace-schedule-runs";
+import { wakeWorkspaceSchedules } from "./workspace-schedule-store";
 
 interface ReceiptRow extends Record<string, SqlStorageValue> {
   payload_hash: string;
@@ -126,6 +133,37 @@ export async function receiveExternalAgentMessage(
     agentId,
     input.deliveryId,
   );
+  // The final reply is durable before a scheduled teammate receives its turn.
+  if (continuation.thread_root_id) {
+    const row = host.storage.sql
+      .exec<{ id: string }>(
+        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
+        continuation.thread_root_id,
+      )
+      .toArray()[0];
+    const current = row ? readScheduleRun(host.storage, row.id) : null;
+    const delivery = externalAgentDeliveryCommandSchema.parse(
+      JSON.parse(continuation.payload_json),
+    );
+    const step = current?.run.steps.find(
+      (step) =>
+        step.id === delivery.payload.message.id && step.agentId === agentId,
+    );
+    if (
+      current &&
+      step &&
+      scheduleRunIsActive(current.run) &&
+      ["pending", "running"].includes(step.state)
+    ) {
+      step.state = "completed";
+      step.completedAt = Date.now();
+      step.evidence ??= input.body.slice(0, 4000);
+      current.run.summary = step.evidence;
+      current.run.nextCheckAt = Date.now();
+      writeScheduleRun(host.storage, current.run, current.principal);
+      await wakeWorkspaceSchedules(host.storage);
+    }
+  }
   return json(
     externalAgentInboundResultSchema.parse({
       duplicate: result.duplicate,

@@ -34,6 +34,7 @@ import {
   friendlyPermission,
   friendlySchedule,
 } from "./schedule-editor";
+import { ScheduleRunHistory } from "./schedule-run-history";
 
 export function RecurringWorkApprovalDialog({
   work,
@@ -287,7 +288,7 @@ export function ScheduleEventDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="border-border/80 w-[calc(100%-32px)] max-w-[440px] gap-0 overflow-hidden rounded-xl p-0 shadow-[0_16px_64px_-12px_rgb(0_0_0/0.45)]">
+      <DialogContent className="border-border/80 w-[calc(100%-32px)] max-w-[480px] gap-0 overflow-hidden rounded-xl p-0 shadow-[0_16px_64px_-12px_rgb(0_0_0/0.45)]">
         {work || draft ? (
           <>
             <DialogHeader className="space-y-1 px-5 pt-5 pr-12 pb-4 text-left">
@@ -318,13 +319,19 @@ export function ScheduleEventDetailDialog({
                   </dd>
                 </div>
               </dl>
-              {work?.lastSummary ? (
-                <div className="border-border/60 mt-4 border-t pt-4">
-                  <p className="text-muted-foreground text-xs">Last run</p>
-                  <p className="mt-1.5 text-[13px] leading-5">
-                    {work.lastSummary}
-                  </p>
-                </div>
+              {work?.collaborators?.length ? (
+                <p className="text-muted-foreground mt-3 text-xs">
+                  Team:{" "}
+                  {[work.agentId, ...work.collaborators]
+                    .map(agentName)
+                    .join(", ")}
+                </p>
+              ) : null}
+              {work?.expectedOutcome ? (
+                <p className="mt-3 text-xs leading-5">{work.expectedOutcome}</p>
+              ) : null}
+              {work ? (
+                <ScheduleRunHistory key={work.id} scheduleId={work.id} />
               ) : null}
             </div>
             <DialogFooter className="border-border/60 items-center border-t px-4 py-3">

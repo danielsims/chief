@@ -192,6 +192,20 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
     input: {},
   },
   {
+    operationId: "missions.reportRunStep",
+    method: "POST",
+    path: "/local-tools/missions/run-step",
+    execute: "relay",
+    description:
+      "Report your scheduled step completed with concrete evidence, or blocked with what is needed. Only the assigned agent can report an active step.",
+    input: {
+      runId: "z.string().min(1).max(256)",
+      stepId: "z.string().uuid()",
+      status: 'z.enum(["completed", "blocked"])',
+      evidence: "z.string().min(1).max(4000)",
+    },
+  },
+  {
     operationId: "missions.create",
     method: "POST",
     path: "/local-tools/missions",
@@ -259,6 +273,11 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
     description:
       "Propose recurring or one-time agent work. Reuse a stable id when revising. The agent must belong to the destination channel. The proposal stays awaiting user approval; this tool cannot approve, activate, or run it.",
     input: {
+      collaborators: "z.array(z.string().min(1).max(120)).max(12).default([])",
+      expectedOutcome: 'z.string().max(2000).default("")',
+      constraints: 'z.string().max(4000).default("")',
+      maxDurationMinutes: "z.number().int().min(5).max(1440).default(60)",
+      triggerMode: 'z.enum(["cron", "webhook"]).default("cron")',
       id: "z.string().min(1).max(120).optional()",
       conversationId: "z.string().min(1).max(160).optional()",
       agentId: "z.string().min(1).max(120)",

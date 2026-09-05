@@ -39,8 +39,10 @@ import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { routeWorkspaceMissions } from "./workspace-missions";
 import { drainWorkspaceSchedules } from "./workspace-schedule-dispatch";
+import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 import { wakeWorkspaceSchedules } from "./workspace-schedule-store";
+import { routeScheduleWebhooks } from "./workspace-schedule-webhooks";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
@@ -115,6 +117,14 @@ export class WorkspaceObject extends DurableObject<Env> {
     const publishLiveEvent = this.publishLiveEvent.bind(this);
     const createLiveSocketTicket = this.createLiveSocketTicket.bind(this);
     return Effect.gen(function* () {
+      if (operation?.startsWith("webhooks-"))
+        return yield* attempt("workspace.webhooks", () =>
+          routeScheduleWebhooks(ctx.storage, env, request, operation),
+        );
+      if (operation?.startsWith("schedules-runs-"))
+        return yield* attempt("workspace.schedule_runs", () =>
+          routeScheduleRuns(ctx.storage, env, request, operation),
+        );
       if (operation?.startsWith("missions-")) {
         return yield* attempt("workspace.missions", () =>
           routeWorkspaceMissions(ctx.storage, env, request, operation),
