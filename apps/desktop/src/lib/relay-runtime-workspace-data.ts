@@ -9,7 +9,6 @@ import type {
 import type { RelayClient } from "@chief/relay-client";
 import type {
   JsonObject,
-  RelayProject,
   WorkspaceFile,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
@@ -19,6 +18,7 @@ import {
   relayProjectRecord,
   relayProjectSnapshot,
 } from "./relay-project-presentation";
+import { connectRelayProject } from "./relay-runtime-project-connect";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -164,12 +164,21 @@ export async function routeRelayWorkspaceDataCommand(
       await listProjects(context);
       return true;
     case "cloneProject":
-      await registerClonedProject(context, message);
-      return true;
-    case "attachProject":
-      throw new Error(
-        "Choose a Git remote for this relay-backed project. Local repository paths stay private to this Mac.",
+    case "attachProject": {
+      const project = await connectRelayProject(
+        context.relay,
+        context.snapshot.id,
+        message,
       );
+      context.emit({
+        type: "projectSaved",
+        workspaceId: context.snapshot.id,
+        requestId: message.requestId,
+        project: relayProjectRecord(project),
+      });
+      await listProjects(context);
+      return true;
+    }
     case "listPlugins": {
       const response = await requestDesktopPluginHost("/plugins/list", {
         workspaceId: context.snapshot.id,
@@ -303,34 +312,6 @@ async function listProjects(context: WorkspaceDataContext) {
   });
 }
 
-async function registerClonedProject(
-  context: WorkspaceDataContext,
-  message: Extract<ClientMessage, { type: "cloneProject" }>,
-) {
-  const repository = projectRepositoryDetails(message.remoteUrl);
-  const requestedName = message.name?.trim();
-  const project = await context.relay.createProject({
-    name: requestedName?.length ? requestedName : repository.name,
-    ...(message.description?.trim()
-      ? { description: message.description.trim() }
-      : undefined),
-    repositoryKind: "cloned",
-    providerId: repository.providerId,
-    canonicalRemoteUrl: repository.canonicalRemoteUrl,
-    ...(repository.repositoryWebUrl
-      ? { repositoryWebUrl: repository.repositoryWebUrl }
-      : undefined),
-    defaultBranch: "main",
-  });
-  context.emit({
-    type: "projectSaved",
-    workspaceId: context.snapshot.id,
-    requestId: message.requestId,
-    project: relayProjectRecord(project),
-  });
-  await listProjects(context);
-}
-
 async function listWorkspaceData(context: WorkspaceDataContext) {
   const prospects = await context.relay.listProspects();
   context.emit({
@@ -361,45 +342,6 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
       updatedAt: 0,
     },
   });
-}
-
-function projectRepositoryDetails(raw: string): {
-  name: string;
-  providerId: RelayProject["providerId"];
-  canonicalRemoteUrl: string;
-  repositoryWebUrl?: string;
-} {
-  const value = raw.trim();
-  const scp = /^git@([^:]+):(.+)$/u.exec(value);
-  const normalized = scp ? `ssh://${scp[1]}/${scp[2]}` : value;
-  const url = new URL(normalized);
-  if (
-    !["https:", "ssh:"].includes(url.protocol) ||
-    (url.username && url.protocol === "https:")
-  ) {
-    throw new Error(
-      "Use an HTTPS or SSH Git remote without embedded credentials.",
-    );
-  }
-  const path = url.pathname.replace(/^\//u, "").replace(/\.git$/iu, "");
-  const name = path.split("/").filter(Boolean).at(-1) ?? "Project";
-  const hostname = url.hostname.toLowerCase();
-  const providerId =
-    hostname === "github.com"
-      ? "github"
-      : hostname === "gitlab.com"
-        ? "gitlab"
-        : hostname === "bitbucket.org"
-          ? "bitbucket"
-          : "generic-git";
-  return {
-    name,
-    providerId,
-    canonicalRemoteUrl: scp ? value : url.toString(),
-    ...(["github", "gitlab", "bitbucket"].includes(providerId)
-      ? { repositoryWebUrl: `https://${hostname}/${path}` }
-      : undefined),
-  };
 }
 
 function toWorkspaceFileRecord(file: WorkspaceFile): WorkspaceFileRecord {

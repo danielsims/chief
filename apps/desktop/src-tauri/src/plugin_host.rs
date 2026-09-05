@@ -144,7 +144,20 @@ pub fn start_plugin_host(
     OsRng.fill_bytes(&mut bytes);
     let token = hex::encode(bytes);
     let port = available_loopback_port()?;
+    let mut paths = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin"),
+        std::path::PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        paths.push(std::path::PathBuf::from(home).join(".local/bin"));
+    }
+    if let Some(current) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&current));
+    }
+    let path = std::env::join_paths(paths)
+        .map_err(|_| "Chief could not resolve its Git credential helper path.".to_string())?;
     command
+        .env("PATH", path)
         .current_dir(&root)
         .env("CHIEF_PLUGIN_HOST_TOKEN", &token)
         .env("CHIEF_PLUGIN_HOST_PORT", port.to_string())

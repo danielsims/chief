@@ -50,7 +50,4 @@ export const relayCellWorkspaceTools = [
         expectedVersion: parseJsonNumber(input.expectedVersionId),
       }),
   ),
-  defineRelayCellTool("projects.list", "projects.read", async ({ client }) => ({
-    projects: await client.listProjects(),
-  })),
 ];

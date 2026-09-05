@@ -43,6 +43,8 @@ export class GitCredentialHelperBroker implements CredentialBroker {
   readonly id = "git-credential-helper";
 
   async request(request: CredentialRequest): Promise<ShortLivedCredential> {
+    if (/[\r\n\0]/u.test(request.remoteUrl))
+      throw new Error("Invalid Git remote URL.");
     const input = [
       `protocol=${protocolOf(request.remoteUrl)}`,
       `host=${hostOf(request.remoteUrl)}`,
@@ -67,6 +69,8 @@ function credentialFill(input: string) {
       ["credential", "fill"],
       {
         encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 64_000,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
       },
       (error, stdout, stderr) => {
@@ -93,13 +97,9 @@ function protocolOf(remoteUrl: string) {
 }
 
 function hostOf(remoteUrl: string) {
-  const match = /^(?:[\w.-]+@)?([\w.-]+)(?::|$)/.exec(remoteUrl);
-  if (match?.[1]) return match[1];
-  try {
-    return new URL(remoteUrl).hostname;
-  } catch {
-    return "";
-  }
+  const scp = /^[\w.-]+@([\w.-]+):/.exec(remoteUrl);
+  if (scp?.[1]) return scp[1];
+  return new URL(remoteUrl).host;
 }
 
 function pathOf(remoteUrl: string) {

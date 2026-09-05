@@ -6,6 +6,21 @@ import {
   workspaceIdSchema,
 } from "./identifiers";
 
+export const projectRemoteUrlSchema = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      ["https:", "ssh:"].includes(url.protocol) &&
+      !url.password &&
+      !(url.protocol === "https:" && url.username) &&
+      !url.search &&
+      !url.hash &&
+      !/[\r\n\0]/u.test(value)
+    );
+  }, "Use an HTTPS or SSH repository URL without embedded credentials, a query, or a fragment.");
+
 export const projectRepositoryKindSchema = z.enum(["attached", "cloned"]);
 export const projectProviderIdSchema = z.enum([
   "local",
@@ -33,8 +48,13 @@ export const relayProjectSchema = z
     description: z.string().trim().max(2_000).optional(),
     repositoryKind: projectRepositoryKindSchema,
     providerId: projectProviderIdSchema,
-    canonicalRemoteUrl: z.url().max(2_048).optional(),
-    repositoryWebUrl: z.url().max(2_048).optional(),
+    canonicalRemoteUrl: projectRemoteUrlSchema.optional(),
+    repositoryWebUrl: projectRemoteUrlSchema
+      .refine(
+        (value) => new URL(value).protocol === "https:",
+        "Use an HTTPS repository page URL.",
+      )
+      .optional(),
     repositoryFiles: projectRepositoryFilesSchema.optional(),
     defaultBranch: z.string().trim().min(1).max(512),
     createdAt: isoDateTimeSchema,
