@@ -7,6 +7,14 @@ import { workspaceOperation } from "./channels";
 
 export const hostedMissionTools = [
   defineHostedAgentTool(
+    "missions.reportRunStep",
+    ({ env, job, principal }, input) =>
+      workspaceOperation(env, job, principal, "schedules-runs-report", {
+        body: input,
+      }),
+    { effect: "idempotent" },
+  ),
+  defineHostedAgentTool(
     "missions.list",
     async ({ env, job, principal }) =>
       workspaceOperation(env, job, principal, "missions-list"),

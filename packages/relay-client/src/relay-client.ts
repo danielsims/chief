@@ -78,7 +78,16 @@ export class RelayClient extends RelayVercelProvisioning {
   readonly externalAgents: RelayExternalAgentsClient;
   readonly schedules: Pick<
     RelaySchedulesClient,
-    "list" | "save" | "act" | "delete"
+    | "list"
+    | "save"
+    | "act"
+    | "delete"
+    | "runs"
+    | "runAction"
+    | "reportStep"
+    | "webhooks"
+    | "createWebhook"
+    | "webhookAction"
   >;
 
   constructor(options: RelayClientOptions) {

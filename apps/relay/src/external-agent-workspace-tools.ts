@@ -29,6 +29,7 @@ import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelService } from "./workspace-channel-service";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { routeWorkspaceMissions } from "./workspace-missions";
+import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 
 type Continuation = Awaited<ReturnType<typeof resolveExternalContinuation>>;
@@ -98,6 +99,15 @@ export async function routeExternalWorkspaceTool(
       );
       return { file };
     }
+    case "missions.reportRunStep":
+      return readResult(
+        await routeScheduleRuns(
+          host.storage,
+          host.env,
+          requestFor(resolved, input),
+          "schedules-runs-report",
+        ),
+      );
     case "missions.list":
       return readResult(
         await routeWorkspaceMissions(

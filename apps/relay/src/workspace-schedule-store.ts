@@ -20,6 +20,17 @@ type ScheduleRow = { id: string; document_json: string } & Record<
 >;
 
 export function initializeWorkspaceSchedules(storage: DurableObjectStorage) {
+  storage.sql.exec(`CREATE TABLE IF NOT EXISTS workspace_schedule_runs (
+    id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, state TEXT NOT NULL,
+    next_check_at INTEGER, created_at INTEGER NOT NULL, document_json TEXT NOT NULL, principal_json TEXT NOT NULL
+  ); CREATE INDEX IF NOT EXISTS schedule_runs_due ON workspace_schedule_runs(next_check_at);
+  CREATE INDEX IF NOT EXISTS schedule_runs_history ON workspace_schedule_runs(schedule_id, created_at);
+  CREATE TABLE IF NOT EXISTS workspace_schedule_webhooks (
+    id TEXT PRIMARY KEY, document_json TEXT NOT NULL, secret TEXT NOT NULL
+  ); CREATE TABLE IF NOT EXISTS workspace_webhook_deliveries (
+    webhook_id TEXT NOT NULL, delivery_id TEXT NOT NULL, body_hash TEXT NOT NULL, run_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL, PRIMARY KEY(webhook_id, delivery_id)
+  );`);
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS workspace_schedules (
     id TEXT PRIMARY KEY, document_json TEXT NOT NULL, next_at INTEGER
   ); CREATE TABLE IF NOT EXISTS workspace_schedule_commands (command_id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, action TEXT NOT NULL);
@@ -68,6 +79,7 @@ export function nextScheduleTime(
   schedule: WorkspaceSchedule,
   after: number,
 ): number | undefined {
+  if (schedule.triggerMode === "webhook") return undefined;
   if (schedule.onceAt !== undefined)
     return schedule.onceAt > after ? schedule.onceAt : undefined;
   let candidate = nextRunAt(schedule.cron, schedule.timezone, after);
@@ -86,7 +98,8 @@ export function nextScheduleTime(
 }
 
 export function presentWorkspaceSchedule(schedule: WorkspaceSchedule) {
-  if (schedule.status !== "active") return { ...schedule, upcomingRuns: [] };
+  if (schedule.status !== "active" || schedule.triggerMode === "webhook")
+    return { ...schedule, upcomingRuns: [] };
   const now = Date.now();
   const runs: number[] = [];
   if (schedule.onceAt !== undefined)
@@ -109,7 +122,7 @@ export function scheduleDeadline(storage: DurableObjectStorage) {
       { deadline: number | null } & Record<string, SqlStorageValue>
     >(`SELECT MIN(deadline) AS deadline FROM (
     SELECT MIN(next_at) AS deadline FROM workspace_schedules
-    UNION ALL SELECT MIN(retry_at) AS deadline FROM workspace_schedule_dispatches WHERE state = 'pending'
+    UNION ALL SELECT MIN(next_check_at) AS deadline FROM workspace_schedule_runs
   )`),
   ][0];
   return row?.deadline ?? undefined;

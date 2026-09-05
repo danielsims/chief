@@ -11,12 +11,15 @@ import { HttpError } from "./http";
 export function listAgentJobs(
   storage: DurableObjectStorage,
   principal: Principal,
+  workflowId?: string,
 ) {
   requireJobAdministrator(principal);
   const jobs = Array.from(
     storage.sql.exec<{ job_json: string }>(
-      `SELECT job_json FROM jobs
+      `SELECT job_json FROM jobs WHERE (? IS NULL OR json_extract(job_json, '$.payload.workflowId') = ?)
        ORDER BY updated_at DESC, rowid DESC LIMIT 200`,
+      workflowId ?? null,
+      workflowId ?? null,
     ),
     (row) => agentJobSchema.parse(JSON.parse(row.job_json)),
   );
@@ -68,6 +71,28 @@ export function retryAgentJob(
     job.id,
   );
   return job;
+}
+
+export function cancelAgentWorkflow(
+  storage: DurableObjectStorage,
+  principal: Principal,
+  workflowId: string,
+) {
+  requireJobAdministrator(principal);
+  const now = new Date().toISOString();
+  for (const row of storage.sql
+    .exec<{ job_json: string }>(
+      "SELECT job_json FROM jobs WHERE status IN ('pending', 'leased') AND json_extract(job_json, '$.payload.workflowId') = ?",
+      workflowId,
+    )
+    .toArray()) {
+    const job = agentJobSchema.parse(JSON.parse(row.job_json));
+    markJobFailed(
+      storage,
+      { ...job, lastError: "This scheduled run was stopped." },
+      now,
+    );
+  }
 }
 
 export function markJobFailed(

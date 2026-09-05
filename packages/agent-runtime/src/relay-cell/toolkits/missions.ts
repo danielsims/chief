@@ -2,12 +2,19 @@ import {
   missionCreateSchema,
   missionExperimentInputSchema,
   missionStatusUpdateSchema,
+  scheduleRunReportSchema,
 } from "@chief/relay-contracts";
 
 import { requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
 export const relayCellMissionTools = [
+  defineRelayCellTool(
+    "missions.reportRunStep",
+    "workspace.write",
+    ({ client }, input) =>
+      client.schedules.reportStep(scheduleRunReportSchema.parse(input)),
+  ),
   defineRelayCellTool(
     "missions.list",
     "workspace.read",
