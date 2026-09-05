@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentQuestion } from "@chief/agent-runtime/types";
 
-import { visibleRuntimeError } from "./runtime-messages";
+import { isExpectedRuntimeStop, visibleRuntimeError } from "./runtime-messages";
 
 export interface PendingApproval {
   requestId: string;
@@ -117,6 +117,9 @@ export function reduceChatControls(
           event.status === "running" ? undefined : controls.errorAcknowledged,
       };
     case "error":
+      if (isExpectedRuntimeStop(event.message)) {
+        return { ...controls, status: "idle", approvals: [], questions: [] };
+      }
       return withError(controls, {
         message: visibleRuntimeError(event.message) ?? "The agent stopped.",
         ...(event.title ? { title: event.title } : undefined),

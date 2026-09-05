@@ -17,6 +17,10 @@ import {
 
 const HIDDEN_RUNTIME_ERRORS = new Set(["turn interrupted", "turn cancelled"]);
 
+export function isExpectedRuntimeStop(error: string) {
+  return HIDDEN_RUNTIME_ERRORS.has(error.trim().toLocaleLowerCase());
+}
+
 /**
  * Infrastructure failures that belong in logs, not in a shared chat: a driver
  * process that exited, a service that failed to start, an agent runtime that
@@ -37,7 +41,7 @@ const INTERNAL_VALIDATION_ERROR_PATTERNS = [
 export function visibleRuntimeError(error?: string) {
   if (!error) return undefined;
   const trimmed = error.trim();
-  if (HIDDEN_RUNTIME_ERRORS.has(trimmed.toLocaleLowerCase())) return undefined;
+  if (isExpectedRuntimeStop(trimmed)) return undefined;
   if (HIDDEN_RUNTIME_ERROR_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     return undefined;
   }

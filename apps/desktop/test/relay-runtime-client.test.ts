@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setImmediate } from "node:timers/promises";
 
 import type { ServerMessage } from "@chief/agent-runtime/types";
 import type { ConversationEvent } from "@chief/relay-contracts";
@@ -28,6 +29,79 @@ const snapshot = workspaceSnapshotSchema.parse({
   projects: [],
   createdAt: "2026-08-22T00:00:00.000Z",
 });
+
+for (const chatId of ["channel:workspace-a:engineering", "on-device"]) {
+  void test(`closing and reopening ${chatId} ignores stale loads and keeps live updates`, async (t) => {
+    const relay = new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: snapshot.id,
+    });
+    const pending: {
+      resolve: (page: Awaited<ReturnType<RelayClient["listMessages"]>>) => void;
+      reject: (error: Error) => void;
+    }[] = [];
+    t.mock.method(
+      relay,
+      "listMessages",
+      () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    );
+    const close = t.mock.fn();
+    const subscribe = t.mock.method(relay, "subscribeWorkspace", () =>
+      Promise.resolve({
+        close,
+        cursor: () => 0,
+        updateConversationIds: () => undefined,
+      }),
+    );
+    const client = new RelayRuntimeClient(relay, snapshot);
+    t.after(() => client.destroy());
+    const events: ServerMessage[] = [];
+    client.subscribe((event) => events.push(event));
+    const scope = {
+      chatId,
+      workspaceId: snapshot.id,
+      executorCapability: { apiBaseUrl: "http://127.0.0.1", token: "test" },
+    };
+
+    client.send({ type: "openChat", ...scope });
+    client.send({ type: "closeChat", ...scope });
+    client.send({ type: "openChat", ...scope });
+    client.send({ type: "closeChat", ...scope });
+    client.send({ type: "observeChat", ...scope });
+    await setImmediate();
+    assert.equal(pending.length, 3);
+    pending[2]?.resolve({ messages: [], nextSequence: null });
+    await setImmediate();
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ["chatOpened", "history"],
+    );
+
+    pending[0]?.reject(new Error("Old request failed after navigation"));
+    pending[1]?.resolve({ messages: [], nextSequence: null });
+    await setImmediate();
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ["chatOpened", "history"],
+    );
+    client.send({ type: "closeChat", ...scope });
+    client.send({ type: "closeChat", ...scope });
+    await setImmediate();
+    assert.equal(events.filter((event) => event.type === "error").length, 0);
+    assert.equal(subscribe.mock.callCount(), 1);
+    assert.equal(close.mock.callCount(), 0);
+
+    client.send({ type: "openChat", ...scope });
+    await setImmediate();
+    pending[3]?.reject(new Error("Current conversation failed to load"));
+    await setImmediate();
+    assert.deepEqual(events.at(-1), {
+      type: "error",
+      chatId,
+      message: "Current conversation failed to load",
+    });
+  });
+}
 
 void test("routes createChannel through the relay and emits the created channel", async () => {
   let createInput:
