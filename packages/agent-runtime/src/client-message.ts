@@ -72,6 +72,7 @@ export type ClientMessage =
     }
   | {
       type: "listWorkspaceFiles";
+      requestId?: string;
       workspaceId: string;
       executorCapability: ExecutorCapability;
     }

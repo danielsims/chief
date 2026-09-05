@@ -6,6 +6,36 @@ import {
   isoDateTimeSchema,
 } from "./identifiers";
 
+export const workspaceFileAssetSchema = z
+  .object({
+    artifactId: z.uuid(),
+    agentId: agentIdSchema,
+    bytes: z
+      .int()
+      .nonnegative()
+      .max(8 * 1024 * 1024),
+  })
+  .strict();
+
+export const workspaceMediaUploadSchema = z
+  .object({
+    name: z.string().trim().min(1).max(240),
+    contentType: z
+      .string()
+      .regex(/^[\w.+-]+\/[\w.+-]+$/u)
+      .max(128),
+    contentBase64: z
+      .string()
+      .max(11_184_812)
+      .regex(/^[A-Za-z0-9+/]*={0,2}$/u)
+      .refine(
+        (value) => value.length % 4 === 0,
+        "File data must be valid base64.",
+      ),
+    conversationId: conversationIdSchema,
+  })
+  .strict();
+
 export const workspaceFileSchema = z
   .object({
     id: z.string().trim().min(1).max(160),
@@ -13,6 +43,7 @@ export const workspaceFileSchema = z
     title: z.string().trim().min(1).max(240),
     mimeType: z.string().trim().min(1).max(128),
     content: z.string().max(200_000),
+    asset: workspaceFileAssetSchema.optional(),
     conversationId: conversationIdSchema,
     authorAgentId: agentIdSchema,
     version: z.int().positive(),

@@ -2,6 +2,8 @@ import {
   brandProfileSaveSchema,
   prospectSaveSchema,
   workspaceScheduleInputSchema,
+  workspaceFileSaveSchema,
+  workspaceFilesResultSchema,
 } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input";
@@ -34,6 +36,47 @@ export const hostedWorkspaceTools = [
       }),
     { effect: "idempotent" },
   ),
+  defineHostedAgentTool(
+    "files.list",
+    async ({ env, job, principal }) =>
+      workspaceOperation(env, job, principal, "data-files-list"),
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "files.read",
+    async ({ env, job, principal }, input) => {
+      const { files } = workspaceFilesResultSchema.parse(
+        await workspaceOperation(env, job, principal, "data-files-list"),
+      );
+      const file = files.find(
+        (candidate) => candidate.id === requiredString(input, "fileId"),
+      );
+      if (!file) throw new Error("File not found.");
+      return { file };
+    },
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "files.write",
+    async ({ env, job, principal }, input) =>
+      workspaceOperation(env, job, principal, "data-file-save", {
+        body: workspaceFileSaveSchema.parse({
+          id: optionalString(input, "id"),
+          path:
+            optionalString(input, "path") ??
+            `documents/${crypto.randomUUID()}.md`,
+          title: requiredString(input, "name"),
+          content: requiredString(input, "content"),
+          mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
+          conversationId: requiredString(job.payload, "conversationId"),
+          expectedVersion: input.expectedVersionId
+            ? Number(requiredString(input, "expectedVersionId"))
+            : undefined,
+        }),
+      }),
+    { effect: "non_replayable" },
+  ),
+
   defineHostedAgentTool(
     "brandProfile.status",
     async ({ env, job, principal }) =>

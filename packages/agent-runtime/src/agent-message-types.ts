@@ -124,7 +124,9 @@ export interface WorkspaceFileRecord {
   path: string;
   mimeType: string;
   kind: "document" | "email";
-  provider: "local";
+  provider: "local" | "relay";
+  asset?: { artifactId: string; agentId: string; bytes: number };
+  sourceConversationId?: string;
   currentVersionId: string;
   createdBy: "agent" | "user";
   sourceAgentId?: string;

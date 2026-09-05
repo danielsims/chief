@@ -8,71 +8,82 @@ import type {
 
 import { useRuntime, useWorkspaceCapability } from "./runtime";
 
-const workspaceFilesCache = new Map<string, WorkspaceFileRecord[]>();
-const workspaceFileCache = new Map<string, WorkspaceFileSnapshot>();
-
-function workspaceFileCacheKey(workspaceId: string, fileId: string) {
-  return `${workspaceId}\0${fileId}`;
-}
-
 export function useWorkspaceFiles(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     workspaceId: string | null;
+    client: typeof client;
     files: WorkspaceFileRecord[];
     loaded: boolean;
-  }>(() => {
-    const cached = workspaceId
-      ? workspaceFilesCache.get(workspaceId)
-      : undefined;
-    return {
-      workspaceId,
-      files: cached ?? [],
-      loaded: Boolean(cached),
-    };
-  });
-  const cached = workspaceId ? workspaceFilesCache.get(workspaceId) : undefined;
-  const active =
-    state.workspaceId === workspaceId
-      ? state
-      : {
-          workspaceId,
-          files: cached ?? [],
-          loaded: Boolean(cached),
-        };
-
+    error: string | null;
+  }>({ workspaceId, client, files: [], loaded: false, error: null });
+  const current = state.workspaceId === workspaceId && state.client === client;
   useEffect(() => {
     if (
       !workspaceId ||
       workspaceId !== cloudOrganizationId ||
       !capability ||
       status !== "connected"
-    ) {
+    )
       return;
-    }
+    const requestId = crypto.randomUUID();
+    const timer = window.setTimeout(
+      () =>
+        setState((previous) => ({
+          workspaceId,
+          client,
+          files:
+            previous.workspaceId === workspaceId && previous.client === client
+              ? previous.files
+              : [],
+          loaded: true,
+          error: "Files are taking longer than expected. Try again.",
+        })),
+      20_000,
+    );
     const unsubscribe = client.subscribe((message) => {
       if (
         message.type === "workspaceFiles" &&
         message.workspaceId === workspaceId
       ) {
-        workspaceFilesCache.set(workspaceId, message.files);
-        setState({ workspaceId, files: message.files, loaded: true });
+        window.clearTimeout(timer);
+        setState({
+          workspaceId,
+          client,
+          files: message.files,
+          loaded: true,
+          error: null,
+        });
+      }
+      if (message.type === "error" && message.requestId === requestId) {
+        window.clearTimeout(timer);
+        setState({
+          workspaceId,
+          client,
+          files: [],
+          loaded: true,
+          error: message.message,
+        });
       }
     });
     client.send({
       type: "listWorkspaceFiles",
       workspaceId,
+      requestId,
       executorCapability: capability,
     });
     return () => {
+      window.clearTimeout(timer);
       unsubscribe();
     };
-  }, [capability, client, cloudOrganizationId, status, workspaceId]);
-
+  }, [attempt, capability, client, cloudOrganizationId, status, workspaceId]);
   return {
-    files: active.files,
-    loading: Boolean(workspaceId && !active.loaded),
+    files: current ? state.files : [],
+    loading: Boolean(workspaceId && (!current || !state.loaded)),
+    error: current ? state.error : null,
+    refresh: () => setAttempt((value) => value + 1),
   };
 }
 
@@ -82,38 +93,34 @@ export function useWorkspaceFile(
 ) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const key =
-    workspaceId && fileId ? workspaceFileCacheKey(workspaceId, fileId) : null;
-  interface WorkspaceFileState {
+  const key = workspaceId && fileId ? `${workspaceId}\0${fileId}` : null;
+  const [state, setState] = useState<{
     key: string | null;
+    client: typeof client;
     file: WorkspaceFileSnapshot | null;
     loading: boolean;
     saving: boolean;
     error: string | null;
-  }
-  const [state, setState] = useState<WorkspaceFileState>(() => {
-    const cached = key ? workspaceFileCache.get(key) : undefined;
-    return {
-      key,
-      file: cached ?? null,
-      loading: Boolean(key && !cached),
-      saving: false,
-      error: null,
-    };
+  }>({
+    key,
+    client,
+    file: null,
+    loading: Boolean(key),
+    saving: false,
+    error: null,
   });
-  const cached = key ? workspaceFileCache.get(key) : undefined;
-  const active: WorkspaceFileState =
-    state.key === key
+  const active =
+    state.key === key && state.client === client
       ? state
       : {
           key,
-          file: cached ?? null,
-          loading: Boolean(key && !cached),
+          client,
+          file: null,
+          loading: Boolean(key),
           saving: false,
           error: null,
         };
-  const pendingRequestRef = useRef<string | null>(null);
-
+  const pendingRequests = useRef(new Set<string>());
   useEffect(() => {
     if (
       !workspaceId ||
@@ -121,11 +128,11 @@ export function useWorkspaceFile(
       workspaceId !== cloudOrganizationId ||
       !capability ||
       status !== "connected"
-    ) {
+    )
       return;
-    }
     const requestId = crypto.randomUUID();
-    pendingRequestRef.current = requestId;
+    const requests = pendingRequests.current;
+    requests.add(requestId);
     const unsubscribe = client.subscribe((message) => {
       if (
         (message.type === "workspaceFile" ||
@@ -133,10 +140,10 @@ export function useWorkspaceFile(
         message.workspaceId === workspaceId &&
         message.file.id === fileId
       ) {
-        const cacheKey = workspaceFileCacheKey(workspaceId, fileId);
-        workspaceFileCache.set(cacheKey, message.file);
+        pendingRequests.current.delete(message.requestId);
         setState({
-          key: cacheKey,
+          key,
+          client,
           file: message.file,
           loading: false,
           saving: false,
@@ -146,25 +153,21 @@ export function useWorkspaceFile(
       if (
         message.type === "error" &&
         message.requestId &&
-        message.requestId === pendingRequestRef.current
+        pendingRequests.current.delete(message.requestId)
       ) {
-        const latestCached = key ? workspaceFileCache.get(key) : undefined;
-        setState((current) => ({
-          ...(current.key === key
-            ? current
-            : {
-                key,
-                file: latestCached ?? null,
-                loading: false,
-                saving: false,
-                error: null,
-              }),
+        setState((previous) => ({
           key,
-          saving: false,
+          client,
+          file:
+            previous.key === key && previous.client === client
+              ? previous.file
+              : null,
           loading: false,
+          saving: false,
           error:
+            message.message.includes("version_conflict") ||
             message.message === "FILE_VERSION_CONFLICT"
-              ? "This file changed since you opened it. Reload before saving your edits."
+              ? "This file changed since you opened it. Copy your edits, then reopen the file before saving."
               : message.message,
         }));
       }
@@ -177,6 +180,7 @@ export function useWorkspaceFile(
       executorCapability: capability,
     });
     return () => {
+      requests.clear();
       unsubscribe();
     };
   }, [
@@ -188,31 +192,29 @@ export function useWorkspaceFile(
     status,
     workspaceId,
   ]);
-
   const save = (content: string, name?: string) => {
     if (
       !workspaceId ||
       !active.file ||
       workspaceId !== cloudOrganizationId ||
-      !capability
-    ) {
+      !capability ||
+      active.file.asset
+    )
+      return;
+    if (status !== "connected") {
+      setState({ ...active, error: "Reconnect to save your changes." });
       return;
     }
     const requestId = crypto.randomUUID();
-    pendingRequestRef.current = requestId;
-    setState({ ...active, key, saving: true, error: null });
-    const requestedName = name?.trim();
-    const nextName =
-      requestedName && requestedName.length > 0
-        ? requestedName
-        : active.file.name;
+    pendingRequests.current.add(requestId);
+    setState({ ...active, saving: true, error: null });
     client.send({
       type: "saveWorkspaceFile",
       workspaceId,
       requestId,
       file: {
         id: active.file.id,
-        name: nextName,
+        name: name?.trim() ? name.trim() : active.file.name,
         path: active.file.path,
         mimeType: active.file.mimeType,
         kind: active.file.kind,
@@ -225,7 +227,6 @@ export function useWorkspaceFile(
       executorCapability: capability,
     });
   };
-
   return { ...active, save };
 }
 
@@ -234,8 +235,6 @@ interface EmailPreview {
   text: string;
   versionId: string;
 }
-
-const emailPreviewCache = new Map<string, EmailPreview>();
 
 export function useWorkspaceEmailPreview(
   workspaceId: string | null,
@@ -248,28 +247,27 @@ export function useWorkspaceEmailPreview(
       ? `${workspaceId}\0${file.id}\0${file.currentVersionId}`
       : null;
   interface EmailPreviewState {
+    client: typeof client;
     key: string | null;
     preview: EmailPreview | null;
     loading: boolean;
     error: string | null;
   }
-  const [state, setState] = useState<EmailPreviewState>(() => {
-    const cached = cacheKey ? emailPreviewCache.get(cacheKey) : undefined;
-    return {
-      key: cacheKey,
-      preview: cached ?? null,
-      loading: Boolean(cacheKey && !cached),
-      error: null,
-    };
+  const [state, setState] = useState<EmailPreviewState>({
+    client,
+    key: cacheKey,
+    preview: null,
+    loading: Boolean(cacheKey),
+    error: null,
   });
-  const cached = cacheKey ? emailPreviewCache.get(cacheKey) : undefined;
   const active: EmailPreviewState =
-    state.key === cacheKey
+    state.key === cacheKey && state.client === client
       ? state
       : {
+          client,
           key: cacheKey,
-          preview: cached ?? null,
-          loading: Boolean(cacheKey && !cached),
+          preview: null,
+          loading: Boolean(cacheKey),
           error: null,
         };
 
@@ -278,15 +276,13 @@ export function useWorkspaceEmailPreview(
       workspaceId && file
         ? `${workspaceId}\0${file.id}\0${file.currentVersionId}`
         : null;
-    const previewCached = nextKey ? emailPreviewCache.get(nextKey) : undefined;
     if (
       !nextKey ||
       !workspaceId ||
       file?.kind !== "email" ||
       workspaceId !== cloudOrganizationId ||
       !capability ||
-      status !== "connected" ||
-      previewCached
+      status !== "connected"
     ) {
       return;
     }
@@ -301,8 +297,8 @@ export function useWorkspaceEmailPreview(
           text: message.text,
           versionId: message.versionId,
         };
-        emailPreviewCache.set(nextKey, next);
         setState({
+          client,
           key: nextKey,
           preview: next,
           loading: false,
@@ -311,6 +307,7 @@ export function useWorkspaceEmailPreview(
       }
       if (message.type === "error" && message.requestId === requestId) {
         setState({
+          client,
           key: nextKey,
           preview: null,
           loading: false,

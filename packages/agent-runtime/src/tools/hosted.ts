@@ -22,6 +22,11 @@ import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-a
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
 import { missionToolDefinitions } from "./toolkits/missions.js";
+import {
+  listFilesDefinition,
+  readFileDefinition,
+  writeFileDefinition,
+} from "./toolkits/files/definitions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
@@ -37,6 +42,9 @@ export const hostedAgentToolDefinitions = {
     ...missionToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
+    listFilesDefinition,
+    readFileDefinition,
+    writeFileDefinition,
     computerReadFileDefinition,
     computerListFilesDefinition,
     computerWriteFileDefinition,
