@@ -74,8 +74,18 @@ export function useWorkspaceFiles(workspaceId: string | null) {
       requestId,
       executorCapability: capability,
     });
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible")
+        client.send({
+          type: "listWorkspaceFiles",
+          workspaceId,
+          requestId,
+          executorCapability: capability,
+        });
+    }, 30_000);
     return () => {
       window.clearTimeout(timer);
+      window.clearInterval(refreshTimer);
       unsubscribe();
     };
   }, [attempt, capability, client, cloudOrganizationId, status, workspaceId]);

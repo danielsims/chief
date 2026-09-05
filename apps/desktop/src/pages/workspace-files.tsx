@@ -12,6 +12,13 @@ import { useNavigate } from "react-router";
 
 import type { WorkspaceFileRecord } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@chief/ui/components/select";
 
 import {
   fileCategory,
@@ -143,17 +150,23 @@ export function FilesLibrary({
               className="w-32 bg-transparent text-xs outline-none sm:w-40"
             />
           </label>
-          <select
-            aria-label="Sort files"
+          <Select
             value={sort}
-            onChange={(event) =>
-              setSort(event.target.value === "name" ? "name" : "recent")
+            onValueChange={(value) =>
+              setSort(value === "name" ? "name" : "recent")
             }
-            className="bg-background h-8 rounded-md border px-2 text-xs"
           >
-            <option value="recent">Last updated</option>
-            <option value="name">Name</option>
-          </select>
+            <SelectTrigger
+              aria-label="Sort files"
+              className="h-8 w-[132px] rounded-md text-[13px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="rounded-lg p-1">
+              <SelectItem value="recent">Last updated</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="flex rounded-md border p-0.5">
             <button
               type="button"
