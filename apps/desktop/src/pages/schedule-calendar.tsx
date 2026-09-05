@@ -327,7 +327,7 @@ export function MonthCalendarView({
             <div
               key={`empty-${index}`}
               aria-hidden="true"
-              className="bg-muted/10 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
+              className="calendar-empty-day border-r border-b border-black/[0.055] dark:border-white/[0.055]"
             />
           ),
         )}

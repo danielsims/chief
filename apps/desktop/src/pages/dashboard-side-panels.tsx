@@ -93,7 +93,7 @@ export function DashboardSidePanels({
   return (
     <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(210px,0.85fr)_minmax(270px,1.15fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
       <section
-        aria-label="Workspace analytics"
+        aria-label="Team output and insights"
         className={cn(surfaceClassName, "relative min-w-0 overflow-visible")}
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -112,11 +112,11 @@ export function DashboardSidePanels({
               exit={{ opacity: 0, x: prefersReducedMotion ? 0 : -8 }}
               initial={{ opacity: 0, x: prefersReducedMotion ? 0 : 8 }}
               key={activeAnalyticsSlide.id}
-              onClick={() => navigate("/analytics")}
+              onClick={() => navigate(activeAnalyticsSlide.destination)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                void navigate("/analytics");
+                void navigate(activeAnalyticsSlide.destination);
               }}
               role="link"
               tabIndex={0}
@@ -129,13 +129,17 @@ export function DashboardSidePanels({
                 {activeAnalyticsSlide.title}
               </h2>
               <div className="mt-4 flex items-baseline gap-2">
-                <strong className="text-[22px] font-medium">
-                  {activeAnalyticsSlide.value}
-                </strong>
-                <span className="text-muted-foreground text-[10px]">
+                {activeAnalyticsSlide.value ? (
+                  <strong className="text-[22px] font-medium">
+                    {activeAnalyticsSlide.value}
+                  </strong>
+                ) : null}
+                <span className="text-muted-foreground text-sm leading-5">
                   {activeAnalyticsSlide.label}
                 </span>
-                <Trend value={activeAnalyticsSlide.trend} />
+                {activeAnalyticsSlide.trend !== null ? (
+                  <Trend value={activeAnalyticsSlide.trend} />
+                ) : null}
               </div>
               {activeAnalyticsSlide.points ? (
                 <AnalyticsChart
@@ -147,43 +151,45 @@ export function DashboardSidePanels({
             </motion.article>
           ) : null}
         </AnimatePresence>
-        <div className="absolute right-3 bottom-2 z-[3] flex items-center gap-2">
-          <button
-            aria-label="Previous analytics card"
-            onClick={() => moveAnalytics(-1)}
-            type="button"
-            className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <span aria-label="Analytics cards" className="flex gap-1">
-            {analyticsSlides.map((slide, index) => (
-              <button
-                aria-label={`Show ${slide.label}`}
-                aria-pressed={index === analyticsIndex}
-                key={slide.id}
-                onClick={() => selectAnalytics(index)}
-                type="button"
-                className="grid h-3 w-3 place-items-center"
-              >
-                <i
-                  className={cn(
-                    "bg-border block h-0.5 w-3 rounded-full",
-                    index === analyticsIndex && "bg-foreground",
-                  )}
-                />
-              </button>
-            ))}
-          </span>
-          <button
-            aria-label="Next analytics card"
-            onClick={() => moveAnalytics(1)}
-            type="button"
-            className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
-          >
-            <ChevronRight size={14} />
-          </button>
-        </div>
+        {analyticsSlides.length > 1 ? (
+          <div className="absolute right-3 bottom-2 z-[3] flex items-center gap-2">
+            <button
+              aria-label="Previous analytics card"
+              onClick={() => moveAnalytics(-1)}
+              type="button"
+              className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span aria-label="Analytics cards" className="flex gap-1">
+              {analyticsSlides.map((slide, index) => (
+                <button
+                  aria-label={`Show ${slide.label}`}
+                  aria-pressed={index === analyticsIndex}
+                  key={slide.id}
+                  onClick={() => selectAnalytics(index)}
+                  type="button"
+                  className="grid h-3 w-3 place-items-center"
+                >
+                  <i
+                    className={cn(
+                      "bg-border block h-0.5 w-3 rounded-full",
+                      index === analyticsIndex && "bg-foreground",
+                    )}
+                  />
+                </button>
+              ))}
+            </span>
+            <button
+              aria-label="Next analytics card"
+              onClick={() => moveAnalytics(1)}
+              type="button"
+              className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section
@@ -228,7 +234,7 @@ export function DashboardSidePanels({
                       navigate(
                         item.kind === "active"
                           ? item.parentId
-                            ? `/conversations?chat=${encodeURIComponent(item.parentId)}${item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
+                            ? `/conversations?channel=${encodeURIComponent(item.parentId)}${item.threadRootId ? `&thread=${encodeURIComponent(item.threadRootId)}` : item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
                             : "/conversations"
                           : "/schedule",
                       )
@@ -293,12 +299,12 @@ export function DashboardSidePanels({
               })}
             </div>
           ) : (
-            <div className="text-muted-foreground flex min-h-36 items-center justify-center text-center">
+            <div className="text-muted-foreground flex h-full min-h-36 items-center justify-center text-center">
               <span className="grid gap-1">
-                <strong className="text-foreground text-[11px] font-medium">
+                <strong className="text-foreground text-sm font-medium">
                   No upcoming work
                 </strong>
-                <small className="text-[10px]">Your schedule is clear.</small>
+                <span className="text-sm">Your schedule is clear.</span>
               </span>
             </div>
           )}

@@ -110,13 +110,7 @@ export function ScheduleList({
           Schedules
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 rounded-2xl p-2">
-        <div className="px-2 pt-1 pb-2">
-          <p className="text-xs font-semibold">Schedules</p>
-          <p className="text-muted-foreground mt-0.5 text-[10px]">
-            Scheduled work and proposals.
-          </p>
-        </div>
+      <PopoverContent align="end" className="w-80 rounded-lg p-1.5">
         {work.length > 0 ? (
           <div className="space-y-1">
             {work.map((item) => (
@@ -124,13 +118,13 @@ export function ScheduleList({
                 key={item.id}
                 type="button"
                 onClick={() => onOpen(item)}
-                className="hover:bg-accent bg-foreground/[0.025] flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors"
+                className="hover:bg-accent flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold">
+                  <span className="block truncate text-[13px] font-medium">
                     {item.title}
                   </span>
-                  <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+                  <span className="text-muted-foreground mt-0.5 block truncate text-xs">
                     {agentName(item.agentId)} · {workStatusLabel(item.status)} ·{" "}
                     {friendlySchedule(item)}
                   </span>
@@ -143,7 +137,7 @@ export function ScheduleList({
             ))}
           </div>
         ) : (
-          <p className="text-muted-foreground bg-foreground/[0.025] rounded-xl px-3 py-3 text-[10px] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
+          <p className="text-muted-foreground px-3 py-4 text-sm leading-5">
             No schedules yet.
           </p>
         )}

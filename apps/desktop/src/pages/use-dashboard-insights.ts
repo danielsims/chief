@@ -3,17 +3,19 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AnalyticsDataset,
   AnalyticsDatasetPeriod,
-  RecurringWorkRecord,
   SessionRecord,
 } from "@chief/agent-runtime/types";
 import { isJsonString } from "@chief/relay-contracts";
 
 import type { useWorkspaceData } from "../lib/runtime";
 import { formatNumber } from "../components/overview-presentation";
+import { useAuth } from "../lib/auth/auth-context";
+import { useWorkspaceFiles } from "../lib/runtime";
 
 interface AnalyticsSlide {
   id: string;
   title: string;
+  destination: string;
   value: string;
   label: string;
   trend: number | null;
@@ -31,6 +33,7 @@ interface AgentWorkTimelineItem {
   onceAt?: number;
   parentId?: string;
   childId?: string;
+  threadRootId?: string;
   status?: SessionRecord["status"];
 }
 
@@ -83,7 +86,6 @@ export function useDashboardInsights({
   preparationRoot,
   prefersReducedMotion,
   previous30,
-  scheduleById,
   workspaceData,
 }: {
   analytics: AnalyticsDataset | undefined;
@@ -95,47 +97,31 @@ export function useDashboardInsights({
   preparationRoot: SessionRecord | undefined;
   prefersReducedMotion: boolean | null;
   previous30: AnalyticsDatasetPeriod | undefined;
-  scheduleById: Map<string, RecurringWorkRecord>;
   workspaceData: ReturnType<typeof useWorkspaceData>;
 }) {
+  const { cloudOrganizationId } = useAuth();
+  const { files } = useWorkspaceFiles(cloudOrganizationId);
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
   const agentWorkTimeline = useMemo<AgentWorkTimelineItem[]>(() => {
     const activeTasks = workspaceData.activity.filter(
       (session) =>
         session.kind === "task" &&
-        session.visibility === "private" &&
         session.status === "running" &&
         workspaceData.now - session.updatedAt < 10 * 60_000 &&
         (!preparationActive || session.parentId !== preparationRoot?.id),
     );
-    const firstActiveTask = activeTasks.reduce<SessionRecord | undefined>(
-      (earliest, task) =>
-        !earliest ||
-        (task.startedAt ?? task.createdAt) <
-          (earliest.startedAt ?? earliest.createdAt)
-          ? task
-          : earliest,
-      undefined,
-    );
-    const scheduledActive = firstActiveTask
-      ? [
-          {
-            id: "active-work",
-            kind: "active" as const,
-            timestamp: firstActiveTask.startedAt ?? firstActiveTask.createdAt,
-            timezone: firstActiveTask.scheduleId
-              ? (scheduleById.get(firstActiveTask.scheduleId)?.timezone ??
-                Intl.DateTimeFormat().resolvedOptions().timeZone)
-              : Intl.DateTimeFormat().resolvedOptions().timeZone,
-            title: "Chief is working",
-            agentId: "chief",
-            taskCount: activeTasks.length,
-            parentId: firstActiveTask.parentId,
-            status: firstActiveTask.status,
-          },
-        ]
-      : [];
+    const scheduledActive = activeTasks.slice(0, 4).map((task) => ({
+      id: task.id,
+      kind: "active" as const,
+      timestamp: task.startedAt ?? task.createdAt,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      title: task.title,
+      agentId: task.agent,
+      parentId: task.parentId,
+      threadRootId: task.triggerId,
+      status: task.status,
+    }));
     const preparation =
       preparationActive && preparationRoot
         ? [preparationRoot, ...preparationChildren].map((session) => ({
@@ -178,7 +164,6 @@ export function useDashboardInsights({
     preparationActive,
     preparationChildren,
     preparationRoot,
-    scheduleById,
     workspaceData.activity,
     workspaceData.now,
     workspaceData.recurringWork,
@@ -221,9 +206,10 @@ export function useDashboardInsights({
         parseMetricKey(series.metric || series.id || series.label),
       ),
     );
-    return [
+    const metrics: AnalyticsSlide[] = [
       {
         id: "traffic",
+        destination: "/analytics",
         title: trendTitle("Traffic", trafficTrend, hasTraffic),
         value: datasets === undefined ? "—" : formatNumber(currentTraffic ?? 0),
         label: parseMetricLabel(trafficMetric?.label, "traffic"),
@@ -232,6 +218,7 @@ export function useDashboardInsights({
       },
       {
         id: "signups",
+        destination: "/analytics",
         title: trendTitle("Signups", signupTrend, hasSignups),
         value: datasets === undefined ? "—" : formatNumber(currentSignups ?? 0),
         label: parseMetricLabel(signupMetric?.label, "tracked conversions"),
@@ -252,6 +239,7 @@ export function useDashboardInsights({
       },
       {
         id: "prospects",
+        destination: "/prospects",
         title:
           newProspects > 0
             ? "New buying signals are ready to review."
@@ -261,8 +249,42 @@ export function useDashboardInsights({
         trend: null,
         points: null,
       },
-    ];
+    ].filter((slide) =>
+      slide.id === "traffic"
+        ? hasTraffic
+        : slide.id === "signups"
+          ? hasSignups
+          : newProspects > 0,
+    );
+    const outputs: AnalyticsSlide[] = files
+      .filter((file) => file.createdBy === "agent")
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 3)
+      .map((file) => ({
+        id: `file-${file.id}`,
+        title: file.name,
+        destination: `/files/${encodeURIComponent(file.id)}`,
+        value: "",
+        label: `From ${file.sourceAgentId ?? "your team"} · ${new Date(file.updatedAt).toLocaleDateString([], { month: "short", day: "numeric" })}`,
+        trend: null,
+        points: null,
+      }));
+    const slides = [...outputs, ...metrics];
+    return slides.length
+      ? slides
+      : [
+          {
+            id: "start",
+            title: "Give your team something worth working on.",
+            destination: "/conversations?dm=chief",
+            value: "",
+            label: "Set a goal with Chief",
+            trend: null,
+            points: null,
+          },
+        ];
   }, [
+    files,
     analytics,
     analytics30,
     newProspects,

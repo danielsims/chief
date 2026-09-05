@@ -96,10 +96,6 @@ export function useDashboardController() {
     analytics?.periods.find(
       (period) => period.key === "previous30d" || period.key === "previous",
     ) ?? analytics?.periods.find((period) => period !== analytics30);
-  const scheduleById = useMemo(
-    () => new Map(workspaceData.recurringWork.map((work) => [work.id, work])),
-    [workspaceData.recurringWork],
-  );
   const privateTasksById = useMemo(
     () =>
       new Map(
@@ -245,7 +241,6 @@ export function useDashboardController() {
     preparationRoot,
     prefersReducedMotion,
     previous30,
-    scheduleById,
     workspaceData,
   });
   const currentActionDirectAgentId = directMessageAgentIdFromChatId(
