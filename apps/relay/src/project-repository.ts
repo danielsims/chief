@@ -241,8 +241,20 @@ export class GitHubProjectRepository implements ProjectRepositoryAdapter {
 }
 
 export function githubRepositoryIdentity(remote: string) {
-  const url = new URL(remote);
-  if (url.protocol !== "https:" || url.hostname !== "github.com") return null;
+  let url: URL;
+  try {
+    url = new URL(remote);
+  } catch {
+    return null;
+  }
+  if (
+    !["https:", "ssh:"].includes(url.protocol) ||
+    url.hostname !== "github.com" ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    return null;
   const parts = url.pathname
     .replace(/^\//u, "")
     .replace(/\.git$/u, "")

@@ -1,16 +1,23 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+
 import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
 import { PluginRuntime } from "./plugins/runtime.js";
+import {
+  bindLocalProject,
+  prepareLocalProject,
+} from "./projects/local-projects.js";
 
 const port = Number(process.env.CHIEF_PLUGIN_HOST_PORT ?? 4318);
 const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
 const plugins = new PluginRuntime(() => undefined);
 
 type PluginHostResponse =
+  | Awaited<ReturnType<typeof prepareLocalProject>>
+  | Awaited<ReturnType<typeof bindLocalProject>>
   | { error: string }
   | { status: "ready" }
   | { snapshot: PluginCatalogSnapshot }
@@ -81,6 +88,14 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
 
       const input = await readJson(request);
       const workspaceId = parseRequiredString(input.workspaceId, "workspaceId");
+      if (url.pathname === "/projects/prepare") {
+        sendJson(response, 200, await prepareLocalProject(input));
+        return;
+      }
+      if (url.pathname === "/projects/bind") {
+        sendJson(response, 200, await bindLocalProject(input));
+        return;
+      }
       if (url.pathname === "/plugins/list") {
         sendJson(response, 200, {
           snapshot: await plugins.snapshot(workspaceId, input.refresh === true),

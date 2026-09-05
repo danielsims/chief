@@ -73,7 +73,7 @@ export function AddProjectDialog({
         <DialogHeader className="px-5 pt-5 pb-4">
           <DialogTitle>Add a project</DialogTitle>
           <DialogDescription>
-            Add a Git repository to this workspace.
+            Connect a repository for agents running on this Mac.
           </DialogDescription>
         </DialogHeader>
 
@@ -148,6 +148,13 @@ export function AddProjectDialog({
               />
             )}
           </div>
+
+          <p className="text-muted-foreground mt-3 text-[11px] leading-4">
+            Private repositories use your Mac’s Git credentials. Attach an
+            existing checkout, or run <code>gh auth login</code> and{" "}
+            <code>gh auth setup-git</code> before adding an HTTPS URL. SSH keys
+            work too. Agents get separate worktrees.
+          </p>
 
           {projects.error ? (
             <div className="border-destructive/20 bg-destructive/[0.06] text-destructive mt-3 rounded-lg border px-3 py-2 text-[11px] leading-4">

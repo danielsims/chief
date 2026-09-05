@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+
 import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
@@ -11,6 +12,9 @@ interface PluginHostConnection {
 let connectionPromise: Promise<PluginHostConnection> | null = null;
 
 type PluginHostRequest =
+  | { workspaceId: string; source: "attach"; path: string }
+  | { workspaceId: string; source: "clone"; remoteUrl: string }
+  | { workspaceId: string; connectionId: string; projectId: string }
   | { workspaceId: string; refresh: boolean }
   | { workspaceId: string; pluginId: string; trusted: boolean }
   | {
@@ -31,7 +35,9 @@ function delay(milliseconds: number) {
 
 async function hostConnection() {
   if (!isTauri()) {
-    throw new Error("Plugin installation requires the Chief desktop app.");
+    throw new Error(
+      "Connecting local projects and plugins requires the Chief desktop app.",
+    );
   }
   connectionPromise ??= invoke<PluginHostConnection>("start_plugin_host");
   try {
@@ -67,6 +73,8 @@ async function waitUntilReady({ port, token }: PluginHostConnection) {
 
 export async function requestDesktopPluginHost(
   path:
+    | "/projects/prepare"
+    | "/projects/bind"
     | "/plugins/list"
     | "/plugins/install"
     | "/plugins/authorize"
@@ -75,15 +83,18 @@ export async function requestDesktopPluginHost(
 ): Promise<JsonObject> {
   const connection = await hostConnection();
   await waitUntilReady(connection);
-  const response = await tauriFetch(`${pluginHostUrl(connection.port)}${path}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${connection.token}`,
-      "Content-Type": "application/json",
+  const response = await tauriFetch(
+    `${pluginHostUrl(connection.port)}${path}`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${connection.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+  );
   const result = parseJsonObject(await response.json());
   if (!response.ok) {
     throw new Error(

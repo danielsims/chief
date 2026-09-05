@@ -67,6 +67,7 @@ export function cleanRemoteUrl(value: string | undefined) {
 
 export function assertRemoteUrl(value: string) {
   const trimmed = value.trim();
+  if (/[\r\n\0]/u.test(trimmed)) throw new Error("Invalid Git remote URL.");
   if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(trimmed)) return trimmed;
   let parsed: URL;
   try {
@@ -77,7 +78,7 @@ export function assertRemoteUrl(value: string) {
   if (!new Set(["https:", "ssh:"]).has(parsed.protocol)) {
     throw new Error("Only HTTPS and SSH Git remotes can be cloned.");
   }
-  if (parsed.password) {
+  if (parsed.password || parsed.search || parsed.hash) {
     throw new Error("Do not put a credential in the repository URL.");
   }
   if (parsed.protocol === "https:" && parsed.username) {
@@ -199,7 +200,13 @@ export async function gitExitCode(
 
 async function gitCommand(args: string[]) {
   const hooksPath = await emptyHooksPath();
-  return ["-c", `core.hooksPath=${hooksPath}`, ...args];
+  return [
+    "-c",
+    `core.hooksPath=${hooksPath}`,
+    "-c",
+    "core.fsmonitor=false",
+    ...args,
+  ];
 }
 
 export async function optionalGit(args: string[], cwd: string) {
