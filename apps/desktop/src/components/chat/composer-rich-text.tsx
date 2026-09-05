@@ -24,7 +24,7 @@ import {
   removeAgentMentionBeforeCaret,
   splitAgentMentions,
 } from "./agent-mention-parser";
-import { useMentionPeople } from "./mention-people-context";
+import { useMentionAliases } from "./mention-people-context";
 
 type QueryKind = "emoji" | "emoji-complete" | "mention";
 
@@ -155,7 +155,7 @@ function agentMentionDecorations() {
                         position + offset + length,
                         {
                           class:
-                            "rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
+                            "whitespace-nowrap rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
                           "data-composer-agent-mention": segment.agentId,
                         },
                       ),
@@ -252,7 +252,7 @@ export const ComposerRichText = forwardRef<
   },
   ref,
 ) {
-  const people = useMentionPeople();
+  const people = useMentionAliases();
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });

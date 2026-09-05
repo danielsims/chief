@@ -6,7 +6,7 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import { isWorkspaceAgentId } from "../../lib/workspace-channels";
 import { ChiefMark } from "../chief-mark";
 import { splitAgentMentions } from "./agent-mention-parser";
-import { useMentionPeople } from "./mention-people-context";
+import { useMentionAliases } from "./mention-people-context";
 
 export function AgentMentionText({
   text,
@@ -15,7 +15,7 @@ export function AgentMentionText({
   text: string;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
 }) {
-  const people = useMentionPeople();
+  const people = useMentionAliases();
   return splitAgentMentions(text, people).map((segment, index) => {
     if (segment.type === "text") {
       return (
@@ -30,7 +30,7 @@ export function AgentMentionText({
           className="size-3"
           title={isAgent ? `${segment.label} agent` : segment.label}
         />
-        <span>{segment.label}</span>
+        <span className="whitespace-nowrap">{segment.label}</span>
       </>
     );
     const className = cn(

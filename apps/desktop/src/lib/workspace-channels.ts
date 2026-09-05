@@ -220,11 +220,17 @@ export function resolvedChannelChatId(
 
 export function workspaceDirectMessage(
   agentId: string | null,
-  agents: readonly { id: string }[] = [],
+  agents: readonly {
+    id: string;
+    subagents?: readonly { id: string }[];
+    canMessage?: boolean;
+  }[] = [],
 ) {
   if (!agentId) return null;
   if (agents.length > 0) {
-    return agents.some((agent) => agent.id === agentId)
+    return agents
+      .flatMap((agent) => [agent, ...(agent.subagents ?? [])])
+      .some((agent) => agent.id === agentId)
       ? { id: agentId }
       : null;
   }
@@ -248,8 +254,23 @@ export function directMessageIdsForChats() {
   return WORKSPACE_DIRECT_MESSAGES.map((message) => message.id);
 }
 
-export function directMessageIdsForAgents(agents: readonly { id: string }[]) {
-  return agents.length > 0 ? agents.map((agent) => agent.id) : ["chief"];
+export function directMessageIdsForAgents(
+  agents: readonly {
+    id: string;
+    canMessage?: boolean;
+    subagents?: readonly { id: string; canMessage?: boolean }[];
+  }[],
+) {
+  return agents.length > 0
+    ? [
+        ...new Set(
+          agents
+            .flatMap((agent) => [agent, ...(agent.subagents ?? [])])
+            .filter((agent) => agent.canMessage !== false)
+            .map((agent) => agent.id),
+        ),
+      ]
+    : ["chief"];
 }
 
 export function directMessageChatForAgent<Chat extends { agent: string }>(

@@ -4,11 +4,14 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { MentionAlias } from "./agent-mention-parser";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useRelaySession } from "../../lib/relay-session";
+import { useRuntime } from "../../lib/runtime";
 
 const MentionPeopleContext = createContext<readonly MentionAlias[]>([]);
+const MentionAliasesContext = createContext<readonly MentionAlias[]>([]);
 
 export function MentionPeopleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { agents } = useRuntime();
   const { client, snapshot } = useRelaySession();
   const [result, setResult] = useState<{
     client: typeof client;
@@ -57,13 +60,30 @@ export function MentionPeopleProvider({ children }: { children: ReactNode }) {
     return aliases;
   }, [result, client, user]);
 
+  const aliases = useMemo(
+    () => [
+      ...people,
+      ...agents.flatMap((agent) => [
+        { id: agent.id, name: agent.name },
+        ...(agent.subagents ?? []).map(({ id, name }) => ({ id, name })),
+      ]),
+    ],
+    [people, agents],
+  );
+
   return (
     <MentionPeopleContext.Provider value={people}>
-      {children}
+      <MentionAliasesContext.Provider value={aliases}>
+        {children}
+      </MentionAliasesContext.Provider>
     </MentionPeopleContext.Provider>
   );
 }
 
 export function useMentionPeople() {
   return useContext(MentionPeopleContext);
+}
+
+export function useMentionAliases() {
+  return useContext(MentionAliasesContext);
 }

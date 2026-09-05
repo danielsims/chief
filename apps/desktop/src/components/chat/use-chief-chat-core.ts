@@ -28,6 +28,7 @@ import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
+import { useMentionPeople } from "./mention-people-context";
 
 /**
  * Connects a Chief conversation to runtime, authentication, workspace, and
@@ -59,7 +60,9 @@ export function useChiefChatCore({
     anchorBrowserSession,
     browserRuns,
     browserSessions,
+    agents: runtimeAgents,
   } = useRuntime();
+  const workspacePeople = useMentionPeople();
   const { cloudOrganizationId, user } = useAuth();
   const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
@@ -197,37 +200,44 @@ export function useChiefChatCore({
     new Set(),
   );
   const mentionCandidates = useMemo(() => {
-    const agents = Object.entries(WORKSPACE_AGENT_IDENTITIES).map(
-      ([id, identity]) => ({
+    const roster = runtimeAgents.flatMap((agent) => [
+      agent,
+      ...(agent.subagents ?? []),
+    ]);
+    const agents = [
+      ...new Map(roster.map((agent) => [agent.id, agent])).values(),
+    ]
+      .filter((agent) => agent.canMessage !== false)
+      .map(({ id, name, role }) => ({
         id,
-        ...identity,
+        name,
+        role,
         member:
           directAgent?.id === id ||
           addedAgentIds.has(id) ||
           Boolean(channel?.agentIds.includes(id)),
-      }),
-    );
-    const people =
-      user?.id && user.name.trim()
-        ? [
-            {
-              id: user.id,
-              name: user.name.trim(),
-              role: "You",
-              member: true,
-            },
-          ]
-        : [];
+      }));
+    const people = workspacePeople
+      .filter((person) => person.id !== user?.id)
+      .map((person) => ({ ...person, role: "Workspace member", member: true }));
     return orderMentionCandidatesByMembership([...people, ...agents]);
   }, [
     addedAgentIds,
     channel?.agentIds,
     directAgent?.id,
     user,
+    runtimeAgents,
+    workspacePeople,
   ]);
   const knownAgentIds = useMemo(
-    () => new Set(mentionCandidates.map((candidate) => candidate.id)),
-    [mentionCandidates],
+    () =>
+      new Set(
+        runtimeAgents.flatMap((agent) => [
+          agent.id,
+          ...(agent.subagents ?? []).map((child) => child.id),
+        ]),
+      ),
+    [runtimeAgents],
   );
   const send = (
     text: string,
