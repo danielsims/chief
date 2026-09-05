@@ -20,7 +20,7 @@ import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
-import { localJobProject } from "./relay-cell-project.js";
+import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -358,7 +358,7 @@ async function executeJob(
       outcome: {
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
-        retryAt,
+        ...(error instanceof LocalJobBlockedError ? undefined : { retryAt }),
       },
     });
     throw error;

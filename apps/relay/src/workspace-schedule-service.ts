@@ -9,6 +9,7 @@ import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { readWorkspaceMission } from "./workspace-missions";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
 import {
   nextScheduleTime,
@@ -84,6 +85,21 @@ export async function routeWorkspaceSchedule(
           ? error.message
           : "Choose a valid schedule and timezone.",
       );
+    }
+    if (input.missionId) {
+      const mission = readWorkspaceMission(storage, input.missionId);
+      if (
+        !mission ||
+        mission.conversationId !== input.conversationId ||
+        (mission.ownerAgentId !== input.agentId &&
+          !mission.collaborators.includes(input.agentId))
+      ) {
+        throw new HttpError(
+          409,
+          "schedule_mission_invalid",
+          "Choose a mission in this channel and an agent on its team.",
+        );
+      }
     }
     const current = readWorkspaceSchedule(storage, input.id);
     if (!current && readWorkspaceSchedules(storage).length >= 250)

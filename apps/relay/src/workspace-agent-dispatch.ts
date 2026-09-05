@@ -21,6 +21,7 @@ const dispatchMessageSchema = z
     message: conversationMessageSchema,
     replyAgentId: agentIdSchema.optional(),
     workflowId: z.string().trim().min(1).max(128).optional(),
+    missionId: z.string().trim().min(1).max(100).optional(),
   })
   .strict();
 
@@ -42,6 +43,7 @@ export async function dispatchWorkspaceMessage(
     message,
     replyAgentId,
     workflowId = message.id,
+    missionId,
   } = dispatchMessageSchema.parse(await parseJson(request));
   const authorMatchesPrincipal =
     (context.principal.kind === "user" &&
@@ -142,6 +144,7 @@ export async function dispatchWorkspaceMessage(
             conversationId: message.conversationId,
             messageId: message.id,
             workflowId,
+            ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             mentions,
             instruction: dispatchedInstruction(message),

@@ -9,8 +9,12 @@ import { useRelaySession } from "../../lib/relay-session";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 export function MissionCanvas({ conversationId }: { conversationId: string }) {
-  const { client } = useRelaySession();
-  const [missions, setMissions] = useState<Mission[]>([]);
+  const { client, snapshot } = useRelaySession();
+  const [result, setResult] = useState<{
+    client: typeof client;
+    missions: Mission[];
+  }>({ client: null, missions: [] });
+  const missions = result.client === client ? result.missions : [];
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
@@ -20,9 +24,12 @@ export function MissionCanvas({ conversationId }: { conversationId: string }) {
       try {
         const next = await client.listMissions();
         if (!cancelled) {
-          setMissions(
-            next.filter((item) => item.conversationId === conversationId),
-          );
+          setResult({
+            client,
+            missions: next.filter(
+              (item) => item.conversationId === conversationId,
+            ),
+          });
           setError(null);
         }
       } catch (cause) {
@@ -51,9 +58,12 @@ export function MissionCanvas({ conversationId }: { conversationId: string }) {
         status,
         `Workspace owner ${status === "paused" ? "paused" : "resumed"} this mission from its Canvas.`,
       );
-      setMissions((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      );
+      setResult((current) => ({
+        client,
+        missions: current.missions.map((item) =>
+          item.id === updated.id ? updated : item,
+        ),
+      }));
       setError(null);
     } catch (cause) {
       setError(
@@ -84,6 +94,14 @@ export function MissionCanvas({ conversationId }: { conversationId: string }) {
           <MissionCard
             key={mission.id}
             mission={mission}
+            agentNames={Object.fromEntries<string>(
+              (snapshot?.agents ?? []).flatMap((agent) => [
+                [agent.id, agent.name] as const,
+                ...agent.subagents.map(
+                  (child) => [child.id, child.name] as const,
+                ),
+              ]),
+            )}
             busy={busy === mission.id}
             onStatusChange={(status) => void changeStatus(mission, status)}
           />
@@ -96,10 +114,12 @@ export function MissionCanvas({ conversationId }: { conversationId: string }) {
 export function MissionCard({
   mission,
   busy = false,
+  agentNames = {},
   onStatusChange,
 }: {
   mission: Mission;
   busy?: boolean;
+  agentNames?: Readonly<Record<string, string>>;
   onStatusChange?: (status: Mission["status"]) => void;
 }) {
   const [now, setNow] = useState(Date.now);
@@ -220,9 +240,16 @@ export function MissionCard({
           </p>
         )}
         <div className="text-muted-foreground flex flex-wrap gap-x-5 gap-y-2 text-xs">
-          <span>Owner · {mission.ownerAgentId}</span>
+          <span>
+            Owner · {agentNames[mission.ownerAgentId] ?? mission.ownerAgentId}
+          </span>
           {mission.collaborators.length > 0 && (
-            <span>Team · {mission.collaborators.join(", ")}</span>
+            <span>
+              Team ·{" "}
+              {mission.collaborators
+                .map((id) => agentNames[id] ?? id)
+                .join(", ")}
+            </span>
           )}
           <span>
             Due ·{" "}

@@ -11,6 +11,7 @@ import { releaseInternalResponse } from "./internal-response";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { readWorkspaceMission } from "./workspace-missions";
 import {
   nextScheduleTime,
   readWorkspaceSchedule,
@@ -27,6 +28,39 @@ type DispatchRow = {
   state: string;
   attempts: number;
 } & Record<string, SqlStorageValue>;
+
+function missionAllowsSchedule(
+  storage: DurableObjectStorage,
+  schedule: WorkspaceSchedule,
+) {
+  if (!schedule.missionId) return true;
+  const mission = readWorkspaceMission(storage, schedule.missionId);
+  return Boolean(
+    mission &&
+    mission.conversationId === schedule.conversationId &&
+    (mission.ownerAgentId === schedule.agentId ||
+      mission.collaborators.includes(schedule.agentId)) &&
+    mission.status === "active" &&
+    Date.parse(mission.deadline) > Date.now() &&
+    mission.experiments.length < mission.maxExperiments,
+  );
+}
+
+function pauseStoppedMission(
+  storage: DurableObjectStorage,
+  stored: NonNullable<ReturnType<typeof readWorkspaceSchedule>>,
+) {
+  stored.schedule.status = "paused";
+  stored.schedule.nextAt = undefined;
+  stored.schedule.lastSummary =
+    "Mission stopped or reached its deadline or experiment limit.";
+  stored.schedule.updatedAt = Date.now();
+  writeWorkspaceSchedule(storage, stored);
+  storage.sql.exec(
+    "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
+    stored.schedule.id,
+  );
+}
 
 export function enqueueScheduleOccurrence(
   storage: DurableObjectStorage,
@@ -56,6 +90,13 @@ export async function drainWorkspaceSchedules(
   for (const stored of readWorkspaceSchedules(storage)) {
     const { schedule } = stored;
     if (
+      schedule.status === "active" &&
+      !missionAllowsSchedule(storage, schedule)
+    ) {
+      pauseStoppedMission(storage, stored);
+      continue;
+    }
+    if (
       schedule.status !== "active" ||
       schedule.nextAt === undefined ||
       schedule.nextAt > now
@@ -80,6 +121,10 @@ export async function drainWorkspaceSchedules(
   ];
   for (const occurrence of due) {
     const stored = readWorkspaceSchedule(storage, occurrence.schedule_id);
+    if (stored && !missionAllowsSchedule(storage, stored.schedule)) {
+      pauseStoppedMission(storage, stored);
+      continue;
+    }
     if (!stored?.approvedBy) {
       storage.sql.exec(
         "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE id = ?",
@@ -176,7 +221,7 @@ async function dispatchSchedule(
     payload: {
       messageId: occurrence.message_id,
       conversationId: schedule.conversationId,
-      body: `Scheduled work: ${schedule.title}\n\n${schedule.instructions}\n\nReport what you changed, the evidence, and any blocker in this thread.`,
+      body: `Scheduled work: ${schedule.title}${schedule.missionId ? `\nMission: ${schedule.missionId}. Read its current brief and limits before this iteration.` : ""}\n\n${schedule.instructions}\n\nReport what you changed, the evidence, and any blocker in this thread.`,
       mentions: [schedule.agentId],
     },
   });
@@ -208,6 +253,10 @@ async function dispatchSchedule(
     ),
   ][0];
   if (!pending) return false;
+  if (!missionAllowsSchedule(storage, schedule)) {
+    pauseStoppedMission(storage, stored);
+    return false;
+  }
   const dispatched = await dispatchWorkspaceMessage(
     storage,
     env,
@@ -218,6 +267,9 @@ async function dispatchSchedule(
         body: JSON.stringify({
           message: result.message,
           workflowId: occurrence.message_id,
+          ...(schedule.missionId
+            ? { missionId: schedule.missionId }
+            : undefined),
         }),
       }),
       context,

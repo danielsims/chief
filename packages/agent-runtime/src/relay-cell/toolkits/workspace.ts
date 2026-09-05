@@ -1,9 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import {
-  parseJsonNumber,
-  workspaceScheduleInputSchema,
-} from "@chief/relay-contracts";
+import { workspaceScheduleInputSchema } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";

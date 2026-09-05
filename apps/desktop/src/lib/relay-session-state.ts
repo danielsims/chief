@@ -28,8 +28,10 @@ export function completeRelayConnection(
   next: RelaySessionState,
 ): RelaySessionState {
   const sameWorkspace =
+    current.snapshot !== null &&
+    next.snapshot !== null &&
     current.accountId === next.accountId &&
-    current.snapshot?.id === next.snapshot?.id;
+    current.snapshot.id === next.snapshot.id;
   return {
     ...next,
     client: sameWorkspace ? (current.client ?? next.client) : next.client,

@@ -26,6 +26,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   agentConfigResultSchema,
+  agentJobListSchema,
   agentLeaseSchema,
   agentRemovalResultSchema,
   agentRuntimeDescriptorSchema,
@@ -274,6 +275,15 @@ export class RelayClient extends RelayVercelProvisioning {
         body: JSON.stringify({ agentId, pubkey }),
       },
     );
+  }
+
+  async listAgentJobs(agentId: string) {
+    const result = await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/jobs`),
+      agentJobListSchema,
+      true,
+    );
+    return result.jobs;
   }
 
   async claimAgentJob(

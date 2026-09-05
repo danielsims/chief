@@ -24,6 +24,7 @@ import {
   queryRelayProject,
 } from "./relay-runtime-project-connect";
 import { routeRelayScheduleCommand } from "./relay-runtime-schedules";
+import { loadRelayWorkspaceActivity } from "./relay-workspace-activity";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -143,6 +144,7 @@ interface WorkspaceDataContext {
     RelayClient,
     | "schedules"
     | "createProject"
+    | "listAgentJobs"
     | "listProjects"
     | "listProspects"
     | "listWorkspaceFiles"
@@ -339,9 +341,10 @@ async function listProjects(context: WorkspaceDataContext) {
 }
 
 async function listWorkspaceData(context: WorkspaceDataContext) {
-  const [prospects, schedules] = await Promise.all([
+  const [prospects, schedules, activity] = await Promise.all([
     context.relay.listProspects(),
     context.relay.schedules.list(),
+    loadRelayWorkspaceActivity(context.relay, context.snapshot),
   ]);
   context.emit({
     type: "workspaceData",
@@ -363,7 +366,7 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     drafts: [],
     campaigns: [],
     recurringWork: schedules,
-    activity: [],
+    activity,
     actionItems: [],
     waysOfWorking: {
       mode: "mission-control",

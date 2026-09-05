@@ -512,14 +512,14 @@
     "/local-tools/recurring-work": {
       "get": {
         "operationId": "recurringWork.list",
-        "summary": "List recurring agent work and approval state",
+        "summary": "List schedules and their approval state",
         "responses": { "200": { "description": "Tool operation result" } }
       },
       "post": {
         "operationId": "recurringWork.propose",
-        "summary": "Create recurring agent work under workspace policy",
+        "summary": "Propose recurring or one-time agent work for user approval",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Creates a reviewable draft by default. Immediate activation requires explicit workspace authority.",
+        "description": "Create a schedule for an agent in a channel. Use a stable id when revising a proposal. The user must approve it in Schedule before it runs. Supply cron and timezone; set onceAt for one-time work. Add missionId when this belongs to a mission.",
         "requestBody": {
           "required": true,
           "content": {
@@ -530,6 +530,7 @@
                   "id": { "type": "string" },
                   "conversationId": { "type": "string" },
                   "playbookId": { "type": "string" },
+                  "missionId": { "type": "string" },
                   "agentId": {
                     "allOf": [
                       { "type": "string" },
@@ -2112,8 +2113,9 @@
     "/local-tools/computer/artifacts": {
       "post": {
         "operationId": "computer.artifacts.publish",
-        "summary": "Publish an agent computer file as a Chief artifact",
+        "summary": "Save an image, video, audio, PDF, or other file to the workspace Files library",
         "responses": { "200": { "description": "Tool operation result" } },
+        "description": "Publish an existing file up to 8 MB. Use a /workspace-relative path, a filename with its extension, and the matching MIME type. The output persists in Files and can be previewed or downloaded by workspace members.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2151,15 +2153,14 @@
     "/local-tools/files": {
       "get": {
         "operationId": "files.list",
-        "summary": "List editable workspace files",
-        "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Returns file ids, workspace-relative paths, types and current revision ids without loading every file body."
+        "summary": "List documents and published media visible to you in this workspace",
+        "responses": { "200": { "description": "Tool operation result" } }
       }
     },
     "/local-tools/files/read": {
       "post": {
         "operationId": "files.read",
-        "summary": "Read an editable workspace file",
+        "summary": "Read a workspace document or published media metadata",
         "responses": { "200": { "description": "Tool operation result" } },
         "requestBody": {
           "required": true,
@@ -2188,7 +2189,7 @@
         "operationId": "files.write",
         "summary": "Create or revise a workspace document",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Saves an editable, versioned workspace document. Pass expectedVersionId when revising so newer edits are never overwritten.",
+        "description": "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
         "requestBody": {
           "required": true,
           "content": {

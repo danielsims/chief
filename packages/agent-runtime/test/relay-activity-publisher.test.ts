@@ -146,8 +146,6 @@ void test("activity publisher collapses queued thinking snapshots", async () => 
   assert.equal(published.length, 2);
   const final = published.at(-1);
   assert.equal(final?.kind, "thinking");
-  if (final?.kind === "thinking") {
-    assert.equal(final.payload.status, "completed");
-    assert.equal(final.payload.text, "First. Second. Third.");
-  }
+  assert.equal(final.payload.status, "completed");
+  assert.equal(final.payload.text, "First. Second. Third.");
 });

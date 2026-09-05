@@ -21,7 +21,7 @@ export const missionCell = definePromptPart({
   in this session; missions_list lists existing work so you can resume it.
 - A measurable mission needs a real baseline, a named data source, an evaluation
   window and a target. Change one hypothesis at a time; measure against the same
-  source and window; record evidence with missions_recordExperiment. Keep only
+  source and window; record evidence with missions_record_experiment. Keep only
   measured improvements, revert discarded code or creative changes where possible,
   and retain the experiment record. Never invent measurements, treat clicks as
   revenue, or claim causality from an uncontrolled marketing comparison. Report

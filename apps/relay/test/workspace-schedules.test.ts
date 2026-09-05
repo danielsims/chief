@@ -292,3 +292,89 @@ async function rpc(
     ),
   );
 }
+
+it("cancels queued iterations after their mission is paused", async () => {
+  const { ctx, input } = await setup();
+  const missionId = "bounded-growth";
+  expect(
+    (
+      await channelRpc(ctx, ctx.principal, "missions-create", {
+        id: missionId,
+        conversationId: input.conversationId,
+        ownerAgentId: input.agentId,
+        title: "Learn which positioning works",
+        objective: "Draft and evaluate positioning",
+        collaborators: [],
+        success: {
+          kind: "deliverable",
+          description: "A reviewed campaign brief",
+        },
+        maxExperiments: 3,
+        deadline: new Date(Date.now() + 86_400_000).toISOString(),
+        constraints: "No publishing",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (await rpc(ctx, ctx.principal, "schedules-save", { ...input, missionId }))
+      .status,
+  ).toBe(200);
+  expect(
+    (
+      await rpc(
+        ctx,
+        ctx.principal,
+        "schedules-action",
+        { action: "approve", commandId: crypto.randomUUID() },
+        input.id,
+      )
+    ).status,
+  ).toBe(200);
+  const stub = ctx.env.WORKSPACES.get(
+    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  );
+  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
+    const stored = readWorkspaceSchedule(state.storage, input.id);
+    if (!stored) throw new Error("Expected schedule");
+    enqueueScheduleOccurrence(
+      state.storage,
+      stored.schedule,
+      Date.now(),
+      "paused-occurrence",
+    );
+    await state.storage.deleteAlarm();
+  });
+  const paused = await stub.fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "missions-status",
+          "x-chief-mission-id": missionId,
+        },
+        body: JSON.stringify({
+          status: "paused",
+          evidence: "Owner paused the campaign",
+        }),
+      }),
+      {
+        principal: ctx.principal,
+        workspaceId: ctx.workspaceId,
+        requestId: crypto.randomUUID(),
+      },
+    ),
+  );
+  expect(paused.status).toBe(200);
+  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
+    await drainWorkspaceSchedules(state.storage, ctx.env);
+    expect([
+      ...state.storage.sql.exec(
+        "SELECT state FROM workspace_schedule_dispatches",
+      ),
+    ]).toEqual([{ state: "cancelled" }]);
+    expect(
+      readWorkspaceSchedule(state.storage, input.id)?.schedule.status,
+    ).toBe("paused");
+  });
+});

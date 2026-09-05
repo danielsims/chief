@@ -111,13 +111,29 @@ function queryRange(editor: Editor, kind: QueryKind) {
   };
 }
 
-function agentMentionDecorations(getPeople: () => readonly MentionAlias[]) {
+const mentionPeopleKey = new PluginKey<readonly MentionAlias[]>(
+  "agentMentionDecorations",
+);
+const mentionAliasesSchema = z.array(
+  z.object({ id: z.string(), name: z.string() }),
+);
+
+function agentMentionDecorations() {
   return Extension.create({
     name: "agentMentionDecorations",
     addProseMirrorPlugins() {
       return [
-        new Plugin({
-          key: new PluginKey("agentMentionDecorations"),
+        new Plugin<readonly MentionAlias[]>({
+          key: mentionPeopleKey,
+          state: {
+            init: () => [],
+            apply(transaction, current) {
+              const parsed = mentionAliasesSchema.safeParse(
+                transaction.getMeta(mentionPeopleKey),
+              );
+              return parsed.success ? parsed.data : current;
+            },
+          },
           props: {
             decorations(state) {
               const decorations: Decoration[] = [];
@@ -126,7 +142,7 @@ function agentMentionDecorations(getPeople: () => readonly MentionAlias[]) {
                 let offset = 0;
                 for (const segment of splitAgentMentions(
                   node.text,
-                  getPeople(),
+                  mentionPeopleKey.getState(state) ?? [],
                 )) {
                   const length =
                     segment.type === "mention"
@@ -165,7 +181,7 @@ function agentMentionDecorations(getPeople: () => readonly MentionAlias[]) {
                 paragraphText,
                 $from.parentOffset,
                 $from.parentOffset,
-                getPeople(),
+                mentionPeopleKey.getState(view.state) ?? [],
               );
               if (!edit) return false;
               const removedLength = paragraphText.length - edit.value.length;
@@ -237,10 +253,6 @@ export const ComposerRichText = forwardRef<
   ref,
 ) {
   const people = useMentionPeople();
-  const peopleRef = useRef(people);
-  useEffect(() => {
-    peopleRef.current = people;
-  }, [people]);
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });
@@ -253,9 +265,7 @@ export const ComposerRichText = forwardRef<
     onValueChangeRef.current = onValueChange;
   }, [onKeyDown, onStateChange, onValueChange]);
 
-  const [mentionExtension] = useState(() =>
-    agentMentionDecorations(() => peopleRef.current),
-  );
+  const [mentionExtension] = useState(agentMentionDecorations);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, horizontalRule: false }),
@@ -309,6 +319,11 @@ export const ComposerRichText = forwardRef<
     lastValueRef.current = value;
     onStateChangeRef.current(editorState(editor));
   }, [editor, value]);
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed)
+      editor.view.dispatch(editor.state.tr.setMeta(mentionPeopleKey, people));
+  }, [editor, people]);
 
   useImperativeHandle(
     ref,
