@@ -1,4 +1,5 @@
-import type { PushEnvironment } from "@chief/relay-contracts";
+import type { JsonObject, PushEnvironment } from "@chief/relay-contracts";
+import { messagePreviewText } from "@chief/relay-contracts";
 
 interface ApnsEnv {
   APNS_P8?: string;
@@ -45,7 +46,7 @@ export async function sendApnsAlert(env: ApnsEnv, alert: ApnsAlert) {
     alert.environment === "production"
       ? "api.push.apple.com"
       : "api.sandbox.push.apple.com";
-  const topic = env.APNS_BUNDLE_ID?.trim() || "sh.heychief.mobile";
+  const topic = env.APNS_BUNDLE_ID?.trim() ?? "sh.heychief.mobile";
   const response = await fetch(`https://${host}/3/device/${alert.token}`, {
     method: "POST",
     headers: {
@@ -59,7 +60,11 @@ export async function sendApnsAlert(env: ApnsEnv, alert: ApnsAlert) {
       aps: {
         alert: {
           title: alert.title,
-          body: alert.body.slice(0, 180),
+          body: Array.from(
+            messagePreviewText(alert.body) || "Sent an attachment",
+          )
+            .slice(0, 180)
+            .join(""),
         },
         sound: "default",
         badge: 1,
@@ -70,7 +75,9 @@ export async function sendApnsAlert(env: ApnsEnv, alert: ApnsAlert) {
       workspaceID: alert.workspaceId,
       conversationID: alert.conversationId,
       url: conversationPushUrl(alert),
-      ...(alert.threadRootId ? { threadRootID: alert.threadRootId } : undefined),
+      ...(alert.threadRootId
+        ? { threadRootID: alert.threadRootId }
+        : undefined),
       ...(alert.mentioned ? { mentioned: true } : undefined),
     }),
   });
@@ -117,12 +124,15 @@ function pemToPkcs8(pem: string) {
   return bytes.buffer;
 }
 
-function encodeJson(value: object) {
+function encodeJson(value: JsonObject) {
   return base64Url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
 function base64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
 }

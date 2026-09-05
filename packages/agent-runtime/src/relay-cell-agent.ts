@@ -7,21 +7,6 @@ export interface WorkspaceAgentIdentity {
   role: string;
   description: string;
   instructions: string;
-  subagents?: readonly WorkspaceAgentIdentity[];
-}
-
-export function workspaceAgentRecord(
-  agents: readonly WorkspaceAgentIdentity[],
-  agentId: string,
-): WorkspaceAgentIdentity | undefined {
-  for (const agent of agents) {
-    if (agent.id === agentId) return agent;
-    const subagent = agent.subagents?.find(
-      (candidate) => candidate.id === agentId,
-    );
-    if (subagent) return subagent;
-  }
-  return undefined;
 }
 
 export function cellAgentDefinition(

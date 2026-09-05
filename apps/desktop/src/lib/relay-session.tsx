@@ -13,7 +13,6 @@ import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
 import { RELAY_URL } from "./config";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
-import { startPendingEveWorkspaceKickoff } from "./relay-eve-kickoff";
 import {
   clearPendingOrganizationInvitation,
   readPendingOrganizationInvitation,
@@ -26,6 +25,7 @@ import {
   resolveRelayConnection,
   workspaceForRelayIdentities,
 } from "./relay-connection";
+import { startPendingEveWorkspaceKickoff } from "./relay-eve-kickoff";
 import {
   activeRelayWorkspace,
   connectBoundRelayDevice,
@@ -36,6 +36,7 @@ import {
   beginRelayConnection,
   beginWorkspaceTransition,
   chiefCloudRelayConnection,
+  completeRelayConnection,
   directoryWorkspacesForSnapshot,
   failRelayConnection,
   initialRelaySessionState,
@@ -176,14 +177,16 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
             // a reliable Back path.
             clearWorkspaceSwitch(accountId);
           }
-          setState({
-            accountId,
-            client,
-            snapshot,
-            workspaces: directoryWorkspaces,
-            loading: false,
-            error: null,
-          });
+          setState((current) =>
+            completeRelayConnection(current, {
+              accountId,
+              client,
+              snapshot,
+              workspaces: directoryWorkspaces,
+              loading: false,
+              error: null,
+            }),
+          );
           startPendingEveWorkspaceKickoff(client, snapshot);
           // Directory metadata must not turn a healthy workspace into an outage.
           if (!refreshedWorkspaces) {

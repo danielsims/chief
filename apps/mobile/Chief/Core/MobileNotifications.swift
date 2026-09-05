@@ -69,7 +69,8 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     )
     let content = UNMutableNotificationContent()
     content.title = title
-    content.body = body.isEmpty ? "Sent an attachment" : String(body.prefix(180))
+    let preview = MarkdownMessageParser.plainText(body)
+    content.body = preview.isEmpty ? "Sent an attachment" : String(preview.prefix(180))
     content.sound = NotificationSoundGate.shared.claim()
       ? Self.configuredSound
       : nil

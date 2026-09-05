@@ -19,6 +19,8 @@ import type {
   MachineCreate,
   MachineUpdate,
   MessageComponent,
+  MissionCreate,
+  MissionExperimentInput,
   RegisterAgentKeyResult,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -27,6 +29,7 @@ import {
   agentLeaseSchema,
   agentRemovalResultSchema,
   agentRuntimeDescriptorSchema,
+  agentSummarySchema,
   appendMessageResultSchema,
   channelMembershipsResultSchema,
   channelMembersResultSchema,
@@ -44,6 +47,8 @@ import {
   machinesResultSchema,
   machineUpdateSchema,
   messagePageSchema,
+  missionListSchema,
+  missionSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
@@ -77,6 +82,46 @@ export class RelayClient extends RelayVercelProvisioning {
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
+  }
+  async listMissions() {
+    return (
+      await this.fetchJson(this.workspaceUrl("missions"), missionListSchema)
+    ).missions;
+  }
+  async createMission(input: MissionCreate) {
+    return this.fetchJson(this.workspaceUrl("missions"), missionSchema, true, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  }
+  async recordMissionExperiment(id: string, input: MissionExperimentInput) {
+    return this.fetchJson(
+      this.workspaceUrl(`missions/${encodeURIComponent(id)}/experiments`),
+      missionSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+  async updateMissionStatus(
+    id: string,
+    status: "active" | "paused" | "completed",
+    evidence: string,
+  ) {
+    return this.fetchJson(
+      this.workspaceUrl(`missions/${encodeURIComponent(id)}/status`),
+      missionSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status, evidence }),
+      },
+    );
   }
 
   async listMachines(): Promise<Machine[]> {
@@ -161,6 +206,12 @@ export class RelayClient extends RelayVercelProvisioning {
       `agents/${encodeURIComponent(agentId)}/config`,
     );
     return await this.fetchJson(url, agentConfigResultSchema);
+  }
+  async loadOwnAgentProfile(): Promise<AgentSummary> {
+    return this.fetchJson(
+      this.workspaceUrl("agents/self/profile"),
+      agentSummarySchema,
+    );
   }
   async loadAgentRuntime(agentId: string): Promise<AgentRuntimeDescriptor> {
     const url = this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`);

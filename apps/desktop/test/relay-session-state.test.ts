@@ -7,6 +7,7 @@ import { workspaceSnapshotSchema } from "@chief/relay-contracts";
 import {
   beginRelayConnection,
   beginWorkspaceTransition,
+  completeRelayConnection,
   failRelayConnection,
   workspaceSummaryFromSnapshot,
 } from "../src/lib/relay-session-state.js";
@@ -145,4 +146,40 @@ void test("a workspace snapshot produces directory metadata", () => {
     isActive: true,
     onboardingComplete: true,
   });
+});
+
+void test("refocus refresh preserves the live client but workspace/account changes replace it", () => {
+  const createClient = () =>
+    new RelayClient({
+      relayUrl: "https://relay.example.com",
+      getAuthorization: () => Promise.resolve("authorization"),
+    });
+  const current = {
+    accountId: "account-one",
+    client: createClient(),
+    snapshot,
+    workspaces: [],
+    loading: false,
+    error: null,
+  };
+  const next = {
+    ...current,
+    client: createClient(),
+    snapshot: { ...snapshot, name: "Refreshed" },
+  };
+  const refreshed = completeRelayConnection(current, next);
+  assert.equal(refreshed.client, current.client);
+  assert.equal(refreshed.snapshot, next.snapshot);
+  assert.equal(
+    completeRelayConnection(current, {
+      ...next,
+      snapshot: { ...snapshot, id: "workspace-two" },
+    }).client,
+    next.client,
+  );
+  assert.equal(
+    completeRelayConnection(current, { ...next, accountId: "account-two" })
+      .client,
+    next.client,
+  );
 });

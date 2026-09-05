@@ -172,7 +172,7 @@ export const sharedProjectRules: Rules = {
   "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
   "max-lines": [
     "warn",
-    { max: 500, skipBlankLines: false, skipComments: false },
+    { max: 750, skipBlankLines: false, skipComments: false },
   ],
 };
 

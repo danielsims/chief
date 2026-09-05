@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  BarChart3,
   CalendarClock,
   FolderGit2,
   FolderOpen,
@@ -57,7 +56,6 @@ const PRIMARY_ITEMS = [
   { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/plugins", label: "Plugins", icon: Plug },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
 

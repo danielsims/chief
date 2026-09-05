@@ -30,6 +30,7 @@ import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
+import { routeMissionRequest } from "./router-missions";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
@@ -101,6 +102,10 @@ export async function routeRelayRequest(
       routeIdentityAndPush(env, request),
     );
     if (identityResponse) return identityResponse;
+    const missionResponse = yield* attempt("relay.missions", () =>
+      routeMissionRequest(env, request, requestId),
+    );
+    if (missionResponse) return missionResponse;
 
     const workspaceResponse = yield* routeWorkspaceRequest(
       env,

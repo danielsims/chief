@@ -19,10 +19,7 @@ import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
-import {
-  cellAgentDefinition,
-  workspaceAgentRecord,
-} from "./relay-cell-agent.js";
+import { cellAgentDefinition } from "./relay-cell-agent.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -153,7 +150,6 @@ async function executeJob(
   renew.unref();
   let relayMcp: Awaited<ReturnType<typeof startRelayCellMcpHttpServer>> | null =
     null;
-  let activity: RelayActivityPublisher | null = null;
   let session: AgentSession | null = null;
   const activityContext = {
     relayId: requiredEnvironment("CHIEF_RELAY_URL"),
@@ -165,19 +161,28 @@ async function executeJob(
     jobId: job.id,
     runId,
   };
+  const activityPublisher = new RelayActivityPublisher(
+    client,
+    conversationId,
+    activityContext.threadRootId,
+    {
+      ...activityContext,
+      providerSessionId: () => session?.sessionId,
+    },
+  );
   console.info(
     "[cell-activity]",
     JSON.stringify({ scope: "cell.run", phase: "started", ...activityContext }),
   );
   try {
-    const snapshot = await client.activeWorkspace();
     const definition = cellAgentDefinition(
       agentId,
-      workspaceAgentRecord(snapshot.agents, agentId),
+      await client.loadOwnAgentProfile(),
     );
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
-    const storedEvents = await cell.readState(`events:${conversationId}`);
+    const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}`;
+    const storedEvents = await cell.readState(`events:${sessionKey}`);
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnStart = priorEvents.length;
     process.env.CHIEF_CONVERSATION_ID = conversationId;
@@ -218,37 +223,27 @@ async function executeJob(
       priorEvents,
     );
     session = agentSession;
-    const activityPublisher = new RelayActivityPublisher(
-      client,
-      conversationId,
-      parseJsonString(job.payload.threadRootId),
-      {
-        ...activityContext,
-        providerSessionId: () => agentSession.sessionId,
-      },
-    );
-    activity = activityPublisher;
     agentSession.on("event", (event: AgentEvent) => {
       activityPublisher.accept(event);
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
-        const allow = relayCellToolNames.some((name) => tool.includes(name));
+        const allow = relayCellToolNames.some(
+          (name) => tool === name || tool === `mcp__chief_relay__${name}`,
+        );
         agentSession.respondPermission(
           event.requestId,
           allow ? "allow" : "deny",
         );
       }
       void cell
-        .writeState(`events:${conversationId}`, agentSession.events.slice(-500))
+        .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
         .catch((error) => console.error("[cell] event persistence:", error));
     });
     const cellDirectory = requiredEnvironment("CHIEF_CELL_ROOT");
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      parseJsonString(
-        await cell.readState(`providerSession:${conversationId}`),
-      ),
+      parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
       privateInstructions: [
@@ -263,17 +258,18 @@ async function executeJob(
     await activityPublisher.flush();
     if (agentSession.sessionId) {
       await cell.writeState(
-        `providerSession:${conversationId}`,
+        `providerSession:${sessionKey}`,
         agentSession.sessionId,
       );
     }
     await cell.writeState(
-      `events:${conversationId}`,
+      `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
     const turnEvents = agentSession.events.slice(turnStart);
     const reply = finalAssistantText(turnEvents) ?? "Work completed.";
     await agentSession.stop();
+    session = null;
     await client.completeAgentJob(agentId, {
       leaseToken: lease.leaseToken,
       outcome: {
@@ -282,7 +278,7 @@ async function executeJob(
           job.kind === "workspace.onboarding"
             ? {
                 openingMessage:
-                  "Hey, welcome to Chief 👋 I'm getting the team together now. We'll have a look around, get to know your brand and market, and start figuring out where the good opportunities are hiding. You can hang out here and watch us work. I'll give you a shout if I need anything.",
+                  "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
               }
             : postedFinalToOrigin(turnEvents, conversationId)
               ? {}
@@ -315,9 +311,11 @@ async function executeJob(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    activity?.recordFailure();
-    await activity
-      ?.flush()
+    activityPublisher.recordFailure(
+      error instanceof Error ? error.message : String(error),
+    );
+    await activityPublisher
+      .flush()
       .catch((publishError) =>
         console.error("[cell] activity failure publication:", publishError),
       );
@@ -335,6 +333,9 @@ async function executeJob(
     });
     throw error;
   } finally {
+    await session
+      ?.stop()
+      .catch((error) => console.error("[cell] session stop:", error));
     await relayMcp
       ?.close()
       .catch((error) => console.error("[cell] MCP close:", error));
@@ -372,7 +373,9 @@ async function drainMailbox(
       300,
     );
     if (!lease) return;
-    await executeJob(cell, client, config, lease);
+    await executeJob(cell, client, config, lease).catch((error) => {
+      console.error("[cell] job failed:", error);
+    });
   }
 }
 
@@ -423,7 +426,16 @@ async function listenForJobs() {
         socket.on("message", () => {
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        socket.on("close", resolve);
+        const poll = setInterval(() => {
+          void drain().catch((error) =>
+            console.error("[cell] mailbox poll:", error),
+          );
+          if (socket.readyState === WebSocket.OPEN) socket.ping();
+        }, 30_000);
+        socket.on("close", () => {
+          clearInterval(poll);
+          resolve();
+        });
         socket.on("error", (error) => {
           console.error("[cell] mailbox:", error);
           socket.close();

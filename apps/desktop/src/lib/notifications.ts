@@ -7,7 +7,11 @@ import {
 } from "@tauri-apps/plugin-notification";
 
 import type { JsonValue } from "@chief/relay-contracts";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  messagePreviewText,
+} from "@chief/relay-contracts";
 
 import type { MessageNavigationTarget } from "./app-navigation";
 import {
@@ -278,6 +282,7 @@ export async function notifySystem(
   target?: DesktopNotificationTarget,
   options?: { urgent?: boolean },
 ) {
+  body = messagePreviewText(body ?? "");
   const claimedSound = claimConfiguredNotificationSound();
   let delivered = false;
   let nativeSoundDelivered = false;
@@ -293,16 +298,16 @@ export async function notifySystem(
               !document.hasFocus());
           await invoke("show_native_notification", {
             title,
-            body: body ?? "",
+            body,
             target: target ?? null,
             sound: nativeSoundDelivered,
           });
         } catch {
           nativeSoundDelivered = false;
-          showWebNotification(title, body ?? "", target);
+          showWebNotification(title, body, target);
         }
       } else {
-        showWebNotification(title, body ?? "", target);
+        showWebNotification(title, body, target);
       }
       delivered = true;
       if (isTauri() && (!document.hasFocus() || options?.urgent)) {

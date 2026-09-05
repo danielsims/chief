@@ -21,6 +21,7 @@ import {
   deterministicUuid,
   parseAgentId,
   parseWorkspaceId,
+  routeOwnAgentProfile,
 } from "./router-agent-route-support";
 import { authenticateRelayRequest } from "./router-auth";
 import { routeExternalAgentRequest } from "./router-external-agent-routes";
@@ -65,6 +66,8 @@ export async function routeAgentRequest(
   const url = new URL(request.url);
   const external = await routeExternalAgentRequest(env, request, requestId);
   if (external) return external;
+  const profile = await routeOwnAgentProfile(env, request, requestId);
+  if (profile) return profile;
   const agentCollection = agentCollectionRoute.exec(url.pathname);
   if (agentCollection && request.method === "POST") {
     const workspaceId = parseWorkspaceId(agentCollection[1]);

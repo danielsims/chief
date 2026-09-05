@@ -37,6 +37,7 @@ import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
+import { routeWorkspaceMissions } from "./workspace-missions";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
@@ -106,6 +107,11 @@ export class WorkspaceObject extends DurableObject<Env> {
     const publishLiveEvent = this.publishLiveEvent.bind(this);
     const createLiveSocketTicket = this.createLiveSocketTicket.bind(this);
     return Effect.gen(function* () {
+      if (operation?.startsWith("missions-")) {
+        return yield* attempt("workspace.missions", () =>
+          routeWorkspaceMissions(ctx.storage, env, request, operation),
+        );
+      }
       if (operation?.startsWith("channels-")) {
         return yield* attempt("workspace.channels", () =>
           routeWorkspaceChannel(ctx.storage, env, request, operation),

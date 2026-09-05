@@ -17,6 +17,7 @@ import { computerListFilesDefinition } from "./toolkits/computer/list-files.js";
 import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-artifact.js";
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
+import { missionToolDefinitions } from "./toolkits/missions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
@@ -29,6 +30,7 @@ import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-prof
 
 export const hostedAgentToolDefinitions = {
   base: [
+    ...missionToolDefinitions,
     computerReadFileDefinition,
     computerListFilesDefinition,
     computerWriteFileDefinition,

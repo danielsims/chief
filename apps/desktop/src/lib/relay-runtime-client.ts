@@ -74,6 +74,20 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private closed = false;
   private channelRosterRefreshTail = Promise.resolve();
 
+  updateSnapshot(snapshot: WorkspaceSnapshot) {
+    if (this.snapshot === snapshot) return;
+    this.snapshot = snapshot;
+    this.emit({ type: "agents", agents: relayAgentDefinitions(snapshot) });
+    this.emit({
+      type: "projects",
+      workspaceId: snapshot.id,
+      projects: relayProjectSnapshots(snapshot.projects),
+    });
+    void this.listChannels().catch((error: unknown) =>
+      this.recordError(parseRelayError(error)),
+    );
+  }
+
   constructor(
     private readonly relay: RelayRuntimeRelay,
     snapshot: WorkspaceSnapshot,
