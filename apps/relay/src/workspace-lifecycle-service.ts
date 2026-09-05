@@ -15,6 +15,7 @@ import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { defaultAgentConfigFor } from "./workspace-agent-config";
+import { canMessageAgent } from "./workspace-agent-messaging";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   decodeWorkspaceSnapshot,
@@ -259,7 +260,28 @@ export class WorkspaceLifecycleService {
         nextSnapshot,
       );
     }
-    return json(reconciled.snapshot);
+    if (context.identity.kind !== "user") return json(reconciled.snapshot);
+    const principal: UserPrincipal = {
+      role: "member",
+      kind: "user",
+      userId: context.identity.userId,
+      pubkey: context.identity.pubkey,
+      workspaceId: context.workspaceId,
+    };
+    return json({
+      ...reconciled.snapshot,
+      agents: reconciled.snapshot.agents.map((agent) => ({
+        ...agent,
+        canRunOnDevice:
+          (agent.ownerUserId ?? workspace.created_by_user_id) ===
+          principal.userId,
+        canMessage: canMessageAgent(this.channels, agent.id, principal),
+        subagents: agent.subagents.map((child) => ({
+          ...child,
+          canMessage: canMessageAgent(this.channels, child.id, principal),
+        })),
+      })),
+    });
   }
 
   deletionPlan(context: ReturnType<typeof readTrustedIdentity>) {

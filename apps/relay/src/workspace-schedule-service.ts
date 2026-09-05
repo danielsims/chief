@@ -8,6 +8,7 @@ import {
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
+import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { readWorkspaceMission } from "./workspace-missions";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
@@ -74,6 +75,8 @@ export async function routeWorkspaceSchedule(
         "schedule_agent_not_in_channel",
         "Add the agent to this channel before scheduling work.",
       );
+    for (const agentId of [input.agentId, ...input.collaborators])
+      requireAgentMessageAccess(channels, agentId, context.principal);
     for (const collaborator of input.collaborators) {
       if (
         !channels.channelMembership(input.conversationId, "agent", collaborator)
@@ -223,6 +226,13 @@ export async function routeWorkspaceSchedule(
       "schedule_changed",
       "This schedule changed since you reviewed it. Review the latest version before approving.",
     );
+  if (action === "approve" || action === "run" || action === "resume") {
+    for (const agentId of [
+      stored.schedule.agentId,
+      ...stored.schedule.collaborators,
+    ])
+      requireAgentMessageAccess(channels, agentId, context.principal);
+  }
   const now = Math.max(Date.now(), stored.schedule.updatedAt + 1);
   storage.transactionSync(() => {
     if (action === "pause") {

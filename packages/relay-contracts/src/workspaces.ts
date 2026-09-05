@@ -299,6 +299,9 @@ export const workspaceAgentRuntimeSchema = z.discriminatedUnion("kind", [
 
 export const agentProfileSchema = z
   .object({
+    ownerUserId: z.string().optional(),
+    canMessage: z.boolean().optional(),
+    canRunOnDevice: z.boolean().optional(),
     id: z.string().min(1).max(128),
     name: z.string().min(1).max(120),
     role: z.string().min(1).max(120),

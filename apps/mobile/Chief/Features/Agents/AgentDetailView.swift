@@ -399,6 +399,14 @@ private struct AgentPermissionsView: View {
 
   var body: some View {
     List {
+      if config.deploymentTarget != "cloud" {
+        Section {
+          ChiefBooleanRow(title: "Allow workspace messages", detail: "Let other members and their agents message this personal agent.", isOn: config.messageAccess == "workspace") {
+            config.messageAccess = config.messageAccess == "workspace" ? "owner" : "workspace"
+            onChange()
+          }
+        }
+      }
       Section {
         ForEach(AgentConfig.allToolPermissions, id: \.self) { permission in
           ChiefBooleanRow(

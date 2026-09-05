@@ -20,9 +20,12 @@ export function workspaceAgent(
     (candidate) => candidate.id === agentId,
   );
   if (rootAgent) return rootAgent;
-  const subagent = snapshot?.agents
-    .flatMap((agent) => agent.subagents)
-    .find((candidate) => candidate.id === agentId);
+  const parent = snapshot?.agents.find((agent) =>
+    agent.subagents.some((child) => child.id === agentId),
+  );
+  const subagent = parent?.subagents.find(
+    (candidate) => candidate.id === agentId,
+  );
   if (!subagent)
     throw new HttpError(
       404,
@@ -31,6 +34,7 @@ export function workspaceAgent(
     );
   return {
     ...subagent,
+    ownerUserId: subagent.ownerUserId ?? parent?.ownerUserId,
     status: "idle",
     runtime: { kind: "native-cell" },
     subagents: [],

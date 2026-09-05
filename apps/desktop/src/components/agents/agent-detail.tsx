@@ -49,6 +49,7 @@ import {
   AgentIdentityNavigator,
   SubagentDetail,
 } from "./agent-identity-navigator";
+import { AgentMessageAccess } from "./agent-message-access";
 
 export type { AgentIntegrationOption } from "./agent-detail-sections";
 
@@ -369,11 +370,17 @@ export function AgentDetail({
                 ) : null}
 
                 {activeTab === "permissions" ? (
-                  <AgentPermissionsTab
-                    permissions={toolPermissions}
-                    ready={ready}
-                    onChange={(value) => save({ toolPermissions: value })}
-                  />
+                  <>
+                    <AgentMessageAccess
+                      agentId={agent.id}
+                      client={relayClient}
+                    />
+                    <AgentPermissionsTab
+                      permissions={toolPermissions}
+                      ready={ready}
+                      onChange={(value) => save({ toolPermissions: value })}
+                    />
+                  </>
                 ) : null}
               </div>
             </>

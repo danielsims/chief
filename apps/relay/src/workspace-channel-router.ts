@@ -97,6 +97,7 @@ function permissionForChannelOperation(operation: string) {
       return "channels.read";
     case "channels-join":
     case "channels-leave":
+      return "channels.read";
     case "channels-members-add":
     case "channels-members-remove":
       return "members.manage";

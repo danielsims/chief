@@ -50,6 +50,7 @@ export const agentConfigSchema = z
     deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
     inference: agentInferenceSchema,
     approvals: z.enum(["auto", "ask"]),
+    messageAccess: z.enum(["owner", "workspace"]).optional(),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
     toolPermissions: z

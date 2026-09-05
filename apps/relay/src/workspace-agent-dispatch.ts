@@ -12,6 +12,10 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import {
+  canMessageAgent,
+  requireAgentMessageAccess,
+} from "./workspace-agent-messaging";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
@@ -103,7 +107,11 @@ export async function dispatchWorkspaceMessage(
         people,
         content: message.body,
         explicitMentions: message.mentions,
-      });
+      }).filter(
+        (id) =>
+          !store.memberRole("agent", id) ||
+          canMessageAgent(store, id, context.principal),
+      );
   await addMentionedAgentsToChannel({
     context,
     conversationId: message.conversationId,
@@ -117,7 +125,7 @@ export async function dispatchWorkspaceMessage(
     mentions,
     replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
-  );
+  ).filter((id) => canMessageAgent(store, id, context.principal));
   if (scheduleRunId) {
     const run = readScheduleRun(storage, scheduleRunId)?.run;
     const step = run?.steps.find((step) => step.id === message.id);
@@ -133,6 +141,7 @@ export async function dispatchWorkspaceMessage(
         "schedule_run_stopped",
         "This scheduled step is no longer active.",
       );
+    requireAgentMessageAccess(store, step.agentId, context.principal);
     agentIds = [step.agentId];
   }
   const threadRootId = owningThreadRoot(channel.kind, message, mentions);

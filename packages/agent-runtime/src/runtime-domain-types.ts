@@ -338,6 +338,7 @@ export type * from "./eve-provisioning-types.js";
  * definition.
  */
 export interface AgentProfile {
+  canMessage?: boolean;
   id: string;
   name: string;
   role: string;
