@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ServerMessage } from "@chief/agent-runtime/types";
 import type { ConversationEvent } from "@chief/relay-contracts";
+import { RelayClient } from "@chief/relay-client";
 import {
   channelDetailSchema,
   channelMembershipSchema,
@@ -105,6 +106,10 @@ void test("routes createChannel through the relay and emits the created channel"
     listProjects() {
       throw new Error("not used in this test");
     },
+    schedules: new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: "workspace-a",
+    }).schedules,
     listProspects() {
       throw new Error("not used in this test");
     },
@@ -219,6 +224,10 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
     listMessages: unused,
     loadAgentConfig: unused,
     listProjects: unused,
+    schedules: new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: "workspace-a",
+    }).schedules,
     listProspects: unused,
     listWorkspaceFiles: unused,
     reactToMessage: unused,

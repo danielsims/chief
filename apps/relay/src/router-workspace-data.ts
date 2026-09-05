@@ -7,6 +7,8 @@ import { withTrustedContext } from "./internal-context";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
+const schedulesRoute =
+  /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions)?$/u;
 const brandProfileRoute = /^\/v1\/workspaces\/([^/]+)\/data\/brand-profile$/u;
 const prospectsRoute = /^\/v1\/workspaces\/([^/]+)\/data\/prospects$/u;
 const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
@@ -23,6 +25,7 @@ export function routeWorkspaceDataRequest(
   url: URL,
 ) {
   return Effect.gen(function* () {
+    const schedules = schedulesRoute.exec(url.pathname);
     const brand = brandProfileRoute.exec(url.pathname);
     const prospects = prospectsRoute.exec(url.pathname);
     const files = filesRoute.exec(url.pathname);
@@ -33,7 +36,20 @@ export function routeWorkspaceDataRequest(
     const machine = machineRoute.exec(url.pathname);
     let rawWorkspaceId: string | undefined;
     let operation: string | undefined;
-    if (brand && ["GET", "PUT"].includes(request.method)) {
+    if (
+      schedules &&
+      ((request.method === "GET" && !schedules[2]) ||
+        ["POST", "PUT", "DELETE"].includes(request.method))
+    ) {
+      rawWorkspaceId = schedules[1];
+      operation = schedules[3]
+        ? "schedules-action"
+        : request.method === "GET"
+          ? "schedules-list"
+          : request.method === "DELETE"
+            ? "schedules-delete"
+            : "schedules-save";
+    } else if (brand && ["GET", "PUT"].includes(request.method)) {
       rawWorkspaceId = brand[1];
       operation =
         request.method === "GET" ? "data-brand-get" : "data-brand-save";
@@ -96,6 +112,9 @@ export function routeWorkspaceDataRequest(
             method: "POST",
             headers: {
               "x-chief-internal-operation": operation,
+              ...(schedules?.[2]
+                ? { "x-chief-schedule-id": decodeURIComponent(schedules[2]) }
+                : undefined),
               ...(file?.[2]
                 ? { "x-chief-workspace-file-id": decodeURIComponent(file[2]) }
                 : undefined),

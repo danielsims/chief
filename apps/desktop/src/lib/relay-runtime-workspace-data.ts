@@ -23,6 +23,7 @@ import {
   localProjectSnapshots,
   queryRelayProject,
 } from "./relay-runtime-project-connect";
+import { routeRelayScheduleCommand } from "./relay-runtime-schedules";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -140,6 +141,7 @@ function pluginAuthorizationAction(response: JsonObject) {
 interface WorkspaceDataContext {
   relay: Pick<
     RelayClient,
+    | "schedules"
     | "createProject"
     | "listProjects"
     | "listProspects"
@@ -154,6 +156,18 @@ export async function routeRelayWorkspaceDataCommand(
   message: ClientMessage,
   context: WorkspaceDataContext,
 ) {
+  if (
+    message.type === "saveRecurringWork" ||
+    message.type === "runRecurringWorkNow" ||
+    message.type === "deleteRecurringWork"
+  ) {
+    try {
+      await routeRelayScheduleCommand(message, context.relay);
+    } finally {
+      await listWorkspaceData(context);
+    }
+    return true;
+  }
   switch (message.type) {
     case "listWorkspaceFiles":
       await listWorkspaceFiles(context);
@@ -325,7 +339,10 @@ async function listProjects(context: WorkspaceDataContext) {
 }
 
 async function listWorkspaceData(context: WorkspaceDataContext) {
-  const prospects = await context.relay.listProspects();
+  const [prospects, schedules] = await Promise.all([
+    context.relay.listProspects(),
+    context.relay.schedules.list(),
+  ]);
   context.emit({
     type: "workspaceData",
     workspaceId: context.snapshot.id,
@@ -345,7 +362,7 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     analyticsDatasets: [],
     drafts: [],
     campaigns: [],
-    recurringWork: [],
+    recurringWork: schedules,
     activity: [],
     actionItems: [],
     waysOfWorking: {

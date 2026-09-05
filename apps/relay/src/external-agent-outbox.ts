@@ -14,6 +14,7 @@ import {
 import { HttpError } from "./http";
 import { firstRow } from "./workspace-channel-store";
 import { workspacePeople } from "./workspace-member-names";
+import { setWorkspaceAlarm } from "./workspace-schedule-store";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
@@ -172,7 +173,7 @@ export class ExternalAgentOutbox {
     if (!claimed) return this.scheduleNext();
     // A fresh alarm is the crash-recovery lease for this claimed delivery. If
     // the isolate dies during fetch, the row becomes retryable after the lease.
-    await this.storage.setAlarm(now + STALE_DELIVERY_MS);
+    await setWorkspaceAlarm(this.storage, now + STALE_DELIVERY_MS);
     try {
       await this.deliver(workspaceId, row);
     } catch (error) {
@@ -433,8 +434,9 @@ export class ExternalAgentOutbox {
         ? new Date(delivering.delivering_since).getTime() + STALE_DELIVERY_MS
         : undefined,
     ].filter((value): value is number => value !== undefined);
-    if (deadlines.length > 0)
-      await this.storage.setAlarm(Math.min(...deadlines));
-    else await this.storage.deleteAlarm();
+    await setWorkspaceAlarm(
+      this.storage,
+      deadlines.length > 0 ? Math.min(...deadlines) : undefined,
+    );
   }
 }

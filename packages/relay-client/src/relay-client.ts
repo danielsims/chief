@@ -62,6 +62,7 @@ import type { RelayConversationSubscription } from "./relay-subscription";
 import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
 import { RelayClientError } from "./relay-client-error";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
+import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
@@ -74,10 +75,15 @@ export type WorkspaceSubscription = RelayWorkspaceSubscription;
 
 export class RelayClient extends RelayVercelProvisioning {
   readonly externalAgents: RelayExternalAgentsClient;
+  readonly schedules: Pick<
+    RelaySchedulesClient,
+    "list" | "save" | "act" | "delete"
+  >;
 
   constructor(options: RelayClientOptions) {
     super(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
+    this.schedules = new RelaySchedulesClient(options);
   }
 
   forWorkspace(workspaceId: WorkspaceId | string) {

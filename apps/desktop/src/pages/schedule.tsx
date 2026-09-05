@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  List,
+  Plus,
+} from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
 
@@ -15,7 +21,13 @@ import type {
 import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
-import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
+import {
+  messageBlocks,
+  useChiefChat,
+  useRuntime,
+  useWorkspaceCapability,
+  useWorkspaceData,
+} from "../lib/runtime";
 import { ContinuousMonthView, ScheduleFilters } from "./schedule-calendar";
 import {
   addDays,
@@ -31,6 +43,7 @@ import {
 } from "./schedule-dialogs";
 import { RecurringWorkEditDialog } from "./schedule-editor";
 import { MonthJump, ScheduleInbox } from "./schedule-inbox";
+import { ScheduleOverview } from "./schedule-overview";
 import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
@@ -39,8 +52,15 @@ import {
 export function SchedulePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
-  const today = useMemo(() => startOfDay(new Date()), []);
   const [now, setNow] = useState(Date.now);
+  const todayKey = dayKey(new Date(now));
+  const today = useMemo(
+    () => startOfDay(new Date(`${todayKey}T00:00:00`)),
+    [todayKey],
+  );
+  const [presentation, setPresentation] = useState<"overview" | "calendar">(
+    "overview",
+  );
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
   const [view, setView] = useState<CalendarView>("week");
@@ -66,6 +86,22 @@ export function SchedulePage() {
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
+  const { client, status } = useRuntime();
+  const { capability } = useWorkspaceCapability();
+  useEffect(() => {
+    if (!cloudOrganizationId || !capability || status !== "connected") return;
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        client.send({
+          type: "listWorkspaceData",
+          workspaceId: cloudOrganizationId,
+          executorCapability: capability,
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(timer);
+  }, [client, status, cloudOrganizationId, capability]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -99,6 +135,18 @@ export function SchedulePage() {
     }
     return null;
   }, [revisionChat.messages]);
+  const createSchedule = (prompt?: string) => {
+    const params = new URLSearchParams({ dm: "chief" });
+    if (prompt) params.set("draft", prompt);
+    else params.set("compose", "recurring");
+    void navigate(`/conversations?${params.toString()}`);
+  };
+  const togglePause = (work: RecurringWorkRecord) =>
+    workspaceData.saveRecurringWork({
+      ...work,
+      status: work.status === "active" ? "paused" : "active",
+      updatedAt: Date.now(),
+    });
   const openWorkReview = (work: RecurringWorkRecord) => {
     if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
@@ -122,11 +170,11 @@ export function SchedulePage() {
     };
     void revisionChat.sendMessage({
       text: [
-        "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
+        `@${approvalWork.agentId}, the user is reviewing a draft recurring-work approval and asked for a change before approving.`,
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -226,144 +274,202 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="shrink-0 px-8 pt-6 pb-5">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-8 pt-6 pb-6">
         <div>
           <PageTitle>Schedule</PageTitle>
           <p className="text-muted-foreground mt-1 text-[13px]">
-            See what is coming up and approve proposed schedules.
+            Keep your team moving. Review plans, follow progress, and see what
+            runs next.
           </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="bg-muted/50 flex rounded-lg p-0.5">
+            <Button
+              variant={presentation === "overview" ? "outline" : "ghost"}
+              size="sm"
+              aria-pressed={presentation === "overview"}
+              onClick={() => setPresentation("overview")}
+            >
+              <List size={14} />
+              Overview
+            </Button>
+            <Button
+              variant={presentation === "calendar" ? "outline" : "ghost"}
+              size="sm"
+              aria-pressed={presentation === "calendar"}
+              onClick={() => setPresentation("calendar")}
+            >
+              <CalendarDays size={14} />
+              Calendar
+            </Button>
+          </div>
+          <Button size="sm" onClick={() => createSchedule()}>
+            <Plus size={14} />
+            New schedule
+          </Button>
         </div>
       </header>
 
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
-          <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
-            {view === "month" ? (
-              <MonthJump month={activeMonth} onSelect={requestMonth} />
-            ) : (
-              <AnimatePresence
-                initial={false}
-                mode="popLayout"
-                custom={monthDirection}
+      {presentation === "overview" ? (
+        <ScheduleOverview
+          work={workspaceData.recurringWork}
+          drafts={workspaceData.drafts}
+          activity={workspaceData.activity}
+          now={now}
+          loading={workspaceData.loading}
+          onOpenWork={openWorkReview}
+          onEditWork={(work) => setEditWorkId(work.id)}
+          onTogglePause={togglePause}
+          onRunWork={(work) => workspaceData.runRecurringWorkNow(work.id)}
+          onOpenDraft={(draft) => setDetailDraftId(draft.id)}
+          onCreate={createSchedule}
+          onOpenActivity={(session) => {
+            void navigate(
+              `/conversations?chat=${encodeURIComponent(session.parentId ?? session.id)}`,
+            );
+          }}
+        />
+      ) : (
+        <section className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
+            <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
+              {view === "month" ? (
+                <MonthJump month={activeMonth} onSelect={requestMonth} />
+              ) : (
+                <AnimatePresence
+                  initial={false}
+                  mode="popLayout"
+                  custom={monthDirection}
+                >
+                  <motion.p
+                    key={focusedHeading}
+                    initial={
+                      reduceMotion
+                        ? false
+                        : { y: monthDirection * 18, opacity: 0 }
+                    }
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={
+                      reduceMotion
+                        ? { opacity: 0 }
+                        : { y: monthDirection * -18, opacity: 0 }
+                    }
+                    transition={{
+                      type: "spring",
+                      stiffness: 440,
+                      damping: 38,
+                      mass: 0.7,
+                    }}
+                    className="absolute inset-x-0 min-w-0 truncate text-xl font-medium tracking-[-0.025em]"
+                  >
+                    {focusedHeading}
+                  </motion.p>
+                </AnimatePresence>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
+              <ScheduleFilters
+                visibleKinds={visibleKinds}
+                onToggle={(kind) => {
+                  setVisibleKinds((current) => {
+                    const next = new Set(current);
+                    if (next.has(kind)) next.delete(kind);
+                    else next.add(kind);
+                    return next;
+                  });
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelected(today);
+                  if (view === "month") requestMonth(currentMonth);
+                }}
               >
-                <motion.p
-                  key={focusedHeading}
-                  initial={
-                    reduceMotion
-                      ? false
-                      : { y: monthDirection * 18, opacity: 0 }
-                  }
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={
-                    reduceMotion
-                      ? { opacity: 0 }
-                      : { y: monthDirection * -18, opacity: 0 }
-                  }
-                  transition={{
-                    type: "spring",
-                    stiffness: 440,
-                    damping: 38,
-                    mass: 0.7,
-                  }}
-                  className="absolute inset-x-0 min-w-0 truncate text-xl font-medium tracking-[-0.025em]"
-                >
-                  {focusedHeading}
-                </motion.p>
-              </AnimatePresence>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
-            <ScheduleFilters
-              visibleKinds={visibleKinds}
-              onToggle={(kind) => {
-                setVisibleKinds((current) => {
-                  const next = new Set(current);
-                  if (next.has(kind)) next.delete(kind);
-                  else next.add(kind);
-                  return next;
-                });
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSelected(today);
-                if (view === "month") requestMonth(currentMonth);
-              }}
-            >
-              Today
-            </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
-              <ChevronLeft size={14} />
-            </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
-              <ChevronRight size={14} />
-            </Button>
-            <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-              {(["month", "week", "day"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setView(option)}
-                  className={cn(
-                    "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
-                    view === option &&
-                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Previous period"
+                onClick={() => move(-1)}
+              >
+                <ChevronLeft size={14} />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Next period"
+                onClick={() => move(1)}
+              >
+                <ChevronRight size={14} />
+              </Button>
+              <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+                {(["month", "week", "day"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setView(option)}
+                    className={cn(
+                      "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
+                      view === option &&
+                        "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
+                    )}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
-          {view === "month" ? (
-            <ContinuousMonthView
-              currentMonth={currentMonth}
-              activeMonth={activeMonth}
-              onActiveMonthChange={(month) => {
-                setMonthDirection(month > activeMonth ? 1 : -1);
-                setActiveMonth(month);
-              }}
-              today={today}
-              now={now}
-              selected={selected}
-              onSelect={setSelected}
-              onWorkOpen={openWorkReview}
-              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-              scrollRequest={scrollRequest}
-            />
-          ) : (
-            <FocusedCalendarView
-              view={view}
-              selected={selected}
-              today={today}
-              now={now}
-              onSelect={setSelected}
-              onWorkOpen={openWorkReview}
-              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-            />
-          )}
-        </div>
-      </section>
+          <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
+            {view === "month" ? (
+              <ContinuousMonthView
+                currentMonth={currentMonth}
+                activeMonth={activeMonth}
+                onActiveMonthChange={(month) => {
+                  setMonthDirection(month > activeMonth ? 1 : -1);
+                  setActiveMonth(month);
+                }}
+                today={today}
+                now={now}
+                selected={selected}
+                onSelect={setSelected}
+                onWorkOpen={openWorkReview}
+                onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+                onWorkContext={(work, date, x, y) =>
+                  setWorkMenu({ work, date, x, y })
+                }
+                byDay={byDay}
+                recurringByDay={recurringByDay}
+                showPosts={showPosts}
+                showAgentWork={showAgentWork}
+                scrollRequest={scrollRequest}
+              />
+            ) : (
+              <FocusedCalendarView
+                view={view}
+                selected={selected}
+                today={today}
+                now={now}
+                onSelect={setSelected}
+                onWorkOpen={openWorkReview}
+                onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+                onWorkContext={(work, date, x, y) =>
+                  setWorkMenu({ work, date, x, y })
+                }
+                byDay={byDay}
+                recurringByDay={recurringByDay}
+                showPosts={showPosts}
+                showAgentWork={showAgentWork}
+              />
+            )}
+          </div>
+        </section>
+      )}
       <RecurringWorkApprovalDialog
         work={approvalWork}
         now={now}
@@ -414,6 +520,13 @@ export function SchedulePage() {
         onEditWork={(work) => {
           setDetailWorkId(null);
           setEditWorkId(work.id);
+        }}
+        onOpenWorkChannel={(work) => {
+          setDetailWorkId(null);
+          if (!work.conversationId) return;
+          const params = new URLSearchParams({ channel: work.conversationId });
+          if (work.lastMessageId) params.set("thread", work.lastMessageId);
+          void navigate(`/conversations?${params.toString()}`);
         }}
         onOpenDraft={(draft) => {
           setDetailDraftId(null);

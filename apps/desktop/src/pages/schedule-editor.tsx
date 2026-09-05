@@ -89,6 +89,7 @@ function cronFromFields(fields: ScheduleFields): string {
 export function friendlySchedule(work: RecurringWorkRecord) {
   if (work.onceAt !== undefined) {
     return new Date(work.onceAt).toLocaleString([], {
+      timeZone: work.timezone,
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -113,19 +114,8 @@ export function friendlySchedule(work: RecurringWorkRecord) {
   return `Monthly on day ${fields.dayOfMonth} at ${time}`;
 }
 
-export function friendlyTimezone(timezone: string) {
-  if (timezone === Intl.DateTimeFormat().resolvedOptions().timeZone) {
-    return "your time";
-  }
-  const location = timezone.split("/").at(-1)?.replaceAll("_", " ");
-  return `${location ?? timezone} time`;
-}
-
 export function approvalTiming(work: RecurringWorkRecord) {
-  const timing = friendlySchedule(work);
-  return work.onceAt === undefined
-    ? `${timing} · ${friendlyTimezone(work.timezone)}`
-    : timing;
+  return `${friendlySchedule(work)} · ${work.timezone}`;
 }
 
 export function conciseApprovalSummary(work: RecurringWorkRecord) {
