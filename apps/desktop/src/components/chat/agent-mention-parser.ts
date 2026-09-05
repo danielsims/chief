@@ -73,8 +73,10 @@ export function splitAgentMentions(
   text: string,
   extra: readonly MentionAlias[] = [],
 ): (AgentMentionSegment | TextSegment)[] {
-  const idsByName = extra.length > 0 ? mentionIdsByName(extra) : AGENT_IDS_BY_NAME;
-  const pattern = extra.length > 0 ? mentionPattern(idsByName) : AGENT_MENTION_PATTERN;
+  const idsByName =
+    extra.length > 0 ? mentionIdsByName(extra) : AGENT_IDS_BY_NAME;
+  const pattern =
+    extra.length > 0 ? mentionPattern(idsByName) : AGENT_MENTION_PATTERN;
   const segments: (AgentMentionSegment | TextSegment)[] = [];
   let cursor = 0;
 
@@ -91,11 +93,13 @@ export function splitAgentMentions(
         agentId,
         token: match[0],
         label:
-          (isWorkspaceAgentId(agentId) ? WORKSPACE_AGENT_IDENTITIES[agentId].name : undefined) ??
           extra
             .filter((alias) => alias.id === agentId)
             .sort((left, right) => right.name.length - left.name.length)[0]
             ?.name ??
+          (isWorkspaceAgentId(agentId)
+            ? WORKSPACE_AGENT_IDENTITIES[agentId].name
+            : undefined) ??
           label,
       });
     } else {
@@ -120,8 +124,10 @@ export function removeAgentMentionBeforeCaret(
 
   const hasInsertedSpacer = text[selectionStart - 1] === " ";
   const mentionEnd = hasInsertedSpacer ? selectionStart - 1 : selectionStart;
-  const idsByName = extra.length > 0 ? mentionIdsByName(extra) : AGENT_IDS_BY_NAME;
-  const pattern = extra.length > 0 ? mentionPattern(idsByName) : AGENT_MENTION_PATTERN;
+  const idsByName =
+    extra.length > 0 ? mentionIdsByName(extra) : AGENT_IDS_BY_NAME;
+  const pattern =
+    extra.length > 0 ? mentionPattern(idsByName) : AGENT_MENTION_PATTERN;
 
   for (const match of text.matchAll(pattern)) {
     const matchStart = match.index;
