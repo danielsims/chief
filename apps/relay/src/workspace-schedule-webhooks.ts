@@ -11,6 +11,10 @@ import {
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
+import {
+  canMessageAgent,
+  requireAgentMessageAccess,
+} from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { missionAllowsSchedule } from "./workspace-schedule-dispatch";
 import { queueScheduleRun } from "./workspace-schedule-runs";
@@ -75,6 +79,12 @@ export async function routeScheduleWebhooks(
           const schedule = readWorkspaceSchedule(storage, webhook.scheduleId);
           return (
             schedule &&
+            [
+              schedule.schedule.agentId,
+              ...schedule.schedule.collaborators,
+            ].every((agentId) =>
+              canMessageAgent(channels, agentId, context.principal),
+            ) &&
             channels.canReadConversation(
               schedule.schedule.conversationId,
               context.principal,
@@ -92,6 +102,11 @@ export async function routeScheduleWebhooks(
         "schedule_not_found",
         "Choose an existing schedule.",
       );
+    for (const agentId of [
+      schedule.schedule.agentId,
+      ...schedule.schedule.collaborators,
+    ])
+      requireAgentMessageAccess(channels, agentId, context.principal);
     channels.requireChannelVisible(
       schedule.schedule.conversationId,
       context.principal,
@@ -133,11 +148,17 @@ export async function routeScheduleWebhooks(
       "This webhook no longer exists.",
     );
   const schedule = readWorkspaceSchedule(storage, current.webhook.scheduleId);
-  if (schedule)
+  if (schedule) {
+    for (const agentId of [
+      schedule.schedule.agentId,
+      ...schedule.schedule.collaborators,
+    ])
+      requireAgentMessageAccess(channels, agentId, context.principal);
     channels.requireChannelVisible(
       schedule.schedule.conversationId,
       context.principal,
     );
+  }
   const { action } = scheduleWebhookActionSchema.parse(
     await parseJson(request),
   );

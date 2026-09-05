@@ -12,6 +12,10 @@ import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
+import {
+  requireAgentMessageAccess,
+  requirePersonalAgentOwner,
+} from "./workspace-agent-messaging";
 import { requireNativeAgent, workspaceAgent } from "./workspace-agent-runtime";
 import {
   firstRow,
@@ -63,6 +67,10 @@ export class WorkspaceAgentAccessService {
     }
     const agent = agentSummarySchema.parse({
       id: input.agentId,
+      ownerUserId:
+        context.principal.kind === "user"
+          ? context.principal.userId
+          : undefined,
       name: input.name,
       role: input.role,
       description: input.description,
@@ -160,6 +168,7 @@ export class WorkspaceAgentAccessService {
     }
     const agentId = agentIdSchema.parse(input.agentId);
     requireNativeAgent(this.storage, agentId);
+    requireAgentMessageAccess(this.channels, agentId, context.principal);
     const configInput = parseJsonObject(input.config);
     if (!configInput) {
       throw new HttpError(
@@ -169,6 +178,12 @@ export class WorkspaceAgentAccessService {
       );
     }
     const parsedConfig = agentConfigSchema.parse(configInput);
+    if (
+      this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud" ||
+      parsedConfig.deploymentTarget !== "cloud"
+    ) {
+      requirePersonalAgentOwner(this.channels, agentId, context.principal);
+    }
     const updatedAt = new Date().toISOString();
     this.storage.sql.exec(
       `INSERT INTO agent_configs (agent_id, config_json, updated_at)
@@ -186,6 +201,8 @@ export class WorkspaceAgentAccessService {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, true);
     const agentId = requestedAgentId(request);
+    if (this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud")
+      requirePersonalAgentOwner(this.channels, agentId, context.principal);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
     const snapshot = workspace.snapshot_json
       ? decodeWorkspaceSnapshot(workspace.snapshot_json)
@@ -314,6 +331,21 @@ export class WorkspaceAgentAccessService {
       new URL(request.url).searchParams.get("conversationId"),
     );
     this.channels.requireChannelVisible(conversationId, context.principal);
+    const channel = this.channels.requireChannel(conversationId);
+    if (
+      permission === "messages.send" &&
+      channel.kind === "direct" &&
+      context.principal.kind === "user"
+    ) {
+      for (const member of this.channels.channelMemberRows(conversationId)) {
+        if (member.kind === "agent")
+          requireAgentMessageAccess(
+            this.channels,
+            member.principalId,
+            context.principal,
+          );
+      }
+    }
     return json({ ok: true });
   }
 
@@ -343,6 +375,7 @@ export class WorkspaceAgentAccessService {
     this.channels.requirePrincipalMember(context.principal);
     const agentId = requestedAgentId(request);
     requireNativeAgent(this.storage, agentId);
+    requireAgentMessageAccess(this.channels, agentId, context.principal);
     return json({ ok: true });
   }
 

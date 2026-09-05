@@ -20,6 +20,7 @@ import type {
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
+import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import {
   channelRecordFromRow,
   firstRow,
@@ -166,6 +167,12 @@ export class WorkspaceChannelService {
       );
     }
     this.store.requireWorkspaceMember(target.kind, target.principalId);
+    if (target.kind === "agent")
+      requireAgentMessageAccess(
+        this.store,
+        target.principalId,
+        context.principal,
+      );
 
     const existing = firstRow<ChannelRow>(
       this.store.storage.sql.exec(

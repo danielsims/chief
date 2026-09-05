@@ -16,7 +16,12 @@ export async function ensureDesktopCells(
   if (!isTauri()) return;
   const configurations = await Promise.all(
     snapshot.agents
-      .filter((agent) => agent.runtime.kind === "native-cell")
+      .filter(
+        (agent) =>
+          agent.runtime.kind === "native-cell" &&
+          agent.canRunOnDevice !== false,
+      )
+      .flatMap((agent) => [agent, ...agent.subagents])
       .map(async (agent) => {
         const configuration = await workspace.loadAgentConfig(agent.id);
         return { agentId: agent.id, config: configuration.config };

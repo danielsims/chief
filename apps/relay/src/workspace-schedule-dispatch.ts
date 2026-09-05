@@ -16,6 +16,7 @@ import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
+import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { readWorkspaceMission } from "./workspace-missions";
 import {
@@ -173,6 +174,7 @@ async function advanceScheduleRun(
     current.principal,
   );
   for (const agentId of [run.schedule.agentId, ...run.schedule.collaborators]) {
+    requireAgentMessageAccess(channels, agentId, current.principal);
     if (
       !channels.channelMembership(
         run.schedule.conversationId,

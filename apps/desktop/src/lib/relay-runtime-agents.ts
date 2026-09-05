@@ -22,6 +22,7 @@ export function relayAgentDefinitions(
     return {
       ...definition,
       id: agent.id,
+      canMessage: agent.canMessage,
       name: agent.name,
       role: agent.role,
       description:
@@ -72,9 +73,9 @@ export async function relayAgentPreferencesMessage(
   snapshot: WorkspaceSnapshot,
   requestId?: string,
 ): Promise<Extract<ServerMessage, { type: "agentPreferences" }>> {
-  const nativeAgents = snapshot.agents.filter(
-    (agent) => agent.runtime.kind === "native-cell",
-  );
+  const nativeAgents = snapshot.agents
+    .filter((agent) => agent.runtime.kind === "native-cell")
+    .flatMap((agent) => [agent, ...agent.subagents]);
   const results = await Promise.allSettled(
     nativeAgents.map(async (agent) =>
       relayAgentPreference(await relay.loadAgentConfig(agent.id)),
@@ -102,7 +103,9 @@ export async function saveRelayAgentPreference(
   preference: AgentPreference,
 ) {
   const agent = snapshot.agents.find(
-    (candidate) => candidate.id === preference.agentId,
+    (candidate) =>
+      candidate.id === preference.agentId ||
+      candidate.subagents.some((child) => child.id === preference.agentId),
   );
   if (agent?.runtime.kind !== "native-cell") {
     throw new Error(
