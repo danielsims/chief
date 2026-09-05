@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderGit2 } from "lucide-react";
@@ -19,31 +19,27 @@ import { useProjects } from "../../lib/runtime-projects";
 
 type ProjectSource = "attach" | "clone";
 
-export function AddProjectDialog({
-  open: visible,
-  onOpenChange,
-  initialRemoteUrl,
-}: {
+interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialRemoteUrl?: string;
-}) {
+}
+
+export function AddProjectDialog(props: AddProjectDialogProps) {
+  return props.open ? <AddProjectDialogForm {...props} /> : null;
+}
+
+function AddProjectDialogForm({
+  open: visible,
+  onOpenChange,
+  initialRemoteUrl,
+}: AddProjectDialogProps) {
   const projects = useProjects();
-  const { clearError } = projects;
   const [source, setSource] = useState<ProjectSource>(
     initialRemoteUrl ? "clone" : "attach",
   );
   const [path, setPath] = useState("");
   const [remoteUrl, setRemoteUrl] = useState(initialRemoteUrl ?? "");
-
-  useEffect(() => {
-    if (!visible) return;
-    clearError();
-    if (initialRemoteUrl) {
-      setSource("clone");
-      setRemoteUrl(initialRemoteUrl);
-    }
-  }, [clearError, initialRemoteUrl, visible]);
 
   const chooseFolder = async () => {
     if (!isTauri()) return;
