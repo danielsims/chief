@@ -90,8 +90,6 @@ struct ConversationView: View {
       ConversationTranscriptView(
         conversationID: conversationID,
         messages: messages,
-        browserWorkspaceID: model.workspace?.id,
-        browserAgents: workingAgents,
         seenMessageIDs: $seenMessageIDs,
         sentMessageIDs: $sentMessageIDs,
         allowsActions: canParticipate
@@ -141,6 +139,7 @@ struct ConversationView: View {
         attachments: attachments,
         availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
         preferredMentionAgentIDs: channelAgentIDs,
+        people: model.mentionPeople,
         onSend: send,
         onAddAttachments: addAttachments,
         onRemoveAttachment: removeAttachment

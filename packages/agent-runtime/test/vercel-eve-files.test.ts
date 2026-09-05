@@ -77,4 +77,27 @@ void test("packages declared specialists as native Eve subagents", () => {
     files.find((file) => file.path === "agent/instructions.md")?.contents ?? "",
     /Prospector agent instructions/u,
   );
+  const instructions =
+    files.find((file) => file.path === "agent/instructions.md")?.contents ?? "";
+  assert.match(instructions, /Chief channel replies/u);
+  assert.match(instructions, /ordinary assistant text is delivered/u);
+  assert.match(instructions, /channels_reactions_add/u);
+  assert.match(instructions, /channels_messages_post/u);
+  const channel =
+    files.find((file) => file.path === "agent/channels/chief.ts")?.contents ??
+    "";
+  assert.match(channel, /"turn\.completed"/u);
+  assert.match(channel, /"input\.requested"/u);
+  assert.match(channel, /"session\.waiting"/u);
+  assert.match(channel, /postReply/u);
+  assert.match(channel, /finishReason !== "tool-calls"/u);
+  assert.match(channel, /Call channels_reactions_add/u);
+  assert.match(channel, /peopleRoster/u);
+  assert.match(channel, /projects\.recommend/u);
+  assert.ok(
+    files.some((file) => file.path === "agent/tools/channels_messages_post.ts"),
+  );
+  assert.ok(
+    files.some((file) => file.path === "agent/tools/channels_reactions_add.ts"),
+  );
 });

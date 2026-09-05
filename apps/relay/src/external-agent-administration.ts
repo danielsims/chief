@@ -22,7 +22,7 @@ import { readTrustedContext } from "./internal-context";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
-import { completeEveWorkspaceOnboarding } from "./workspace-eve-onboarding";
+import { prepareEveWorkspaceOnboarding } from "./workspace-eve-onboarding";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
@@ -177,15 +177,12 @@ export class ExternalAgentAdministration {
       );
     });
     if (agentId === "chief") {
-      await completeEveWorkspaceOnboarding({
+      await prepareEveWorkspaceOnboarding({
         env: this.env,
         storage: this.storage,
         channels: this.channels,
         workspaceId: context.workspaceId,
-        createdAt: workspace.created_at,
-        createdByUserId: workspace.created_by_user_id,
         snapshot,
-        selectedApps,
       });
     }
     return json(

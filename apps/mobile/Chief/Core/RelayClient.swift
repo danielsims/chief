@@ -6,6 +6,13 @@ let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 
 protocol RelayServing: Sendable {
   func bindDeviceIdentity(accountToken: String) async throws
+  func registerPushDevice(token: String, environment: String) async throws -> Bool
+  func createProject(
+    workspaceID: String,
+    name: String,
+    remoteURL: String,
+    providerID: String
+  ) async throws -> ProjectSummary
   func loadWorkspace() async throws -> WorkspaceSnapshot
   func createWorkspace(
     from draft: OnboardingDraft,
@@ -194,6 +201,19 @@ protocol RelayServing: Sendable {
 }
 
 extension RelayServing {
+  func registerPushDevice(token _: String, environment _: String) async throws -> Bool {
+    false
+  }
+
+  func createProject(
+    workspaceID _: String,
+    name _: String,
+    remoteURL _: String,
+    providerID _: String
+  ) async throws -> ProjectSummary {
+    throw RelayError.unavailable
+  }
+
   func workspaceSecretNames(workspaceID _: String) async throws -> [String] {
     throw RelayError.unavailable
   }
@@ -509,6 +529,55 @@ actor URLSessionRelayClient: RelayServing {
     await DeviceAuthorizationVault.shared.store(
       result.deviceAuthorization,
       for: configuration.relayURL
+    )
+  }
+
+  func registerPushDevice(token: String, environment: String) async throws -> Bool {
+    struct Payload: Encodable {
+      let token: String
+      let environment: String
+    }
+    struct Result: Decodable {
+      let token: String
+      let environment: String
+      let updatedAt: String
+      let apnsConfigured: Bool?
+    }
+    let result: Result = try await request(
+      path: "/v1/push/devices",
+      method: "POST",
+      body: try JSONEncoder().encode(Payload(token: token, environment: environment))
+    )
+    return result.apnsConfigured ?? false
+  }
+
+  func createProject(
+    workspaceID: String,
+    name: String,
+    remoteURL: String,
+    providerID: String
+  ) async throws -> ProjectSummary {
+    struct Payload: Encodable {
+      let name: String
+      let repositoryKind: String
+      let providerId: String
+      let canonicalRemoteUrl: String
+      let repositoryWebUrl: String
+      let defaultBranch: String
+    }
+    return try await request(
+      path: "/v1/workspaces/\(workspaceID)/projects",
+      method: "POST",
+      body: try JSONEncoder().encode(
+        Payload(
+          name: name,
+          repositoryKind: "cloned",
+          providerId: providerID,
+          canonicalRemoteUrl: remoteURL,
+          repositoryWebUrl: remoteURL,
+          defaultBranch: "main"
+        )
+      )
     )
   }
 

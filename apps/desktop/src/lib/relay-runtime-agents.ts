@@ -1,6 +1,6 @@
 import type {
   AgentDefinition,
-  ClientMessage,
+  AgentPreference,
   ServerMessage,
 } from "@chief/agent-runtime/types";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
@@ -99,20 +99,20 @@ export async function relayAgentPreferencesMessage(
 export async function saveRelayAgentPreference(
   relay: RelayRuntimeRelay,
   snapshot: WorkspaceSnapshot,
-  message: Extract<ClientMessage, { type: "saveAgentPreference" }>,
+  preference: AgentPreference,
 ) {
   const agent = snapshot.agents.find(
-    (candidate) => candidate.id === message.preference.agentId,
+    (candidate) => candidate.id === preference.agentId,
   );
   if (agent?.runtime.kind !== "native-cell") {
     throw new Error(
       "External agents are configured through their channel runtime.",
     );
   }
-  const current = await relay.loadAgentConfig(message.preference.agentId);
+  const current = await relay.loadAgentConfig(preference.agentId);
   await relay.saveAgentConfig(
-    message.preference.agentId,
-    relayAgentConfig(current.config, message.preference),
+    preference.agentId,
+    relayAgentConfig(current.config, preference),
   );
   await ensureDesktopCells(snapshot, relay);
 }

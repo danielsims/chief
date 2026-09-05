@@ -1,7 +1,7 @@
 import type {
-  AgentId,
   AgentJob,
   AgentPrincipal,
+  ChannelMentionId,
   JsonObject,
 } from "@chief/relay-contracts";
 import {
@@ -24,7 +24,7 @@ export async function publishAgentMessage(
     conversationId: string;
     threadRootId?: string;
     body: string;
-    mentions?: AgentId[];
+    mentions?: ChannelMentionId[];
     components?: {
       id: string;
       kind: string;

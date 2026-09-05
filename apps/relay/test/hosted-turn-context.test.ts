@@ -33,6 +33,7 @@ describe("hosted agent turn context", () => {
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_list");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_recommend");
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("projects_recommend");
   });
 
   it("primes only the latest relevant messages and excludes the triggering message", () => {
@@ -70,6 +71,7 @@ describe("hosted agent turn context", () => {
     expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain(
       "Do not narrate that the user only tagged you",
     );
+    expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain("Never invent a @chief (user)");
   });
 
   it("requires channel creation and membership before claiming completion", () => {

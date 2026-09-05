@@ -28,7 +28,7 @@ export function routePublicRequest(request: Request, url: URL, env: Env) {
   if (url.pathname === "/health") {
     return json({ ok: true, protocolVersion: 1 });
   }
-  if (url.pathname === "/.well-known/chief-relay") {
+  if (url.pathname === "/.well-known/relay") {
     return json(relayDiscovery(request, url, env));
   }
   if (url.pathname === "/v1/openapi.json") {

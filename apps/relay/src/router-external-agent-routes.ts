@@ -18,6 +18,8 @@ const messageRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/messages$/u;
 const activityRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/activity$/u;
+const toolsRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/tools$/u;
 const requeueRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/deliveries\/([^/]+)\/requeue$/u;
 const reconciliationListRoute =
@@ -184,16 +186,16 @@ export async function routeExternalAgentRequest(
     );
   }
   const inbound =
-    messageRoute.exec(url.pathname) ?? activityRoute.exec(url.pathname);
+    messageRoute.exec(url.pathname) ??
+    activityRoute.exec(url.pathname) ??
+    toolsRoute.exec(url.pathname);
   if (inbound && request.method === "POST") {
     const workspaceId = workspaceIdSchema.parse(inbound[1]);
     agentIdSchema.parse(inbound[2]);
     const headers = new Headers(request.headers);
     headers.set(
       "x-chief-internal-operation",
-      activityRoute.test(url.pathname)
-        ? "external-agent-activity"
-        : "external-agent-message",
+      inboundChannelOperation(url.pathname),
     );
     headers.set(
       EXTERNAL_CHANNEL_AUTHORIZATION_HEADER,
@@ -243,3 +245,8 @@ export async function routeExternalAgentRequest(
 }
 const recoveryRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/deliveries\/([^/]+)\/recover$/u;
+function inboundChannelOperation(pathname: string) {
+  if (toolsRoute.test(pathname)) return "external-agent-tools";
+  if (activityRoute.test(pathname)) return "external-agent-activity";
+  return "external-agent-message";
+}

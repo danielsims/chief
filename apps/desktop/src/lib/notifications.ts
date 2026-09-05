@@ -276,6 +276,7 @@ export async function notifySystem(
   title: string,
   body?: string,
   target?: DesktopNotificationTarget,
+  options?: { urgent?: boolean },
 ) {
   const claimedSound = claimConfiguredNotificationSound();
   let delivered = false;
@@ -287,7 +288,9 @@ export async function notifySystem(
         try {
           nativeSoundDelivered =
             claimedSound !== null &&
-            (document.visibilityState !== "visible" || !document.hasFocus());
+            (Boolean(options?.urgent) ||
+              document.visibilityState !== "visible" ||
+              !document.hasFocus());
           await invoke("show_native_notification", {
             title,
             body: body ?? "",
@@ -302,7 +305,7 @@ export async function notifySystem(
         showWebNotification(title, body ?? "", target);
       }
       delivered = true;
-      if (isTauri() && !document.hasFocus()) {
+      if (isTauri() && (!document.hasFocus() || options?.urgent)) {
         await getCurrentWindow().requestUserAttention(
           UserAttentionType.Informational,
         );

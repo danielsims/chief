@@ -273,7 +273,7 @@ function fullTelemetryRuntime(env: Env, endpoint: string): RelayRuntime {
     ? { authorization: env.RELAY_OTLP_AUTHORIZATION }
     : undefined;
   const resource = {
-    serviceName: "chief-relay",
+    serviceName: "relay",
     attributes: {
       "chief.relay.id": env.RELAY_ID,
       "chief.relay.url": env.AUTH_BASE_URL.replace(/\/$/u, ""),

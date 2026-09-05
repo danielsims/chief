@@ -51,3 +51,34 @@ void test("records privacy-safe onboarding events at the account relay boundary"
     },
   });
 });
+
+void test("starts Eve workspace kickoff when the desktop enters the workspace", async () => {
+  let path = "";
+  const client = new RelayClient({
+    relayUrl: "https://relay.test",
+    workspaceId: "workspace-a",
+    getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    fetch: (input) => {
+      const url = new URL(
+        isJsonString(input)
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      path = url.pathname;
+      return Promise.resolve(
+        new Response(JSON.stringify({ started: true }), {
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    },
+  });
+
+  const result = await client.externalAgents.startWorkspaceKickoff();
+  assert.equal(result.started, true);
+  assert.equal(
+    path,
+    "/v1/workspaces/workspace-a/onboarding/start",
+  );
+});

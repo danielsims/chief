@@ -9,6 +9,8 @@ import {
 } from "react";
 import { useLocation } from "react-router";
 
+import { messageMentionsPerson } from "@chief/agent-runtime/channel-message-mentions";
+
 import type {
   ChannelReadStateBlob,
   ObservedChannelMessage,
@@ -22,6 +24,7 @@ import {
   channelContextKey,
   mergeObservedMessageSnapshot,
   observedChannelMessage,
+  shouldDeliverChannelNotification,
   threadContextKey,
   unreadCountsByChannel,
 } from "./channel-read-state";
@@ -73,6 +76,7 @@ export function ChannelReadStateProvider({
       key={`${cloudOrganizationId}:${user.id}`}
       workspaceId={cloudOrganizationId}
       readerId={user.id}
+      readerName={user.name}
     >
       {children}
     </ScopedChannelReadStateProvider>
@@ -82,10 +86,12 @@ export function ChannelReadStateProvider({
 function ScopedChannelReadStateProvider({
   children,
   readerId,
+  readerName,
   workspaceId,
 }: {
   children: ReactNode;
   readerId: string;
+  readerName: string;
   workspaceId: string;
 }) {
   const { capability } = useWorkspaceCapability();
@@ -254,6 +260,7 @@ function ScopedChannelReadStateProvider({
       // silent. The thread the agent is replying into is also silent: the user
       // is already watching those replies arrive, so a notification + sound for
       // each one is noise. Only notify for other threads and other channels.
+      // An explicit @mention is the exception — it always notifies.
       const visibleThread = visibleThreadRef.current;
       const isVisibleThread =
         observed.rootId !== null &&
@@ -261,9 +268,20 @@ function ScopedChannelReadStateProvider({
         visibleThread.rootId === observed.rootId &&
         document.visibilityState === "visible" &&
         document.hasFocus();
-      // Thread replies are explicit agent/user responses and always notify
-      // when away, but not when the exact thread is already on screen.
-      if (isVisibleTopLevel || isVisibleThread) return;
+      const mentioned = messageMentionsPerson({
+        content: observed.content,
+        mentions: observed.mentionIds,
+        person: { id: readerId, name: readerName },
+      });
+      if (
+        !shouldDeliverChannelNotification({
+          mentioned,
+          isVisibleTopLevel,
+          isVisibleThread,
+        })
+      ) {
+        return;
+      }
 
       const channel = channelsRef.current.find(
         (candidate) => candidate.id === observed.channelId,
@@ -283,12 +301,18 @@ function ScopedChannelReadStateProvider({
         messageId: observed.sourceId ?? observed.id,
         threadRootId: threadSourceId,
       });
+      const bannerTitle = mentioned
+        ? channel?.visibility === "direct"
+          ? `${observed.actor.name} mentioned you`
+          : `${observed.actor.name} mentioned you in #${channel?.name ?? "channel"}`
+        : title;
       void notifySystem(
-        title,
+        bannerTitle,
         content.trim().length > 0
           ? content.trim().slice(0, 180)
           : "Sent an attachment",
         messageTarget,
+        { urgent: mentioned },
       );
     };
     const recordLiveMessage = (

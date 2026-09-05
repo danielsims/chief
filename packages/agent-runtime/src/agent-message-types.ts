@@ -168,6 +168,12 @@ export interface GenerativePluginRecommendationsData {
   recommendationId?: string;
 }
 
+export interface GenerativeProjectRecommendationData {
+  title: string;
+  description: string;
+  remoteUrl?: string;
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -225,6 +231,7 @@ export type ChiefUIMessage = UIMessage<
     table: GenerativeTableData;
     document: GenerativeDocumentData;
     "plugin-recommendations": GenerativePluginRecommendationsData;
+    "project-recommendation": GenerativeProjectRecommendationData;
   }
 >;
 
@@ -248,6 +255,11 @@ export type GenerativePluginRecommendationsBlock = Extract<
   { type: "data-plugin-recommendations" }
 >;
 
+export type GenerativeProjectRecommendationBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-project-recommendation" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -262,6 +274,7 @@ export type ContentBlock =
   | GenerativeTableBlock
   | GenerativeDocumentBlock
   | GenerativePluginRecommendationsBlock
+  | GenerativeProjectRecommendationBlock
   | {
       type: "tool_use";
       id: string;

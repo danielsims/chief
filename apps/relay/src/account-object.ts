@@ -11,6 +11,8 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { registerPushDevice, deletePushDevice, listPushDevices } from "./account-push";
+
 import { attempt, runResponse, sync } from "./effect";
 import { json, parseJson, relayError } from "./http";
 import {
@@ -50,6 +52,11 @@ export class AccountObject extends DurableObject<Env> {
           workspace_id TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS push_devices (
+          token TEXT PRIMARY KEY,
+          environment TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
       `);
       migrateLegacyDirectory(state.storage);
       return Promise.resolve();
@@ -63,16 +70,34 @@ export class AccountObject extends DurableObject<Env> {
     const switchWorkspace = this.switchWorkspace.bind(this);
     const join = this.join.bind(this);
     const remove = this.remove.bind(this);
+    const storage = this.ctx.storage;
+    const env = this.env;
     const program = Effect.gen(function* () {
       const identity = yield* sync("account.identity", () =>
         readTrustedAccountIdentity(request),
       );
-      if (identity.kind !== "user") {
-        return relayError(403, "user_required", "A user identity is required.");
-      }
       const operation = request.headers.get("x-chief-internal-operation");
       if (request.method !== "POST") {
         return relayError(405, "method_not_allowed", "Method not allowed.");
+      }
+      if (operation === "register-push-device") {
+        if (identity.kind !== "user") {
+          return relayError(403, "user_required", "A user identity is required.");
+        }
+        return yield* attempt("account.push.register", () =>
+          registerPushDevice(storage, request, env),
+        );
+      }
+      if (operation === "list-push-devices") {
+        return yield* sync("account.push.list", () => listPushDevices(storage));
+      }
+      if (operation === "delete-push-device") {
+        return yield* attempt("account.push.delete", () =>
+          deletePushDevice(storage, request),
+        );
+      }
+      if (identity.kind !== "user") {
+        return relayError(403, "user_required", "A user identity is required.");
       }
       if (operation === "create-workspace") {
         return yield* attempt("account.workspace.create", () =>

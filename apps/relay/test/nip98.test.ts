@@ -41,7 +41,7 @@ const testSecretKey = schnorr.utils.randomSecretKey();
 // Nostr identity is the 32-byte x-only public key (BIP-340).
 const pubkey = bytesToHex(schnorr.getPublicKey(testSecretKey));
 
-const url = "https://chief-relay.example/v1/workspaces/ws-1/messages";
+const url = "https://relay.example/v1/workspaces/ws-1/messages";
 const method = "POST";
 
 describe("verifyNip98Auth", () => {

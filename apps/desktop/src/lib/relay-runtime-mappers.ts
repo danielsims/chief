@@ -16,6 +16,7 @@ import {
   isJsonString,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
+  projectRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
@@ -164,7 +165,12 @@ export function toChannelMessageEvent(
     pubkey: actor.id,
     tags: [
       ["h", message.conversationId],
-      ...(message.threadRootId ? [["e", message.threadRootId]] : []),
+      ...(message.threadRootId
+        ? [
+            ["e", message.threadRootId, "", "root"],
+            ["e", message.threadRootId, "", "reply"],
+          ]
+        : []),
       ...message.mentions.map((mention) => ["p", mention]),
     ],
     content: message.deleted ? "" : message.body,
@@ -237,6 +243,7 @@ function messageComponentParts(
   return [
     ...activityParts(message.components),
     ...pluginRecommendationParts(message),
+    ...projectRecommendationParts(message),
   ];
 }
 
@@ -255,7 +262,7 @@ function pluginRecommendationParts(
     const source: AgentPluginSummary["source"] =
       value.sourceType === "setup"
         ? { type: "setup", domain }
-        : { type: "discovery", registry: "chief-relay", domain };
+        : { type: "discovery", registry: "relay", domain };
     return [
       {
         id: value.pluginId,
@@ -314,7 +321,7 @@ function pluginRecommendationParts(
       trusted: true,
       source: {
         type: "discovery",
-        registry: "chief-relay",
+        registry: "relay",
         domain: authorization.provider,
       },
       domains: [authorization.provider],
@@ -338,6 +345,31 @@ function pluginRecommendationParts(
       },
     },
   ];
+}
+
+function projectRecommendationParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "project.recommendation") return [];
+    const parsed = projectRecommendationPayloadSchema.safeParse(
+      component.payload,
+    );
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-project-recommendation" as const,
+        data: {
+          title: parsed.data.title,
+          description: parsed.data.description,
+          ...(parsed.data.remoteUrl
+            ? { remoteUrl: parsed.data.remoteUrl }
+            : undefined),
+        },
+      },
+    ];
+  });
 }
 
 function pluginHostname(value?: string) {

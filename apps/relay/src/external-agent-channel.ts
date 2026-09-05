@@ -9,6 +9,7 @@ import {
   receiveExternalAgentActivity,
   receiveExternalAgentMessage,
 } from "./external-agent-channel-inbound";
+import { receiveExternalAgentTool } from "./external-agent-channel-tools";
 import {
   randomToken,
   requireVerifiedEveEndpoint,
@@ -365,6 +366,10 @@ export class ExternalAgentChannelService {
       request,
       rawAgentId,
     );
+  }
+
+  async receiveTools(request: Request, rawAgentId: string) {
+    return receiveExternalAgentTool(this.inboundHost(), request, rawAgentId);
   }
 
   runtime(agentId: string) {

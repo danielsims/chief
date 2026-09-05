@@ -14,7 +14,7 @@ import {
 import { emitMemberAddedEvent } from "./channel-membership-local-tools.js";
 import { normalizedChannelMentions } from "./channel-message-mentions.js";
 import { ensureChannelPermission } from "./channel-permissions.js";
-import { postPluginRecommendation } from "./channel-plugin-recommendation.js";
+import { handleChannelRecommendationPost } from "./channel-recommendation-local-tools.js";
 import {
   actorOwnsMessage,
   channelMessages,
@@ -183,22 +183,16 @@ export async function handleChannelMessageLocalTool(input: {
     if (!channel) return { handled: false };
     ensureChannelMember(channel, context);
     const events = await context.channelStore.events(workspaceId, channel.id);
-
-    if (tail === "plugins/recommend" && request.method === "POST") {
-      if (channel.lifecycle === "archived") {
-        fail("Restore this channel before posting.", 409, "channel_archived");
-      }
-      return {
-        handled: true,
-        value: await postPluginRecommendation({
-          workspaceId,
-          channel,
-          events,
-          body,
-          context,
-        }),
-      };
-    }
+    const recommendation = await handleChannelRecommendationPost({
+      tail,
+      method: request.method,
+      workspaceId,
+      channel,
+      events,
+      body,
+      context,
+    });
+    if (recommendation) return recommendation;
 
     if (tail === "messages" && request.method === "GET") {
       const page = cursorPage(

@@ -3,6 +3,7 @@ import { expect } from "vitest";
 import type {
   ExternalAgentInboundActivity,
   ExternalAgentInboundMessage,
+  ExternalAgentToolCall,
 } from "@chief/relay-contracts";
 import {
   externalAgentRegistrationResultSchema,
@@ -116,9 +117,30 @@ export function receiveExternalActivity(
   );
 }
 
+export function receiveExternalTool(
+  ctx: ExternalAgentChannelTestContext,
+  agentId: string,
+  token: string,
+  body: ExternalAgentToolCall,
+) {
+  return workspaceFetch(
+    ctx,
+    "external-agent-tools",
+    body,
+    {
+      kind: "service",
+      service: "external-agent-channel",
+      workspaceId: ctx.workspaceId,
+    },
+    `https://relay.test/v1/workspaces/${ctx.workspaceId}/agents/${agentId}/channel/tools`,
+    { [EXTERNAL_CHANNEL_AUTHORIZATION_HEADER]: `Bearer ${token}` },
+  );
+}
+
 type ExternalAgentTestRequest =
   | ExternalAgentInboundActivity
   | ExternalAgentInboundMessage
+  | ExternalAgentToolCall
   | ReturnType<typeof registerExternalAgentCommandSchema.parse>
   | object;
 

@@ -1,5 +1,6 @@
 import type {
   AgentDefinition,
+  AgentPreference,
   IntegrationSetupProgress,
 } from "@chief/agent-runtime/types";
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
@@ -21,7 +22,10 @@ export interface RuntimeContextValue {
   agents: AgentDefinition[];
   agentsLoaded: boolean;
   removeAgent: (agentId: string) => Promise<void>;
-  createNativeAgent: (input: CreateNativeAgentCommand) => Promise<void>;
+  createNativeAgent: (
+    input: CreateNativeAgentCommand,
+    preference?: AgentPreference,
+  ) => Promise<void>;
   browserSessions: RuntimeBrowserSessions;
   browserRuns: RuntimeBrowserRuns;
   anchorBrowserSession: (browserRunId: string, messageId: string) => void;

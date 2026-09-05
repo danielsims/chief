@@ -88,6 +88,7 @@ void test("recovers notifications for messages missed during channel subscriptio
     sourceId: null,
     threadSourceId: null,
     content: "Already here",
+    mentionIds: [],
     actor: { type: "agent" as const, id: "chief", name: "Chief" },
   };
   const recoveredMessage = {

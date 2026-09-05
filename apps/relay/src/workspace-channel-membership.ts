@@ -28,6 +28,7 @@ import {
   principalKindId,
 } from "./workspace-channel-store";
 import { defaultWorkspaceAgentProfiles } from "./workspace-defaults";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
 
 interface ChannelMembershipBatchRow extends Record<string, SqlStorageValue> {
   command_id: string;
@@ -47,7 +48,7 @@ interface PendingChannelMembershipBatchEvent {
 export class WorkspaceChannelMembership {
   constructor(private readonly store: WorkspaceChannelStore) {}
 
-  channelsMembersList(
+  async channelsMembersList(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
   ) {
@@ -55,6 +56,7 @@ export class WorkspaceChannelMembership {
       new URL(request.url).searchParams.get("conversationId"),
     );
     this.store.requireChannelVisible(conversationId, context.principal);
+    await refreshMemberDisplayNames(this.store.storage, this.store.env);
     return json(
       channelMembersResultSchema.parse({
         members: this.store.channelMemberRows(conversationId),
@@ -308,7 +310,7 @@ export class WorkspaceChannelMembership {
     });
     const relayPrincipal = {
       kind: "service" as const,
-      service: "chief-relay",
+      service: "relay",
       workspaceId: parsedWorkspaceId,
     };
     const workspace = this.store.requireWorkspace(parsedWorkspaceId);

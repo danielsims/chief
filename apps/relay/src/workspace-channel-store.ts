@@ -22,6 +22,7 @@ import {
   decodeWorkspaceSnapshot,
   workspaceAgentProfiles,
 } from "./workspace-defaults";
+import { memberDisplayNames } from "./workspace-member-names";
 
 export {
   channelRecordFromRow,
@@ -345,10 +346,10 @@ export class WorkspaceChannelStore {
     }));
   }
 
-  /** Best-effort display names for channel members: agents are named in the
-   * managed snapshot; users carry no profile on the relay yet. */
+  /** Display names for channel members. Agents come from the managed
+   * snapshot; users are cached from the auth profile onto the members row. */
   principalNames() {
-    const names = new Map<string, string>();
+    const names = memberDisplayNames(this.storage);
     const workspace = firstRow<WorkspaceRow>(
       this.storage.sql.exec(
         "SELECT snapshot_json FROM workspace WHERE singleton = 1",

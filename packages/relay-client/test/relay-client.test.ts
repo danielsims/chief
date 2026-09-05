@@ -11,7 +11,7 @@ import {
 import { RelayClient } from "../src/relay-client";
 
 const relayDiscovery = {
-  protocol: "chief-relay",
+  protocol: "relay",
   protocolVersion: 1,
   relayId: "relay_test",
   deployment: "chief-cloud",
@@ -45,7 +45,7 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
       authorization: headers.get("authorization"),
       deviceAuthorization: headers.get("x-chief-device-authorization"),
     });
-    if (url.endsWith("/.well-known/chief-relay")) {
+    if (url.endsWith("/.well-known/relay")) {
       return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.endsWith("/socket-tickets")) {
@@ -223,7 +223,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
           ? input.toString()
           : input.url,
     );
-    if (url.pathname === "/.well-known/chief-relay") {
+    if (url.pathname === "/.well-known/relay") {
       return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.pathname.endsWith("/socket-tickets")) {
@@ -290,7 +290,7 @@ void test("does not retry a terminal authorization failure after a live disconne
           ? input.toString()
           : input.url,
     );
-    if (url.pathname === "/.well-known/chief-relay") {
+    if (url.pathname === "/.well-known/relay") {
       return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.pathname.endsWith("/socket-tickets")) {
@@ -359,7 +359,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
             ? input.toString()
             : input.url,
       );
-      if (url.pathname === "/.well-known/chief-relay") {
+      if (url.pathname === "/.well-known/relay") {
         return Promise.resolve(jsonResponse(relayDiscovery));
       }
       if (url.pathname === "/v1/workspaces/workspace-a/socket-tickets") {

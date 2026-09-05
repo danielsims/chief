@@ -116,12 +116,35 @@ void test("authored agent replies remain channel events", () => {
   assert.equal(toChannelEvents(reply, snapshot, null).length, 1);
 });
 
+void test("threaded agent replies keep NIP-29 root markers on first paint", () => {
+  const reply = conversationMessageSchema.parse({
+    id: "marketer-ack",
+    workspaceId: "workspace-a",
+    conversationId: "mission-control",
+    threadRootId: "chief-assignment",
+    author: { kind: "agent", id: "advertising" },
+    body: "I’m on it.",
+    components: [],
+    createdAt: "2026-08-22T00:00:00.000Z",
+    sequence: 2,
+  });
+  const [event] = toChannelEvents(reply, snapshot, null);
+  assert.ok(event);
+  assert.deepEqual(
+    event.tags.filter((tag) => tag[0] === "e"),
+    [
+      ["e", "chief-assignment", "", "root"],
+      ["e", "chief-assignment", "", "reply"],
+    ],
+  );
+});
+
 void test("relay membership components retain their channel action", () => {
   const membership = conversationMessageSchema.parse({
     id: "membership-1",
     workspaceId: "workspace-a",
     conversationId: "mission-control",
-    author: { kind: "system", id: "chief-relay" },
+    author: { kind: "system", id: "relay" },
     body: "Chief added Marketer and Prospector to the channel.",
     components: [
       {
@@ -221,7 +244,7 @@ void test("durable plugin components map to actionable provider-neutral cards", 
           trusted: false,
           source: {
             type: "discovery",
-            registry: "chief-relay",
+            registry: "relay",
             domain: "ads.google.com",
           },
           domains: ["ads.google.com"],
@@ -231,6 +254,36 @@ void test("durable plugin components map to actionable provider-neutral cards", 
       conversationId: "marketing",
       agentId: "advertising",
       recommendationId: "message-1",
+    },
+  });
+});
+
+void test("project recommendation components become connect cards", () => {
+  const recommendation = message(
+    [
+      {
+        id: "project-card-1",
+        kind: "project.recommendation",
+        version: 1,
+        payload: {
+          workspaceId: "workspace-a",
+          conversationId: "marketing",
+          agentId: "advertising",
+          title: "Connect a repository",
+          description: "Add the Git repository this workspace should work in.",
+          remoteUrl: "https://github.com/acme/program.git",
+        },
+      },
+    ],
+    "I'll start from the repo.",
+  );
+
+  assert.deepEqual(toChiefMessage(recommendation).parts[1], {
+    type: "data-project-recommendation",
+    data: {
+      title: "Connect a repository",
+      description: "Add the Git repository this workspace should work in.",
+      remoteUrl: "https://github.com/acme/program.git",
     },
   });
 });

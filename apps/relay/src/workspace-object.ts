@@ -29,6 +29,7 @@ import {
 } from "./workspace-channel-router";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
+import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { drainExternalAgentOutbox } from "./workspace-external-agent-alarm";
 import { externalAgentRouter } from "./workspace-external-agent-router";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
@@ -236,6 +237,11 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "complete-onboarding") {
         return yield* attempt("workspace.onboarding.complete", () =>
           lifecycle.completeOnboarding(request),
+        );
+      }
+      if (operation === "start-eve-onboarding") {
+        return yield* attempt("workspace.onboarding.start", () =>
+          startEveWorkspaceKickoffFromRequest(env, ctx.storage, request),
         );
       }
 

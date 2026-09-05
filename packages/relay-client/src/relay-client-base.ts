@@ -80,7 +80,7 @@ export class RelayClientBase {
 
   discovery() {
     this.discoveryRequest ??= this.fetchJson(
-      `${this.relayUrl}/.well-known/chief-relay`,
+      `${this.relayUrl}/.well-known/relay`,
       relayDiscoverySchema,
       false,
     );

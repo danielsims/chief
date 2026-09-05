@@ -255,6 +255,9 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.match(uploadedSources, /"actions\.requested"/u);
   assert.match(uploadedSources, /channel\/\$\{path\}/u);
   assert.match(uploadedSources, /postToChief\("activity"/u);
+  assert.match(uploadedSources, /"turn\.completed"/u);
+  assert.match(uploadedSources, /postReply/u);
+  assert.match(uploadedSources, /\[chief-message\] publish failed/u);
   assert.match(uploadedSources, /authorization/u);
   assert.match(uploadedSources, /timingSafeEqual/u);
   assert.match(uploadedSources, /"eve": "\^0\.50\.0"/u);

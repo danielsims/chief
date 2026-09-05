@@ -8,6 +8,9 @@ import UserNotifications
 @MainActor
 final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   static let shared = MobileNotifications()
+  static var remotePushRegistered = false
+  /// Survives the race between a lock-screen tap and SwiftUI becoming ready.
+  static var pendingOpen: ConversationDeepLink?
 
   static let didOpenConversation = Notification.Name(
     "sh.heychief.mobile.notification.open-conversation"
@@ -16,6 +19,12 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   private override init() {
     super.init()
     UNUserNotificationCenter.current().delegate = self
+  }
+
+  static func takePendingOpen() -> ConversationDeepLink? {
+    let value = pendingOpen
+    pendingOpen = nil
+    return value
   }
 
   static var configuredSound: UNNotificationSound? {
@@ -29,13 +38,20 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
 
   func requestAuthorizationIfNeeded() async {
     let center = UNUserNotificationCenter.current()
-    let settings = await center.notificationSettings()
-    guard settings.authorizationStatus == .notDetermined else { return }
-    do {
-      _ = try await center.requestAuthorization(options: [.alert, .badge, .sound])
-    } catch {
-      print("[Chief] notification permission failed: \(error)")
+    var settings = await center.notificationSettings()
+    if settings.authorizationStatus == .notDetermined {
+      do {
+        _ = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+      } catch {
+        print("[Chief] notification permission failed: \(error)")
+        return
+      }
+      settings = await center.notificationSettings()
     }
+    guard settings.authorizationStatus == .authorized
+      || settings.authorizationStatus == .provisional
+    else { return }
+    await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
   }
 
   func deliver(
@@ -43,8 +59,14 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     body: String,
     workspaceID: String,
     conversationID: String,
-    threadRootID: String?
+    threadRootID: String?,
+    mentioned: Bool = false
   ) async {
+    let link = ConversationDeepLink(
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      threadRootID: threadRootID
+    )
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body.isEmpty ? "Sent an attachment" : String(body.prefix(180))
@@ -52,9 +74,12 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
       ? Self.configuredSound
       : nil
     content.threadIdentifier = "\(workspaceID):\(conversationID)"
+    content.targetContentIdentifier = conversationID
     var userInfo: [String: Any] = [
       "workspaceID": workspaceID,
       "conversationID": conversationID,
+      "url": link.url.absoluteString,
+      "mentioned": mentioned,
     ]
     if let threadRootID { userInfo["threadRootID"] = threadRootID }
     content.userInfo = userInfo
@@ -82,33 +107,25 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
-    // Foreground arrivals use Chief's transcript animation + haptic. Showing a
-    // second banner while the user is already in the app is distracting.
-    []
+    let info = notification.request.content.userInfo
+    let mentioned = info["mentioned"] as? Bool == true
+    // Ordinary foreground arrivals use the transcript + haptic. An explicit
+    // @mention still deserves a banner while the app is open.
+    if mentioned { return [.banner, .sound, .list] }
+    return []
   }
 
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse
   ) async {
-    let info = response.notification.request.content.userInfo
-    guard
-      let workspaceID = info["workspaceID"] as? String,
-      let conversationID = info["conversationID"] as? String
+    guard let link = ConversationDeepLink(userInfo: response.notification.request.content.userInfo)
     else { return }
-    let threadRootID = info["threadRootID"] as? String
     await MainActor.run {
-      var userInfo: [String: Any] = [
-        "workspaceID": workspaceID,
-        "conversationID": conversationID,
-      ]
-      if let threadRootID {
-        userInfo["threadRootID"] = threadRootID
-      }
+      Self.pendingOpen = link
       NotificationCenter.default.post(
         name: Self.didOpenConversation,
-        object: nil,
-        userInfo: userInfo
+        object: nil
       )
     }
   }

@@ -14,11 +14,15 @@ import {
 
 import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
-import { composeWorkspaceInstructions, getAgent } from "./agents.js";
+import { composeWorkspaceInstructions } from "./agents.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
+import {
+  cellAgentDefinition,
+  workspaceAgentRecord,
+} from "./relay-cell-agent.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -166,8 +170,11 @@ async function executeJob(
     JSON.stringify({ scope: "cell.run", phase: "started", ...activityContext }),
   );
   try {
-    const definition = getAgent(agentId);
-    if (!definition) throw new Error(`Unknown agent ${agentId}.`);
+    const snapshot = await client.activeWorkspace();
+    const definition = cellAgentDefinition(
+      agentId,
+      workspaceAgentRecord(snapshot.agents, agentId),
+    );
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
     const storedEvents = await cell.readState(`events:${conversationId}`);

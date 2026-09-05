@@ -22,20 +22,28 @@ type ProjectSource = "attach" | "clone";
 export function AddProjectDialog({
   open: visible,
   onOpenChange,
+  initialRemoteUrl,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialRemoteUrl?: string;
 }) {
   const projects = useProjects();
   const { clearError } = projects;
-  const [source, setSource] = useState<ProjectSource>("attach");
+  const [source, setSource] = useState<ProjectSource>(
+    initialRemoteUrl ? "clone" : "attach",
+  );
   const [path, setPath] = useState("");
-  const [remoteUrl, setRemoteUrl] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState(initialRemoteUrl ?? "");
 
   useEffect(() => {
     if (!visible) return;
     clearError();
-  }, [clearError, visible]);
+    if (initialRemoteUrl) {
+      setSource("clone");
+      setRemoteUrl(initialRemoteUrl);
+    }
+  }, [clearError, initialRemoteUrl, visible]);
 
   const chooseFolder = async () => {
     if (!isTauri()) return;

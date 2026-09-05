@@ -33,8 +33,10 @@ import {
 import { useRelayWorkspaceOverride } from "../relay-workspace-override";
 import { connectedRelayIdentities } from "./account-directory";
 import {
+  ACCESS_TOKEN_REFRESH_LEAD_MS,
   asError,
   chiefAccountConnection,
+  nextAccessTokenRefreshDelay,
   openRelayAuthorization,
   validateOrRefreshSession,
 } from "./auth-session-flow";
@@ -43,6 +45,7 @@ import {
   getActiveAuthOrganizationMember,
 } from "./better-auth-client";
 import { setupAuthDeepLink } from "./client";
+import { stopDesktopOAuthLoopback } from "./oauth-loopback";
 import {
   AUTH_SESSION_CHANGED_EVENT,
   clearStoredRelaySession,
@@ -57,6 +60,7 @@ import {
 const AuthContext = createContext<AuthState | null>(null);
 const noAuthAction = () => undefined;
 const noAsyncAuthAction = () => Promise.resolve();
+const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
@@ -107,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authFlowCleanupRef.current?.();
     authFlowCleanupRef.current = null;
     authFlowCompletedRef.current = false;
+    void stopDesktopOAuthLoopback();
     clearStoredSession();
     setStoredSessionState(null);
     setIsSigningIn(false);
@@ -114,14 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthError("Your session expired. Sign in again.");
   }, []);
 
-  // Deep link handler — receives chief-desktop:///auth#token=xxx
-  // from the success page, exchanges the PKCE code for a session token.
+  // Deep link / loopback handler — receives the authorization code from the
+  // Hey Chief success page and exchanges the PKCE verifier for a session.
   const completeDesktopAuth = useCallback(
     async (storedSession: StoredSession, relayOrigin: string) => {
       if (authFlowCompletedRef.current) return;
       authFlowCompletedRef.current = true;
       authFlowCleanupRef.current?.();
       authFlowCleanupRef.current = null;
+      void stopDesktopOAuthLoopback();
       console.log("[Auth] Desktop session received");
       await storeSessionForRelay(relayOrigin, storedSession);
 
@@ -156,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.error("[Auth] Desktop auth error:", err);
     authFlowCleanupRef.current?.();
     authFlowCleanupRef.current = null;
+    void stopDesktopOAuthLoopback();
     setAuthError(err instanceof Error ? err.message : String(err));
     setIsSigningIn(false);
     setIsLoading(false);
@@ -173,14 +180,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [completeDesktopAuth, failDesktopAuth]);
 
   useEffect(() => {
+    if (
+      !storedSession?.refreshToken ||
+      !isJsonNumber(storedSession.expiresAt)
+    ) {
+      return;
+    }
+    const delay = nextAccessTokenRefreshDelay(storedSession.expiresAt);
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => {
+      setValidationTrigger((current) => current + 1);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [storedSession?.expiresAt, storedSession?.refreshToken]);
+
+  useEffect(() => {
+    let queued = false;
     const refreshExpiredSession = () => {
+      if (document.visibilityState !== "visible") return;
       if (
-        document.visibilityState === "visible" &&
-        isJsonNumber(storedSession?.expiresAt) &&
-        storedSession.expiresAt <= Date.now() + 60_000
+        !isJsonNumber(storedSession?.expiresAt) ||
+        storedSession.expiresAt > Date.now() + ACCESS_TOKEN_REFRESH_LEAD_MS
       ) {
-        setValidationTrigger((current) => current + 1);
+        return;
       }
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        setValidationTrigger((current) => current + 1);
+      });
     };
     window.addEventListener("focus", refreshExpiredSession);
     document.addEventListener("visibilitychange", refreshExpiredSession);
@@ -199,19 +228,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     void validateOrRefreshSession(session)
       .then((result) => {
+        if (result) {
+          setStoredSessionState((current) => {
+            if (!current) return current;
+            if (current.token !== token && current.token !== result.token) {
+              return current;
+            }
+            setStoredSession(result);
+            return result;
+          });
+        }
         if (cancelled) return;
         if (!result) {
+          const latest = getStoredSession();
+          if (latest && latest.token !== token) return;
           console.warn("[Auth] Stored session rejected by server, signing out");
           invalidateSession();
           return;
         }
-
-        setStoredSessionState((current) => {
-          if (!current || current.token !== token) return current;
-          const next = result;
-          setStoredSession(next);
-          return next;
-        });
         setIsLoading(false);
         setAuthError(null);
       })
@@ -264,7 +298,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsSigningIn(true);
       setAuthError(null);
       authFlowCleanupRef.current?.();
-      authFlowCleanupRef.current = null;
+      const timeout = window.setTimeout(() => {
+        failDesktopAuth(
+          new Error("Sign-in didn’t finish. Return to Chief and try again."),
+        );
+      }, SIGN_IN_TIMEOUT_MS);
+      authFlowCleanupRef.current = () => {
+        window.clearTimeout(timeout);
+      };
       authFlowCompletedRef.current = false;
       await openRelayAuthorization({
         version: 1,
@@ -273,7 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authUiUrl,
       });
     },
-    [],
+    [failDesktopAuth],
   );
 
   const signIn = useCallback(() => {
@@ -289,7 +330,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const reusable =
         existing &&
         (!isJsonNumber(existing.expiresAt) ||
-          existing.expiresAt > Date.now() + 60_000 ||
+          existing.expiresAt > Date.now() + ACCESS_TOKEN_REFRESH_LEAD_MS ||
           Boolean(existing.refreshToken));
       if (reusable) {
         // A stored refresh token is enough to switch relays. Let the normal
@@ -315,6 +356,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authFlowCleanupRef.current?.();
     authFlowCleanupRef.current = null;
     authFlowCompletedRef.current = false;
+    void stopDesktopOAuthLoopback();
     setIsSigningIn(false);
     setIsLoading(false);
     const activeRelayOrigin = new URL(RELAY_URL).origin;

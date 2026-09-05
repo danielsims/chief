@@ -186,7 +186,8 @@ struct MarkdownMessageBody: View {
       font: .systemFont(ofSize: size, weight: weight),
       color: color,
       channelNames: channelNames,
-      onOpenChannel: model.openConversation
+      people: model.mentionPeople,
+      onOpenChannel: { model.openConversation($0) }
     )
     .fixedSize(horizontal: false, vertical: true)
   }

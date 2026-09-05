@@ -196,20 +196,36 @@ export function useChiefChatCore({
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  const mentionCandidates = useMemo(
-    () =>
-      orderMentionCandidatesByMembership(
-        Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([id, identity]) => ({
-          id,
-          ...identity,
-          member:
-            directAgent?.id === id ||
-            addedAgentIds.has(id) ||
-            Boolean(channel?.agentIds.includes(id)),
-        })),
-      ),
-    [addedAgentIds, channel?.agentIds, directAgent?.id],
-  );
+  const mentionCandidates = useMemo(() => {
+    const agents = Object.entries(WORKSPACE_AGENT_IDENTITIES).map(
+      ([id, identity]) => ({
+        id,
+        ...identity,
+        member:
+          directAgent?.id === id ||
+          addedAgentIds.has(id) ||
+          Boolean(channel?.agentIds.includes(id)),
+      }),
+    );
+    const people =
+      user?.id && user.name.trim()
+        ? [
+            {
+              id: user.id,
+              name: user.name.trim(),
+              role: "You",
+              member: true,
+            },
+          ]
+        : [];
+    return orderMentionCandidatesByMembership([...people, ...agents]);
+  }, [
+    addedAgentIds,
+    channel?.agentIds,
+    directAgent?.id,
+    user?.id,
+    user?.name,
+  ]);
   const knownAgentIds = useMemo(
     () => new Set(mentionCandidates.map((candidate) => candidate.id)),
     [mentionCandidates],

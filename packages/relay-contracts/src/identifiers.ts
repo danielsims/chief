@@ -19,6 +19,8 @@ export const secretNameSchema = z
     "Secret names must start lowercase and use only letters, digits, dots, underscores, or dashes.",
   );
 export const userIdSchema = identifier.brand<"UserId">();
+/** Agent or user principal addressed by a channel @mention. */
+export const channelMentionIdSchema = z.union([agentIdSchema, userIdSchema]);
 export const commandIdSchema = z.uuid().brand<"CommandId">();
 export const eventIdSchema = z.uuid().brand<"EventId">();
 export const jobIdSchema = z.uuid().brand<"JobId">();
@@ -35,6 +37,7 @@ export type ConversationId = z.infer<typeof conversationIdSchema>;
 export type MessageId = z.infer<typeof messageIdSchema>;
 export type AgentId = z.infer<typeof agentIdSchema>;
 export type UserId = z.infer<typeof userIdSchema>;
+export type ChannelMentionId = z.infer<typeof channelMentionIdSchema>;
 export type CommandId = z.infer<typeof commandIdSchema>;
 export type EventId = z.infer<typeof eventIdSchema>;
 export type JobId = z.infer<typeof jobIdSchema>;

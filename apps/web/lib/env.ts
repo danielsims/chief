@@ -5,7 +5,7 @@ export const env = createEnv({
   server: {
     CHIEF_RELAY_URL: z
       .url()
-      .default("https://chief-relay.danielsims-browser-ui.workers.dev"),
+      .default("https://relay.heychief.sh"),
     GITHUB_TOKEN: z.string().min(1).optional(),
   },
   client: {},

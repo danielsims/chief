@@ -12,6 +12,7 @@ import {
 } from "./external-agent-channel-security";
 import { HttpError } from "./http";
 import { firstRow } from "./workspace-channel-store";
+import { workspacePeople } from "./workspace-member-names";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
@@ -89,6 +90,8 @@ export class ExternalAgentOutbox {
         deliveryGeneration: 1,
         sessionAddress,
         agentId,
+        conversationId,
+        threadRootId: threadRootId ?? undefined,
         continuation: { capability },
       },
     });
@@ -310,7 +313,7 @@ export class ExternalAgentOutbox {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: row.payload_json,
+      body: this.deliveryBody(row),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
@@ -356,6 +359,19 @@ export class ExternalAgentOutbox {
     return row;
   }
 
+  private deliveryBody(row: OutboxRow) {
+    const envelope: unknown = JSON.parse(row.payload_json);
+    if (!envelope || typeof envelope !== "object" || !("payload" in envelope)) {
+      return row.payload_json;
+    }
+    const payload = envelope.payload;
+    if (!payload || typeof payload !== "object") return row.payload_json;
+    return JSON.stringify({
+      ...envelope,
+      payload: { ...payload, people: workspacePeople(this.storage) },
+    });
+  }
+
   private accept(agentId: string, deliveryId: string, sessionId: string) {
     this.storage.sql.exec(
       `UPDATE external_agent_outbox SET status = 'accepted', session_id = ?, delivering_since = NULL, last_error = NULL, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
@@ -383,7 +399,7 @@ export class ExternalAgentOutbox {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: row.payload_json,
+      body: this.deliveryBody(row),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {

@@ -12,6 +12,7 @@ import { Toaster } from "sonner";
 import { Button } from "@chief/ui/components/button";
 
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
+import { MentionPeopleProvider } from "./components/chat/mention-people-context";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
 import { EntryState, WorkspaceEntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
@@ -311,8 +312,9 @@ function AuthenticatedApp() {
         <BrowserRouter>
           <ChiefNavigationProvider>
             <WorkspaceChannelsProvider>
-              <ChannelReadStateProvider>
-                <OnboardingGate>
+              <MentionPeopleProvider>
+                <ChannelReadStateProvider>
+                  <OnboardingGate>
                   <Routes>
                     <Route
                       path="workspaces/new"
@@ -405,8 +407,9 @@ function AuthenticatedApp() {
                       </Route>
                     </Route>
                   </Routes>
-                </OnboardingGate>
-              </ChannelReadStateProvider>
+                  </OnboardingGate>
+                </ChannelReadStateProvider>
+              </MentionPeopleProvider>
             </WorkspaceChannelsProvider>
           </ChiefNavigationProvider>
         </BrowserRouter>

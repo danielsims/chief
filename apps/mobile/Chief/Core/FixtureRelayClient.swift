@@ -287,9 +287,9 @@ actor FixtureRelayClient: RelayServing {
         signingIdentity: NostrIdentity?
     ) async throws -> [WorkspaceMember] {
         [
-            .init(kind: "user", principalId: "daniel", role: "owner"),
-            .init(kind: "agent", principalId: "chief", role: "member"),
-            .init(kind: "agent", principalId: "engineer", role: "member"),
+            .init(kind: "user", principalId: "daniel", role: "owner", name: "Daniel"),
+            .init(kind: "agent", principalId: "chief", role: "member", name: "Chief"),
+            .init(kind: "agent", principalId: "engineer", role: "member", name: "Engineer"),
         ]
     }
 
