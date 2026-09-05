@@ -73,40 +73,30 @@ export function MissionCanvas({ conversationId }: { conversationId: string }) {
       setBusy(null);
     }
   };
+  if (!missions.length && !error) return null;
   return (
-    <section className="space-y-4" aria-label="Channel missions">
+    <section className="mb-6 space-y-4" aria-label="Channel missions">
       {error && (
         <p role="alert" className="text-destructive text-sm">
           {error}
         </p>
       )}
-      {missions.length === 0 ? (
-        <div className="bg-muted/25 rounded-xl border border-dashed p-6">
-          <Target className="text-muted-foreground mb-3 size-5" />
-          <h3 className="text-sm font-medium">Give this channel an outcome</h3>
-          <p className="text-muted-foreground mt-2 max-w-lg text-sm leading-6">
-            Ask Chief to turn your goal into a mission. The team, progress,
-            experiments and evidence will stay here alongside the work.
-          </p>
-        </div>
-      ) : (
-        missions.map((mission) => (
-          <MissionCard
-            key={mission.id}
-            mission={mission}
-            agentNames={Object.fromEntries<string>(
-              (snapshot?.agents ?? []).flatMap((agent) => [
-                [agent.id, agent.name] as const,
-                ...agent.subagents.map(
-                  (child) => [child.id, child.name] as const,
-                ),
-              ]),
-            )}
-            busy={busy === mission.id}
-            onStatusChange={(status) => void changeStatus(mission, status)}
-          />
-        ))
-      )}
+      {missions.map((mission) => (
+        <MissionCard
+          key={mission.id}
+          mission={mission}
+          agentNames={Object.fromEntries<string>(
+            (snapshot?.agents ?? []).flatMap((agent) => [
+              [agent.id, agent.name] as const,
+              ...agent.subagents.map(
+                (child) => [child.id, child.name] as const,
+              ),
+            ]),
+          )}
+          busy={busy === mission.id}
+          onStatusChange={(status) => void changeStatus(mission, status)}
+        />
+      ))}
     </section>
   );
 }

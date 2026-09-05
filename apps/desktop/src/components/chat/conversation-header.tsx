@@ -7,7 +7,9 @@ import {
   Lock,
   MoreHorizontal,
   UserRound,
+  X,
 } from "lucide-react";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -20,12 +22,13 @@ import { cn } from "@chief/ui/lib/utils";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
+import { useAuth } from "../../lib/auth/auth-context";
+import { useWorkspaceFiles } from "../../lib/runtime";
 import {
   isWorkspaceAgentId,
   workspaceAgentIdentity,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
-import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
 
 interface ConversationHeaderChannel {
@@ -42,7 +45,6 @@ interface ConversationHeaderProps {
   directIdentity: { name: string } | null;
   directPresence: AgentPresence;
   agents: readonly { id: string; name: string; role: string }[];
-  onContinueArtifact: (artifact: { id: string; title: string }) => void;
   onOpenActivity: () => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
   activeView: "messages" | "canvas";
@@ -56,13 +58,17 @@ export function ConversationHeader({
   directIdentity,
   directPresence,
   agents,
-  onContinueArtifact,
   onOpenActivity,
   onOpenProfile,
   activeView,
   onViewChange,
   user,
 }: ConversationHeaderProps) {
+  const [params, setParams] = useSearchParams();
+  const { cloudOrganizationId } = useAuth();
+  const { files } = useWorkspaceFiles(cloudOrganizationId);
+  const selectedArtifact = params.get("artifact");
+  const artifact = files.find((file) => file.id === selectedArtifact);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -117,10 +123,6 @@ export function ConversationHeader({
         <div className="flex items-center gap-1.5">
           {!directIdentity ? (
             <>
-              <ChannelArtifactsMenu
-                channelId={channel.id}
-                onContinue={onContinueArtifact}
-              />
               <ChannelMembersMenu
                 channel={channel}
                 agents={agents}
@@ -193,7 +195,10 @@ export function ConversationHeader({
         </div>
       </div>
       {!directIdentity ? (
-        <nav aria-label="Channel views" className="flex h-10 gap-1 px-5">
+        <nav
+          aria-label="Channel views"
+          className="flex h-10 gap-1 overflow-x-auto px-5"
+        >
           {(
             [
               { id: "messages", label: "Messages" },
@@ -206,15 +211,38 @@ export function ConversationHeader({
               onClick={() => onViewChange(view.id)}
               className={cn(
                 "text-muted-foreground hover:text-foreground relative flex h-full items-center px-2.5 text-[12px] leading-4 font-normal transition-colors",
-                activeView === view.id && "text-foreground",
+                activeView === view.id &&
+                  !selectedArtifact &&
+                  "text-foreground",
               )}
             >
               {view.label}
-              {activeView === view.id ? (
+              {activeView === view.id && !selectedArtifact ? (
                 <span className="bg-foreground absolute right-2.5 bottom-0 left-2.5 h-px" />
               ) : null}
             </button>
           ))}
+          {selectedArtifact && (
+            <div className="border-foreground flex min-w-0 items-center gap-1 border-b px-2 text-sm">
+              <span className="max-w-56 truncate">
+                {artifact?.name ?? "Artifact"}
+              </span>
+              <button
+                type="button"
+                aria-label="Close artifact tab"
+                onClick={() =>
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("artifact");
+                    return next;
+                  })
+                }
+                className="text-muted-foreground hover:text-foreground rounded p-1"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
         </nav>
       ) : null}
     </header>
