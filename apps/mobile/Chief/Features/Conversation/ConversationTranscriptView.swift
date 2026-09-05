@@ -1,4 +1,3 @@
-import BrowserUI
 import SwiftUI
 
 struct ConversationTranscriptView: View {
@@ -6,8 +5,6 @@ struct ConversationTranscriptView: View {
 
   let conversationID: String
   let messages: [ConversationMessage]
-  let browserWorkspaceID: String?
-  let browserAgents: [AgentActivityPresence]
   @Binding var seenMessageIDs: Set<String>
   @Binding var sentMessageIDs: Set<String>
   let allowsActions: Bool
@@ -22,17 +19,9 @@ struct ConversationTranscriptView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
           ForEach(ChatTimelineBuilder.rows(for: messages)) { row in
             transcriptRow(row)
-          }
-          if let browserWorkspaceID {
-            AgentBrowserWorkView(
-              workspaceID: browserWorkspaceID,
-              conversationIDs: [conversationID],
-              agents: browserAgents,
-              placement: .inline
-            )
           }
           Color.clear
             .frame(height: 1)
@@ -49,18 +38,36 @@ struct ConversationTranscriptView: View {
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .refreshable { await reload() }
       .onScrollGeometryChange(for: Bool.self) { geometry in
-        Self.isNearLatest(geometry)
+        ConversationScrollAnchor.isNearLatest(geometry)
       } action: { _, nearLatest in
         isNearLatest = nearLatest
       }
-      .onChange(of: messages.map(\.id)) { _, messageIDs in
-        handleMessageChanges(messageIDs, scrollProxy: proxy)
+      .onScrollGeometryChange(for: CGFloat.self) { geometry in
+        geometry.contentSize.height
+      } action: { oldHeight, newHeight in
+        guard hasPositionedInitially, isNearLatest, newHeight > oldHeight else { return }
+        scrollToLatest(using: proxy, animated: true)
+      }
+      .onChange(of: ConversationScrollAnchor.followKey(for: messages)) { _, _ in
+        handleMessageChanges(scrollProxy: proxy)
       }
       .task(id: conversationID) {
         hasPositionedInitially = false
         isNearLatest = true
         await positionInitially(using: proxy)
       }
+      .task(id: threadRoot?.id ?? "channel") {
+        guard threadRoot == nil, hasPositionedInitially else { return }
+        await Task.yield()
+        scrollToLatest(using: proxy, animated: false)
+      }
+      .onChange(of: model.selectedThread?.rootMessageID) { _, _ in
+        openPendingThreadIfNeeded()
+      }
+      .onChange(of: messages.map(\.id)) { _, _ in
+        openPendingThreadIfNeeded()
+      }
+      .onAppear { openPendingThreadIfNeeded() }
       .overlay(alignment: .bottom) {
         if hasPositionedInitially && !isNearLatest {
           ScrollToLatestButton {
@@ -118,6 +125,16 @@ struct ConversationTranscriptView: View {
     }
   }
 
+  private func openPendingThreadIfNeeded() {
+    guard let pending = model.selectedThread,
+      pending.conversationID == conversationID
+    else { return }
+    if let root = messages.first(where: { $0.id == pending.rootMessageID }) {
+      threadRoot = root
+      model.clearSelectedThread()
+    }
+  }
+
   private func reload() async {
     guard let workspaceID = model.workspace?.id else { return }
     do {
@@ -138,18 +155,15 @@ struct ConversationTranscriptView: View {
     }
   }
 
-  private func handleMessageChanges(
-    _ messageIDs: [String],
-    scrollProxy: ScrollViewProxy
-  ) {
-    let currentIDs = Set(messageIDs)
+  private func handleMessageChanges(scrollProxy: ScrollViewProxy) {
+    let currentIDs = Set(messages.map(\.id))
     let shouldFollowLatest =
-      isNearLatest || messageIDs.last.map(sentMessageIDs.contains) == true
+      isNearLatest || messages.last.map { sentMessageIDs.contains($0.id) } == true
     seenMessageIDs = currentIDs
     sentMessageIDs.formIntersection(currentIDs)
 
     if !hasPositionedInitially {
-      guard !messageIDs.isEmpty else { return }
+      guard !messages.isEmpty else { return }
       Task { await positionInitially(using: scrollProxy) }
       return
     }
@@ -181,11 +195,6 @@ struct ConversationTranscriptView: View {
     } else {
       scroll()
     }
-  }
-
-  private static func isNearLatest(_ geometry: ScrollGeometry) -> Bool {
-    geometry.contentSize.height <= geometry.containerSize.height
-      || geometry.visibleRect.maxY >= geometry.contentSize.height - 80
   }
 }
 

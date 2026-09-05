@@ -172,7 +172,7 @@ await build({
   platform: "node",
   plugins: [
     {
-      name: "bundle-chief-relay-packages",
+      name: "bundle-relay-packages",
       setup(build) {
         build.onResolve({ filter: /^zod$/ }, ({ importer }) =>
           importer.startsWith(resolve(packageRoot, "../relay-contracts"))

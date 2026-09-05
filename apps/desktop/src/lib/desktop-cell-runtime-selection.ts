@@ -1,5 +1,7 @@
-import type { WorkspaceSnapshot } from "@chief/relay-contracts";
+import type { AgentConfig } from "@chief/relay-contracts";
 
-export function shouldStartDesktopCells(runtime: WorkspaceSnapshot["runtime"]) {
-  return runtime === "desktop";
+export function isDesktopNativeCell(
+  config: Pick<AgentConfig, "deploymentTarget">,
+) {
+  return config.deploymentTarget === "desktop";
 }

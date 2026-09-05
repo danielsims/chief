@@ -54,19 +54,19 @@ const onboarding = dashboard("chief-onboarding", "Chief Onboarding", [
     6,
     9,
     "Onboarding funnel over time",
-    '{ resource.service.name = "chief-relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" } | count_over_time() by (span.chief.onboarding.stage, span.chief.onboarding.event)',
+    '{ resource.service.name = "relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" } | count_over_time() by (span.chief.onboarding.stage, span.chief.onboarding.event)',
   ),
   timeseriesPanel(
     7,
     18,
     "Failures by error code",
-    '{ resource.service.name = "chief-relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.event = "failed" } | count_over_time() by (span.chief.onboarding.error.code)',
+    '{ resource.service.name = "relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.event = "failed" } | count_over_time() by (span.chief.onboarding.error.code)',
   ),
   traceTable(
     8,
     27,
     "Recent onboarding activity",
-    '{ resource.service.name = "chief-relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.stage =~ "${stage:raw}" && span.chief.onboarding.event =~ "${event:raw}" } | select(span.chief.onboarding.session.id, span.chief.onboarding.stage, span.chief.onboarding.event, span.chief.onboarding.hosting, span.chief.onboarding.provider, span.chief.onboarding.selected_app_count, span.chief.onboarding.error.code, span.chief.workspace.id)',
+    '{ resource.service.name = "relay" && resource.chief.relay.id =~ "${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.stage =~ "${stage:raw}" && span.chief.onboarding.event =~ "${event:raw}" } | select(span.chief.onboarding.session.id, span.chief.onboarding.stage, span.chief.onboarding.event, span.chief.onboarding.hosting, span.chief.onboarding.provider, span.chief.onboarding.selected_app_count, span.chief.onboarding.error.code, span.chief.workspace.id)',
   ),
 ]);
 
@@ -132,7 +132,7 @@ function statPanel(id, y, x, title, stage, event) {
     },
     targets: [
       traceTarget(
-        `{ resource.service.name = "chief-relay" && resource.chief.relay.id =~ "\${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.stage = "${stage}" && span.chief.onboarding.event = "${event}" } | count_over_time()`,
+        `{ resource.service.name = "relay" && resource.chief.relay.id =~ "\${relay:raw}" && name = "chief.onboarding" && span.chief.onboarding.stage = "${stage}" && span.chief.onboarding.event = "${event}" } | count_over_time()`,
       ),
     ],
   };

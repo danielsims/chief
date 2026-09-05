@@ -1,5 +1,4 @@
 import {
-  agentIdSchema,
   appendMessageCommandSchema,
   appendMessageResultSchema,
   externalAgentInboundActivityResultSchema,
@@ -8,73 +7,36 @@ import {
   externalAgentInboundResultSchema,
 } from "@chief/relay-contracts";
 
-import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
-import {
-  deterministicUuid,
-  requireChannelToken,
-  sha256,
-} from "./external-agent-channel-security";
+import { deterministicUuid, sha256 } from "./external-agent-channel-security";
+import type { ExternalAgentInboundHost } from "./external-agent-continuation";
+import { resolveExternalContinuation } from "./external-agent-continuation";
 import {
   externalConversationFetch,
   requireExternalThreadRoot,
 } from "./external-agent-conversation";
 import { HttpError, json, parseJson } from "./http";
-import { readTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { firstRow } from "./workspace-channel-store";
 
-interface ContinuationRow extends Record<string, SqlStorageValue> {
-  conversation_id: string;
-  thread_root_id: string | null;
-  session_id: string;
-}
 interface ReceiptRow extends Record<string, SqlStorageValue> {
   payload_hash: string;
   message_id: string;
   status: "claimed" | "accepted";
 }
 
-const EXTERNAL_AGENT_PUBKEY = "0".repeat(64);
-
-export interface ExternalAgentInboundHost {
-  storage: DurableObjectStorage;
-  env: Env;
-  channels: WorkspaceChannelStore;
-  runtime: (agentId: string) => { token_hash: string } | undefined;
-}
+export type { ExternalAgentInboundHost } from "./external-agent-continuation";
 
 export async function receiveExternalAgentMessage(
   host: ExternalAgentInboundHost,
   request: Request,
   rawAgentId: string,
 ) {
-  const context = readTrustedContext(request);
-  const agentId = agentIdSchema.parse(rawAgentId);
-  const runtime = host.runtime(agentId);
-  if (!runtime)
-    throw new HttpError(
-      404,
-      "external_agent_not_found",
-      "This external agent is not registered.",
-    );
-  await requireChannelToken(request, runtime.token_hash);
   const input = externalAgentInboundMessageSchema.parse(
     await parseJson(request),
   );
-  const continuation = firstRow<ContinuationRow>(
-    host.storage.sql.exec(
-      `SELECT conversation_id, thread_root_id, session_id FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
-      agentId,
-      await sha256(input.continuation.capability),
-    ),
-  );
-  if (!continuation || continuation.session_id !== input.sessionId)
-    throw new HttpError(
-      403,
-      "external_continuation_invalid",
-      "This continuation was not issued to this agent session.",
-    );
+  const { context, agentId, principal, continuation } =
+    await resolveExternalContinuation(host, request, rawAgentId, input);
   const payloadHash = await sha256(JSON.stringify(input));
   const messageId = await deterministicUuid(
     `${context.workspaceId}:${agentId}:external:${input.deliveryId}`,
@@ -110,13 +72,6 @@ export async function receiveExternalAgentMessage(
       now,
       now,
     );
-  const principal = {
-    kind: "agent" as const,
-    agentId,
-    pubkey: EXTERNAL_AGENT_PUBKEY,
-    workspaceId: context.workspaceId,
-    role: "member" as const,
-  };
   host.channels.requirePrincipalMember(principal);
   host.channels.requireAgentCapability(principal, "messages.send");
   host.channels.requireChannelVisible(continuation.conversation_id, principal);
@@ -184,42 +139,14 @@ export async function receiveExternalAgentActivity(
   request: Request,
   rawAgentId: string,
 ) {
-  const context = readTrustedContext(request);
-  const agentId = agentIdSchema.parse(rawAgentId);
-  const runtime = host.runtime(agentId);
-  if (!runtime)
-    throw new HttpError(
-      404,
-      "external_agent_not_found",
-      "This external agent is not registered.",
-    );
-  await requireChannelToken(request, runtime.token_hash);
   const input = externalAgentInboundActivitySchema.parse(
     await parseJson(request),
   );
-  const continuation = firstRow<ContinuationRow>(
-    host.storage.sql.exec(
-      `SELECT conversation_id, thread_root_id, session_id FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
-      agentId,
-      await sha256(input.continuation.capability),
-    ),
-  );
-  if (!continuation || continuation.session_id !== input.sessionId)
-    throw new HttpError(
-      403,
-      "external_continuation_invalid",
-      "This continuation was not issued to this agent session.",
-    );
+  const { context, agentId, principal, continuation } =
+    await resolveExternalContinuation(host, request, rawAgentId, input);
   const messageId = await deterministicUuid(
     `${context.workspaceId}:${agentId}:external:${input.deliveryId}:activity:${input.component.id}`,
   );
-  const principal = {
-    kind: "agent" as const,
-    agentId,
-    pubkey: EXTERNAL_AGENT_PUBKEY,
-    workspaceId: context.workspaceId,
-    role: "member" as const,
-  };
   const response = await externalConversationFetch(
     host.env,
     context.workspaceId,

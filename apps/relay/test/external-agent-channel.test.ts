@@ -218,6 +218,9 @@ describe("external agent channels", () => {
           capability: expect.any(String),
         },
         message: { id: rootId, body: message.body },
+        people: expect.arrayContaining([
+          expect.objectContaining({ id: ownerId, role: "owner" }),
+        ]),
       },
     });
     expect(

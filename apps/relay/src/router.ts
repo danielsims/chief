@@ -11,7 +11,6 @@ import { deleteImageAsset, uploadImageAsset } from "./attachments";
 import { AuthorizationError } from "./auth";
 import { isRelayAuthRequest, routeRelayAuth } from "./auth/routes";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
-import { bindDeviceIdentity } from "./device-identities";
 import {
   attempt,
   failureResponse,
@@ -30,6 +29,7 @@ import {
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
+import { routeIdentityAndPush } from "./router-identity";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
@@ -97,11 +97,10 @@ export async function routeRelayRequest(
       routePublicRequest(request, url, env),
     );
     if (publicResponse) return publicResponse;
-    if (url.pathname === "/v1/identity/device" && request.method === "POST") {
-      return yield* attempt("relay.device.bind", () =>
-        bindDeviceIdentity(env, request),
-      );
-    }
+    const identityResponse = yield* attempt("relay.identity", () =>
+      routeIdentityAndPush(env, request),
+    );
+    if (identityResponse) return identityResponse;
 
     const workspaceResponse = yield* routeWorkspaceRequest(
       env,

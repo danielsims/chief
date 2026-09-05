@@ -194,7 +194,7 @@ function claimWorkspace(stub: DurableObjectStub) {
           commandId: "dd91d03e-fcad-43d7-aa8f-f751fb6c45e3",
           workspaceId,
           name: "Vercel connector test",
-          bootstrapToken: "chief-relay-bootstrap-token-for-tests",
+          bootstrapToken: "relay-bootstrap-token-for-testing",
         }),
       },
     ),

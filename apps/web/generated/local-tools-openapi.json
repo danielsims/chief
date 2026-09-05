@@ -1535,7 +1535,7 @@
         "operationId": "channels.messages.post",
         "summary": "Publish a message or thread reply",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Publishes deliberate user-facing content into a shared channel. Include each addressed agent ID in mentions because visible @text alone does not wake an agent. Ordinary agent working output is private and does not appear in the channel.",
+        "description": "Publishes deliberate user-facing content into a shared channel. Address people and agents with @Name and include their principal IDs in mentions. Channel members.list returns each person's name, role, and id. Never invent a @chief (user) tag. Ordinary agent working output is private and does not appear in the channel.",
         "parameters": [
           {
             "name": "channelId",
@@ -2679,7 +2679,51 @@
         "operationId": "projects.list",
         "summary": "List the workspace's Git projects",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.requestAccess."
+        "description": "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.requestAccess. If the list is empty, publish a connect card with projects.recommend instead of asking the user to paste a URL in chat."
+      }
+    },
+    "/local-tools/channels/{channelId}/projects/recommend": {
+      "post": {
+        "operationId": "projects.recommend",
+        "summary": "Ask the user to connect a Git repository",
+        "responses": { "200": { "description": "Tool operation result" } },
+        "description": "Publishes a durable connect-repository card in the current channel, thread, or direct message. Use this when the workspace has no Git project yet instead of asking the user to paste a URL in chat. This does not clone or attach a repository.",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "allOf": [
+                      { "type": "string" },
+                      { "type": "string", "minLength": 1 }
+                    ]
+                  },
+                  "remoteUrl": { "type": "string" },
+                  "threadRootId": { "type": "string" },
+                  "idempotencyKey": {
+                    "allOf": [
+                      { "type": "string" },
+                      { "type": "string", "minLength": 1 }
+                    ]
+                  }
+                },
+                "required": ["content", "idempotencyKey"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
       }
     },
     "/local-tools/projects/inspect": {

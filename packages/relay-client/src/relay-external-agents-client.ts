@@ -1,5 +1,6 @@
 import type { ExternalAgentRegistrationPayload } from "@chief/relay-contracts";
 import {
+  eveWorkspaceKickoffResultSchema,
   externalAgentConnectionVerificationInputSchema,
   externalAgentConnectionVerificationResultSchema,
   externalAgentCredentialRotationResultSchema,
@@ -13,6 +14,15 @@ import {
 import { RelayClientBase } from "./relay-client-base";
 
 export class RelayExternalAgentsClient extends RelayClientBase {
+  async startWorkspaceKickoff() {
+    return await this.fetchJson(
+      this.workspaceUrl("onboarding/start"),
+      eveWorkspaceKickoffResultSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+
   async verifyConnection(agentId: string, selectedApps?: readonly string[]) {
     return await this.fetchJson(
       this.workspaceUrl(

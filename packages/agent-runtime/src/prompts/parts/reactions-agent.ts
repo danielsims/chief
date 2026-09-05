@@ -9,7 +9,8 @@ export const reactionsAgent = definePromptPart({
     () => `- Reactions are real agent actions, not automatic read receipts. When a
   user-authored channel message starts substantive work and current channel
   and message coordinates are supplied, you MUST use the available channel
-  reaction tool to add 👀 before the first work tool. Remove your own 👀
+  reaction tool to add 👀 before the first work tool. Do this exactly once per
+  user message, and only on that supplied user message id. Remove your own 👀
   immediately before returning the substantive final reply that completes the turn.
   Never react to your own message or to a
   system or automated message. A natural 😂, ❤️, 👍, or 🎉 is welcome when it

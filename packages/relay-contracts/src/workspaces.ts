@@ -94,6 +94,7 @@ export const workspaceMemberSchema = z
     kind: workspaceMemberKindSchema,
     principalId: z.string().trim().min(1).max(256),
     role: workspaceRoleSchema,
+    name: z.string().trim().min(1).max(120).optional(),
   })
   .strict();
 

@@ -1,6 +1,7 @@
 import type { JsonObject } from "@chief/relay-contracts";
 import {
   agentIdSchema,
+  channelMentionIdSchema,
   isJsonString,
   parseJsonObject,
 } from "@chief/relay-contracts";
@@ -34,6 +35,13 @@ export function stringArray(input: JsonObject, key: string) {
 
 export function agentIds(input: JsonObject, key: string) {
   return agentIdSchema
+    .array()
+    .max(20)
+    .parse(input[key] ?? []);
+}
+
+export function mentionIds(input: JsonObject, key: string) {
+  return channelMentionIdSchema
     .array()
     .max(20)
     .parse(input[key] ?? []);

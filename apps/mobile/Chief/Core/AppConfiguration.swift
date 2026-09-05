@@ -14,7 +14,7 @@ struct AppConfiguration: Equatable {
     return AppConfiguration(
       relayURL: URL(
         string: values["CHIEF_RELAY_URL"]
-          ?? "https://chief-relay.danielsims-browser-ui.workers.dev"
+          ?? "https://relay.heychief.sh"
       )!,
       accountURL: URL(string: values["CHIEF_ACCOUNT_URL"] ?? "https://heychief.sh")!,
       demoMode: demo

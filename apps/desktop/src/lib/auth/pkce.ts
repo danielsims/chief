@@ -12,6 +12,7 @@ export interface PkceAttempt {
   verifier: string;
   relayOrigin: string;
   authBaseUrl: string;
+  redirectUri?: string;
   createdAt: number;
 }
 
@@ -62,7 +63,9 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 export async function storePkceVerifier(
   state: string,
   verifier: string,
-  context: Pick<PkceAttempt, "relayOrigin" | "authBaseUrl">,
+  context: Pick<PkceAttempt, "relayOrigin" | "authBaseUrl"> & {
+    redirectUri: string;
+  },
 ): Promise<void> {
   cleanupExpiredVerifiers();
   const attempt = { state, verifier, ...context, createdAt: Date.now() };

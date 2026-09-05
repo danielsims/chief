@@ -170,6 +170,7 @@ export function initializeWorkspaceSchema(
   `);
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
+  addColumns(storage, "members", [["display_name", "TEXT"]]);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
       ON channels (workspace_id);

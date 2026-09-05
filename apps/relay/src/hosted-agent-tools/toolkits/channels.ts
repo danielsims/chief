@@ -15,8 +15,8 @@ import { publishAgentMessage } from "../../agent-message-publisher";
 import { HttpError } from "../../http";
 import { withTrustedContext } from "../../internal-context";
 import {
-  agentIds,
   memberReferences,
+  mentionIds,
   optionalString,
   requiredString,
 } from "../input";
@@ -216,7 +216,7 @@ export const hostedChannelTools = [
         {
           conversationId,
           body: content,
-          mentions: agentIds(input, "mentions"),
+          mentions: mentionIds(input, "mentions"),
           ...(threadRootId ? { threadRootId } : undefined),
         },
         await deterministicUuid(

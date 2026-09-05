@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ServerMessage } from "@chief/agent-runtime/types";
+import type { ConversationEvent } from "@chief/relay-contracts";
 import {
   channelDetailSchema,
   channelMembershipSchema,
+  channelRecordSchema,
+  conversationEventSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
@@ -152,5 +155,178 @@ void test("routes createChannel through the relay and emits the created channel"
   assert.equal(message.channel.id, createInput.conversationId);
   assert.equal(message.channel.name, "Launch room");
   assert.deepEqual(message.channel.userIds, ["workspace-owner"]);
+  client.destroy();
+});
+
+void test("refreshes the sidebar channel roster when a live membership grant arrives", async () => {
+  const unused = () => Promise.reject(new Error("not used in this test"));
+  let onEvent: ((event: ConversationEvent) => void) | undefined;
+  const missionControl = channelRecordSchema.parse({
+    id: "mission-control",
+    workspaceId: snapshot.id,
+    name: "Mission Control",
+    isPrivate: false,
+    archived: false,
+    createdAt: "2026-08-22T00:00:00.000Z",
+  });
+  const marketing = channelRecordSchema.parse({
+    id: "marketing",
+    workspaceId: snapshot.id,
+    name: "Marketing",
+    isPrivate: false,
+    archived: false,
+    createdAt: "2026-08-22T00:01:00.000Z",
+  });
+  let visible = [missionControl];
+  const membershipsFor = (channels: typeof visible) =>
+    channels.map((channel) =>
+      channelMembershipSchema.parse({
+        conversationId: channel.id,
+        kind: "user",
+        principalId: "daniel",
+        role: channel.id === "mission-control" ? "owner" : "member",
+        joinedAt: "2026-08-22T00:00:00.000Z",
+      }),
+    );
+  const relay = {
+    createChannel: unused,
+    listCurrentChannelMemberships() {
+      return Promise.resolve(membershipsFor(visible));
+    },
+    activeWorkspace() {
+      return Promise.resolve(snapshot);
+    },
+    subscribeWorkspace(
+      input: Parameters<RelayRuntimeRelay["subscribeWorkspace"]>[0],
+    ) {
+      onEvent = input.onEvent;
+      return Promise.resolve({
+        close: () => undefined,
+        cursor: () => 0,
+        updateConversationIds: () => undefined,
+      });
+    },
+    appendMessage: unused,
+    createProject: unused,
+    createNativeAgent: unused,
+    listChannelMembers: unused,
+    listChannelMemberships() {
+      return Promise.resolve(membershipsFor(visible));
+    },
+    listChannels() {
+      return Promise.resolve(visible);
+    },
+    listMessages: unused,
+    loadAgentConfig: unused,
+    listProjects: unused,
+    listProspects: unused,
+    listWorkspaceFiles: unused,
+    reactToMessage: unused,
+    removeAgent: unused,
+    registerAgentKey: unused,
+    saveAgentConfig: unused,
+    startDirectMessage: unused,
+    updateWorkspaceFile: unused,
+  } satisfies RelayRuntimeRelay;
+  const client = new RelayRuntimeClient(relay, snapshot);
+  const roster = new Promise<Extract<ServerMessage, { type: "channels" }>>(
+    (resolve) => {
+      const seen: Extract<ServerMessage, { type: "channels" }>[] = [];
+      client.subscribe((message) => {
+        if (message.type !== "channels") return;
+        seen.push(message);
+        if (seen.length === 1) resolve(message);
+      });
+    },
+  );
+  const refreshed = new Promise<Extract<ServerMessage, { type: "channels" }>>(
+    (resolve) => {
+      let count = 0;
+      client.subscribe((message) => {
+        if (message.type !== "channels") return;
+        count += 1;
+        if (count === 2) resolve(message);
+      });
+    },
+  );
+
+  client.send({
+    type: "listChannels",
+    workspaceId: snapshot.id,
+    executorCapability: { apiBaseUrl: "http://127.0.0.1", token: "test" },
+  });
+
+  const first = await roster;
+  assert.deepEqual(
+    first.channels.map((channel) => channel.id),
+    ["mission-control"],
+  );
+  assert.ok(onEvent);
+
+  visible = [missionControl, marketing];
+  onEvent(
+    conversationEventSchema.parse({
+      eventId: crypto.randomUUID(),
+      sequence: 1,
+      protocolVersion: 1,
+      workspaceId: snapshot.id,
+      streamId: "conversation:marketing",
+      type: "conversation.message.appended",
+      actor: {
+        kind: "agent",
+        agentId: "chief",
+        pubkey: "a".repeat(64),
+        workspaceId: snapshot.id,
+        role: "member",
+      },
+      occurredAt: "2026-08-22T00:01:00.000Z",
+      payload: {
+        message: {
+          id: crypto.randomUUID(),
+          workspaceId: snapshot.id,
+          conversationId: "marketing",
+          body: "Chief added Daniel to the channel.",
+          author: { kind: "system", id: "relay" },
+          createdAt: "2026-08-22T00:01:00.000Z",
+          sequence: 1,
+          mentions: [],
+          components: [
+            {
+              id: "membership-1",
+              kind: "channel-action",
+              version: 1,
+              payload: {
+                type: "member-added",
+                actorId: "chief",
+                actorName: "Chief",
+                actorType: "agent",
+                targetId: "daniel",
+                targetKind: "user",
+                targetName: "Daniel",
+                targetIds: "daniel",
+                targetNames: "Daniel",
+                agentIds: "",
+                userIds: "daniel",
+              },
+            },
+          ],
+          reactions: [],
+          edited: false,
+          deleted: false,
+        },
+      },
+    }),
+  );
+
+  const next = await refreshed;
+  assert.deepEqual(
+    next.channels.map((channel) => channel.id),
+    ["mission-control", "marketing"],
+  );
+  assert.ok(
+    next.channels
+      .find((channel) => channel.id === "marketing")
+      ?.userIds.includes("workspace-owner"),
+  );
   client.destroy();
 });

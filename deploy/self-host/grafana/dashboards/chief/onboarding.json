@@ -67,7 +67,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"workspace-profile\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"workspace-profile\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
         }
       ]
     },
@@ -114,7 +114,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"agent-hosting\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"agent-hosting\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
         }
       ]
     },
@@ -161,7 +161,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"apps\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"apps\" && span.chief.onboarding.event = \"viewed\" } | count_over_time()"
         }
       ]
     },
@@ -208,7 +208,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"workspace-create\" && span.chief.onboarding.event = \"completed\" } | count_over_time()"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage = \"workspace-create\" && span.chief.onboarding.event = \"completed\" } | count_over_time()"
         }
       ]
     },
@@ -257,7 +257,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" } | count_over_time() by (span.chief.onboarding.stage, span.chief.onboarding.event)"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" } | count_over_time() by (span.chief.onboarding.stage, span.chief.onboarding.event)"
         }
       ]
     },
@@ -306,7 +306,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.event = \"failed\" } | count_over_time() by (span.chief.onboarding.error.code)"
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.event = \"failed\" } | count_over_time() by (span.chief.onboarding.error.code)"
         }
       ]
     },
@@ -342,7 +342,7 @@
           "queryType": "traceql",
           "metricsQueryType": "range",
           "serviceMapUseNativeHistograms": false,
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage =~ \"${stage:raw}\" && span.chief.onboarding.event =~ \"${event:raw}\" } | select(span.chief.onboarding.session.id, span.chief.onboarding.stage, span.chief.onboarding.event, span.chief.onboarding.hosting, span.chief.onboarding.provider, span.chief.onboarding.selected_app_count, span.chief.onboarding.error.code, span.chief.workspace.id)",
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && name = \"chief.onboarding\" && span.chief.onboarding.stage =~ \"${stage:raw}\" && span.chief.onboarding.event =~ \"${event:raw}\" } | select(span.chief.onboarding.session.id, span.chief.onboarding.stage, span.chief.onboarding.event, span.chief.onboarding.hosting, span.chief.onboarding.provider, span.chief.onboarding.selected_app_count, span.chief.onboarding.error.code, span.chief.workspace.id)",
           "limit": 250,
           "tableType": "spans"
         }

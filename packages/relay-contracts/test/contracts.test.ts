@@ -225,6 +225,24 @@ void test("plugin recommendation components validate portable placement and vers
   );
 });
 
+void test("project recommendation components validate portable placement", () => {
+  const component = {
+    id: "project-card-1",
+    kind: "project.recommendation",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "engineering",
+      agentId: "engineer",
+      title: "Connect a repository",
+      description: "Add the Git repository this workspace should work in.",
+      remoteUrl: "https://github.com/acme/program.git",
+    },
+  } as const;
+
+  assert.deepEqual(messageComponentSchema.parse(component), component);
+});
+
 void test("plugin authorization components reject unsafe callback URLs", () => {
   const component = {
     id: "plugin-auth-1",
@@ -281,7 +299,7 @@ void test("plugin authorization components accept generic OAuth clients", () => 
 
 void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
-    protocol: "chief-relay",
+    protocol: "relay",
     protocolVersion: 1,
     relayId: "relay_test",
     deployment: "cloudflare-byoc",

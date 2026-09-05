@@ -23,6 +23,10 @@ import {
   workspaceAgentProfiles,
 } from "./workspace-defaults";
 import { readMachines } from "./workspace-machine-store";
+import {
+  refreshMemberDisplayNames,
+  workspacePeople,
+} from "./workspace-member-names";
 import { projectIdsOwnedByAgent } from "./workspace-project-store";
 
 export class WorkspaceAgentAccessService {
@@ -30,7 +34,7 @@ export class WorkspaceAgentAccessService {
 
   constructor(
     private readonly storage: DurableObjectStorage,
-    env: Env,
+    private readonly env: Env,
   ) {
     this.channels = new WorkspaceChannelStore(storage, env);
   }
@@ -342,7 +346,7 @@ export class WorkspaceAgentAccessService {
     return json({ ok: true });
   }
 
-  hostingContext(request: Request) {
+  async hostingContext(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
     if (context.principal.kind !== "agent") {
@@ -360,6 +364,7 @@ export class WorkspaceAgentAccessService {
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     const agent = workspaceAgent(this.storage, agentId);
+    await refreshMemberDisplayNames(this.storage, this.env);
     return json({
       managed: true,
       runtime: this.channels.agentConfiguration(agentId).deploymentTarget,
@@ -375,6 +380,7 @@ export class WorkspaceAgentAccessService {
         (machine) =>
           machine.status === "online" && machine.agentIds.includes(agentId),
       ),
+      people: workspacePeople(this.storage),
     });
   }
 

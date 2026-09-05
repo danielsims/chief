@@ -13,6 +13,7 @@ import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
 import { RELAY_URL } from "./config";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
+import { startPendingEveWorkspaceKickoff } from "./relay-eve-kickoff";
 import {
   clearPendingOrganizationInvitation,
   readPendingOrganizationInvitation,
@@ -183,6 +184,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
             loading: false,
             error: null,
           });
+          startPendingEveWorkspaceKickoff(client, snapshot);
           // Directory metadata must not turn a healthy workspace into an outage.
           if (!refreshedWorkspaces) {
             void accountClient

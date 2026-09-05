@@ -23,7 +23,7 @@ describe("WorkspaceObject", () => {
           commandId: "82ac86dd-366c-4a58-9e91-6f47c4e95926",
           workspaceId,
           name: "Authority test",
-          bootstrapToken: "chief-relay-bootstrap-token-for-tests",
+          bootstrapToken: "relay-bootstrap-token-for-testing",
         }),
       }),
     );
@@ -86,7 +86,7 @@ describe("WorkspaceObject", () => {
           commandId: "403eb320-a9d9-48cc-98de-a028bf38f49e",
           workspaceId,
           name: "Changed name",
-          bootstrapToken: "chief-relay-bootstrap-token-for-tests",
+          bootstrapToken: "relay-bootstrap-token-for-testing",
         }),
       }),
     );

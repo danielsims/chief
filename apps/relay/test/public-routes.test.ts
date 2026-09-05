@@ -20,7 +20,7 @@ describe("public relay routes", () => {
 
   it("publishes portable discovery", async () => {
     const response = await worker.fetch(
-      new Request("https://relay.test/.well-known/chief-relay"),
+      new Request("https://relay.test/.well-known/relay"),
       {
         ...relayEnv(),
         RELAY_PUBLIC_URL: undefined,
@@ -31,7 +31,7 @@ describe("public relay routes", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
-      protocol: "chief-relay",
+      protocol: "relay",
       protocolVersion: 1,
       relayId: relayEnv().RELAY_ID,
       deployment: relayEnv().RELAY_DEPLOYMENT,
@@ -44,7 +44,7 @@ describe("public relay routes", () => {
 
   it("publishes secure tunnel URLs when local TLS terminates at a proxy", async () => {
     const response = await worker.fetch(
-      new Request("http://relay-tunnel.example/.well-known/chief-relay", {
+      new Request("http://relay-tunnel.example/.well-known/relay", {
         headers: { "x-forwarded-proto": "https" },
       }),
       {

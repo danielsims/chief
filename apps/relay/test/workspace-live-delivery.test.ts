@@ -30,7 +30,7 @@ describe("workspace live membership delivery", () => {
           workspaceId: "workspace-test",
           conversationId: "new-channel",
           body: "Daniel and Alex were added to the channel.",
-          author: { kind: "system", id: "chief-relay" },
+          author: { kind: "system", id: "relay" },
           createdAt: "2026-08-28T00:00:00.000Z",
           sequence: 1,
           mentions: [],

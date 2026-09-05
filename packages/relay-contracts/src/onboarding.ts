@@ -36,6 +36,13 @@ export type OnboardingTelemetryEvent = z.infer<
   typeof onboardingTelemetryEventSchema
 >;
 
+export const eveWorkspaceKickoffResultSchema = z
+  .object({ started: z.boolean() })
+  .strict();
+export type EveWorkspaceKickoffResult = z.infer<
+  typeof eveWorkspaceKickoffResultSchema
+>;
+
 export const onboardingTelemetryReceiptSchema = z
   .object({ accepted: z.literal(true) })
   .strict();

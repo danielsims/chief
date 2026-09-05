@@ -10,6 +10,7 @@ import {
   mergeObservedMessageSnapshot,
   observedChannelMessage,
   parseChannelReadState,
+  shouldDeliverChannelNotification,
   threadContextKey,
   unreadCountsByChannel,
 } from "../src/lib/channel-read-state";
@@ -50,6 +51,7 @@ void test("channel and thread frontiers independently clear unread messages", ()
   );
   assert.ok(topLevel);
   assert.ok(reply);
+  assert.equal(reply.rootId, "top");
 
   let state = parseChannelReadState(null);
   assert.deepEqual(
@@ -65,6 +67,21 @@ void test("channel and thread frontiers independently clear unread messages", ()
 
   state = advanceReadContext(state, threadContextKey("analytics", "top"), 200);
   assert.deepEqual([...unreadCountsByChannel(state, [topLevel, reply])], []);
+});
+
+void test("bare reply tags still count as thread replies for unread state", () => {
+  const reply = observedChannelMessage({
+    protocol: "nip29",
+    id: "bare-reply",
+    channelId: "analytics",
+    pubkey: "pubkey",
+    tags: [["e", "top"]],
+    content: "In the thread.",
+    actor: { type: "agent", id: "chief", name: "Chief" },
+    kind: 9,
+    createdAt: 200,
+  });
+  assert.equal(reply?.rootId, "top");
 });
 
 void test("read frontiers are monotonic and ignore malformed persisted values", () => {
@@ -114,6 +131,7 @@ void test("a stale history snapshot cannot erase a newer live message", () => {
     sourceId: "live",
     threadSourceId: null,
     content: "Hello",
+    mentionIds: [],
     actor: { type: "agent" as const, id: "chief", name: "Chief" },
   };
   assert.deepEqual(
@@ -176,5 +194,32 @@ void test("an agent adding the owner is notification-worthy channel activity", (
   assert.deepEqual(
     [...unreadCountsByChannel(parseChannelReadState(null), [invite])],
     [["analytics", 1]],
+  );
+});
+
+void test("mentions notify even when the user is already looking at the channel", () => {
+  assert.equal(
+    shouldDeliverChannelNotification({
+      mentioned: true,
+      isVisibleTopLevel: true,
+      isVisibleThread: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDeliverChannelNotification({
+      mentioned: false,
+      isVisibleTopLevel: true,
+      isVisibleThread: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeliverChannelNotification({
+      mentioned: false,
+      isVisibleTopLevel: false,
+      isVisibleThread: false,
+    }),
+    true,
   );
 });

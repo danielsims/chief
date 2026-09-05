@@ -2,11 +2,12 @@ import SwiftUI
 
 struct ProjectsView: View {
   @Environment(AppModel.self) private var model
+  @State private var showsAddProject = false
 
   var body: some View {
     Group {
       if projects.isEmpty {
-        EmptyProjectsView()
+        EmptyProjectsView(showsAddProject: $showsAddProject)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
           .padding(ChiefTheme.pagePadding)
           .padding(.bottom, 60)
@@ -34,10 +35,14 @@ struct ProjectsView: View {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
           Haptics.medium()
+          showsAddProject = true
         } label: {
           Image(systemName: "plus")
         }
       }
+    }
+    .sheet(isPresented: $showsAddProject) {
+      AddProjectSheet()
     }
   }
 
@@ -373,6 +378,8 @@ private struct RepositoryMark: View {
 }
 
 private struct EmptyProjectsView: View {
+  @Binding var showsAddProject: Bool
+
   var body: some View {
     ChiefCard {
       VStack(spacing: 12) {
@@ -385,7 +392,7 @@ private struct EmptyProjectsView: View {
           .font(.system(size: 14))
           .foregroundStyle(ChiefTheme.secondary)
           .multilineTextAlignment(.center)
-        Button("Add project", action: {})
+        Button("Add project") { showsAddProject = true }
           .buttonStyle(.borderedProminent)
           .tint(.white)
           .foregroundStyle(.black)

@@ -15,7 +15,7 @@ export default defineConfig({
         miniflare: {
           bindings: {
             BOOTSTRAP_TOKEN_SHA256:
-              "f28e240d9b814940eed7721345997664c751b56eaeae8d7cefa304a1fda1ccda",
+              "1b6a2df08c0a3524b03484596f622d2fc0f9292bdb5908774b91b49f06325a56",
             RELAY_PUBLIC_URL: "https://relay.test",
             ACCOUNT_IDENTITY_MODE: "key-native",
             HOSTED_CELL_ENABLED: "false",

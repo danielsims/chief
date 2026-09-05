@@ -9,10 +9,12 @@ import { inspectProjectTool } from "./inspect-project.js";
 import { listProjectsTool } from "./list-projects.js";
 import { publishProjectCheckoutTool } from "./publish-project-checkout.js";
 import { releaseProjectCheckoutTool } from "./release-project-checkout.js";
+import { recommendProjectTool } from "../../runtime/projects/recommend-project.js";
 import { requestProjectAccessTool } from "./request-project-access.js";
 
 export const projectsToolkit = [
   listProjectsTool,
+  recommendProjectTool,
   inspectProjectTool,
   createProjectCheckoutTool,
   getProjectCheckoutStatusTool,

@@ -212,18 +212,25 @@ export async function testConversationMessages(
   expect(response.status).toBe(200);
   const page = (await response.json()) as {
     messages: Array<{
+      id: string;
       author: { kind: string; id: string };
       body: string;
       components: Array<{ kind: string; payload: JsonObject }>;
+      threadRootId?: string;
+      reactions: Array<{ emoji: string; pubkeys: string[] }>;
     }>;
   };
   return page.messages;
 }
 
-export async function appendRootMessage(ctx: ChannelTestContext) {
-  const messageId = crypto.randomUUID();
+export async function appendConversationMessage(
+  ctx: ChannelTestContext,
+  conversationId: string,
+  body: string,
+  messageId = crypto.randomUUID(),
+) {
   const conversation = ctx.env.CONVERSATIONS.get(
-    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:mission-control`),
+    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:${conversationId}`),
   );
   const response = await conversation.fetch(
     withTrustedContext(
@@ -237,8 +244,8 @@ export async function appendRootMessage(ctx: ChannelTestContext) {
             occurredAt: new Date().toISOString(),
             payload: {
               messageId,
-              conversationId: "mission-control",
-              body: "Thread root",
+              conversationId,
+              body,
               mentions: [],
               components: [],
             },
@@ -249,12 +256,16 @@ export async function appendRootMessage(ctx: ChannelTestContext) {
         principal: ctx.principal,
         requestId: crypto.randomUUID(),
         workspaceId: ctx.workspaceId,
-        conversationId: "mission-control",
+        conversationId,
       },
     ),
   );
   expect(response.status).toBe(200);
   return messageId;
+}
+
+export async function appendRootMessage(ctx: ChannelTestContext) {
+  return appendConversationMessage(ctx, "mission-control", "Thread root");
 }
 
 export function channelEnvelope(payload: JsonObject) {

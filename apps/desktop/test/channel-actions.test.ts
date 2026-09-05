@@ -7,6 +7,7 @@ import {
   channelActionFromEvent,
   channelMembershipTargetNames,
   formatMembershipTargets,
+  isChannelMembershipMessage,
 } from "../src/lib/channel-actions";
 
 const inviteEvent: ChannelEvent = {
@@ -43,4 +44,45 @@ void test("reconstructs agent-authored membership UI from a durable event", () =
     "user-123",
   );
   assert.equal(formatMembershipTargets(names), "you and Analyst");
+});
+
+void test("detects live channel membership messages from channel-action components", () => {
+  assert.equal(
+    isChannelMembershipMessage({
+      components: [
+        {
+          id: "membership-1",
+          kind: "channel-action",
+          version: 1,
+          payload: {
+            type: "member-added",
+            actorId: "chief",
+            actorName: "Chief",
+            actorType: "agent",
+            targetId: "daniel",
+            targetKind: "user",
+            targetName: "Daniel",
+            targetIds: "daniel",
+            targetNames: "Daniel",
+            agentIds: "",
+            userIds: "daniel",
+          },
+        },
+      ],
+    }),
+    true,
+  );
+  assert.equal(
+    isChannelMembershipMessage({
+      components: [
+        {
+          id: "tool-1",
+          kind: "tool",
+          version: 1,
+          payload: { name: "search" },
+        },
+      ],
+    }),
+    false,
+  );
 });

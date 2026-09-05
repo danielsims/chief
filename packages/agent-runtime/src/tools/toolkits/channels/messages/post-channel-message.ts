@@ -10,7 +10,7 @@ export const postChannelMessageDefinition = defineAgentTool({
     operationId: "channels.messages.post",
     summary: "Publish a message or thread reply",
     description:
-      "Publishes deliberate user-facing content into a shared channel. Include each addressed agent ID in mentions because visible @text alone does not wake an agent. Ordinary agent working output is private and does not appear in the channel.",
+      "Publishes deliberate user-facing content into a shared channel. Address people and agents with @Name and include their principal IDs in mentions. Channel members.list returns each person's name, role, and id. Never invent a @chief (user) tag. Ordinary agent working output is private and does not appear in the channel.",
   },
   inputSchema: z.object({
     content: boundedText(8_000),

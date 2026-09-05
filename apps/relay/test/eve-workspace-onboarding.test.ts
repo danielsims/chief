@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  eveWorkspaceKickoffResultSchema,
   externalAgentRegistrationResultSchema,
   registerExternalAgentCommandSchema,
 } from "@chief/relay-contracts";
@@ -18,7 +19,7 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Eve workspace onboarding", () => {
-  it("runs the hosted onboarding path after Eve Chief is verified", async () => {
+  it("defers hosted kickoff until the workspace is entered", async () => {
     const ctx = await setupChannelTest({ agentRuntime: "vercel-eve" });
     await registerExternalAgent(ctx, {
       agentId: "chief",
@@ -37,6 +38,15 @@ describe("Eve workspace onboarding", () => {
     );
 
     await verifyExternalAgent(ctx, "chief");
+    expect((await activeTestSnapshot(ctx)).onboardingComplete).toBe(false);
+    expect(
+      (await testConversationMessages(ctx, ctx.principal, "mission-control")).map(
+        (message) => message.body,
+      ),
+    ).not.toContain(WORKSPACE_ONBOARDING_OPENING_MESSAGE);
+
+    const started = await startEveOnboarding(ctx);
+    expect(started).toEqual({ started: true });
     const messages = await testConversationMessages(
       ctx,
       ctx.principal,
@@ -50,6 +60,7 @@ describe("Eve workspace onboarding", () => {
     );
     expect(deliveredBodies).toEqual([]);
     expect((await activeTestSnapshot(ctx)).onboardingComplete).toBe(true);
+    expect(await startEveOnboarding(ctx)).toEqual({ started: false });
   });
 
   it("wakes a connected Eve Chief from a DM even when hosted cells are disabled", async () => {
@@ -165,4 +176,30 @@ async function verifyExternalAgent(ctx: TestContext, agentId: string) {
     ),
   );
   expect(response.status).toBe(200);
+}
+
+async function startEveOnboarding(ctx: TestContext) {
+  const response = await ctx.env.WORKSPACES.get(
+    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  ).fetch(
+    withTrustedContext(
+      new Request(
+        `https://relay.test/v1/workspaces/${ctx.workspaceId}/onboarding/start`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "start-eve-onboarding",
+          },
+        },
+      ),
+      {
+        principal: ctx.principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+      },
+    ),
+  );
+  expect(response.status).toBe(200);
+  return eveWorkspaceKickoffResultSchema.parse(await response.json());
 }

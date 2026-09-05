@@ -16,6 +16,10 @@ import {
 import { authUserInfoSchema } from "./better-auth-contracts";
 import { desktopAuthorizationRedirectUri } from "./desktop-redirect";
 import { oauthIssuerMatches } from "./oauth-issuer";
+import {
+  DESKTOP_OAUTH_LOOPBACK_EVENT,
+  isDesktopOAuthCallback,
+} from "./oauth-loopback";
 import { OAuthTokenError } from "./oauth-token-error";
 import { clearPkceVerifier, getPkceAttempt } from "./pkce";
 
@@ -88,9 +92,20 @@ export async function setupAuthDeepLink(
 
   const handleUrls = (urls: string[], reportMissingAttempt: boolean) => {
     const url = urls[0];
-    if (url) void handleDeepLink(url, options, reportMissingAttempt);
+    if (url) {
+      void handleDeepLink(
+        url,
+        options,
+        reportMissingAttempt || isDesktopOAuthCallback(url),
+      );
+    }
   };
-  const unlisten = await onOpenUrl((urls) => handleUrls(urls, true));
+  const unlistenDeepLink = await onOpenUrl((urls) => handleUrls(urls, true));
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlistenLoopback = await listen<string>(
+    DESKTOP_OAUTH_LOOPBACK_EVENT,
+    (event) => handleUrls([event.payload], true),
+  );
   const currentUrls = await getCurrent().catch((error) => {
     console.warn("[Auth] Failed to read current deep link:", error);
     return null;
@@ -101,7 +116,10 @@ export async function setupAuthDeepLink(
       false,
     );
   }
-  return unlisten;
+  return () => {
+    unlistenDeepLink();
+    void unlistenLoopback();
+  };
 }
 
 async function handleDeepLink(
@@ -207,7 +225,9 @@ async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
         client_id: CLIENT_ID,
         code,
         code_verifier: attempt.verifier,
-        redirect_uri: desktopAuthorizationRedirectUri(AUTH_UI_BASE_URL),
+        redirect_uri:
+          attempt.redirectUri ||
+          desktopAuthorizationRedirectUri(AUTH_UI_BASE_URL),
       }).toString(),
     },
   );

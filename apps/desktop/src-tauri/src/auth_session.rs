@@ -33,6 +33,8 @@ pub struct DesktopOAuthAttempt {
     verifier: String,
     relay_origin: String,
     auth_base_url: String,
+    #[serde(default)]
+    redirect_uri: Option<String>,
     created_at: u64,
 }
 
@@ -52,6 +54,9 @@ impl DesktopOAuthAttempt {
         }
         scoped_origin(&self.relay_origin)?;
         scoped_origin(&self.auth_base_url)?;
+        if let Some(redirect_uri) = &self.redirect_uri {
+            scoped_redirect_uri(redirect_uri)?;
+        }
         Ok(())
     }
 
@@ -86,6 +91,18 @@ fn scoped_origin(relay_origin: &str) -> Result<(), String> {
             || relay_origin.starts_with("http://127.0.0.1"))
     {
         return Err("Chief received an invalid relay session scope.".to_string());
+    }
+    Ok(())
+}
+
+fn scoped_redirect_uri(redirect_uri: &str) -> Result<(), String> {
+    if redirect_uri.len() > 2_048
+        || !(redirect_uri.starts_with("https://")
+            || redirect_uri.starts_with("http://localhost")
+            || redirect_uri.starts_with("http://127.0.0.1")
+            || redirect_uri.starts_with("chief-desktop://"))
+    {
+        return Err("Chief received an invalid OAuth redirect.".to_string());
     }
     Ok(())
 }
@@ -365,6 +382,7 @@ mod tests {
             verifier: "v".repeat(43),
             relay_origin: "https://relay.example".to_string(),
             auth_base_url: "https://accounts.example".to_string(),
+            redirect_uri: Some("http://localhost:3000/auth/desktop".to_string()),
             created_at: 1_800_000_000_000,
         };
         assert!(attempt.validate().is_ok());

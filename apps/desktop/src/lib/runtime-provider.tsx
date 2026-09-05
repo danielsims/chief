@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import type {
   AgentDefinition,
+  AgentPreference,
   BrowserRunRecord,
   IntegrationSetupProgress,
 } from "@chief/agent-runtime/types";
@@ -66,8 +67,8 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
     [client],
   );
   const createNativeAgent = useCallback(
-    async (input: CreateNativeAgentCommand) => {
-      await client.createNativeAgent(input);
+    async (input: CreateNativeAgentCommand, preference?: AgentPreference) => {
+      await client.createNativeAgent(input, preference);
     },
     [client],
   );

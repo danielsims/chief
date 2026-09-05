@@ -14,9 +14,11 @@ import { isJsonString } from "@chief/relay-contracts";
 
 import type { ComposerFormat } from "./composer-editing";
 import {
+  type MentionAlias,
   removeAgentMentionBeforeCaret,
   splitAgentMentions,
 } from "./agent-mention-parser";
+import { useMentionPeople } from "./mention-people-context";
 
 type QueryKind = "emoji" | "emoji-complete" | "mention";
 
@@ -103,75 +105,81 @@ function queryRange(editor: Editor, kind: QueryKind) {
   };
 }
 
-const AgentMentionDecorations = Extension.create({
-  name: "agentMentionDecorations",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("agentMentionDecorations"),
-        props: {
-          decorations(state) {
-            const decorations: Decoration[] = [];
-            state.doc.descendants((node, position) => {
-              if (!node.isText || !node.text) return;
-              let offset = 0;
-              for (const segment of splitAgentMentions(node.text)) {
-                const length =
-                  segment.type === "mention"
-                    ? segment.label.length + 1
-                    : segment.value.length;
-                if (segment.type === "mention") {
-                  decorations.push(
-                    Decoration.inline(
-                      position + offset,
-                      position + offset + length,
-                      {
-                        class:
-                          "rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
-                        "data-composer-agent-mention": segment.agentId,
-                      },
-                    ),
-                  );
+function agentMentionDecorations(getPeople: () => readonly MentionAlias[]) {
+  return Extension.create({
+    name: "agentMentionDecorations",
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          key: new PluginKey("agentMentionDecorations"),
+          props: {
+            decorations(state) {
+              const decorations: Decoration[] = [];
+              state.doc.descendants((node, position) => {
+                if (!node.isText || !node.text) return;
+                let offset = 0;
+                for (const segment of splitAgentMentions(
+                  node.text,
+                  getPeople(),
+                )) {
+                  const length =
+                    segment.type === "mention"
+                      ? segment.token.length
+                      : segment.value.length;
+                  if (segment.type === "mention") {
+                    decorations.push(
+                      Decoration.inline(
+                        position + offset,
+                        position + offset + length,
+                        {
+                          class:
+                            "rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
+                          "data-composer-agent-mention": segment.agentId,
+                        },
+                      ),
+                    );
+                  }
+                  offset += length;
                 }
-                offset += length;
-              }
-            });
-            return DecorationSet.create(state.doc, decorations);
+              });
+              return DecorationSet.create(state.doc, decorations);
+            },
+            handleKeyDown(view, event) {
+              if (
+                event.key !== "Backspace" ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey
+              )
+                return false;
+              const { empty, $from } = view.state.selection;
+              if (!empty) return false;
+              const paragraphText = $from.parent.textContent;
+              const edit = removeAgentMentionBeforeCaret(
+                paragraphText,
+                $from.parentOffset,
+                $from.parentOffset,
+                getPeople(),
+              );
+              if (!edit) return false;
+              const removedLength = paragraphText.length - edit.value.length;
+              const parentStart = $from.start();
+              view.dispatch(
+                view.state.tr
+                  .delete(
+                    parentStart + edit.selectionStart,
+                    parentStart + edit.selectionStart + removedLength,
+                  )
+                  .scrollIntoView(),
+              );
+              return true;
+            },
           },
-          handleKeyDown(view, event) {
-            if (
-              event.key !== "Backspace" ||
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey
-            )
-              return false;
-            const { empty, $from } = view.state.selection;
-            if (!empty) return false;
-            const paragraphText = $from.parent.textContent;
-            const edit = removeAgentMentionBeforeCaret(
-              paragraphText,
-              $from.parentOffset,
-              $from.parentOffset,
-            );
-            if (!edit) return false;
-            const removedLength = paragraphText.length - edit.value.length;
-            const parentStart = $from.start();
-            view.dispatch(
-              view.state.tr
-                .delete(
-                  parentStart + edit.selectionStart,
-                  parentStart + edit.selectionStart + removedLength,
-                )
-                .scrollIntoView(),
-            );
-            return true;
-          },
-        },
-      }),
-    ];
-  },
-});
+        }),
+      ];
+    },
+  });
+}
 
 function applyFormat(
   editor: Editor,
@@ -222,6 +230,9 @@ export const ComposerRichText = forwardRef<
   },
   ref,
 ) {
+  const people = useMentionPeople();
+  const peopleRef = useRef(people);
+  peopleRef.current = people;
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });
@@ -240,7 +251,7 @@ export const ComposerRichText = forwardRef<
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder }),
       Markdown,
-      AgentMentionDecorations,
+      agentMentionDecorations(() => peopleRef.current),
     ],
     content: value,
     editorProps: {

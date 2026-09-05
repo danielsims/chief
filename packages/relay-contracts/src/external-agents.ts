@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { commandEnvelopeSchema } from "./envelopes";
-import { agentIdSchema, messageIdSchema } from "./identifiers";
+import {
+  agentIdSchema,
+  conversationIdSchema,
+  messageIdSchema,
+} from "./identifiers";
+import { jsonObjectSchema } from "./json";
 import { agentActivityComponentSchema } from "./messages";
 import { agentSummarySchema } from "./workspaces";
 
@@ -111,6 +116,8 @@ export const externalAgentDeliveryPayloadSchema = z
     sessionAddress: z.string().trim().min(32).max(256).optional(),
     agentId: agentIdSchema.optional(),
     continuation: chiefChannelContinuationSchema,
+    conversationId: conversationIdSchema.optional(),
+    threadRootId: messageIdSchema.optional(),
     message: z
       .object({
         id: messageIdSchema,
@@ -208,6 +215,23 @@ export const externalAgentInboundActivityResultSchema = z
   .object({ messageId: messageIdSchema })
   .strict();
 
+export const externalAgentToolCallSchema = z
+  .object({
+    deliveryId: z.string().trim().min(8).max(256),
+    continuation: chiefChannelContinuationSchema,
+    sessionId: z.string().trim().min(1).max(256),
+    operationId: z.string().trim().min(1).max(128),
+    input: jsonObjectSchema,
+  })
+  .strict();
+
+export const externalAgentToolResultSchema = z
+  .object({
+    operationId: z.string().trim().min(1).max(128),
+    result: jsonObjectSchema,
+  })
+  .strict();
+
 export type ExternalAgentRegistrationPayload = z.input<
   typeof externalAgentRegistrationPayloadSchema
 >;
@@ -223,3 +247,4 @@ export type ExternalAgentInboundMessage = z.infer<
 export type ExternalAgentInboundActivity = z.infer<
   typeof externalAgentInboundActivitySchema
 >;
+export type ExternalAgentToolCall = z.infer<typeof externalAgentToolCallSchema>;

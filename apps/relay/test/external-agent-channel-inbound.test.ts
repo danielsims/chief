@@ -5,6 +5,8 @@ import { agentIdSchema } from "@chief/relay-contracts";
 import {
   activeTestSnapshot,
   appendRootMessage,
+  channelEnvelope,
+  channelRpc,
   dispatchTestMessage,
   ownerId,
   setupChannelTest,
@@ -273,5 +275,105 @@ describe("external agent channel inbound", () => {
         }),
       }),
     ]);
+  });
+
+  it("appends a visible Eve reply in a direct message after thinking activity", async () => {
+    const ctx = await setupChannelTest();
+    const registered = await registerExternalAgent(ctx, {
+      agentId: "eve-dm",
+    });
+    await verifyExternalAgent(ctx, "eve-dm");
+    const direct = await channelRpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      channelEnvelope({
+        participant: { kind: "agent", principalId: "eve-dm" },
+      }),
+    );
+    expect(direct.status).toBe(201);
+    const conversationId = (
+      (await direct.json()) as { conversation: { id: string } }
+    ).conversation.id;
+    const delivered: {
+      current: { payload: { continuation: { capability: string } } } | null;
+    } = { current: null };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        delivered.current = (await new Request(
+          input,
+          init,
+        ).json()) as NonNullable<typeof delivered.current>;
+        return Response.json({
+          status: "accepted",
+          sessionId: "eve-dm-session",
+        });
+      }),
+    );
+    const triggerId = crypto.randomUUID();
+    await dispatchTestMessage(ctx, ctx.principal, {
+      id: triggerId,
+      workspaceId: ctx.workspaceId,
+      conversationId,
+      author: { kind: "user", id: ownerId },
+      body: "Hello Chief.",
+      mentions: [],
+      components: [],
+      reactions: [],
+      edited: false,
+      deleted: false,
+      createdAt: new Date().toISOString(),
+      sequence: 1,
+    });
+    await vi.waitFor(() => expect(delivered.current).not.toBeNull());
+    if (!delivered.current) throw new Error("Expected an external delivery.");
+    const continuation = delivered.current.payload.continuation;
+    const thinking = await receiveExternalActivity(
+      ctx,
+      "eve-dm",
+      registered.channel.token,
+      {
+        deliveryId: triggerId,
+        continuation,
+        sessionId: "eve-dm-session",
+        component: {
+          id: "reasoning:turn-1:0",
+          kind: "thinking",
+          version: 1,
+          payload: {
+            text: "Composing a greeting.",
+            status: "completed",
+            providerSessionId: "eve-dm-session",
+          },
+        },
+      },
+    );
+    const inbound = {
+      deliveryId: `${triggerId}:turn_1`,
+      continuation,
+      sessionId: "eve-dm-session",
+      body: "Hello. What should we work on first?",
+    };
+    const accepted = await receiveExternalAgent(
+      ctx,
+      "eve-dm",
+      registered.channel.token,
+      inbound,
+    );
+
+    expect(thinking.status).toBe(200);
+    expect(accepted.status).toBe(200);
+    const messages = await testConversationMessages(
+      ctx,
+      ctx.principal,
+      conversationId,
+    );
+    expect(
+      messages.filter((message) => message.body === inbound.body),
+    ).toHaveLength(1);
+    expect(
+      messages.find((message) => message.body === inbound.body)?.threadRootId,
+    ).toBeUndefined();
   });
 });

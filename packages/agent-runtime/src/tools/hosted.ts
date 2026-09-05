@@ -19,6 +19,7 @@ import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
+import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
 import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
 import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
@@ -43,6 +44,7 @@ export const hostedAgentToolDefinitions = {
     postChannelMessageDefinition,
     listPluginsDefinition,
     recommendPluginsDefinition,
+    recommendProjectDefinition,
     getBrandProfileStatusDefinition,
     saveBrandProfileDefinition,
     listProspectsDefinition,

@@ -81,7 +81,7 @@ function isPluginSummary(value: unknown): value is AgentPluginSummary {
 
 function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
   if (event.kind !== 9 || !Array.isArray(event.parts)) return [];
-  return event.parts.flatMap((part) => {
+  return event.parts.flatMap((part): ChiefUIMessage["parts"] => {
     if (!part || !isJsonObject(part) || Array.isArray(part)) return [];
     const candidate = part;
     const data = candidate.data;
@@ -91,6 +91,26 @@ function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
       !isJsonObject(data) ||
       !Array.isArray(data.plugins)
     ) {
+      if (
+        candidate.type === "data-project-recommendation" &&
+        data &&
+        isJsonObject(data) &&
+        isJsonString(data.title) &&
+        isJsonString(data.description)
+      ) {
+        return [
+          {
+            type: "data-project-recommendation",
+            data: {
+              title: data.title,
+              description: data.description,
+              ...(isJsonString(data.remoteUrl)
+                ? { remoteUrl: data.remoteUrl }
+                : undefined),
+            },
+          } as const,
+        ];
+      }
       return [];
     }
     const plugins: AgentPluginSummary[] = [];

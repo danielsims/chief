@@ -51,6 +51,7 @@ struct ThreadView: View {
           attachments: attachments,
           availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
           preferredMentionAgentIDs: channelAgentIDs,
+          people: model.mentionPeople,
           onSend: send,
           onAddAttachments: addAttachments,
           onRemoveAttachment: removeAttachment
@@ -143,13 +144,6 @@ struct ThreadView: View {
             }
           }
 
-          AgentBrowserWorkView(
-            workspaceID: workspaceID,
-            conversationIDs: [conversationID],
-            agents: workingAgents,
-            placement: .inline
-          )
-
           Color.clear
             .frame(height: 1)
             .id(latestAnchorID)
@@ -160,15 +154,22 @@ struct ThreadView: View {
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .onScrollGeometryChange(for: Bool.self) { geometry in
-        Self.isNearLatest(geometry)
+        ConversationScrollAnchor.isNearLatest(geometry)
       } action: { _, nearLatest in
         isNearLatest = nearLatest
       }
-      .onChange(of: replies.map(\.id)) { _, replyIDs in
-        let currentIDs = Set(replyIDs)
+      .onScrollGeometryChange(for: CGFloat.self) { geometry in
+        geometry.contentSize.height
+      } action: { oldHeight, newHeight in
+        followLatestIfNeeded(
+          contentGrew: hasPositionedInitially && newHeight > oldHeight,
+          using: proxy
+        )
+      }
+      .onChange(of: ConversationScrollAnchor.followKey(for: replies)) { _, _ in
         let shouldFollowLatest =
-          isNearLatest || replyIDs.last.map(sentReplyIDs.contains) == true
-        sentReplyIDs.formIntersection(currentIDs)
+          isNearLatest || replies.last.map { sentReplyIDs.contains($0.id) } == true
+        sentReplyIDs.formIntersection(Set(replies.map(\.id)))
         if shouldFollowLatest {
           scrollToLatest(using: proxy, animated: true)
         }
@@ -191,6 +192,11 @@ struct ThreadView: View {
     }
   }
 
+  private func followLatestIfNeeded(contentGrew: Bool, using proxy: ScrollViewProxy) {
+    guard contentGrew, isNearLatest else { return }
+    scrollToLatest(using: proxy, animated: true)
+  }
+
   private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
     isNearLatest = true
     let scroll = {
@@ -201,11 +207,6 @@ struct ThreadView: View {
     } else {
       scroll()
     }
-  }
-
-  private static func isNearLatest(_ geometry: ScrollGeometry) -> Bool {
-    geometry.contentSize.height <= geometry.containerSize.height
-      || geometry.visibleRect.maxY >= geometry.contentSize.height - 80
   }
 
   private var replies: [ConversationMessage] {

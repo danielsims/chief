@@ -5,7 +5,7 @@ import type { AgentJob } from "@chief/relay-contracts";
 import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import { executionLeaseSchema } from "@chief/relay-contracts";
 
-const COMPUTER_TOKEN_ISSUER = "https://chief-relay.internal";
+const COMPUTER_TOKEN_ISSUER = "https://relay.internal";
 const COMPUTER_TOKEN_AUDIENCE = "chief-computer";
 export const REMOTE_COMPUTER_REQUEST_TIMEOUT_MS = 45_000;
 

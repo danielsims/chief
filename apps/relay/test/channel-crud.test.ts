@@ -441,7 +441,7 @@ describe("workspace channels", () => {
     );
     expect(membershipEvents).toHaveLength(1);
     expect(membershipEvents[0]).toMatchObject({
-      author: { kind: "system", id: "chief-relay" },
+      author: { kind: "system", id: "relay" },
       body: "Coordinator added you to the channel.",
       components: [
         expect.objectContaining({

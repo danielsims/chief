@@ -3,7 +3,7 @@ import { relayDiscoverySchema } from "@chief/relay-contracts";
 export function relayDiscovery(request: Request, url: URL, env: Env) {
   const origin = publicOrigin(request, url, env);
   return relayDiscoverySchema.parse({
-    protocol: "chief-relay",
+    protocol: "relay",
     protocolVersion: 1,
     relayId: env.RELAY_ID,
     deployment: env.RELAY_DEPLOYMENT,

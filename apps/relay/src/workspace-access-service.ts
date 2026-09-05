@@ -17,6 +17,7 @@ import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
 import { requireNativeAgent } from "./workspace-agent-runtime";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -193,10 +194,12 @@ export class WorkspaceAccessService {
     });
   }
 
-  membersList(request: Request) {
+  async membersList(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
     this.channels.requireAgentCapability(context.principal, "members.read");
+    await refreshMemberDisplayNames(this.storage, this.env);
+    const names = this.channels.principalNames();
     const rows = this.storage.sql
       .exec(
         "SELECT principal_kind, principal_id, role FROM members ORDER BY principal_kind, principal_id",
@@ -209,6 +212,11 @@ export class WorkspaceAccessService {
           kind: row.principal_kind,
           principalId: row.principal_id,
           role: row.role,
+          ...(names.get(`${row.principal_kind}:${row.principal_id}`)
+            ? {
+                name: names.get(`${row.principal_kind}:${row.principal_id}`),
+              }
+            : undefined),
         })),
       }),
     );

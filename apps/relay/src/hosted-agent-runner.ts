@@ -19,6 +19,7 @@ import { loadAgentWorkMemory } from "./agent-cell-projection";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { peopleContextLines } from "./workspace-member-names";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
@@ -26,9 +27,9 @@ export const HOSTED_MAX_INFERENCE_STEPS = 24;
 export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
 export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_MENTION_CONTEXT_GUIDANCE =
-  "When the current message only addresses your name, treat it as an invitation into the ongoing conversation. Use the attached recent channel messages to continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If the attached messages contain no actionable request, ask one short question and stop.";
+  "When the current message only addresses your name, treat it as an invitation into the ongoing conversation. Use the attached recent channel messages to continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If the attached messages contain no actionable request, ask one short question and stop. Address people with @Name and their principal id from the people roster or channels_members_list. Never invent a @chief (user) tag.";
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
-  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
+  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. If projects_list is empty, call projects_recommend so the user can attach a repository from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
 
 export interface HostingContext {
   managed: boolean;
@@ -42,6 +43,7 @@ export interface HostingContext {
   agent?: { id: string; name: string; role: string; instructions?: string };
   config?: AgentConfig;
   machines?: Machine[];
+  people?: { id: string; name: string; role: string }[];
 }
 
 export async function loadAgentHostingContext(
@@ -279,6 +281,7 @@ export function hostedWorkspaceContext(
           "Requested integrations are intentionally omitted here. They are setup choices, not evidence about the product, market, or ideal customer.",
         ]),
     `Assigned machines: ${nonEmptyOr(assignedMachines, "none")}.`,
+    ...peopleContextLines(context.people ?? []),
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
       ? "The browser tools provide a real remote interactive browser when web_read is insufficient."

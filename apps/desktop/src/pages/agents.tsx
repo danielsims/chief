@@ -251,8 +251,7 @@ export function AgentsPage() {
         }}
         onConnected={relay.refresh}
         onCreateNative={async (input, preference) => {
-          await createNativeAgent(input);
-          agentPreferences.save(preference);
+          await createNativeAgent(input, preference);
         }}
         onProvisionEve={async (input, onProgress) => {
           if (!relay.client) {

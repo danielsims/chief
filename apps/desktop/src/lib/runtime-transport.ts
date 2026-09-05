@@ -1,4 +1,8 @@
-import type { ClientMessage, ServerMessage } from "@chief/agent-runtime/types";
+import type {
+  AgentPreference,
+  ClientMessage,
+  ServerMessage,
+} from "@chief/agent-runtime/types";
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
 
 export type RuntimeMessageListener = (message: ServerMessage) => void;
@@ -12,7 +16,10 @@ export interface RuntimeTransport {
   reconnectNow(): void;
   startDirectMessage(agentId: string): Promise<string>;
   removeAgent(agentId: string): Promise<void>;
-  createNativeAgent(input: CreateNativeAgentCommand): Promise<void>;
+  createNativeAgent(
+    input: CreateNativeAgentCommand,
+    preference?: AgentPreference,
+  ): Promise<void>;
   send(message: ClientMessage): void;
   subscribe(listener: RuntimeMessageListener): () => void;
   destroy(): void;

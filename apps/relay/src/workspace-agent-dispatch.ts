@@ -14,6 +14,7 @@ import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
 
 const dispatchMessageSchema = z
   .object({
@@ -62,14 +63,23 @@ export async function dispatchWorkspaceMessage(
   }
 
   const store = new WorkspaceChannelStore(storage, env);
+  await refreshMemberDisplayNames(storage, env);
   store.requireWorkspace(context.workspaceId);
   store.requirePrincipalMember(context.principal);
   const channel = store.requireChannelVisible(
     message.conversationId,
     context.principal,
   );
+  const people = store
+    .channelMemberRows(message.conversationId)
+    .flatMap((member) =>
+      member.kind === "user"
+        ? [{ id: member.principalId, name: member.name }]
+        : [],
+    );
   const mentions = normalizedChannelMentions({
     availableAgentIds: store.workspaceAgentIds(),
+    people,
     content: message.body,
     explicitMentions: message.mentions,
   });

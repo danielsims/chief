@@ -1,6 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-import type { ClientMessage, ServerMessage } from "@chief/agent-runtime/types";
+import type {
+  AgentPreference,
+  ClientMessage,
+  ServerMessage,
+} from "@chief/agent-runtime/types";
 import type { WorkspaceSubscription } from "@chief/relay-client";
 import type {
   ConversationEvent,
@@ -16,6 +20,7 @@ import type {
   RuntimeMessageListener,
   RuntimeTransport,
 } from "./runtime-transport";
+import { isChannelMembershipMessage } from "./channel-actions";
 import { hostedProviderModelsMessage } from "./hosted-provider-models";
 import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
 import { rememberRelayConversationId } from "./relay-channel-adapter";
@@ -67,6 +72,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     undefined;
   private snapshot: WorkspaceSnapshot;
   private closed = false;
+  private channelRosterRefreshTail = Promise.resolve();
 
   constructor(
     private readonly relay: RelayRuntimeRelay,
@@ -121,9 +127,15 @@ export class RelayRuntimeClient implements RuntimeTransport {
     });
     await this.listChannels();
   }
-  async createNativeAgent(input: CreateNativeAgentCommand) {
+  async createNativeAgent(
+    input: CreateNativeAgentCommand,
+    preference?: AgentPreference,
+  ) {
     await this.relay.createNativeAgent(input);
     await this.refreshSnapshot();
+    if (preference) {
+      await saveRelayAgentPreference(this.relay, this.snapshot, preference);
+    }
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
   }
   send(message: ClientMessage) {
@@ -180,7 +192,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.emit(await hostedProviderModelsMessage(message.driver));
         return;
       case "saveAgentPreference":
-        await saveRelayAgentPreference(this.relay, this.snapshot, message);
+        await saveRelayAgentPreference(
+          this.relay,
+          this.snapshot,
+          message.preference,
+        );
         this.emit(
           await relayAgentPreferencesMessage(
             this.relay,
@@ -241,6 +257,20 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     await this.ensureWorkspaceSubscription();
   }
+
+  private requestChannelRosterRefresh() {
+    this.channelRosterRefreshTail = this.channelRosterRefreshTail
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.closed) return;
+        await this.refreshSnapshot();
+        await this.listChannels();
+      })
+      .catch((error: unknown) => {
+        this.recordError(parseRelayError(error));
+      });
+  }
+
   private async createChannel(
     message: Extract<ClientMessage, { type: "createChannel" }>,
   ) {
@@ -383,14 +413,15 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (isActivity) recordDesktopActivityReceipt(this.snapshot.id, event);
     this.rememberMessage(message);
     if (browserEvent) this.emit(browserEvent);
-    if (
-      !isActivity &&
-      this.snapshot.conversations.some(
-        (conversation) =>
-          conversation.id === message.conversationId &&
-          conversation.kind === "channel",
-      )
-    ) {
+    if (isChannelMembershipMessage(message)) {
+      this.requestChannelRosterRefresh();
+    }
+    const knownChannel = this.snapshot.conversations.some(
+      (conversation) =>
+        conversation.id === message.conversationId &&
+        conversation.kind === "channel",
+    );
+    if (!isActivity && (knownChannel || isChannelMembershipMessage(message))) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
       if (
         event.type === "conversation.message.reacted" ||

@@ -29,7 +29,7 @@ COPY packages/relay-client/package.json ./packages/relay-client/package.json
 COPY packages/relay-contracts/package.json ./packages/relay-contracts/package.json
 COPY apps/relay/package.json ./apps/relay/package.json
 
-RUN --mount=type=cache,id=chief-relay-pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=relay-pnpm,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store \
   && pnpm install --frozen-lockfile --filter @chief/relay...
 
@@ -71,7 +71,7 @@ ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /app
 COPY --from=dependencies --chown=chief:chief /source ./
-COPY --chown=chief:chief apps/relay/docker/entrypoint.sh /usr/local/bin/chief-relay
+COPY --chown=chief:chief apps/relay/docker/entrypoint.sh /usr/local/bin/relay
 
 USER chief
 EXPOSE 8787
@@ -80,5 +80,5 @@ VOLUME ["/var/lib/chief"]
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=6 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/chief-relay"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/relay"]
 CMD ["serve"]
