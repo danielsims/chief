@@ -10,7 +10,6 @@ import { messageMentionsPerson } from "@chief/agent-runtime/channel-message-ment
 import {
   channelMembersResultSchema,
   conversationEventSchema,
-  isJsonString,
 } from "@chief/relay-contracts";
 
 import { sendApnsAlert } from "./apns-client";

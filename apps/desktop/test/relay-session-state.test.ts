@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { RelayClient } from "@chief/relay-client";
-import { workspaceSnapshotSchema } from "@chief/relay-contracts";
+import {
+  workspaceIdSchema,
+  workspaceSnapshotSchema,
+} from "@chief/relay-contracts";
 
 import {
   beginRelayConnection,
@@ -173,7 +176,7 @@ void test("refocus refresh preserves the live client but workspace/account chang
   assert.equal(
     completeRelayConnection(current, {
       ...next,
-      snapshot: { ...snapshot, id: "workspace-two" },
+      snapshot: { ...snapshot, id: workspaceIdSchema.parse("workspace-two") },
     }).client,
     next.client,
   );

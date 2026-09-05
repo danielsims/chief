@@ -2,6 +2,7 @@ import { agentConfigSchema, defaultAgentConfig } from "@chief/relay-contracts";
 
 const collaborationPermissions = [
   "workspace.read",
+  "workspace.write",
   "channels.read",
   "channels.create",
   "members.read",
@@ -19,7 +20,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "channels.update",
         "channels.archive",
         "messages.manage",
@@ -39,7 +39,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "brand-profile-write",
         "browser.use",
       ],
@@ -52,7 +51,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "prospects-write",
         "browser.use",
       ],
@@ -87,7 +85,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "browser.use",
         "projects.read",
         "projects.write",

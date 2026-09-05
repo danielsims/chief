@@ -455,6 +455,8 @@ function ScopedChannelReadStateProvider({
   }, [
     capability,
     canonicalRootId,
+    readerId,
+    readerName,
     joinedChannels,
     client,
     startedAt,

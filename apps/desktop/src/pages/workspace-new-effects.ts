@@ -130,13 +130,7 @@ export function useWorkspaceNewLifecycle({
         error,
       );
     });
-  }, [
-    initialDraft?.eveWorkspaceId,
-    relay.client,
-    relay.loading,
-    relay.snapshot?.id,
-    relay.switchWorkspace,
-  ]);
+  }, [initialDraft?.eveAutoDeploy, initialDraft?.eveWorkspaceId, relay]);
 
   useEffect(() => {
     if (mode === "create" || mode === "eve") {
