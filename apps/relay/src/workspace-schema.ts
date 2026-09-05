@@ -10,6 +10,7 @@ export function initializeWorkspaceSchema(
   env: Env,
 ) {
   storage.sql.exec(`
+    CREATE TABLE IF NOT EXISTS missions (mission_id TEXT PRIMARY KEY, document_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workspace (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       workspace_id TEXT NOT NULL UNIQUE,

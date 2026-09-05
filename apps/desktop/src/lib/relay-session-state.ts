@@ -23,6 +23,19 @@ export interface RelaySessionState {
 
 export type RelayConnectionIntent = "foreground" | "background";
 
+export function completeRelayConnection(
+  current: RelaySessionState,
+  next: RelaySessionState,
+): RelaySessionState {
+  const sameWorkspace =
+    current.accountId === next.accountId &&
+    current.snapshot?.id === next.snapshot?.id;
+  return {
+    ...next,
+    client: sameWorkspace ? (current.client ?? next.client) : next.client,
+  };
+}
+
 export function beginWorkspaceTransition(
   state: RelaySessionState,
 ): RelaySessionState {

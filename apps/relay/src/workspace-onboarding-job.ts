@@ -1,5 +1,5 @@
 const OPENING_MESSAGE =
-  "Hey, welcome to Chief 👋 I'm getting the team together now. We'll have a look around, get to know your brand and market, and start figuring out where the good opportunities are hiding. You can hang out here and watch us work. I'll give you a shout if I need anything.";
+  "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.";
 
 export function workspaceOnboardingDelegation(selectedApps: readonly string[]) {
   return [

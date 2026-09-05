@@ -11,6 +11,7 @@ import {
   AgentProfilePanel,
   UserProfilePanel,
 } from "../components/chat/agent-profile-panel";
+import { MissionCanvas } from "../components/chat/mission-canvas";
 import { ChannelCanvas } from "../components/chat/channel-canvas";
 import { ChiefChat } from "../components/chat/chief-chat";
 import {
@@ -378,8 +379,10 @@ export function ConversationsPage() {
               {conversationHeader}
               <ChannelCanvas
                 channelName={activeChannel.label}
-                onContinueArtifact={continueArtifact}
-              />
+                conversationId={activeConversationChannel?.relayId ?? activeChannel.id}
+              >
+                <MissionCanvas key={activeConversationChannel?.relayId ?? activeChannel.id} conversationId={activeConversationChannel?.relayId ?? activeChannel.id} />
+              </ChannelCanvas>
             </>
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>

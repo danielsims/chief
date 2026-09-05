@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { ArrowUpRight, CheckCheck, Inbox, MessageSquare } from "lucide-react";
 
+import { messagePreviewText } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelInboxMessage } from "../lib/channel-inbox";
 import { AgentAvatar } from "../components/agent-avatar";
 import { AttentionPill } from "../components/attention-pill";
+import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { PageTitle } from "../components/page-title";
 import { useAuth } from "../lib/auth/auth-context";
 import { channelIdsNeedingUser } from "../lib/channel-action-items";
@@ -183,7 +185,8 @@ export function InboxPage() {
                         </span>
                       </span>
                       <span className="text-foreground/80 mt-1 line-clamp-2 text-xs leading-5">
-                        {message.content || "Sent an attachment"}
+                        {messagePreviewText(message.content) ||
+                          "Sent an attachment"}
                       </span>
                       <span className="text-muted-foreground mt-1.5 flex items-center gap-1.5 text-[10px]">
                         {channel?.visibility === "direct"
@@ -223,9 +226,11 @@ export function InboxPage() {
                     ) : null}
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
-                    <p className="max-w-2xl text-[15px] leading-7 whitespace-pre-wrap">
-                      {selected.content || "Sent an attachment"}
-                    </p>
+                    <div className="max-w-2xl text-[15px] leading-7">
+                      <StreamingMarkdown>
+                        {selected.content || "Sent an attachment"}
+                      </StreamingMarkdown>
+                    </div>
                   </div>
                   <footer className="border-border/60 flex items-center justify-between border-t px-6 py-4">
                     <Button
