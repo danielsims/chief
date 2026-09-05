@@ -70,8 +70,16 @@ async function saveConnection(
   await rename(pending, path);
 }
 
-export async function prepareLocalProject(input: unknown, root?: string) {
-  const parsed = prepareSchema.parse(input);
+type LocalProjectPreparation = z.input<typeof prepareSchema>;
+
+export function parseLocalProjectPreparation(input: unknown) {
+  return prepareSchema.parse(input);
+}
+
+export async function prepareLocalProject(
+  parsed: LocalProjectPreparation,
+  root?: string,
+) {
   const connectionId = randomUUID();
   let path: string;
   if (parsed.source === "attach") {
@@ -129,16 +137,21 @@ export async function prepareLocalProject(input: unknown, root?: string) {
   return { connectionId, project };
 }
 
-export async function bindLocalProject(input: unknown, root?: string) {
-  const parsed = z
-    .object({
-      workspaceId: z
-        .string()
-        .transform((value) => workspaceIdSchema.parse(value)),
-      connectionId: z.string().uuid(),
-      projectId: z.string().trim().min(1).max(128),
-    })
-    .parse(input);
+const bindingInputSchema = z.object({
+  workspaceId: z.string().transform((value) => workspaceIdSchema.parse(value)),
+  connectionId: z.string().uuid(),
+  projectId: z.string().trim().min(1).max(128),
+});
+type LocalProjectBindingInput = z.input<typeof bindingInputSchema>;
+
+export function parseLocalProjectBinding(input: unknown) {
+  return bindingInputSchema.parse(input);
+}
+
+export async function bindLocalProject(
+  parsed: LocalProjectBindingInput,
+  root?: string,
+) {
   const path = join(
     registryRoot(parsed.workspaceId, root),
     `${parsed.connectionId}.json`,

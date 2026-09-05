@@ -29,8 +29,16 @@ const querySchema = z.discriminatedUnion("operation", [
   }),
 ]);
 
-export async function queryLocalProject(input: unknown, root?: string) {
-  const query = querySchema.parse(input);
+type LocalProjectQuery = z.infer<typeof querySchema>;
+
+export function parseLocalProjectQuery(input: unknown) {
+  return querySchema.parse(input);
+}
+
+export async function queryLocalProject(
+  query: LocalProjectQuery,
+  root?: string,
+) {
   const bindings = await listLocalProjectBindings(query.workspaceId, root);
   if (query.operation === "snapshots") {
     return {

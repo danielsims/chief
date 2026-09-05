@@ -73,7 +73,7 @@ void test("local private repository connection keeps paths local and isolates ea
       { workspaceId: "workspace-a", operation: "snapshots" },
       root,
     );
-    assert.ok("snapshots" in listed && listed.snapshots[0]?.available);
+    assert.ok("snapshots" in listed && listed.snapshots?.[0]?.available);
     const browsed = await queryLocalProject(
       {
         workspaceId: "workspace-a",
@@ -85,7 +85,7 @@ void test("local private repository connection keeps paths local and isolates ea
       root,
     );
     assert.ok(
-      "browser" in browsed && browsed.browser.file?.content === "Original\n",
+      "browser" in browsed && browsed.browser?.file?.content === "Original\n",
     );
     await assert.rejects(
       queryLocalProject(
