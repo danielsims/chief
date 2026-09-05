@@ -1,8 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
@@ -20,23 +18,6 @@ import { projectIconDataUrl } from "./project-icon.js";
 const executeFile = promisify(execFile);
 const GIT_TIMEOUT_MS = 30_000;
 const GIT_OUTPUT_LIMIT = 4 * 1024 * 1024;
-
-let hooksPathPromise: Promise<string> | undefined;
-
-/**
- * An empty, Chief-owned hooks directory. Repository hooks and `.git/config`
- * are untrusted input, so server-side Git must never execute them. Passing
- * `core.hooksPath` to an empty directory disables every hook for one command
- * without touching the repository's configuration.
- */
-async function emptyHooksPath() {
-  hooksPathPromise ??= (async () => {
-    const path = join(tmpdir(), "chief-no-hooks");
-    await mkdir(path, { recursive: true, mode: 0o700 });
-    return path;
-  })();
-  return hooksPathPromise;
-}
 
 export function safeSegment(value: string, fallback: string) {
   return (
@@ -109,7 +90,7 @@ export async function git(
   timeout = GIT_TIMEOUT_MS,
 ) {
   try {
-    const result = await executeFile("git", await gitCommand(args), {
+    const result = await executeFile("git", gitCommand(args), {
       ...(cwd ? { cwd } : undefined),
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
@@ -127,7 +108,7 @@ export async function gitBuffer(
   cwd: string,
   timeout = GIT_TIMEOUT_MS,
 ) {
-  const command = await gitCommand(args);
+  const command = gitCommand(args);
   return new Promise<Buffer>((resolve, reject) => {
     execFile(
       "git",
@@ -162,7 +143,7 @@ export async function gitExitCode(
   cwd: string,
   timeout = GIT_TIMEOUT_MS,
 ) {
-  const command = await gitCommand(args);
+  const command = gitCommand(args);
   return new Promise<number>((resolve, reject) => {
     execFile(
       "git",
@@ -198,8 +179,8 @@ export async function gitExitCode(
   });
 }
 
-async function gitCommand(args: string[]) {
-  const hooksPath = await emptyHooksPath();
+function gitCommand(args: string[]) {
+  const hooksPath = process.platform === "win32" ? "NUL" : "/dev/null";
   return [
     "-c",
     `core.hooksPath=${hooksPath}`,

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { relayProjectCreateSchema } from "../../relay-contracts/src/projects.js";
+import { queryLocalProject } from "../src/projects/local-project-query.js";
 import {
   bindLocalProject,
   listLocalProjectBindings,
@@ -68,6 +69,50 @@ void test("local private repository connection keeps paths local and isolates ea
       root,
     );
     assert.notEqual(checkout.directory, source);
+    const listed = await queryLocalProject(
+      { workspaceId: "workspace-a", operation: "snapshots" },
+      root,
+    );
+    assert.ok("snapshots" in listed && listed.snapshots[0]?.available);
+    const browsed = await queryLocalProject(
+      {
+        workspaceId: "workspace-a",
+        operation: "browse",
+        projectId: "project-a",
+        ref: "main",
+        path: "README.md",
+      },
+      root,
+    );
+    assert.ok(
+      "browser" in browsed && browsed.browser.file?.content === "Original\n",
+    );
+    await assert.rejects(
+      queryLocalProject(
+        {
+          workspaceId: "workspace-b",
+          operation: "browse",
+          projectId: "project-a",
+          ref: "main",
+        },
+        root,
+      ),
+      /Connect this repository/,
+    );
+    await assert.rejects(
+      queryLocalProject(
+        {
+          workspaceId: "workspace-a",
+          operation: "browse",
+          projectId: "project-a",
+          ref: "main",
+          path: "../outside",
+        },
+        root,
+      ),
+      /path inside the project/,
+    );
+
     await writeFile(join(checkout.directory, "README.md"), "Agent change\n");
     assert.equal(
       await readFile(join(source, "README.md"), "utf8"),
@@ -131,5 +176,27 @@ void test("repository boundaries reject credentials and executable URL schemes",
       }).success,
       false,
     );
+  }
+});
+
+void test("trusted Git commands do not execute repository filesystem monitors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chief-git-monitor-"));
+  const source = join(root, "source");
+  const marker = join(root, "executed");
+  const monitor = join(root, "monitor.sh");
+  try {
+    execFileSync("git", ["init", "--initial-branch=main", source]);
+    await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o700 });
+    execFileSync("git", ["config", "core.fsmonitor", monitor], { cwd: source });
+    execFileSync("git", ["status", "--short"], {
+      cwd: source,
+      stdio: "ignore",
+    });
+    await readFile(marker);
+    await rm(marker);
+    await git(["status", "--short"], source);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

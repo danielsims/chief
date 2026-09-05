@@ -6,6 +6,7 @@ import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
 import { PluginRuntime } from "./plugins/runtime.js";
+import { queryLocalProject } from "./projects/local-project-query.js";
 import {
   bindLocalProject,
   prepareLocalProject,
@@ -16,6 +17,7 @@ const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
 const plugins = new PluginRuntime(() => undefined);
 
 type PluginHostResponse =
+  | Awaited<ReturnType<typeof queryLocalProject>>
   | Awaited<ReturnType<typeof prepareLocalProject>>
   | Awaited<ReturnType<typeof bindLocalProject>>
   | { error: string }
@@ -88,6 +90,10 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
 
       const input = await readJson(request);
       const workspaceId = parseRequiredString(input.workspaceId, "workspaceId");
+      if (url.pathname === "/projects/query") {
+        sendJson(response, 200, await queryLocalProject(input));
+        return;
+      }
       if (url.pathname === "/projects/prepare") {
         sendJson(response, 200, await prepareLocalProject(input));
         return;
