@@ -5,7 +5,11 @@ import { dirname, join } from "node:path";
 import WebSocket from "ws";
 
 import type { AgentConfig, AgentJob } from "@chief/relay-contracts";
-import { createNip98Authorization, RelayClient } from "@chief/relay-client";
+import {
+  createNip98Authorization,
+  RelayClient,
+  RelayClientError,
+} from "@chief/relay-client";
 import {
   agentConfigSchema,
   parseJsonObject,
@@ -16,6 +20,7 @@ import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
 import { composeWorkspaceInstructions } from "./agents.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
+import { ensureCodexSetup } from "./drivers/codex-install.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
@@ -158,16 +163,20 @@ async function executeJob(
     agentId,
     ttlMs: 5 * 60_000,
   });
+  let session: AgentSession | null = null;
   const renew = setInterval(() => {
     void Promise.all([
       cell.leasesManager.renew(cell.id, runId, 5 * 60_000),
       client.renewAgentJob(agentId, lease.leaseToken, 300),
-    ]).catch((error) => console.error("[cell] lease renewal:", error));
+    ]).catch(async (error: unknown) => {
+      console.error("[cell] lease renewal:", error);
+      if (error instanceof RelayClientError && error.code === "stale_lease")
+        await session?.stop();
+    });
   }, 60_000);
   renew.unref();
   let relayMcp: Awaited<ReturnType<typeof startRelayCellMcpHttpServer>> | null =
     null;
-  let session: AgentSession | null = null;
   const activityContext = {
     relayId: requiredEnvironment("CHIEF_RELAY_URL"),
     workspaceId: job.workspaceId,
@@ -272,7 +281,7 @@ async function executeJob(
         project
           ? `Repository: ${project.name} (${project.projectId}). Your working directory is the isolated agent checkout ${project.directory}. Inspect repository instructions before changes. Keep code changes here, run focused checks, and return the diff and evidence for review. Do not deploy, push, or change the original checkout without the user's authorization.`
           : "Use projects_list to inspect connected repositories. If more than one is available, clarify the repository and assign its projectId to the mission before editing code. This session's sandbox is the cell directory.",
-        job.kind === "conversation.message"
+        job.kind === "conversation.message" || job.kind === "schedule.step"
           ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,
       ]
@@ -433,6 +442,7 @@ async function listenForJobs() {
   let delay = 1_000;
   while (true) {
     try {
+      if (config.inference.provider === "codex") await ensureCodexSetup();
       const [discovery, ticket] = await Promise.all([
         client.discovery(),
         client.createAgentMailboxTicket(requiredEnvironment("CHIEF_AGENT_ID")),

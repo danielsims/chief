@@ -11,7 +11,7 @@ use auth_session::{
     clear_oauth_attempt, clear_oauth_session, load_oauth_attempt, load_oauth_session,
     store_oauth_attempt, store_oauth_session,
 };
-use cell_supervisor::{start_workspace_cells, CellSupervisor};
+use cell_supervisor::{cell_runtime_setup, start_workspace_cells, CellSupervisor};
 use native_notifications::{
     notification_environment, request_native_notification_permission, show_native_notification,
 };
@@ -104,6 +104,7 @@ pub fn run() {
             relay_agent_public_key,
             relay_nip98_authorization,
             start_workspace_cells,
+            cell_runtime_setup,
             start_plugin_host,
             take_pending_notification_activation
         ])

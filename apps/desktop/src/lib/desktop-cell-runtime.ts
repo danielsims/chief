@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { RelayClient } from "@chief/relay-client";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
 
+import { watchCodexSetup } from "./codex-setup-progress";
 import { RELAY_URL } from "./config";
 import { isDesktopNativeCell } from "./desktop-cell-runtime-selection";
 
@@ -39,4 +40,8 @@ export async function ensureDesktopCells(
     workspaceId: snapshot.id,
     agents,
   });
+  for (const { agentId, config } of agents) {
+    if (config.inference.provider === "codex")
+      watchCodexSetup(RELAY_URL, snapshot.id, agentId);
+  }
 }

@@ -79,7 +79,7 @@ export class AcpDriver extends BaseDriver {
     env.GIT_ASKPASS = "/bin/true";
     env.GIT_PAGER = "cat";
     env.PAGER = "cat";
-    this.runtime.configureEnvironment?.(options, env);
+    await this.runtime.configureEnvironment?.(options, env);
     const child = spawn(this.runtime.command(), this.runtime.args, {
       cwd: options.cwd,
       env,
