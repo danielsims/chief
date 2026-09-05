@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { z } from "zod";
+import type { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { channelApiOperations } from "@chief/channel-api";

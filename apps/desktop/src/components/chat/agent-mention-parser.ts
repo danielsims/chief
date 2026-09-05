@@ -91,7 +91,7 @@ export function splitAgentMentions(
         agentId,
         token: match[0],
         label:
-          WORKSPACE_AGENT_IDENTITIES[agentId as StaticWorkspaceAgentId]?.name ??
+          (isWorkspaceAgentId(agentId) ? WORKSPACE_AGENT_IDENTITIES[agentId].name : undefined) ??
           extra
             .filter((alias) => alias.id === agentId)
             .sort((left, right) => right.name.length - left.name.length)[0]

@@ -1,4 +1,4 @@
-import type { AgentJob, JsonObject } from "@chief/relay-contracts";
+import type { AgentJob, JsonObject, JsonValue } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 import { publishAgentMessage } from "./agent-message-publisher";
@@ -57,11 +57,11 @@ function requiredString(input: JsonObject, key: string) {
   return value.trim();
 }
 
-function optionalUrl(value: unknown) {
+function optionalUrl(value: JsonValue | undefined) {
   if (!isJsonString(value) || !value.trim()) return undefined;
   try {
     const parsed = new URL(value.trim());
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
       return undefined;
     }
     return parsed.toString();

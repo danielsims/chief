@@ -226,7 +226,7 @@ async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
         code,
         code_verifier: attempt.verifier,
         redirect_uri:
-          attempt.redirectUri ||
+          attempt.redirectUri ??
           desktopAuthorizationRedirectUri(AUTH_UI_BASE_URL),
       }).toString(),
     },

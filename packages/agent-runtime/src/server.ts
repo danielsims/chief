@@ -3348,7 +3348,7 @@ export function startServer(port = PORT) {
               }
               const catalog = await listVercelEveDestinations({
                 token,
-                ...(msg.teamId ? { teamId: msg.teamId } : {}),
+                ...(msg.teamId ? { teamId: msg.teamId } : undefined),
               });
               send({
                 type: "vercelEveDestinations",

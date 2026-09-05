@@ -1,9 +1,12 @@
-import { messageMentionsPerson } from "@chief/agent-runtime/channel-message-mentions";
+import { z } from "zod";
+
 import type {
   ConversationMessage,
+  JsonObject,
   Principal,
   WorkspaceId,
 } from "@chief/relay-contracts";
+import { messageMentionsPerson } from "@chief/agent-runtime/channel-message-mentions";
 import {
   channelMembersResultSchema,
   conversationEventSchema,
@@ -11,7 +14,10 @@ import {
 } from "@chief/relay-contracts";
 
 import { sendApnsAlert } from "./apns-client";
-import { withTrustedAccountIdentity, withTrustedContext } from "./internal-context";
+import {
+  withTrustedAccountIdentity,
+  withTrustedContext,
+} from "./internal-context";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 const activityComponentKinds = new Set([
@@ -24,7 +30,7 @@ const activityComponentKinds = new Set([
 
 export async function notifyConversationPush(
   env: Env,
-  event: unknown,
+  event: JsonObject,
   principal: Principal,
   workspaceId: WorkspaceId,
   conversationId: string,
@@ -177,16 +183,18 @@ async function notifyUser(
     await response.text();
     return;
   }
-  const document: unknown = await response.json();
-  const devices = Array.isArray((document as { devices?: unknown }).devices)
-    ? (document as { devices: { token: unknown; environment: unknown }[] })
-        .devices
-    : [];
+  const { devices } = z
+    .object({
+      devices: z.array(
+        z.object({
+          token: z.string(),
+          environment: z.enum(["production", "sandbox"]),
+        }),
+      ),
+    })
+    .parse(await response.json());
   await Promise.all(
     devices.map(async (device) => {
-      if (!isJsonString(device.token) || !isJsonString(device.environment)) {
-        return;
-      }
       const environment =
         device.environment === "production" ? "production" : "sandbox";
       const status = await sendApnsAlert(env, {

@@ -223,8 +223,7 @@ export function useChiefChatCore({
     addedAgentIds,
     channel?.agentIds,
     directAgent?.id,
-    user?.id,
-    user?.name,
+    user,
   ]);
   const knownAgentIds = useMemo(
     () => new Set(mentionCandidates.map((candidate) => candidate.id)),

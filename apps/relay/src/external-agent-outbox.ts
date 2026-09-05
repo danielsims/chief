@@ -1,6 +1,7 @@
 import type { ExternalAgentDeliveryCommand } from "@chief/relay-contracts";
 import {
   externalAgentDeliveryCommandSchema,
+  parseJsonObject,
   externalAgentDeliveryResultSchema,
 } from "@chief/relay-contracts";
 
@@ -360,12 +361,12 @@ export class ExternalAgentOutbox {
   }
 
   private deliveryBody(row: OutboxRow) {
-    const envelope: unknown = JSON.parse(row.payload_json);
-    if (!envelope || typeof envelope !== "object" || !("payload" in envelope)) {
+    const envelope = parseJsonObject(JSON.parse(row.payload_json));
+    if (!envelope) {
       return row.payload_json;
     }
-    const payload = envelope.payload;
-    if (!payload || typeof payload !== "object") return row.payload_json;
+    const payload = parseJsonObject(envelope.payload);
+    if (!payload) return row.payload_json;
     return JSON.stringify({
       ...envelope,
       payload: { ...payload, people: workspacePeople(this.storage) },

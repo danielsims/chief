@@ -15,7 +15,7 @@ export function messagePreviewText(markdown: string) {
     .replace(/(`+)([^`]+)\1/gu, "$2")
     .replace(/(\*{1,3}|~~)(\S(?:.*?\S)?)\1/gu, "$2")
     .replace(/(?<!\w)(_{1,3})(\S(?:.*?\S)?)\1(?!\w)/gu, "$2")
-    .replace(/\\([\\`*_{}\[\]()#+.!>-])/gu, "$1")
+    .replace(/\\([\\`*_{}[\]()#+.!>-])/gu, "$1")
     .replace(/&(?:amp|lt|gt|quot|apos|nbsp);/gu, (entity) => {
       switch (entity) {
         case "&amp;":

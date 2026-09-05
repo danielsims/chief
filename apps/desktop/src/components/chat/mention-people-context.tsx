@@ -1,44 +1,39 @@
 import type { ReactNode } from "react";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+import type { MentionAlias } from "./agent-mention-parser";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useRelaySession } from "../../lib/relay-session";
-import type { MentionAlias } from "./agent-mention-parser";
 
 const MentionPeopleContext = createContext<readonly MentionAlias[]>([]);
 
 export function MentionPeopleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { client, snapshot } = useRelaySession();
-  const [members, setMembers] = useState<readonly MentionAlias[]>([]);
+  const [result, setResult] = useState<{
+    client: typeof client;
+    members: readonly MentionAlias[];
+  }>({ client: null, members: [] });
   const workspaceId = snapshot?.id;
 
   useEffect(() => {
-    if (!client || !workspaceId) {
-      setMembers([]);
-      return;
-    }
+    if (!client || !workspaceId) return;
     let cancelled = false;
     void client
       .listWorkspaceMembers()
       .then((rows) => {
         if (cancelled) return;
-        setMembers(
-          rows.flatMap((member) =>
+        setResult({
+          client,
+          members: rows.flatMap((member) =>
             member.kind === "user" && member.name?.trim()
               ? [{ id: member.principalId, name: member.name.trim() }]
               : [],
           ),
-        );
+        });
       })
       .catch(() => {
-        if (!cancelled) setMembers([]);
+        if (!cancelled) setResult({ client, members: [] });
       });
     return () => {
       cancelled = true;
@@ -57,9 +52,10 @@ export function MentionPeopleProvider({ children }: { children: ReactNode }) {
     if (user?.id && user.name.trim()) {
       add({ id: user.id, name: user.name.trim() });
     }
-    for (const member of members) add(member);
+    if (result.client === client)
+      for (const member of result.members) add(member);
     return aliases;
-  }, [members, user?.id, user?.name]);
+  }, [result, client, user]);
 
   return (
     <MentionPeopleContext.Provider value={people}>

@@ -107,11 +107,11 @@ void test("overlapping near-expiry checks share one refresh instead of signing o
   const [first, second] = await Promise.all([
     resolveStoredOAuthSession(current, {
       refresh,
-      validate: async () => ({ status: "invalid" }),
+      validate: () => Promise.resolve({ status: "invalid" as const }),
     }),
     resolveStoredOAuthSession(current, {
       refresh,
-      validate: async () => ({ status: "invalid" }),
+      validate: () => Promise.resolve({ status: "invalid" as const }),
     }),
   ]);
   assert.equal(first, next);
@@ -122,10 +122,8 @@ void test("overlapping near-expiry checks share one refresh instead of signing o
 void test("a 4xx refresh rejection still signs out when this is the live credential", async () => {
   const current = session({ expiresAt: Date.now() - 1_000 });
   const result = await resolveStoredOAuthSession(current, {
-    refresh: async () => {
-      throw new OAuthTokenError("invalid grant", 400);
-    },
-    validate: async () => ({ status: "invalid" }),
+    refresh: () => Promise.reject(new OAuthTokenError("invalid grant", 400)),
+    validate: () => Promise.resolve({ status: "invalid" as const }),
   });
   assert.equal(result, null);
 });
