@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { z } from "zod";
 
+import {
+  externalAgentToolCallSchema,
+  missionCreateSchema,
+} from "@chief/relay-contracts";
+
 import { eveProjectFiles } from "../src/vercel-eve-provisioning.js";
+import { eveChiefToolClientSource } from "../src/vercel-eve-tool-files.js";
 
 const environment = {
   CHIEF_AGENT_ID: "researcher",
@@ -100,4 +108,72 @@ void test("packages declared specialists as native Eve subagents", () => {
   assert.ok(
     files.some((file) => file.path === "agent/tools/channels_reactions_add.ts"),
   );
+});
+
+void test("generated Eve client sends strict workspace inputs without borrowing message fields", async () => {
+  const bodies: ReturnType<typeof externalAgentToolCallSchema.parse>[] = [];
+  const code = ts.transpileModule(eveChiefToolClientSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const module: unknown = runInNewContext(`${code}; exports`, {
+    exports: {},
+    URL,
+    process: { env: environment },
+    require: () => ({
+      currentChiefDelivery: {
+        deliveryId: "delivery-1",
+        capability: "c".repeat(43),
+        sessionId: "session-1",
+        conversationId: "source-channel",
+        messageId: "source-message",
+        threadRootId: "source-thread",
+      },
+      noteChiefMessagePosted: () => undefined,
+    }),
+    fetch: async (_url: URL, init: RequestInit) => {
+      bodies.push(
+        externalAgentToolCallSchema.parse(await new Response(init.body).json()),
+      );
+      return Response.json({ ok: true });
+    },
+  });
+  const client = z
+    .object({
+      callChiefTool: z
+        .function()
+        .args(z.string(), z.record(z.unknown()))
+        .returns(z.promise(z.unknown())),
+    })
+    .parse(module);
+  const mission = missionCreateSchema.parse({
+    id: "launch-mission",
+    conversationId: "mission-channel",
+    title: "Launch",
+    objective: "Publish a reviewed launch brief",
+    ownerAgentId: "engineer",
+    collaborators: [],
+    success: { kind: "deliverable", description: "A reviewed launch brief" },
+    maxExperiments: 3,
+    deadline: "2026-12-01T00:00:00.000Z",
+    constraints: "Do not publish externally",
+  });
+  await client.callChiefTool("missions.create", mission);
+  assert.deepEqual(missionCreateSchema.parse(bodies[0]?.input), mission);
+  await client.callChiefTool("channels.messages.post", {
+    channelId: "different-channel",
+    content: "Mission ready",
+  });
+  assert.deepEqual(bodies[1]?.input, {
+    channelId: "different-channel",
+    content: "Mission ready",
+  });
+  await client.callChiefTool("channels.reactions.add", { emoji: "👀" });
+  assert.deepEqual(bodies[2]?.input, {
+    emoji: "👀",
+    channelId: "source-channel",
+    messageId: "source-message",
+  });
 });

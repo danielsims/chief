@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  channelDetailSchema,
+  externalAgentToolResultSchema,
+  missionSchema,
+  workspaceFileSchema,
+  workspaceScheduleSchema,
+} from "@chief/relay-contracts";
+
 import {
   appendConversationMessage,
   channelEnvelope,
@@ -84,6 +93,150 @@ describe("external agent channel tools", () => {
     expect(delivered.current.payload.conversationId).toBe(conversationId);
     expect(delivered.current.payload.message.id).toBe(triggerId);
     const continuation = delivered.current.payload.continuation;
+    const invokeWorkspace = (operationId: string, input: JsonObject) =>
+      receiveExternalTool(ctx, "eve-tools", registered.channel.token, {
+        deliveryId: triggerId,
+        continuation,
+        sessionId: "eve-tools-session",
+        operationId,
+        input,
+      });
+    const createdResponse = await invokeWorkspace("channels.create", {
+      name: "launch-mission",
+      operationKey: "launch-mission-cell",
+      visibility: "private",
+    });
+    expect(createdResponse.status).toBe(200);
+    const createdChannel = channelDetailSchema.parse(
+      externalAgentToolResultSchema.parse(await createdResponse.json()).result,
+    ).channel;
+    const invited = await invokeWorkspace("channels.members.add", {
+      channelId: createdChannel.id,
+      members: [
+        { type: "user", id: ownerId },
+        { type: "agent", id: "brand" },
+      ],
+      idempotencyKey: "invite-launch-team",
+    });
+    expect(invited.status).toBe(200);
+    const write = await invokeWorkspace("files.write", {
+      name: "Launch brief",
+      content: "# Launch brief",
+      conversationId: createdChannel.id,
+    });
+    expect(write.status).toBe(200);
+    const savedFile = workspaceFileSchema.parse(
+      externalAgentToolResultSchema.parse(await write.json()).result.file,
+    );
+    const revise = await invokeWorkspace("files.write", {
+      id: savedFile.id,
+      name: savedFile.title,
+      content: "# Revised launch brief",
+      expectedVersionId: String(savedFile.version),
+    });
+    expect(revise.status).toBe(200);
+    const read = await invokeWorkspace("files.read", { fileId: savedFile.id });
+    expect(
+      workspaceFileSchema.parse(
+        externalAgentToolResultSchema.parse(await read.json()).result.file,
+      ),
+    ).toMatchObject({
+      content: "# Revised launch brief",
+      path: savedFile.path,
+      conversationId: createdChannel.id,
+      version: 2,
+    });
+    const missionResponse = await invokeWorkspace("missions.create", {
+      id: "launch-conversion",
+      conversationId: createdChannel.id,
+      title: "Improve launch conversion",
+      objective: "Measure and improve the signup page",
+      ownerAgentId: "eve-tools",
+      collaborators: ["brand"],
+      success: {
+        kind: "metric",
+        name: "Signups",
+        unit: "percent",
+        direction: "increase",
+        baseline: 2,
+        target: 5,
+        source: "Verified signup analytics",
+        evaluationWindow: "Seven days",
+      },
+      maxExperiments: 4,
+      deadline: new Date(Date.now() + 86400000).toISOString(),
+      constraints: "Do not publish changes without review.",
+    });
+    expect(missionResponse.status).toBe(200);
+    const mission = missionSchema.parse(
+      externalAgentToolResultSchema.parse(await missionResponse.json()).result,
+    );
+    const experiment = await invokeWorkspace("missions.recordExperiment", {
+      missionId: mission.id,
+      id: "headline-test",
+      hypothesis: "Clearer copy increases signups",
+      change: "Tested a clearer heading",
+      value: 3,
+      evidence: "Three signups per hundred visitors",
+      decision: "keep",
+    });
+    expect(experiment.status).toBe(200);
+    const proposalInput = {
+      id: "launch-weekly",
+      conversationId: createdChannel.id,
+      agentId: "eve-tools",
+      missionId: mission.id,
+      title: "Measure launch performance",
+      instructions: "Read the current analytics and publish a report",
+      cron: "0 9 * * 1",
+      timezone: "Australia/Brisbane",
+      approvalSummary: "Weekly report in the launch channel",
+      proposedToolPatterns: [],
+    };
+    const proposed = await invokeWorkspace(
+      "recurringWork.propose",
+      proposalInput,
+    );
+    expect(proposed.status).toBe(200);
+    expect(
+      workspaceScheduleSchema.parse(
+        externalAgentToolResultSchema.parse(await proposed.json()).result,
+      ).status,
+    ).toBe("needs_approval");
+    expect(
+      (
+        await invokeWorkspace("recurringWork.propose", {
+          ...proposalInput,
+          activate: true,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await invokeWorkspace("recurringWork.activate", {
+          id: proposalInput.id,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await invokeWorkspace("plugins.install", {
+          pluginId: "arbitrary-plugin",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await invokeWorkspace("missions.updateStatus", {
+          missionId: mission.id,
+          status: "paused",
+          evidence: "Waiting for the next measurement window",
+        })
+      ).status,
+    ).toBe(200);
+    expect((await invokeWorkspace("missions.list", {})).status).toBe(200);
+    expect((await invokeWorkspace("recurringWork.list", {})).status).toBe(200);
+
     const listed = await receiveExternalTool(
       ctx,
       "eve-tools",
