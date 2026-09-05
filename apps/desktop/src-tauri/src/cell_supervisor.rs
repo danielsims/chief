@@ -74,6 +74,22 @@ impl Drop for CellSupervisor {
 }
 
 #[tauri::command]
+pub fn cell_runtime_setup(
+    app: tauri::AppHandle,
+    relay_url: String,
+    workspace_id: String,
+    agent_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    crate::relay_identity::validate_relay_url(&relay_url)?;
+    crate::relay_identity::validate_identifier(&workspace_id, "workspace")?;
+    crate::relay_identity::validate_identifier(&agent_id, "agent")?;
+    let path = cell_directory(&app, &relay_url, &workspace_id, &agent_id)?.join("runtime-setup.json");
+    if !path.is_file() { return Ok(None); }
+    let data = std::fs::read(path).map_err(|_| "Could not read Codex setup progress.".to_string())?;
+    serde_json::from_slice(&data).map(Some).map_err(|_| "Could not read Codex setup progress.".to_string())
+}
+
+#[tauri::command]
 pub fn start_workspace_cells(
     app: tauri::AppHandle,
     supervisor: tauri::State<'_, CellSupervisor>,

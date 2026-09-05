@@ -78,6 +78,12 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
+  missionId?: string;
+  collaborators?: string[];
+  expectedOutcome?: string;
+  constraints?: string;
+  maxDurationMinutes?: number;
+  triggerMode?: "cron" | "webhook";
   /** Channel conversation where each occurrence posts its root message. */
   conversationId?: string;
   /** Agent woken by the scheduled channel message. */
