@@ -328,3 +328,56 @@ Release verification (2026-09-05 21:10 AEST):
   is present in packaged resources. Apple notarization was skipped because the
   required Apple credentials are not configured; Developer ID signing passed.
 - HEAD remains `83851513`; follow-up implementation has not been committed.
+
+
+### Device collaboration follow-up (September 5)
+
+- [x] Commit the reviewed implementation in four focused, one-sentence commits, as authorized.
+- [x] Fix Codex rejecting Chief relay MCP calls because ACP names them `mcp.chief_relay.*`.
+- [x] Expose public-channel self-join to desktop, phone, hosted and external agent tools; keep private invitations enforced.
+- [x] Use the live roster for mentions, including nested specialists and custom device agents; exclude the current user from the picker.
+- [x] Personal device agents default to owner-only messaging with a workspace sharing toggle on desktop and mobile.
+- [x] Enforce messaging on DM creation, existing DM writes, direct invokes, channel dispatch and every scheduled step; separate configuration/removal ownership from messaging permission.
+- [x] Only start device cells belonging to the signed-in user, even when another user's agent is shared for messages.
+- [x] Restore expandable, colored specialist DM entries and direct routing to individual specialists.
+- [x] Use a dark mention-popover shadow and a single thicker, wider-spaced calendar hatch.
+- [x] Verify the real picker/sidebar/calendar components in the in-app browser and compile the iOS simulator app.
+
+Owner-approved scheduled teams carry the stored approving user through their steps. Unsolicited messages from other agents need workspace sharing enabled; this avoids treating a coworker's request as the owner's authorization. Phone background execution remains subject to iOS lifecycle limits; no physical-phone background run is claimed here.
+
+The four reviewed commits are `f96c977c`, `4163e07f`, `daa65944`, and `0d9132d2`. This follow-up was approved for focused commits in the September 5 review.
+
+### Schedule and artifact follow-up
+
+- [x] Replace schedule form with a guided brief, team and timing flow; shadcn selects and searchable avatar multiselect.
+- [x] Create a mission channel within scheduling; keep outcome, constraints and time budget out of the required flow.
+- [x] Publish relay artifacts deliberately into chat with cards that deep-link to channel Canvas.
+- [x] Replace duplicate Canvas empty states with one quiet surface; list and open artifacts inside the channel, with named tabs.
+- [x] Pull and inspect Executor artifact implementation (38915a3); retain durable identities and previews while preserving the relay security boundary.
+- [x] Verify the complete pass before the production relay deployment and final DMG rebuild.
+
+Artifact delivery uses the existing versioned relay files store. `files.write` accepts Markdown, self-contained HTML, CSV and JSON. `channels.messages.post` takes `artifactIds` and resolves each against visible files in that exact channel. The same flow is available to device, hosted and external relay agents; mobile agents use `workspace_file_write` and `relay_message_post`. Creating channel artifacts uses `messages.send`, while broad workspace administration remains separate. Binary publishing keeps the existing signed asset path. Artifacts cannot silently move channels, and writes enforce the expected version.
+
+Desktop Canvas keeps documents and interactive tools inside the channel, with a named open-artifact tab, list/grid views, source editing, downloads and discussion links. HTML runs without the app origin or bridge in a sandboxed iframe; CSP blocks network connections and external resources. Previews disable scripts. Mobile has artifact cards and a nonpersistent HTML viewer with navigation blocked. These artifacts are self-contained outputs, without Executor's live credential-backed tool bindings.
+
+Verified the actual schedule dialog, searchable keyboard-driven team selection, new-channel setup, card-to-Canvas navigation, Markdown rendering and an interactive HTML button in the in-app browser. Relay tests cover artifact creation, optimistic revisions, cross-channel attachment rejection and ordinary messaging permissions without workspace-admin grants. Real subscription turns and physical-device notification/background behavior remain Daniel's test pass.
+
+Release verification (2026-09-05 22:28 AEST):
+
+- Production relay: `7fb9f541-e084-4552-9f6b-815560182c8a`, deployed through Wrangler. Health returns OK and anonymous file access returns 401.
+- DMG: `apps/desktop/src-tauri/target/release/bundle/dmg/Chief_0.1.0_aarch64.dmg`, 59,839,459 bytes. SHA256 `233818b6769fc5cf0e9679cbcb4f62f50c7b1c4e06ec60f9cd630dab9d0d8e97`.
+- The initial Tauri DMG packaging step failed and left a writable image mounted. Detached that temporary mount, rebuilt the final app, then created a clean compressed disk image containing the signed app and Applications shortcut. Verified the app signature and packaged plugin-host startup from the mounted read-only DMG. No Codex adapter distributions are bundled.
+- All 18 workspace typechecks and lint/source-size checks passed. Critical artifact contract and relay tests passed, including an external agent creating, revising and presenting a file and rejecting cross-channel publication. The iOS simulator build passed. Developer ID signing passed; Apple notarization is unavailable without Apple credentials.
+- At release time, collaboration, schedule composer and Canvas changes were uncommitted for review. Daniel subsequently approved committing this work in focused commits.
+
+### Mention and sidebar review
+
+- [x] Resolve full live agent names in composer and sent-message chips, including multiword names and custom device agents; keep a mention together and remove it as a whole with Backspace.
+- [x] Move Chief's nested agent list 4px left.
+- [x] Give the schedule channel-creation icon an explicit 8px gap.
+- [x] Commit the approved pending implementation in focused, one-sentence commits without co-author trailers.
+- [ ] Future exploration, deliberately deferred: people can bring their own agent teams into an organization, display those teams beneath their owner in the sidebar, and share messaging access with coworkers. Consider an owner-qualified handle such as `chief@danielsims`, preserving stable agent IDs and explicit sharing permissions. Do not implement ownership transfer or cross-organization agent sharing as part of this visual pass.
+
+The spacing and mention follow-ups are source changes after the 22:28 DMG above; that image does not contain them.
+
+Approved implementation commits: `e6c117fb` (personal-agent access), `4d097fd6` (channel tools and artifact publishing), `896c5a67` (Canvas), `5eff1810` (schedule composer), and `880f098e` (live mentions and specialist DMs). All 18 typechecks and staged lint/source-size checks passed. Eight mention tests passed, including multiword agents and whole-chip deletion; the real composer and message renderer were visually checked in the in-app browser.
