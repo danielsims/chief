@@ -18,6 +18,7 @@ import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import { deterministicUuid } from "./external-agent-channel-security";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import { externalConversationFetch } from "./external-agent-conversation";
+import { routeExternalWorkspaceTool } from "./external-agent-workspace-tools";
 import {
   mentionIds,
   optionalString,
@@ -59,6 +60,12 @@ async function executeExternalAgentTool(
   resolved: ResolvedContinuation,
   call: ReturnType<typeof externalAgentToolCallSchema.parse>,
 ): Promise<JsonObject> {
+  const workspaceResult = await routeExternalWorkspaceTool(
+    host,
+    resolved,
+    call,
+  );
+  if (workspaceResult !== undefined) return workspaceResult;
   const channelId =
     optionalString(call.input, "channelId") ??
     resolved.continuation.conversation_id;
@@ -116,7 +123,7 @@ async function executeExternalAgentTool(
       return await reactToMessage(host, resolved, call, true);
     case "channels.reactions.remove":
       return await reactToMessage(host, resolved, call, false);
-    case "projects.list":
+    case "projects.list": {
       host.channels.requirePrincipalMember(resolved.principal);
       host.channels.requireAgentCapability(resolved.principal, "projects.read");
       const projects = await routeWorkspaceData(
@@ -135,6 +142,7 @@ async function executeExternalAgentTool(
         );
       }
       return await readJsonObject(projects);
+    }
     case "projects.recommend":
       return await recommendProject(host, resolved, call);
     default:

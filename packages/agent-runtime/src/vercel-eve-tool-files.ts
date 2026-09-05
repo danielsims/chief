@@ -42,18 +42,22 @@ export async function callChiefTool(
   if (!delivery.deliveryId || !delivery.capability || !delivery.sessionId) {
     throw new Error("Chief delivery context is missing for this turn.");
   }
-  const channelId =
-    typeof input.channelId === "string" && input.channelId.trim()
-      ? input.channelId.trim()
-      : delivery.conversationId;
-  const messageId =
-    typeof input.messageId === "string" && input.messageId.trim()
-      ? input.messageId.trim()
-      : delivery.messageId;
-  const threadRootId =
-    typeof input.threadRootId === "string" && input.threadRootId.trim()
-      ? input.threadRootId.trim()
-      : delivery.threadRootId;
+  const channelScoped = new Set([
+    "channels.get", "channels.members.list", "channels.members.add",
+    "channels.messages.list", "channels.messages.get", "channels.messages.post",
+    "channels.messages.replies", "channels.reactions.list", "channels.reactions.add",
+    "channels.reactions.remove", "projects.recommend",
+  ]).has(operationId);
+  const messageScoped = new Set([
+    "channels.messages.get", "channels.messages.replies", "channels.reactions.list",
+    "channels.reactions.add", "channels.reactions.remove",
+  ]).has(operationId);
+  const threadScoped = operationId === "channels.messages.post" || operationId === "projects.recommend";
+  const channelId = channelScoped ? input.channelId ?? delivery.conversationId : undefined;
+  const messageId = messageScoped ? input.messageId ?? delivery.messageId : undefined;
+  const threadRootId = threadScoped
+    ? input.threadRootId ?? (channelId === delivery.conversationId ? delivery.threadRootId : undefined)
+    : undefined;
   const body = {
     deliveryId: delivery.deliveryId,
     continuation: { capability: delivery.capability },
