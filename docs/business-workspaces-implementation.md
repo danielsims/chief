@@ -276,3 +276,12 @@ Current load failures and actual process failures remain visible.
 Eight focused checks pass, including rapid channel/DM reopen with out-of-order
 responses, retained background subscription, and genuine failure visibility.
 The desktop typecheck passes. This correction changes desktop code only.
+
+Delivered in `5c7f2d0f`; commit checks passed all 18 workspace typechecks and
+lint/source-size checks. The replacement Apple Silicon DMG at the path above has
+SHA-256 `3738f08db502ea2ba1fada3b19e01b3071a1f3c22bfbcead06244d872e9e37bd`.
+Both the built app and the copy mounted from the DMG passed signature and packaged
+runtime checks. The production relay remains on the preceding deployed version;
+no relay code changed. Notarization remains unavailable. Verification logs:
+`/tmp/chief-chat-lifecycle-commit.log`, `/tmp/chief-chat-lifecycle-dmg.log`,
+`/tmp/chief-chat-lifecycle-mounted-runtime.log`.
