@@ -38,6 +38,9 @@ import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { routeWorkspaceMissions } from "./workspace-missions";
+import { drainWorkspaceSchedules } from "./workspace-schedule-dispatch";
+import { routeWorkspaceSchedule } from "./workspace-schedule-service";
+import { wakeWorkspaceSchedules } from "./workspace-schedule-store";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
@@ -96,8 +99,13 @@ export class WorkspaceObject extends DurableObject<Env> {
     });
   }
 
-  alarm() {
-    return drainExternalAgentOutbox(this.ctx.storage, this.env);
+  async alarm() {
+    try {
+      await drainExternalAgentOutbox(this.ctx.storage, this.env);
+      await drainWorkspaceSchedules(this.ctx.storage, this.env);
+    } finally {
+      await wakeWorkspaceSchedules(this.ctx.storage);
+    }
   }
 
   private routeOperation(request: Request, operation: string | null) {
@@ -110,6 +118,11 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation?.startsWith("missions-")) {
         return yield* attempt("workspace.missions", () =>
           routeWorkspaceMissions(ctx.storage, env, request, operation),
+        );
+      }
+      if (operation?.startsWith("schedules-")) {
+        return yield* attempt("workspace.schedules", () =>
+          routeWorkspaceSchedule(ctx.storage, env, request, operation),
         );
       }
       if (operation?.startsWith("channels-")) {

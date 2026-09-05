@@ -104,6 +104,8 @@ export interface RecurringWorkRecord {
   proposedToolPatterns: string[];
   grant?: AutomationGrant;
   nextAt?: number;
+  lastMessageId?: string;
+  lastDispatchedAt?: number;
   lastCompletedAt?: number;
   lastSummary?: string;
   createdAt: number;

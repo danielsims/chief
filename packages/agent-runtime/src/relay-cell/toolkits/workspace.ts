@@ -1,11 +1,38 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { parseJsonNumber } from "@chief/relay-contracts";
+import {
+  parseJsonNumber,
+  workspaceScheduleInputSchema,
+} from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
 export const relayCellWorkspaceTools = [
+  defineRelayCellTool(
+    "recurringWork.list",
+    "workspace.read",
+    async ({ client }) => ({ schedules: await client.schedules.list() }),
+  ),
+  defineRelayCellTool(
+    "recurringWork.propose",
+    "workspace.write",
+    async ({ client, conversationId }, input) =>
+      await client.schedules.save(
+        workspaceScheduleInputSchema.parse({
+          ...input,
+          id:
+            optionalString(input, "id") ??
+            `schedule-${createHash("sha256")
+              .update(`${conversationId}:${requiredString(input, "title")}`)
+              .digest("hex")
+              .slice(0, 32)}`,
+          conversationId:
+            optionalString(input, "conversationId") ?? conversationId,
+          onceAt: input.onceAt,
+        }),
+      ),
+  ),
   defineRelayCellTool(
     "brandProfile.status",
     "workspace.read",

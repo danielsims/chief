@@ -1,6 +1,7 @@
 import {
   brandProfileSaveSchema,
   prospectSaveSchema,
+  workspaceScheduleInputSchema,
 } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input";
@@ -8,6 +9,31 @@ import { defineHostedAgentTool } from "../tool";
 import { deterministicUuid, workspaceOperation } from "./channels";
 
 export const hostedWorkspaceTools = [
+  defineHostedAgentTool(
+    "recurringWork.list",
+    async ({ env, job, principal }) =>
+      await workspaceOperation(env, job, principal, "schedules-list"),
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "recurringWork.propose",
+    async ({ env, job, principal }, input) =>
+      await workspaceOperation(env, job, principal, "schedules-save", {
+        body: workspaceScheduleInputSchema.parse({
+          ...input,
+          id:
+            optionalString(input, "id") ??
+            (await deterministicUuid(
+              `${job.id}:schedule:${requiredString(input, "title")}`,
+            )),
+          conversationId:
+            optionalString(input, "conversationId") ??
+            requiredString(job.payload, "conversationId"),
+          onceAt: input.onceAt,
+        }),
+      }),
+    { effect: "idempotent" },
+  ),
   defineHostedAgentTool(
     "brandProfile.status",
     async ({ env, job, principal }) =>

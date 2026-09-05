@@ -1,3 +1,7 @@
+import {
+  listRecurringWorkDefinition,
+  proposeRecurringWorkDefinition,
+} from "./toolkits/automation/recurring-work-definitions.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
 import { closeBrowserDefinition } from "./toolkits/browser/close-browser.js";
 import { fillBrowserDefinition } from "./toolkits/browser/fill-browser.js";
@@ -31,6 +35,8 @@ import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-prof
 export const hostedAgentToolDefinitions = {
   base: [
     ...missionToolDefinitions,
+    listRecurringWorkDefinition,
+    proposeRecurringWorkDefinition,
     computerReadFileDefinition,
     computerListFilesDefinition,
     computerWriteFileDefinition,

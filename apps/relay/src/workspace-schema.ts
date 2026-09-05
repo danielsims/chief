@@ -4,11 +4,13 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { initializeWorkspaceData } from "./workspace-data-store";
 import { initializeWorkspaceLive } from "./workspace-live-store";
 import { initializeWorkspaceLog } from "./workspace-log-store";
+import { initializeWorkspaceSchedules } from "./workspace-schedule-store";
 
 export function initializeWorkspaceSchema(
   storage: DurableObjectStorage,
   env: Env,
 ) {
+  initializeWorkspaceSchedules(storage);
   storage.sql.exec(`
     CREATE TABLE IF NOT EXISTS missions (mission_id TEXT PRIMARY KEY, document_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workspace (

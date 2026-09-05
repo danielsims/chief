@@ -120,14 +120,15 @@ export function RecurringWorkApprovalDialog({
                   className="mt-0.5 shrink-0 text-emerald-500"
                 />
                 <p className="text-muted-foreground text-[11px] leading-4.5">
-                  Chief cannot add new permissions without asking you again.
+                  Scheduled work uses this agent's configured workspace
+                  permissions. You can review those in Agents.
                 </p>
               </div>
 
               {permissions.length > 0 ? (
                 <details className="group rounded-xl border border-black/[0.055] px-3 py-2.5 dark:border-white/[0.055]">
                   <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center justify-between text-[11px] transition-colors marker:content-none">
-                    <span>What it can access</span>
+                    <span>Requested connector actions</span>
                     <span className="tabular-nums">
                       {permissions.length}{" "}
                       {permissions.length === 1 ? "action" : "actions"}
@@ -239,12 +240,14 @@ export function ScheduleEventDetailDialog({
   onClose,
   onEditWork,
   onOpenDraft,
+  onOpenWorkChannel,
 }: {
   work: RecurringWorkRecord | null;
   draft: ScheduledDraft | null;
   onClose: () => void;
   onEditWork: (work: RecurringWorkRecord) => void;
   onOpenDraft: (draft: ScheduledDraft) => void;
+  onOpenWorkChannel: (work: RecurringWorkRecord) => void;
 }) {
   const open = Boolean(work ?? draft);
   const source = work ? agentName(work.agentId) : draft?.platform;
@@ -302,6 +305,14 @@ export function ScheduleEventDetailDialog({
                 </div>
               </div>
 
+              {work?.lastSummary ? (
+                <div className="rounded-xl border px-3.5 py-3">
+                  <p className="text-muted-foreground text-[10px]">
+                    Last update
+                  </p>
+                  <p className="mt-1 text-xs leading-5">{work.lastSummary}</p>
+                </div>
+              ) : null}
               <div>
                 <p className="text-muted-foreground mb-1.5 text-[10px]">
                   {work ? "Brief" : "Content"}
@@ -319,9 +330,18 @@ export function ScheduleEventDetailDialog({
             </div>
 
             <DialogFooter className="bg-foreground/[0.018] border-t border-black/[0.055] px-6 py-4 dark:border-white/[0.055]">
-              <Button variant="outline" onClick={onClose}>
-                Close
-              </Button>
+              {work?.conversationId ? (
+                <Button
+                  variant="outline"
+                  onClick={() => onOpenWorkChannel(work)}
+                >
+                  Open channel
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={onClose}>
+                  Close
+                </Button>
+              )}
               {work ? (
                 <Button onClick={() => onEditWork(work)}>Edit schedule</Button>
               ) : draft?.fileId ? (
