@@ -5,7 +5,6 @@ import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { CalendarView, ScheduledDraft } from "./schedule-calendar-core";
-import { TIMELINE_EVENT_GAP, TIMELINE_EVENT_HEIGHT } from "./schedule-calendar";
 import {
   addDays,
   dayKey,
@@ -17,6 +16,9 @@ import {
   TIMELINE_START_HOUR,
   WorkEventContent,
 } from "./schedule-calendar-core";
+
+const TIMELINE_EVENT_HEIGHT = 44;
+const TIMELINE_EVENT_GAP = 3;
 
 type TimelineEvent =
   | {

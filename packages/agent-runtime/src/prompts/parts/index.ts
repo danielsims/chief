@@ -36,13 +36,11 @@ import { projectsCheckout } from "./projects-checkout.js";
 import { reactionsAgent } from "./reactions-agent.js";
 import { scheduledInput } from "./scheduled-input.js";
 import { scheduledTriggers } from "./scheduled-triggers.js";
-import { toneSales } from "./tone-sales.js";
 import { toneTeammate } from "./tone-teammate.js";
 import { toolsQuiet } from "./tools-quiet.js";
 
 export const promptParts: readonly PromptPart[] = [
   toneTeammate,
-  toneSales,
   messagesSparing,
   primitivesChannels,
   reactionsAgent,

@@ -10,10 +10,6 @@ type CalendarView = "month" | "week" | "day";
 type ScheduleKind = "post" | "agent-work";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTHS_BEFORE = 12;
-const MONTHS_AFTER = 24;
-const WEEKDAY_HEADER_HEIGHT = 36;
-const CALENDAR_HEADER_HEIGHT = WEEKDAY_HEADER_HEIGHT;
 const TIMELINE_START_HOUR = 7;
 const TIMELINE_END_HOUR = 20;
 const TIMELINE_ROW_HEIGHT = 52;
@@ -187,13 +183,10 @@ export {
   agentName,
   agentWorkAccent,
   buildMonthCells,
-  CALENDAR_HEADER_HEIGHT,
   CalendarEventContent,
   dayKey,
   draftAccent,
   eventSurface,
-  MONTHS_AFTER,
-  MONTHS_BEFORE,
   monthKey,
   monthLabel,
   sameMonth,
@@ -204,7 +197,6 @@ export {
   TIMELINE_ROW_HEIGHT,
   TIMELINE_START_HOUR,
   WEEKDAYS,
-  WEEKDAY_HEADER_HEIGHT,
   workStatusLabel,
 };
 export type { CalendarView, ScheduledDraft, ScheduleKind };

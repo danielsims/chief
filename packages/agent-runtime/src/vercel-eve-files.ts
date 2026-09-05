@@ -1,4 +1,5 @@
 import type { EveAgentProvisioningInput } from "./types.js";
+import { toneTeammate } from "./prompts/parts/tone-teammate.js";
 import {
   chiefChannelSource,
   eveChiefChannelReplyGuidance,
@@ -38,7 +39,7 @@ export function eveProjectFiles(
       },
       {
         path: `agent/subagents/${directory}/instructions.md`,
-        contents: `${subagent.instructions.trim()}\n`,
+        contents: `${subagent.instructions.trim()}\n\n${toneTeammate.render()}\n`,
       },
     ];
   });
@@ -118,7 +119,7 @@ export function eveProjectFiles(
     },
     {
       path: "agent/instructions.md",
-      contents: `${input.agent.instructions.trim()}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
+      contents: `${input.agent.instructions.trim()}\n\n${toneTeammate.render()}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
     },
     { path: "agent/channels/chief.ts", contents: chiefChannelSource },
     ...eveChiefToolFiles(),
