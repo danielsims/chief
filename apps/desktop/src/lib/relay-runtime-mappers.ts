@@ -12,6 +12,7 @@ import type {
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 import {
+  artifactReferencePayloadSchema,
   isJsonObject,
   isJsonString,
   pluginAuthorizationPayloadSchema,
@@ -244,6 +245,7 @@ function messageComponentParts(
     ...activityParts(message.components),
     ...pluginRecommendationParts(message),
     ...projectRecommendationParts(message),
+    ...artifactParts(message),
   ];
 }
 
@@ -477,4 +479,30 @@ function isContentBlock(value: unknown): value is ContentBlock {
     return isJsonString(block.tool_use_id);
   }
   return false;
+}
+
+function artifactParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  return message.components.flatMap((component) => {
+    if (component.kind !== "artifact.reference") return [];
+    const parsed = artifactReferencePayloadSchema.safeParse(component.payload);
+    if (
+      !parsed.success ||
+      parsed.data.conversationId !== message.conversationId
+    )
+      return [];
+    const artifact = parsed.data;
+    return [
+      {
+        type: "data-document" as const,
+        data: {
+          fileId: artifact.fileId,
+          conversationId: artifact.conversationId,
+          title: artifact.title,
+          path: "",
+          kind: "document" as const,
+          versionId: String(artifact.version),
+        },
+      },
+    ];
+  });
 }

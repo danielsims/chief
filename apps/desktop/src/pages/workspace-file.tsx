@@ -14,6 +14,7 @@ import type { WorkspaceFileSnapshot } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
+import { ArtifactContent } from "../components/files/artifact-content";
 import { DocumentEditor } from "../components/files/document-editor";
 import {
   downloadFileBlob,
@@ -56,6 +57,9 @@ export function WorkspaceFilePage() {
       </div>
     );
   }
+
+  if (["text/html", "text/csv", "application/json"].includes(file.mimeType))
+    return <ArtifactContent file={file} />;
 
   if (file.asset) return <WorkspaceMediaFile key={file.id} file={file} />;
 

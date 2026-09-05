@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
@@ -11,7 +11,6 @@ import {
   AgentProfilePanel,
   UserProfilePanel,
 } from "../components/chat/agent-profile-panel";
-import { MissionCanvas } from "../components/chat/mission-canvas";
 import { ChannelCanvas } from "../components/chat/channel-canvas";
 import { ChiefChat } from "../components/chat/chief-chat";
 import {
@@ -25,6 +24,7 @@ import {
   DirectMessageOpening,
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
+import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -78,7 +78,11 @@ export function ConversationsPage() {
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
-  const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
+  const { agents: rootAgents, status: runtimeStatus } = useRuntime();
+  const runtimeAgents = useMemo(
+    () => rootAgents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]),
+    [rootAgents],
+  );
   const requestedChatId = params.get("chat");
   const requestedChannelId = channelIdFromChatId(requestedChatId);
   const staticRequestedChannel = workspaceChannel(params.get("channel"));
@@ -286,6 +290,7 @@ export function ConversationsPage() {
     setParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("activity");
+      next.delete("artifact");
       next.delete("child");
       next.set(
         "profile",
@@ -318,18 +323,11 @@ export function ConversationsPage() {
       { state: navigationState },
     );
   };
-  const continueArtifact = (artifact: { id: string; title: string }) => {
-    startTransition(() =>
-      setParams({
-        channel: activeChannel.id,
-        prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
-      }),
-    );
-  };
   const setConversationView = (view: "messages" | "canvas") => {
     setParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("activity");
+      next.delete("artifact");
       next.delete("child");
       next.delete("profile");
       if (view === "canvas") next.set("view", "canvas");
@@ -356,7 +354,6 @@ export function ConversationsPage() {
       directIdentity={directIdentity}
       directPresence={directPresence}
       agents={runtimeAgents}
-      onContinueArtifact={continueArtifact}
       onOpenActivity={() => setActivityPanel(true)}
       onOpenProfile={openProfile}
       activeView={activeView}
@@ -379,9 +376,16 @@ export function ConversationsPage() {
               {conversationHeader}
               <ChannelCanvas
                 channelName={activeChannel.label}
-                conversationId={activeConversationChannel?.relayId ?? activeChannel.id}
+                conversationId={
+                  activeConversationChannel?.relayId ?? activeChannel.id
+                }
               >
-                <MissionCanvas key={activeConversationChannel?.relayId ?? activeChannel.id} conversationId={activeConversationChannel?.relayId ?? activeChannel.id} />
+                <MissionCanvas
+                  key={activeConversationChannel?.relayId ?? activeChannel.id}
+                  conversationId={
+                    activeConversationChannel?.relayId ?? activeChannel.id
+                  }
+                />
               </ChannelCanvas>
             </>
           ) : activeChatId ? (

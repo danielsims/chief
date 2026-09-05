@@ -380,6 +380,11 @@ function toWorkspaceFileRecord(file: WorkspaceFile): WorkspaceFileRecord {
   return {
     id: file.id,
     name: file.title,
+    previewContent: file.asset
+      ? undefined
+      : file.mimeType === "text/html"
+        ? file.content
+        : file.content.slice(0, 2400),
     path: file.path,
     mimeType: file.mimeType,
     kind: file.mimeType === "message/rfc822" ? "email" : "document",
