@@ -219,3 +219,34 @@ Both the build output and the app mounted read-only from the DMG pass deep stric
 code-signature verification and the packaged plugin-host startup check. The
 verification mount was detached. Logs: `/tmp/chief-release-dmg.log`,
 `/tmp/chief-mounted-signature.log`, `/tmp/chief-mounted-runtime.log`.
+
+## September 5 design corrections
+
+Daniel rejected the added Schedule overview and decorative Files details.
+Schedule now opens to a single-month calendar, with week/day views and a compact
+list of actual schedules and proposals. Ordinary activity is not schedule data.
+Unscheduled drafts are no longer assigned an arbitrary calendar date. Removing
+the multi-year scrolling month view also removes the scroll reset when changing
+views. Paused schedules remain accessible through Schedules; event details retain
+editing, pause/resume and run actions.
+
+The schedule detail dialog uses a smaller layout, tighter corners, flat metadata
+rows, and a compact actions menu. It no longer repeats timing or nests cards.
+Files document previews sit upright against the bottom edge, without rotation,
+type badges, revision labels, or the file-count/upload-limit footer.
+
+Shared prompts now ask for short, warm, candid replies with light, unforced
+playfulness and no em dashes. Removed the competing sales-style rule. Generated
+Eve agents and subagents receive the shared voice; existing embedded deployments
+still need regeneration. A prompt instruction is not a guarantee about every
+model response.
+
+All 44 installed pstack skills were disabled at Daniel's request by moving them
+out of the active Codex skills folder. Reversible backup and inventory:
+`/Users/danielsims/.codex/disabled-skills/pstack-2026-09-05/disabled.json`.
+No pstack workflow or required delegated review was used for these corrections.
+
+Browser review exercised actual SchedulePage and FilesLibrary with fixture data,
+including irrelevant activity that stayed absent, month/week/month navigation,
+file alignment, the schedule detail dialog and its actions menu. Temporary review
+source is retained outside the repository in `/tmp/chief-refinement-review`.

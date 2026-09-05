@@ -247,10 +247,6 @@ export function FilesLibrary({
           ))}
         </div>
       )}
-      <p className="text-muted-foreground mt-6 text-[11px]">
-        {files.length} {files.length === 1 ? "file" : "files"} in this
-        workspace. Published media supports files up to 8 MB.
-      </p>
     </section>
   );
 }
@@ -281,7 +277,7 @@ function FileCard({
           {file.asset ? (
             <MediaPreview file={file} compact />
           ) : (
-            <div className="bg-background/80 mt-10 h-40 w-36 rotate-[-5deg] rounded-t-lg border px-5 pt-5 shadow-sm transition-transform group-hover:rotate-0">
+            <div className="bg-background/80 absolute bottom-0 h-40 w-36 rounded-t-lg border border-b-0 px-5 pt-5 shadow-sm">
               <FileTypeIcon
                 file={file}
                 size={22}
@@ -294,13 +290,6 @@ function FileCard({
               <span className="bg-foreground/8 mt-2 block h-1 w-3/4 rounded-full" />
             </div>
           )}
-          <span className="bg-background/90 text-muted-foreground absolute top-3 left-3 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase">
-            {file.asset
-              ? file.mimeType.split("/").at(-1)?.replace("svg+xml", "svg")
-              : file.kind === "email"
-                ? "Email"
-                : "Document"}
-          </span>
         </div>
       ) : (
         <FileTypeIcon
@@ -317,11 +306,7 @@ function FileCard({
         </p>
         <div className="text-muted-foreground mt-3 flex items-center justify-between text-[10px]">
           <span>Updated {updatedFormatter.format(file.updatedAt)}</span>
-          <span>
-            {file.asset
-              ? fileSize(file.asset.bytes)
-              : `Revision ${file.currentVersionId.length > 8 ? file.currentVersionId.slice(0, 8) : file.currentVersionId}`}
-          </span>
+          {file.asset ? <span>{fileSize(file.asset.bytes)}</span> : null}
         </div>
       </div>
       {view === "list" ? (
