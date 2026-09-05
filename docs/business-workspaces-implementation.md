@@ -17,7 +17,7 @@ specific migration requires it and Daniel approves that deletion.
 - [x] Phase C: Run the loop. Reproduce, change, inspect the real artifact, retain
   fixes that pass. Prefer typechecking, focused critical tests, and browser QA.
 - [x] Phase D: Keep the audit trail. Record decisions and evidence as work lands.
-- [ ] Phase E: Verify and hand back. Deploy the relay, build and verify the signed
+- [x] Phase E: Verify and hand back. Deploy the relay, build and verify the signed
   DMG, report what Daniel should test.
 
 The baseline is commit `64d29d68`, 190 files of previously unfinished work.
@@ -103,10 +103,10 @@ normal use remain part of Daniel's testing pass. They are not claimed as verifie
 ### Delivery
 
 - [x] All relevant typechecks, lint, focused critical checks, and UI verification pass.
-- [ ] Commit coherent units, with no secrets or unrelated generated artifacts.
-- [ ] Deploy production relay via Wrangler only after implementation is complete.
-- [ ] Rebuild and verify the signed DMG and packaged local runtime.
-- [ ] Report artifact path, production version, verified behavior, and remaining
+- [x] Commit coherent units, with no secrets or unrelated generated artifacts.
+- [x] Deploy production relay via Wrangler only after implementation is complete.
+- [x] Rebuild and verify the signed DMG and packaged local runtime.
+- [x] Report artifact path, production version, verified behavior, and remaining
   setup that genuinely requires Daniel's account or a physical iPhone.
 
 ## Evidence and decisions
@@ -179,3 +179,43 @@ normal use remain part of Daniel's testing pass. They are not claimed as verifie
   before release. It retained live subscription turns, native refocus, and physical
   APNs delivery as explicit user testing items. Earlier failing check logs are
   superseded by the passing final logs above.
+
+Production relay deployed after the passing integration commit `60006492`.
+Wrangler version: `41eb658a-feb9-4010-9111-52907eb121d3`.
+`https://relay.heychief.sh/health` returned `{"ok":true,"protocolVersion":1}`.
+Logs: `/tmp/chief-production-deploy.log`, `/tmp/chief-production-health.json`.
+
+## Daniel's testing pass
+
+1. Install the new DMG, open Program, and DM the on-device agent. Ask it to read
+   a connected repository and report one concrete finding. Confirm the reply and
+   tool activity appear, then mention it in a channel and reply in that thread.
+2. Leave an unsent draft in a DM, switch away from Chief, and return repeatedly.
+   Check the draft, transcript, scroll position, and activity remain stable.
+3. Ask Chief to interview you about the business and start one engineering or
+   marketing mission. Choose a real outcome, collaborators, a source for its
+   metric, an iteration limit, and a deadline. Check the channel's Canvas brief.
+4. Approve one proposed recurring mission in Schedule. Pause the mission before
+   its next run and confirm no further iteration starts. Inspect experiment
+   evidence rather than treating the agent's claimed success as measurement.
+5. Open a Markdown inbox message and publish an image into Files. Check the image
+   preview and a push banner on a physical iPhone. Mobile source builds locally;
+   this delivery does not install a new iOS build on your phone.
+
+Existing Eve agents need their deployment regenerated to get the new embedded
+workspace tools. Private Git access in this release uses the Mac's existing Git
+credentials; attaching a local repository does not grant cloud agents credentials.
+
+The macOS release build uses Node 24.14.0 from `.nvmrc`; the shell's default
+Node 22 build was stopped before packaging and restarted with that version.
+The app is Developer ID signed. Tauri skipped Apple notarization because no
+notarization credentials were present in the build environment. This is a local
+testing DMG, not a notarized public-distribution release.
+
+DMG ready: `apps/desktop/src-tauri/target/release/bundle/dmg/Chief_0.1.0_aarch64.dmg`
+(Apple Silicon, 55 MB). SHA-256:
+`b500b16c8e92e0f91afe10dd1b9fe71a62f80ff7807b6c0d1737bdf9213cab3c`.
+Both the build output and the app mounted read-only from the DMG pass deep strict
+code-signature verification and the packaged plugin-host startup check. The
+verification mount was detached. Logs: `/tmp/chief-release-dmg.log`,
+`/tmp/chief-mounted-signature.log`, `/tmp/chief-mounted-runtime.log`.
