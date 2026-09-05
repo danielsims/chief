@@ -449,7 +449,7 @@ export function useRuntimeChat(
     cloudOrganizationId && chatId ? `${cloudOrganizationId}:${chatId}` : null;
   const activeControls = controlsForConversation(
     controls,
-    initializedChatKeyRef.current,
+    messagesChatKey,
     activeChatKey,
   );
   const activeChatReady =

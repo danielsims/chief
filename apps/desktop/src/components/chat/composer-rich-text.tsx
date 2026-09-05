@@ -1,5 +1,11 @@
 import type { Editor } from "@tiptap/react";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { Extension } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -12,9 +18,9 @@ import { z } from "zod";
 
 import { isJsonString } from "@chief/relay-contracts";
 
+import type { MentionAlias } from "./agent-mention-parser";
 import type { ComposerFormat } from "./composer-editing";
 import {
-  type MentionAlias,
   removeAgentMentionBeforeCaret,
   splitAgentMentions,
 } from "./agent-mention-parser";
@@ -232,7 +238,9 @@ export const ComposerRichText = forwardRef<
 ) {
   const people = useMentionPeople();
   const peopleRef = useRef(people);
-  peopleRef.current = people;
+  useEffect(() => {
+    peopleRef.current = people;
+  }, [people]);
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });
@@ -245,13 +253,16 @@ export const ComposerRichText = forwardRef<
     onValueChangeRef.current = onValueChange;
   }, [onKeyDown, onStateChange, onValueChange]);
 
+  const [mentionExtension] = useState(() =>
+    agentMentionDecorations(() => peopleRef.current),
+  );
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, horizontalRule: false }),
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder }),
       Markdown,
-      agentMentionDecorations(() => peopleRef.current),
+      mentionExtension,
     ],
     content: value,
     editorProps: {

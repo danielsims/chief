@@ -26,7 +26,7 @@ import {
 
 import { workspaceSecrets } from "../workspace-secrets.js";
 
-const pluginHostPort = process.env.CHIEF_PLUGIN_HOST_PORT?.trim() || "4318";
+const pluginHostPort = process.env.CHIEF_PLUGIN_HOST_PORT?.trim() ?? "4318";
 export const PLUGIN_OAUTH_CALLBACK_URL =
   `http://127.0.0.1:${pluginHostPort}/plugins/oauth/callback`;
 

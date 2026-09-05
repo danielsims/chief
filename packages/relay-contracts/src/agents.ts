@@ -266,7 +266,7 @@ export const agentPublishedMessageSchema = z
   .object({
     conversationId: conversationIdSchema,
     threadRootId: messageIdSchema.optional(),
-    body: z.string().trim().min(1).max(4_000),
+    body: z.string().trim().min(1).max(100_000),
     components: z
       .array(
         z.object({

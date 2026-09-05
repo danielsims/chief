@@ -63,9 +63,7 @@ export async function routeWorkspaceMissions(
               member.principalId ===
                 (context.principal.kind === "user"
                   ? context.principal.userId
-                  : context.principal.kind === "agent"
-                    ? context.principal.agentId
-                    : ""),
+                  : context.principal.agentId),
           ),
       );
     return json({ missions });

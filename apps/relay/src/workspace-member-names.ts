@@ -69,8 +69,8 @@ async function lookupAuthUserNames(env: Env, userIds: readonly string[]) {
     )
       .bind(...userIds)
       .all<UserNameRow>();
-    for (const row of rows.results ?? []) {
-      if (row.id && row.name?.trim()) names.set(row.id, row.name.trim());
+    for (const row of rows.results) {
+      if (row.id && row.name.trim()) names.set(row.id, row.name.trim());
     }
   } catch {
     return names;

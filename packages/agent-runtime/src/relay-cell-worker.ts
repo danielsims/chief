@@ -20,6 +20,7 @@ import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
+import { localJobProject } from "./relay-cell-project.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -32,7 +33,7 @@ const plugins = new PluginRuntime(() => undefined);
 
 const relayCellHostInstructions = `# Relay cell tool binding
 
-In this relay-hosted cell, the canonical plugin tools are named plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation and authorization require explicit user approval from a plugin card. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
+In this relay-hosted cell, the canonical plugin tools are named plugins_list and plugins_recommend. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation, authorization and removal happen through user-operated plugin cards; those operations are not agent tools. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
 
 The canonical browser tools are browser_open, browser_snapshot, browser_click, browser_fill, browser_select, browser_press, and browser_close. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Open the page, snapshot before drawing conclusions, and close it when finished.`;
 
@@ -98,6 +99,7 @@ function finalAssistantText(events: readonly AgentEvent[]) {
 function postedFinalToOrigin(
   events: readonly AgentEvent[],
   conversationId: string,
+  threadRootId?: string,
 ) {
   return events.some((event) =>
     event.type === "message" && event.role === "assistant"
@@ -108,8 +110,23 @@ function postedFinalToOrigin(
           ) {
             return false;
           }
+          const posted = events.some(
+            (candidate) =>
+              candidate.type === "message" &&
+              candidate.content.some(
+                (result) =>
+                  result.type === "tool_result" &&
+                  result.tool_use_id === block.id &&
+                  !result.is_error,
+              ),
+          );
+          if (!posted) return false;
           const input = parseJsonObject(block.input);
-          if (input?.channelId !== conversationId) return false;
+          if (
+            input?.channelId !== conversationId ||
+            (parseJsonString(input.threadRootId) ?? undefined) !== threadRootId
+          )
+            return false;
           const key = parseJsonString(input.idempotencyKey) ?? "";
           return key.includes("result") || key.includes("handoff");
         })
@@ -179,12 +196,13 @@ async function executeJob(
       agentId,
       await client.loadOwnAgentProfile(),
     );
+    const project = await localJobProject(client, job, agentId, config);
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
-    const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}`;
+    const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}:${project?.projectId ?? "workspace"}`;
     const storedEvents = await cell.readState(`events:${sessionKey}`);
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
-    const turnStart = priorEvents.length;
+    const turnEvents: AgentEvent[] = [];
     process.env.CHIEF_CONVERSATION_ID = conversationId;
     process.env.CHIEF_THREAD_ROOT_ID =
       parseJsonString(job.payload.threadRootId) ?? "";
@@ -224,6 +242,7 @@ async function executeJob(
     );
     session = agentSession;
     agentSession.on("event", (event: AgentEvent) => {
+      turnEvents.push(event);
       activityPublisher.accept(event);
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
@@ -239,15 +258,20 @@ async function executeJob(
         .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
         .catch((error) => console.error("[cell] event persistence:", error));
     });
-    const cellDirectory = requiredEnvironment("CHIEF_CELL_ROOT");
+    const cellDirectory =
+      project?.directory ?? requiredEnvironment("CHIEF_CELL_ROOT");
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
       parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
+      threadRootId: activityContext.threadRootId,
       privateInstructions: [
         workspaceContext(job, agentId),
+        project
+          ? `Repository: ${project.name} (${project.projectId}). Your working directory is the isolated agent checkout ${project.directory}. Inspect repository instructions before changes. Keep code changes here, run focused checks, and return the diff and evidence for review. Do not deploy, push, or change the original checkout without the user's authorization.`
+          : "Use projects_list to inspect connected repositories. If more than one is available, clarify the repository and assign its projectId to the mission before editing code. This session's sandbox is the cell directory.",
         job.kind === "conversation.message"
           ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,
@@ -266,7 +290,6 @@ async function executeJob(
       `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
-    const turnEvents = agentSession.events.slice(turnStart);
     const reply = finalAssistantText(turnEvents) ?? "Work completed.";
     await agentSession.stop();
     session = null;
@@ -280,11 +303,18 @@ async function executeJob(
                 openingMessage:
                   "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
               }
-            : postedFinalToOrigin(turnEvents, conversationId)
+            : postedFinalToOrigin(
+                  turnEvents,
+                  conversationId,
+                  activityContext.threadRootId,
+                )
               ? {}
               : {
                   publishedMessage: {
                     conversationId,
+                    ...(activityContext.threadRootId
+                      ? { threadRootId: activityContext.threadRootId }
+                      : undefined),
                     body: reply,
                     components: [],
                   },

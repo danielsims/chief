@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  type WorkspaceSnapshot,
-  workspaceSnapshotSchema,
-} from "@chief/relay-contracts";
+import { workspaceSnapshotSchema } from '@chief/relay-contracts';
+import type { WorkspaceSnapshot } from '@chief/relay-contracts';
 
 import { startPendingEveWorkspaceKickoff } from "../src/lib/relay-eve-kickoff.js";
 

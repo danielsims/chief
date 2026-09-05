@@ -8,7 +8,7 @@ export function isDesktopOAuthCallback(url: string) {
   try {
     const parsed = new URL(url);
     return Boolean(
-      parsed.searchParams.get("error") ||
+      parsed.searchParams.has("error") ||
         (parsed.searchParams.get("code") && parsed.searchParams.get("state")),
     );
   } catch {

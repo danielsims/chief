@@ -3,9 +3,9 @@ import { ArrowUpRight, FlaskConical, Pause, Play, Target } from "lucide-react";
 
 import type { Mission } from "@chief/relay-contracts";
 import { missionBestValue } from "@chief/relay-contracts";
+import { Button } from "@chief/ui/components/button";
 
 import { useRelaySession } from "../../lib/relay-session";
-import { Button } from "../ui/button";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 export function MissionCanvas({ conversationId }: { conversationId: string }) {
@@ -102,9 +102,14 @@ export function MissionCard({
   busy?: boolean;
   onStatusChange?: (status: Mission["status"]) => void;
 }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const metric = mission.success.kind === "metric" ? mission.success : null;
   const best = missionBestValue(mission);
-  const expired = Date.parse(mission.deadline) <= Date.now();
+  const expired = Date.parse(mission.deadline) <= now;
   const remaining = mission.maxExperiments - mission.experiments.length;
   const progress =
     metric && best !== null
@@ -248,29 +253,32 @@ export function MissionCard({
             <FlaskConical className="size-3.5" /> Experiment history
           </h4>
           <div className="space-y-3">
-            {mission.experiments.toReversed().map((experiment, index) => (
-              <details
-                key={experiment.id}
-                className="group rounded-lg border p-3"
-                open={index === 0}
-              >
-                <summary className="flex cursor-pointer items-start justify-between gap-3 text-sm">
-                  <span>{experiment.hypothesis}</span>
-                  <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs capitalize">
-                    {experiment.decision === "keep" && (
-                      <ArrowUpRight className="size-3" />
-                    )}
-                    {experiment.decision}
-                    {experiment.value !== null &&
-                      ` · ${experiment.value.toLocaleString()}`}
-                  </span>
-                </summary>
-                <div className="text-muted-foreground mt-3 space-y-2 text-sm leading-6">
-                  <p>{experiment.change}</p>
-                  <StreamingMarkdown>{experiment.evidence}</StreamingMarkdown>
-                </div>
-              </details>
-            ))}
+            {mission.experiments
+              .slice()
+              .reverse()
+              .map((experiment, index) => (
+                <details
+                  key={experiment.id}
+                  className="group rounded-lg border p-3"
+                  open={index === 0}
+                >
+                  <summary className="flex cursor-pointer items-start justify-between gap-3 text-sm">
+                    <span>{experiment.hypothesis}</span>
+                    <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs capitalize">
+                      {experiment.decision === "keep" && (
+                        <ArrowUpRight className="size-3" />
+                      )}
+                      {experiment.decision}
+                      {experiment.value !== null &&
+                        ` · ${experiment.value.toLocaleString()}`}
+                    </span>
+                  </summary>
+                  <div className="text-muted-foreground mt-3 space-y-2 text-sm leading-6">
+                    <p>{experiment.change}</p>
+                    <StreamingMarkdown>{experiment.evidence}</StreamingMarkdown>
+                  </div>
+                </details>
+              ))}
           </div>
         </div>
       )}

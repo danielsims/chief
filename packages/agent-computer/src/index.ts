@@ -55,11 +55,11 @@ export interface AgentInference {
 
 /** Provider-neutral live inference progress. Provider adapters translate their
  * native stream into this contract before the durable runtime observes it. */
-export type AgentInferenceProgress = {
+export interface AgentInferenceProgress {
   type: "reasoning";
   delta: string;
   text: string;
-};
+}
 
 export type AgentInferenceProgressObserver = (
   progress: AgentInferenceProgress,
