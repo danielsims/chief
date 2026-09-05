@@ -262,3 +262,17 @@ Notarization remains unavailable in this build environment.
 Evidence: `/tmp/chief-refinement-commit.log`, `/tmp/chief-refinement-prompts.log`,
 `/tmp/chief-refinement-deploy.log`, `/tmp/chief-refinement-health.json`,
 `/tmp/chief-refinement-dmg.log`, `/tmp/chief-refinement-mounted-runtime.log`.
+
+## Channel and DM navigation error correction
+
+Reproduced the transient top-right error in the installed app's On Device DM.
+The relay transport did not implement `closeChat`, so normal view cleanup was
+reported as an unsupported command. It now detaches the chat view while retaining
+the workspace subscription for background activity. Pending loads are scoped to
+each opening; responses and failures from closed or replaced views are ignored.
+Intentional turn cancellation no longer becomes a generic agent-failure alert.
+Current load failures and actual process failures remain visible.
+
+Eight focused checks pass, including rapid channel/DM reopen with out-of-order
+responses, retained background subscription, and genuine failure visibility.
+The desktop typecheck passes. This correction changes desktop code only.

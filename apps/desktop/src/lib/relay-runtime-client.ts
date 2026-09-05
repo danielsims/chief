@@ -63,6 +63,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private subscribedConversationIds = new Set<string>();
   private workspaceCursor: number | undefined;
   private conversationIdsByChat = new Map<string, string>();
+  private chatOpenRequests = new Map<string, symbol>();
   private messagesById = new Map<string, ConversationMessage>();
   private readonly devicePubkey = isTauri()
     ? invoke<string>("relay_public_key").catch(() => null)
@@ -165,6 +166,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
   destroy() {
     this.closed = true;
+    this.chatOpenRequests.clear();
+    this.conversationIdsByChat.clear();
     this.subscriptionGeneration += 1;
     this.captureAndCloseWorkspaceSubscription();
     this.pendingWorkspaceSubscription = null;
@@ -172,6 +175,24 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
   private async route(message: ClientMessage) {
     if (this.closed) return;
+    // Chat attachment is local to the view. Keep lifecycle commands ordered
+    // before asynchronous workspace routing, without stopping background runs.
+    switch (message.type) {
+      case "openChat":
+        return this.openChat(
+          message.chatId,
+          this.conversationIdForChat(message.chatId, message.channelId),
+        );
+      case "observeChat":
+        return this.openChat(
+          message.chatId,
+          this.conversationIdForChat(message.chatId),
+        );
+      case "closeChat":
+        this.chatOpenRequests.delete(message.chatId);
+        this.conversationIdsByChat.delete(message.chatId);
+        return;
+    }
     if (
       await routeRelayWorkspaceDataCommand(message, {
         relay: this.relay,
@@ -224,18 +245,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
         return;
       case "reactToChannelMessage":
         await this.toggleReaction(message);
-        return;
-      case "openChat":
-        await this.openChat(
-          message.chatId,
-          this.conversationIdForChat(message.chatId, message.channelId),
-        );
-        return;
-      case "observeChat":
-        await this.openChat(
-          message.chatId,
-          this.conversationIdForChat(message.chatId),
-        );
         return;
       case "sendMessage":
         await this.appendMessage(message);
@@ -325,32 +334,42 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
 
   private async openChat(chatId: string, conversationId: string) {
+    const request = Symbol(chatId);
+    this.chatOpenRequests.set(chatId, request);
     this.conversationIdsByChat.set(chatId, conversationId);
-    const page = await this.relay.listMessages(conversationId, {
-      limit: 200,
-      recent: true,
-    });
-    const agentId = directAgentId(conversationId, this.snapshot);
-    for (const message of page.messages) this.rememberMessage(message);
-    this.emit({
-      type: "chatOpened",
-      workspaceId: this.snapshot.id,
-      chatId,
-      visibility: "user",
-      ...(agentId ? { agentId } : undefined),
-    });
-    this.emit({
-      type: "history",
-      workspaceId: this.snapshot.id,
-      chatId,
-      messages: page.messages.map((message) => toChiefMessage(message)),
-      events: page.messages.flatMap((message) => {
-        const event = agentRunEvent(message);
-        return event ? [event] : [];
-      }),
-      running: false,
-    });
-    await this.subscribeConversation(conversationId);
+    const isCurrent = () =>
+      !this.closed && this.chatOpenRequests.get(chatId) === request;
+    try {
+      const page = await this.relay.listMessages(conversationId, {
+        limit: 200,
+        recent: true,
+      });
+      if (!isCurrent()) return;
+      const agentId = directAgentId(conversationId, this.snapshot);
+      for (const message of page.messages) this.rememberMessage(message);
+      this.emit({
+        type: "chatOpened",
+        workspaceId: this.snapshot.id,
+        chatId,
+        visibility: "user",
+        ...(agentId ? { agentId } : undefined),
+      });
+      this.emit({
+        type: "history",
+        workspaceId: this.snapshot.id,
+        chatId,
+        messages: page.messages.map((message) => toChiefMessage(message)),
+        events: page.messages.flatMap((message) => {
+          const event = agentRunEvent(message);
+          return event ? [event] : [];
+        }),
+        running: false,
+      });
+      await this.subscribeConversation(conversationId);
+    } catch (error) {
+      // A late response from a closed or replaced view is no longer actionable.
+      if (isCurrent()) this.recordError(parseRelayError(error), chatId);
+    }
   }
 
   private async openChannelEvents(conversationId: string) {

@@ -18,6 +18,23 @@ void test("a live runtime failure introduces an unread error", () => {
   assert.equal(controls.errorAcknowledged, false);
 });
 
+void test("intentional stops do not create alerts but process failures still do", () => {
+  for (const message of ["turn interrupted", " Turn cancelled "]) {
+    const controls = reduceChatControls(
+      { ...emptyChatControls, status: "running" },
+      { type: "error", message },
+    );
+    assert.equal(controls.status, "idle");
+    assert.equal(controls.error, undefined);
+  }
+  const failure = reduceChatControls(emptyChatControls, {
+    type: "error",
+    message: "Agent process exited with code 1.",
+  });
+  assert.ok(failure.error);
+  assert.equal(failure.errorAcknowledged, false);
+});
+
 void test("history replay retains diagnostics without restoring the alert", () => {
   const controls = replayChatControls(
     [{ type: "error", message: "The agent stopped." }],
