@@ -18,7 +18,11 @@ import {
   relayProjectRecord,
   relayProjectSnapshot,
 } from "./relay-project-presentation";
-import { connectRelayProject } from "./relay-runtime-project-connect";
+import {
+  connectRelayProject,
+  localProjectSnapshots,
+  queryRelayProject,
+} from "./relay-runtime-project-connect";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -162,6 +166,11 @@ export async function routeRelayWorkspaceDataCommand(
       return true;
     case "listProjects":
       await listProjects(context);
+      return true;
+    case "browseProject":
+    case "inspectProjectCommit":
+    case "compareProjectBranches":
+      context.emit(await queryRelayProject(context.snapshot.id, message));
       return true;
     case "cloneProject":
     case "attachProject": {
@@ -308,7 +317,10 @@ async function listProjects(context: WorkspaceDataContext) {
   context.emit({
     type: "projects",
     workspaceId: context.snapshot.id,
-    projects: projects.map(relayProjectSnapshot),
+    projects: await localProjectSnapshots(
+      context.snapshot.id,
+      projects.map(relayProjectSnapshot),
+    ),
   });
 }
 

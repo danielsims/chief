@@ -12,6 +12,28 @@ interface PluginHostConnection {
 let connectionPromise: Promise<PluginHostConnection> | null = null;
 
 type PluginHostRequest =
+  | { workspaceId: string; operation: "snapshots" }
+  | {
+      workspaceId: string;
+      operation: "browse";
+      projectId: string;
+      ref: string;
+      path?: string;
+    }
+  | {
+      workspaceId: string;
+      operation: "commit";
+      projectId: string;
+      ref: string;
+      commit: string;
+    }
+  | {
+      workspaceId: string;
+      operation: "compare";
+      projectId: string;
+      baseRef: string;
+      compareRef: string;
+    }
   | { workspaceId: string; source: "attach"; path: string }
   | { workspaceId: string; source: "clone"; remoteUrl: string }
   | { workspaceId: string; connectionId: string; projectId: string }
@@ -73,6 +95,7 @@ async function waitUntilReady({ port, token }: PluginHostConnection) {
 
 export async function requestDesktopPluginHost(
   path:
+    | "/projects/query"
     | "/projects/prepare"
     | "/projects/bind"
     | "/plugins/list"
