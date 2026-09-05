@@ -49,7 +49,7 @@ struct ThreadView: View {
           skillIDs: $composerSkillIDs,
           isSending: isSending,
           attachments: attachments,
-          availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
+          availableMentionAgentIDs: model.mentionPeople.filter { $0.role != "You" }.map(\.id),
           preferredMentionAgentIDs: channelAgentIDs,
           people: model.mentionPeople,
           onSend: send,

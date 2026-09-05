@@ -43,7 +43,11 @@ final class AppModel {
   private(set) var session: ChiefSession?
   var mentionPeople: [MentionAgent] {
     guard let user = session?.user else { return [] }
-    return [MentionAgent(id: user.id, name: user.name, role: "You")]
+    let agents = (workspace?.agents ?? []).flatMap { agent -> [MentionAgent] in
+      let root = agent.canMessage == false ? [] : [MentionAgent(id: agent.id, name: agent.name, role: agent.role)]
+      return root + agent.subagents.filter { $0.canMessage != false }.map { MentionAgent(id: $0.id, name: $0.name, role: $0.role) }
+    }
+    return [MentionAgent(id: user.id, name: user.name, role: "You")] + agents
   }
   private(set) var workspace: WorkspaceSnapshot?
   private(set) var workspaceSummaries: [WorkspaceSummary] = []
@@ -590,7 +594,7 @@ final class AppModel {
       of: (String, [AgentJobRecord])?.self,
       returning: [String: [AgentJobRecord]].self
     ) { group in
-      for agent in snapshot.agents {
+      for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
         group.addTask {
           do {
             return (
@@ -955,7 +959,7 @@ final class AppModel {
   }
 
   private func refreshAgentConfigCache(for snapshot: WorkspaceSnapshot) async {
-    for agent in snapshot.agents {
+    for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
       do {
         let config =
           try await relay.loadAgentConfig(
@@ -991,7 +995,7 @@ final class AppModel {
       of: (String, AgentConfig).self,
       returning: [(String, AgentConfig)].self
     ) { group in
-      for agent in snapshot.agents {
+      for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
         group.addTask {
           var config =
             try await relay.loadAgentConfig(
@@ -2510,7 +2514,8 @@ final class AppModel {
     do {
       try await relay.joinChannel(
         workspaceID: workspaceID,
-        conversationID: conversationID
+        conversationID: conversationID,
+        signingIdentity: nil
       )
       setConversationJoined(conversationID, joined: true)
       return true
@@ -2727,9 +2732,9 @@ final class AppModel {
   private func startAgentLoopIfNeeded() {
     guard phase == .workspace, let workspace else { return }
     guard agentLoopTask == nil else { return }
-    let roster = workspace.agents.compactMap { agent in
-      let config = configStore.load(workspaceID: workspace.id, agentID: agent.id)
-      return config?.deploymentTarget == "phone" ? agent.id : nil
+    let roster = workspace.agents.filter { $0.canRunOnDevice != false }.flatMap { [$0.id] + $0.subagents.map(\.id) }.compactMap { agentID in
+      let config = configStore.load(workspaceID: workspace.id, agentID: agentID)
+      return config?.deploymentTarget == "phone" ? agentID : nil
     }
     guard !roster.isEmpty else { return }
     let loop = WorkspaceAgentLoop(

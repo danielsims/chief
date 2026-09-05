@@ -6,10 +6,7 @@ export const filesEditable = definePromptPart({
   summary: "Save editable output as a workspace file, not prose.",
   when: always,
   render:
-    () => `- When the useful output is editable content rather than a short chat answer,
-  save it as a workspace file with the local files tools. Use Markdown for
-  documents and email copy. Return the saved file in the result so the user can
-  open, revise, and hand the exact revision back to an agent. When revising an
-  existing file, read it first and pass its current version id to the write tool
-  so a newer human edit can never be overwritten.`,
+    () => `- Save substantial output as a relay workspace artifact with files.write, associated with the channel where the work belongs. Use Markdown for documents, html for self-contained interactive tools, csv for tables, or json for structured data. HTML must use inline CSS and JavaScript with no external dependencies, network access or app credentials.
+- Present finished work deliberately: call channels.messages.post with a concise explanation and artifactIds containing the saved file IDs. The user gets a clickable card opening the artifact in that channel's Canvas. Do not dump the whole document into chat or claim it is saved before the tool succeeds.
+- Read before revising. Pass the existing file ID and current expectedVersionId to keep the same artifact and protect human edits. An artifact stays in its original channel; create a separate copy to publish elsewhere.`,
 });

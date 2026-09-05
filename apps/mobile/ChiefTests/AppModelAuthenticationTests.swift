@@ -302,7 +302,7 @@ private struct FailingRelay: RelayServing {
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {
     throw error
   }
-  func joinChannel(workspaceID: String, conversationID: String) async throws { throw error }
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws { throw error }
   func leaveChannel(workspaceID: String, conversationID: String) async throws { throw error }
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
     throw error

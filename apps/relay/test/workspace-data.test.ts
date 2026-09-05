@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "@chief/relay-contracts";
-import { agentIdSchema } from "@chief/relay-contracts";
+import { agentIdSchema, defaultAgentConfig } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
 import {
@@ -152,6 +152,20 @@ describe("workspace data", () => {
       role: "member" as const,
     };
 
+    const configured = await channelRpc(
+      ctx,
+      ctx.principal,
+      "agent-config-set",
+      {
+        agentId: engineerId,
+        config: {
+          ...defaultAgentConfig,
+          toolPermissions: ["workspace.read", "messages.read", "messages.send"],
+        },
+      },
+    );
+    expect(configured.status).toBe(200);
+
     const created = await rpc(ctx, engineer, "data-file-save", {
       path: "engineering/relay-notes.md",
       title: "Relay notes",
@@ -185,6 +199,23 @@ describe("workspace data", () => {
       expectedVersion: 1,
     });
     expect(conflict.status).toBe(409);
+
+    await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-create",
+      channelEnvelope({ conversationId: "other-work", name: "other-work" }),
+    );
+    const moved = await rpc(ctx, engineer, "data-file-save", {
+      id: file.id,
+      path: "engineering/relay-notes.md",
+      title: "Moved",
+      mimeType: "text/html",
+      content: "<p>Moved</p>",
+      conversationId: "other-work",
+      expectedVersion: 2,
+    });
+    expect(moved.status).toBe(409);
 
     const traversal = await rpc(ctx, engineer, "data-file-save", {
       path: "../outside.md",

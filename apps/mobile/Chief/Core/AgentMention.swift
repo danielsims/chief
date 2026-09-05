@@ -29,7 +29,8 @@ enum WorkspaceAgentCatalog {
 
   /// The display names + ids that a plain `@Name` resolves to, lowercased.
   static func matching(prefix: String, people: [MentionAgent] = []) -> [MentionAgent] {
-    let pool = agents + people
+    var seen = Set<String>()
+    let pool = (people + agents).filter { seen.insert($0.id).inserted }
     guard !prefix.isEmpty else { return pool }
     let query = prefix.lowercased()
     return pool.filter {

@@ -94,7 +94,7 @@ protocol RelayServing: Sendable {
     signingIdentity: NostrIdentity?
   ) async throws -> ChannelRecord
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws
-  func joinChannel(workspaceID: String, conversationID: String) async throws
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws
   func leaveChannel(workspaceID: String, conversationID: String) async throws
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember]
   func addChannelMember(
@@ -194,6 +194,7 @@ protocol RelayServing: Sendable {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord]
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -291,6 +292,9 @@ extension RelayServing {
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord] { [] }
 
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
+    throw ToolError.invalidArgument("Artifact publishing is unavailable for this relay client")
+  }
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -687,7 +691,7 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
-  func joinChannel(workspaceID: String, conversationID: String) async throws {
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws {
     let payload = ChannelCommandPayload(
       conversationId: conversationID,
       name: nil,
@@ -698,7 +702,8 @@ actor URLSessionRelayClient: RelayServing {
     let _: ActionResult = try await request(
       path: "/v1/workspaces/\(workspaceID)/channels/\(conversationID)/join",
       method: "POST",
-      body: body
+      body: body,
+      signer: signingIdentity
     )
   }
 
@@ -1251,6 +1256,9 @@ actor URLSessionRelayClient: RelayServing {
     return result.prospects
   }
 
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
+    try await request(path: "/v1/workspaces/\(workspaceID)/files", method: "POST", body: JSONEncoder().encode(input), signer: signingIdentity)
+  }
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?

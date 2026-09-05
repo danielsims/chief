@@ -194,7 +194,7 @@ struct MessageComposer: View {
     let catalogOrder = Dictionary(
       uniqueKeysWithValues: WorkspaceAgentCatalog.agents.enumerated().map { ($0.element.id, $0.offset) }
     )
-    return WorkspaceAgentCatalog.matching(prefix: mentionQuery, people: people)
+    return WorkspaceAgentCatalog.matching(prefix: mentionQuery, people: people).filter { $0.role != "You" }
       .filter { available.contains($0.id) }
       .sorted { left, right in
       let leftPreferred = preferredOrder[left.id]

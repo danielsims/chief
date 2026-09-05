@@ -17,6 +17,9 @@ enum AgentTurnToolPolicy {
   ])
 
   private static let conversation = Set([
+    WorkspaceFilesListTool.name,
+    WorkspaceFileWriteTool.name,
+    RelayChannelJoinTool.name,
     RelayChannelsListTool.name,
     RelayMessagesListTool.name,
     RelayMessagePostTool.name,

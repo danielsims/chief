@@ -27,6 +27,7 @@ import {
   channelActionResultSchema,
   channelCreateCommandSchema,
   channelDetailSchema,
+  channelJoinCommandSchema,
   channelListResultSchema,
   channelMemberAddCommandSchema,
   conversationIdSchema,
@@ -295,6 +296,27 @@ export class RelayClientBase {
             protocolVersion: 1,
             occurredAt: new Date().toISOString(),
             payload: { conversationId: conversation, members },
+          }),
+        ),
+      },
+    );
+  }
+
+  async joinChannel(conversationId: string): Promise<void> {
+    const conversation = conversationIdSchema.parse(conversationId);
+    await this.fetchJson(
+      this.workspaceUrl(`channels/${encodeURIComponent(conversation)}/join`),
+      channelActionResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          channelJoinCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: { conversationId: conversation },
           }),
         ),
       },

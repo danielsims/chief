@@ -74,6 +74,7 @@ func toolSchema(_ parameters: [RelayToolParameter]) -> [String: Any] {
 enum RelayToolRegistry {
   static let tools: [any RelayTool.Type] = [
     RelayChannelsListTool.self,
+    RelayChannelJoinTool.self,
     RelayWorkspaceMembersTool.self,
     RelayChannelCreateTool.self,
     RelayChannelMembersAddTool.self,
@@ -95,6 +96,7 @@ enum RelayToolRegistry {
     ProspectsListTool.self,
     ProspectSaveTool.self,
     WorkspaceFilesListTool.self,
+    WorkspaceFileWriteTool.self,
     PluginsListTool.self,
     PluginsRecommendTool.self,
     PluginsInstallTool.self,

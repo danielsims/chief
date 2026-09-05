@@ -105,11 +105,8 @@ export function workspaceDataCapability(operation: string) {
     operation === "data-machine-delete"
   )
     return "machines.write";
-  if (
-    operation === "data-file-save" ||
-    operation === "data-file-update" ||
-    operation === "data-file-asset-save"
-  )
-    return "workspace.write";
+  if (operation === "data-file-save" || operation === "data-file-asset-save")
+    return "messages.send";
+  if (operation === "data-file-update") return "workspace.write";
   return "workspace.read";
 }

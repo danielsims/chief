@@ -28,13 +28,15 @@ export const writeFileDefinition = defineAgentTool({
     operationId: "files.write",
     summary: "Create or revise a workspace document",
     description:
-      "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
+      "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. For interactive artifacts use format html with a self-contained HTML document, inline CSS and JavaScript, no external libraries or network calls. Use format csv or json for structured data. After saving, call channels.messages.post with artifactIds containing the file ID to place a Canvas card in chat. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
   },
   inputSchema: z.object({
     id: optionalBoundedText(120),
     name: boundedText(160),
     path: optionalBoundedText(240),
     content: boundedText(200_000),
+    format: z.enum(["markdown", "html", "csv", "json"]).default("markdown"),
+    conversationId: optionalBoundedText(160),
     kind: z.enum(["document", "email"]).default("document"),
     expectedVersionId: optionalBoundedText(120),
     agentId: optionalBoundedText(80),

@@ -1,9 +1,9 @@
 import {
   brandProfileSaveSchema,
   prospectSaveSchema,
-  workspaceScheduleInputSchema,
   workspaceFileSaveSchema,
   workspaceFilesResultSchema,
+  workspaceScheduleInputSchema,
 } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input";
@@ -58,22 +58,43 @@ export const hostedWorkspaceTools = [
   ),
   defineHostedAgentTool(
     "files.write",
-    async ({ env, job, principal }, input) =>
-      workspaceOperation(env, job, principal, "data-file-save", {
+    async ({ env, job, principal }, input) => {
+      const existing = input.id
+        ? workspaceFilesResultSchema
+            .parse(
+              await workspaceOperation(env, job, principal, "data-files-list"),
+            )
+            .files.find((file) => file.id === input.id)
+        : undefined;
+      return workspaceOperation(env, job, principal, "data-file-save", {
         body: workspaceFileSaveSchema.parse({
           id: optionalString(input, "id"),
           path:
             optionalString(input, "path") ??
-            `documents/${crypto.randomUUID()}.md`,
+            existing?.path ??
+            `artifacts/${crypto.randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
           title: requiredString(input, "name"),
           content: requiredString(input, "content"),
-          mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
-          conversationId: requiredString(job.payload, "conversationId"),
+          mimeType:
+            input.kind === "email"
+              ? "message/rfc822"
+              : input.format === "html"
+                ? "text/html"
+                : input.format === "csv"
+                  ? "text/csv"
+                  : input.format === "json"
+                    ? "application/json"
+                    : "text/markdown",
+          conversationId:
+            optionalString(input, "conversationId") ??
+            existing?.conversationId ??
+            requiredString(job.payload, "conversationId"),
           expectedVersion: input.expectedVersionId
             ? Number(requiredString(input, "expectedVersionId"))
             : undefined,
         }),
-      }),
+      });
+    },
     { effect: "non_replayable" },
   ),
 

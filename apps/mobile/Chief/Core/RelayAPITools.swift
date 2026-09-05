@@ -70,6 +70,7 @@ struct RelayMessagePostTool: RelayTool {
   static let description =
     "Post a message to a workspace conversation as the agent. Use to report progress, ask the user a question, or share a result in a channel or direct message."
   static let parameters: [RelayToolParameter] = [
+    .init(name: "artifactIds", kind: .string, description: "JSON array of file IDs created in this conversation. Inserts Canvas cards for the artifacts.", required: false),
     .init(name: "conversationId", kind: .string, description: "The conversation id to post to."),
     .init(name: "body", kind: .string, description: "The message text to post."),
     .init(
@@ -90,6 +91,13 @@ struct RelayMessagePostTool: RelayTool {
     let conversationID = try arguments.requiredString("conversationId")
     let body = try arguments.requiredString("body")
     let threadRootID = arguments.optionalString("threadRootId")
+    let artifactIDs = try arguments.optionalString("artifactIds").map { try JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
+    guard artifactIDs.count <= 12 else { throw ToolError.invalidArgument("At most 12 artifacts can be attached") }
+    let files = artifactIDs.isEmpty ? [] : try await context.relay.listWorkspaceFiles(workspaceID: context.workspaceID, signingIdentity: context.identity)
+    let components = try Array(Set(artifactIDs)).sorted().map { id -> MessageComponent in
+      guard let file = files.first(where: { $0.id == id && $0.conversationId == conversationID }) else { throw ToolError.invalidArgument("Artifact not found in this channel") }
+      return MessageComponent(id: "artifact-\(id)", kind: "artifact.reference", payload: ["fileId": id, "conversationId": conversationID, "title": file.title, "mimeType": file.mimeType, "version": String(file.version)])
+    }
     if arguments.optionalString("idempotencyKey") != nil {
       let existing = try await context.relay.messages(
         workspaceID: context.workspaceID,
@@ -100,6 +108,7 @@ struct RelayMessagePostTool: RelayTool {
         message.body == body
           && message.threadRootID == threadRootID
           && message.author.agentID == context.agentID
+          && message.components == components
       }
       if let existing {
         return toolResultJSON([
@@ -115,6 +124,7 @@ struct RelayMessagePostTool: RelayTool {
       conversationID: conversationID,
       threadRootID: threadRootID,
       mentions: [],
+      components: components,
       signingIdentity: context.identity
     )
     return toolResultJSON([
@@ -347,4 +357,16 @@ private func performReaction(
     signingIdentity: context.identity
   )
   return toolResultJSON(["messageId": message.id])
+}
+
+struct RelayChannelJoinTool: RelayTool {
+  static let name = "relay_channel_join"
+  static let description = "Join a public workspace channel as yourself before posting there. Private channels require an invitation."
+  static let parameters: [RelayToolParameter] = [
+    .init(name: "conversationId", kind: .string, description: "The public channel id from relay_channels_list.")
+  ]
+  func run(arguments: [String: Any], context: ToolContext) async throws -> String {
+    try await context.relay.joinChannel(workspaceID: context.workspaceID, conversationID: arguments.requiredString("conversationId"), signingIdentity: context.identity)
+    return toolResultJSON(["ok": true])
+  }
 }

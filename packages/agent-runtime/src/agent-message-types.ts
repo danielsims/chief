@@ -119,6 +119,7 @@ export interface AnalyticsDataset {
 }
 
 export interface WorkspaceFileRecord {
+  previewContent?: string;
   id: string;
   name: string;
   path: string;
@@ -153,6 +154,7 @@ export interface WorkspaceFileWrite {
 }
 
 export interface GenerativeDocumentData {
+  conversationId?: string;
   fileId: string;
   title: string;
   path: string;

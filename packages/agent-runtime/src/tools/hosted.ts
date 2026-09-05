@@ -10,6 +10,7 @@ import { selectBrowserDefinition } from "./toolkits/browser/select-browser.js";
 import { snapshotBrowserDefinition } from "./toolkits/browser/snapshot-browser.js";
 import { addChannelMembersDefinition } from "./toolkits/channels/add-channel-members.js";
 import { createChannelDefinition } from "./toolkits/channels/create-channel.js";
+import { joinChannelDefinition } from "./toolkits/channels/join-channel.js";
 import { listChannelMembersDefinition } from "./toolkits/channels/list-channel-members.js";
 import { listChannelsDefinition } from "./toolkits/channels/list-channels.js";
 import { listChannelMessagesDefinition } from "./toolkits/channels/messages/list-channel-messages.js";
@@ -21,12 +22,12 @@ import { computerListFilesDefinition } from "./toolkits/computer/list-files.js";
 import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-artifact.js";
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
-import { missionToolDefinitions } from "./toolkits/missions.js";
 import {
   listFilesDefinition,
   readFileDefinition,
   writeFileDefinition,
 } from "./toolkits/files/definitions.js";
+import { missionToolDefinitions } from "./toolkits/missions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
@@ -53,6 +54,7 @@ export const hostedAgentToolDefinitions = {
     computerGitDefinition,
     computerPublishArtifactDefinition,
     listChannelsDefinition,
+    joinChannelDefinition,
     createChannelDefinition,
     addChannelMembersDefinition,
     listChannelMembersDefinition,

@@ -222,7 +222,7 @@ actor FixtureRelayClient: RelayServing {
 
     func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {}
 
-    func joinChannel(workspaceID: String, conversationID: String) async throws {}
+    func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws {}
 
     func leaveChannel(workspaceID: String, conversationID: String) async throws {}
 

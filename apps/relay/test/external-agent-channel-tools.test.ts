@@ -146,6 +146,34 @@ describe("external agent channel tools", () => {
       conversationId: createdChannel.id,
       version: 2,
     });
+    const presented = await invokeWorkspace("channels.messages.post", {
+      channelId: createdChannel.id,
+      content: "The launch brief is ready.",
+      artifactIds: [savedFile.id],
+    });
+    expect(presented.status).toBe(200);
+    const channelMessages = await testConversationMessages(
+      ctx,
+      ctx.principal,
+      createdChannel.id,
+    );
+    expect(
+      channelMessages.some((message) =>
+        message.components.some(
+          (component) =>
+            component.kind === "artifact.reference" &&
+            component.payload.fileId === savedFile.id &&
+            component.payload.version === 2,
+        ),
+      ),
+    ).toBe(true);
+    const wrongChannel = await invokeWorkspace("channels.messages.post", {
+      channelId: conversationId,
+      content: "Private file",
+      artifactIds: [savedFile.id],
+    });
+    expect(wrongChannel.status).toBeGreaterThanOrEqual(400);
+
     const missionResponse = await invokeWorkspace("missions.create", {
       id: "launch-conversion",
       conversationId: createdChannel.id,

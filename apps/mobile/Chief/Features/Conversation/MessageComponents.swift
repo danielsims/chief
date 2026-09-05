@@ -19,7 +19,7 @@ struct MessageComponentList: View {
   private var visibleComponents: [MessageComponent] {
     message.components.filter { component in
       switch component.kind {
-      case "action-request", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
+      case "artifact.reference", "action-request", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
       case "tool":
         component.payload["name"] == BrowserReleaseTool.name
           && component.payload["status"] == "completed"
@@ -31,6 +31,8 @@ struct MessageComponentList: View {
   @ViewBuilder
   private func componentView(_ component: MessageComponent) -> some View {
     switch component.kind {
+    case "artifact.reference":
+      ArtifactMessageComponent(message: message, component: component)
     case "action-request":
       ActionRequestMessageComponent(component: component) { option in
         respond(to: component, with: option)
