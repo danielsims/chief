@@ -136,6 +136,10 @@ export async function routeWorkspaceSchedule(
     return json(presentWorkspaceSchedule(schedule));
   }
   requireWorkspaceAdministrator(channels, context.principal);
+  const actionRequest =
+    operation === "schedules-delete"
+      ? null
+      : workspaceScheduleActionSchema.parse(await parseJson(request));
   const stored = id ? readWorkspaceSchedule(storage, id) : null;
   if (!stored)
     throw new HttpError(
@@ -159,8 +163,13 @@ export async function routeWorkspaceSchedule(
     await wakeWorkspaceSchedules(storage);
     return json({ deleted: true });
   }
-  const { action, commandId, expectedUpdatedAt } =
-    workspaceScheduleActionSchema.parse(await parseJson(request));
+  if (!actionRequest)
+    throw new HttpError(
+      404,
+      "schedule_operation_missing",
+      "This schedule operation does not exist.",
+    );
+  const { action, commandId, expectedUpdatedAt } = actionRequest;
   const previousCommand = [
     ...storage.sql.exec<
       { schedule_id: string; action: string } & Record<string, SqlStorageValue>
@@ -188,40 +197,42 @@ export async function routeWorkspaceSchedule(
       "This schedule changed since you reviewed it. Review the latest version before approving.",
     );
   const now = Math.max(Date.now(), stored.schedule.updatedAt + 1);
-  if (action === "pause") {
-    stored.schedule.status = "paused";
-    delete stored.schedule.nextAt;
-    storage.sql.exec(
-      "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
-      stored.schedule.id,
-    );
-  } else if (action === "approve") {
-    stored.approvedBy = context.principal;
-    stored.schedule.status = "active";
-    stored.schedule.nextAt =
-      stored.schedule.onceAt !== undefined
-        ? Math.max(now, stored.schedule.onceAt)
-        : nextScheduleTime(stored.schedule, now);
-  } else {
-    requireScheduleApproval(stored.approvedBy);
-    if (action === "run") {
-      enqueueScheduleOccurrence(storage, stored.schedule, now, commandId);
-    } else {
+  storage.transactionSync(() => {
+    if (action === "pause") {
+      stored.schedule.status = "paused";
+      delete stored.schedule.nextAt;
+      storage.sql.exec(
+        "UPDATE workspace_schedule_dispatches SET state = 'cancelled' WHERE schedule_id = ? AND state = 'pending'",
+        stored.schedule.id,
+      );
+    } else if (action === "approve") {
+      stored.approvedBy = context.principal;
       stored.schedule.status = "active";
       stored.schedule.nextAt =
         stored.schedule.onceAt !== undefined
           ? Math.max(now, stored.schedule.onceAt)
           : nextScheduleTime(stored.schedule, now);
+    } else {
+      requireScheduleApproval(stored.approvedBy);
+      if (action === "run") {
+        enqueueScheduleOccurrence(storage, stored.schedule, now, commandId);
+      } else {
+        stored.schedule.status = "active";
+        stored.schedule.nextAt =
+          stored.schedule.onceAt !== undefined
+            ? Math.max(now, stored.schedule.onceAt)
+            : nextScheduleTime(stored.schedule, now);
+      }
     }
-  }
-  storage.sql.exec(
-    "INSERT INTO workspace_schedule_commands(command_id, schedule_id, action) VALUES (?, ?, ?)",
-    commandId,
-    stored.schedule.id,
-    action,
-  );
-  stored.schedule.updatedAt = now;
-  writeWorkspaceSchedule(storage, stored);
+    storage.sql.exec(
+      "INSERT INTO workspace_schedule_commands(command_id, schedule_id, action) VALUES (?, ?, ?)",
+      commandId,
+      stored.schedule.id,
+      action,
+    );
+    stored.schedule.updatedAt = now;
+    writeWorkspaceSchedule(storage, stored);
+  });
   await wakeWorkspaceSchedules(storage);
   return json(presentWorkspaceSchedule(stored.schedule));
 }
