@@ -862,6 +862,13 @@ private struct ProjectsRootView: View {
   var body: some View {
     VStack(spacing: 0) {
       WorkspaceHeader()
+      Text("Projects")
+        .font(.system(size: 26, weight: .regular, design: .rounded))
+        .tracking(-0.6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
       ProjectsView()
     }
     .toolbar(.hidden, for: .navigationBar)
