@@ -10,6 +10,8 @@ struct ConversationTranscriptView: View {
   let allowsActions: Bool
 
   @State private var threadRoot: ConversationMessage?
+  @State private var pendingThreadError = false
+  @State private var threadLoadAttempt = 0
   @State private var editTarget: ConversationMessage?
   @State private var isNearLatest = true
   @State private var hasPositionedInitially = false
@@ -68,6 +70,13 @@ struct ConversationTranscriptView: View {
         openPendingThreadIfNeeded()
       }
       .onAppear { openPendingThreadIfNeeded() }
+      .task(id: "\(model.selectedThread?.rootMessageID ?? ""):\(threadLoadAttempt)") {
+        await loadPendingThreadIfNeeded()
+      }
+      .alert("Couldn’t open this thread", isPresented: $pendingThreadError) {
+        Button("Try again") { threadLoadAttempt += 1 }
+        Button("Cancel", role: .cancel) { model.clearSelectedThread() }
+      } message: { Text("Check your connection and try again.") }
       .overlay(alignment: .bottom) {
         if hasPositionedInitially && !isNearLatest {
           ScrollToLatestButton {
@@ -132,6 +141,22 @@ struct ConversationTranscriptView: View {
     if let root = messages.first(where: { $0.id == pending.rootMessageID }) {
       threadRoot = root
       model.clearSelectedThread()
+    }
+  }
+
+  private func loadPendingThreadIfNeeded() async {
+    guard let pending = model.selectedThread, pending.conversationID == conversationID,
+      let workspaceID = model.workspace?.id else { return }
+    openPendingThreadIfNeeded()
+    guard model.selectedThread == pending else { return }
+    do {
+      let root = try await model.relay.message(workspaceID: workspaceID, conversationID: conversationID, messageID: pending.rootMessageID)
+      guard !Task.isCancelled, model.selectedThread == pending, model.workspace?.id == workspaceID else { return }
+      threadRoot = root
+      model.clearSelectedThread()
+    } catch {
+      guard !Task.isCancelled, model.selectedThread == pending else { return }
+      pendingThreadError = true
     }
   }
 

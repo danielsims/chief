@@ -115,6 +115,9 @@ enum AgentToolAuthorization {
     ProspectSaveTool.name: .workspaceWrite,
     WorkspaceFilesListTool.name: .workspaceRead,
     WorkspaceFileWriteTool.name: .messagesSend,
+    WorkspaceScheduleProposeTool.name: .workspaceWrite,
+    ScheduleRunCollaboratorTool.name: .workspaceWrite,
+    ScheduleRunReportTool.name: .workspaceWrite,
     PluginsListTool.name: .integrationsManage,
     PluginsRecommendTool.name: .integrationsManage,
     PluginsInstallTool.name: .integrationsManage,
@@ -125,6 +128,10 @@ enum AgentToolAuthorization {
   /// Until an explicit approval UI exists, `ask` is deliberately fail-closed
   /// for every tool that can mutate local, relay, or external browser state.
   private static let mutatingTools: Set<String> = [
+    WorkspaceFileWriteTool.name,
+    WorkspaceScheduleProposeTool.name,
+    ScheduleRunCollaboratorTool.name,
+    ScheduleRunReportTool.name,
     RelayChannelCreateTool.name,
     RelayChannelMembersAddTool.name,
     RelayMessagePostTool.name,

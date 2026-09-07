@@ -18,6 +18,7 @@ protocol RelayServing: Sendable {
     from draft: OnboardingDraft,
     inferenceCredential: String?
   ) async throws -> WorkspaceSnapshot
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage
   func messages(
     workspaceID: String,
     conversationID: String,
@@ -194,6 +195,11 @@ protocol RelayServing: Sendable {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord]
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun]
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue]
   func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord
   func listWorkspaceFiles(
     workspaceID: String,
@@ -292,6 +298,13 @@ extension RelayServing {
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord] { [] }
 
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] { throw RelayError.unavailable }
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue] {
+    throw ToolError.invalidArgument("Scheduling is unavailable for this relay client")
+  }
   func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
     throw ToolError.invalidArgument("Artifact publishing is unavailable for this relay client")
   }
@@ -299,6 +312,12 @@ extension RelayServing {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [WorkspaceFileRecord] { [] }
+
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage {
+    let page = try await messages(workspaceID: workspaceID, conversationID: conversationID, after: nil)
+    guard let message = page.first(where: { $0.id == messageID }) else { throw RelayError.httpStatus(404) }
+    return message
+  }
 
   func messages(
     workspaceID: String,
@@ -1070,6 +1089,14 @@ actor URLSessionRelayClient: RelayServing {
     return try await request(path: "/v1/workspaces", method: "POST", body: body)
   }
 
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage {
+    struct Result: Decodable { let message: ConversationMessage }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages/\(messageID)", method: "GET"
+    )
+    return result.message
+  }
+
   func messages(
     workspaceID: String,
     conversationID: String,
@@ -1256,6 +1283,24 @@ actor URLSessionRelayClient: RelayServing {
     return result.prospects
   }
 
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun {
+    func segment(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? value }
+    return try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(segment(scheduleID))/runs/\(segment(runID))/actions", method: "POST", body: JSONEncoder().encode(["action": action, "commandId": commandID]))
+  }
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
+    let encoded = scheduleID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? scheduleID
+    let result: WorkspaceScheduleRunList = try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(encoded)/runs", method: "GET")
+    return result.runs
+  }
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedule-runs/collaborators", method: "POST", body: JSONEncoder().encode(["runId":runID,"agentId":agentID,"assignment":assignment]), signer: signingIdentity)
+  }
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedule-runs/report", method: "POST", body: JSONEncoder().encode(["runId":runID,"stepId":stepID,"status":status,"evidence":evidence]), signer: signingIdentity)
+  }
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue] {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedules", method: "POST", body: JSONEncoder().encode(input), signer: signingIdentity)
+  }
   func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
     try await request(path: "/v1/workspaces/\(workspaceID)/files", method: "POST", body: JSONEncoder().encode(input), signer: signingIdentity)
   }
@@ -1588,6 +1633,8 @@ struct AgentJobLease: Codable, Equatable, Sendable {
       let selectedApps: [String]?
       let threadRootId: String?
       let skillId: String?
+      var scheduleRunId: String? = nil
+      var scheduleStepId: String? = nil
 
       init(
         conversationId: String? = nil,

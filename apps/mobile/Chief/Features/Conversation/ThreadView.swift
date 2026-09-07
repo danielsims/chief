@@ -35,6 +35,7 @@ struct ThreadView: View {
         )
         ConversationActivityFooter(
           agents: workingAgents,
+          scheduledThreadRootID: root.id,
           errorCount: model.activityErrorCount(
             workspaceID: workspaceID,
             conversationID: conversationID
@@ -70,6 +71,7 @@ struct ThreadView: View {
         ChannelAccessLoadingBar()
       }
     }
+    .modifier(ScheduledRunTracking(messages: [root], conversationID: conversationID))
     .background(ChiefTheme.background)
     .navigationTitle("Thread")
     .navigationBarTitleDisplayMode(.inline)

@@ -833,6 +833,7 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
   let kind: String
   let version: Int
   let payload: [String: String]
+  var payloadArrays: [String: [String]] = [:]
 
   init(
     id: String,
@@ -861,6 +862,14 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     let rawPayload =
       try values.decodeIfPresent([String: JSONValue].self, forKey: .payload) ?? [:]
     self.payload = rawPayload.mapValues(Self.flatten)
+    self.payloadArrays = rawPayload.reduce(into: [:]) { result, entry in
+      guard case .array(let values) = entry.value else { return }
+      let strings = values.compactMap { value -> String? in
+        if case .string(let text) = value { return text }
+        return nil
+      }
+      if strings.count == values.count { result[entry.key] = strings }
+    }
   }
 
   func encode(to encoder: Encoder) throws {
@@ -869,6 +878,7 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     try values.encode(kind, forKey: .kind)
     try values.encode(version, forKey: .version)
     var rawPayload = payload.mapValues(JSONValue.string)
+    for (key, values) in payloadArrays { rawPayload[key] = .array(values.map(JSONValue.string)) }
     if kind == "artifact.reference", let version = payload["version"].flatMap(Double.init) { rawPayload["version"] = .number(version) }
     if kind == "plugin.recommendation" {
       for key in ["enabled", "trusted"] {

@@ -16,6 +16,7 @@ struct ConversationView: View {
   @State private var sentMessageIDs: Set<String> = []
   @State private var showsActivity = false
   @State private var showsMenu = false
+  @State private var showsCanvas = false
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
@@ -42,10 +43,18 @@ struct ConversationView: View {
       }
       participationFooter
     }
+    .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
     .background(ChiefTheme.background)
     .navigationTitle(conversation?.name ?? "Conversation")
     .navigationBarTitleDisplayMode(.inline)
+    .navigationDestination(isPresented: $showsCanvas) { ChannelCanvasView(conversationID: conversationID) }
     .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        if isMember, conversation?.kind == .channel {
+          Button { showsCanvas = true } label: { Image(systemName: "doc.on.doc") }
+            .accessibilityLabel("Open channel Canvas")
+        }
+      }
       ToolbarItem(placement: .topBarTrailing) {
         if isMember {
           Button {

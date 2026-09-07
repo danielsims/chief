@@ -20,6 +20,31 @@ const conversationId = "general";
 const agentId = agentIdSchema.parse("advertising");
 
 describe("ConversationObject", () => {
+  it("loads a notification thread root directly and returns 404 for a missing root", async () => {
+    const stub = conversationStub("notification-root");
+    await post(
+      stub,
+      appendCommand({
+        commandId: crypto.randomUUID(),
+        messageId: "notification-root",
+        body: "Scheduled work",
+      }),
+    );
+    const found = await stub.fetch(
+      trustedRequest(
+        "https://relay.test/internal/messages/notification-root",
+        {},
+      ),
+    );
+    expect(found.status).toBe(200);
+    expect(await found.json()).toMatchObject({
+      message: { id: "notification-root", body: "Scheduled work" },
+    });
+    const missing = await stub.fetch(
+      trustedRequest("https://relay.test/internal/messages/no-such-root", {}),
+    );
+    expect(missing.status).toBe(404);
+  });
   it("persists an append once when the command is retried", async () => {
     const stub = conversationStub();
     const command = appendCommand({
@@ -354,9 +379,11 @@ async function postActivity(
   return stub.fetch(request);
 }
 
-function conversationStub() {
+function conversationStub(suffix = "") {
   const { CONVERSATIONS: conversations } = relayTestEnv();
-  const id = conversations.idFromName(`${workspaceId}:${conversationId}`);
+  const id = conversations.idFromName(
+    `${workspaceId}:${conversationId}${suffix}`,
+  );
   return conversations.get(id);
 }
 
