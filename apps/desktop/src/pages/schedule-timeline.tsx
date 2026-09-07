@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Pencil, Trash2 } from "lucide-react";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -49,7 +49,8 @@ function timelineEventTop(timestamp: number, timelineHeight: number) {
     5,
     Math.min(
       timelineHeight - TIMELINE_EVENT_HEIGHT - 5,
-      (elapsedMinutes / 60) * TIMELINE_ROW_HEIGHT,
+      (elapsedMinutes / 60) *
+        (timelineHeight / (TIMELINE_END_HOUR - TIMELINE_START_HOUR)),
     ),
   );
 }
@@ -140,16 +141,46 @@ export function FocusedCalendarView({
           addDays(startOfWeek(selected), index),
         )
       : [selected];
-  const timelineHeight =
-    (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * TIMELINE_ROW_HEIGHT;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [rowHeight, setRowHeight] = useState(TIMELINE_ROW_HEIGHT);
+  useEffect(() => {
+    const container = containerRef.current;
+    const header = headerRef.current;
+    if (!container || !header) return;
+    const resize = () => {
+      const available = container.clientHeight - header.offsetHeight - 12;
+      setRowHeight(
+        Math.min(
+          96,
+          Math.max(
+            TIMELINE_ROW_HEIGHT,
+            available / (TIMELINE_END_HOUR - TIMELINE_START_HOUR),
+          ),
+        ),
+      );
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    observer.observe(header);
+    resize();
+    return () => observer.disconnect();
+  }, []);
+  const timelineHeight = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * rowHeight;
   const hours = Array.from(
     { length: TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1 },
     (_, index) => TIMELINE_START_HOUR + index,
   );
 
   return (
-    <div className="h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain">
-      <div className="bg-card/92 sticky top-0 z-30 backdrop-blur-xl">
+    <div
+      ref={containerRef}
+      className="h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain"
+    >
+      <div
+        ref={headerRef}
+        className="bg-card/92 sticky top-0 z-30 backdrop-blur-xl"
+      >
         <div
           className="grid border-b border-black/[0.055] dark:border-white/[0.055]"
           style={{
@@ -190,7 +221,7 @@ export function FocusedCalendarView({
           <div
             key={hour}
             className="absolute right-0 left-0 flex items-start"
-            style={{ top: index * TIMELINE_ROW_HEIGHT }}
+            style={{ top: index * rowHeight }}
           >
             <span
               className={cn(
