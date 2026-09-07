@@ -50,4 +50,22 @@ final class AgentRosterTests: XCTestCase {
     XCTAssertEqual(root.agent.id, "chief")
     XCTAssertNil(root.subagentID)
   }
+
+  func testSpecialistDetailsUseTheirOwnIdentityAndConfiguration() {
+    let parent = AgentSummary(
+      id: "chief", name: "Chief", role: "Lead", status: .idle,
+      subagents: [
+        AgentProfile(
+          id: "brand", name: "Marketer", role: "Marketing", description: "Creates campaigns",
+          instructions: "Use the brand profile", capabilities: ["content-calendar"])
+      ])
+    let specialist = parent.detailAgent(for: "brand")
+    XCTAssertEqual(specialist.id, "brand")
+    XCTAssertEqual(specialist.name, "Marketer")
+    XCTAssertEqual(specialist.instructions, "Use the brand profile")
+    XCTAssertEqual(specialist.capabilities, ["content-calendar"])
+    XCTAssertTrue(specialist.subagents.isEmpty)
+    XCTAssertEqual(parent.detailAgent(for: nil), parent)
+    XCTAssertEqual(parent.detailAgent(for: "CHIEF"), parent)
+  }
 }

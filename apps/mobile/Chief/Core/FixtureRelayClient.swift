@@ -4,6 +4,14 @@ actor FixtureRelayClient: RelayServing {
     private var fixtureMessages = DemoWorkspace.messages + (ScheduledRunDemo.enabled ? [ScheduledRunDemo.message, ScheduledRunDemo.reply] : [])
     private var provisioningCredential: String?
 
+    func workspaceSettings(workspaceID: String) async throws -> WorkspaceSettingsData {
+        WorkspaceSettingsData(
+            name: DemoWorkspace.snapshot.name,
+            website: "https://heychief.sh",
+            imageURL: nil
+        )
+    }
+
     func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
       ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id && scheduleID == "demo-schedule" ? [ScheduledRunDemo.run] : []
     }
@@ -503,7 +511,12 @@ enum DemoWorkspace {
             )
         ],
         agents: [
-            .init(id: "chief", name: "Chief", role: "Chief of staff", status: .working),
+            .init(
+                id: "chief", name: "Chief", role: "Chief of staff", status: .working,
+                subagents: WorkspaceAgentCatalog.agents.filter { $0.id != "chief" }.map {
+                    AgentProfile(id: $0.id, name: $0.name, role: $0.role)
+                }
+            ),
             .init(id: "engineer", name: "Engineer", role: "Product engineering", status: .idle),
             .init(id: "marketer", name: "Marketer", role: "Marketing", status: .needsYou)
         ],

@@ -228,83 +228,6 @@ private struct WorkspaceAvatar: View {
   }
 }
 
-struct UserProfileView: View {
-  @Environment(AppModel.self) private var model
-  @State private var ownedWorkspaceID: String?
-  var body: some View {
-    List {
-      Section {
-        HStack(spacing: 14) {
-          UserAvatar(user: model.session?.user, size: 52)
-          VStack(alignment: .leading, spacing: 3) {
-            Text(model.session?.user.name ?? "Account").font(.system(size: 18, weight: .semibold))
-            Text(model.workspace?.name ?? "Chief")
-              .font(.system(size: 13))
-              .foregroundStyle(ChiefTheme.secondary)
-            Text("Available").font(.system(size: 13)).foregroundStyle(ChiefTheme.tertiary)
-          }
-        }
-        .padding(.vertical, 4)
-      }
-      Section {
-        ProfilePhotoPicker(imageURL: model.session?.user.imageURL) { data in
-          try await model.saveProfileImage(data)
-        }
-      } header: { Text("Profile photo").textCase(nil) }
-      if let ownedWorkspaceID {
-        Section {
-          NavigationLink("Workspace settings") { WorkspaceSettingsView(workspaceID: ownedWorkspaceID) }
-        }
-      }
-      Section {
-        NavigationLink {
-          RelayConnectionSettingsView()
-        } label: {
-          profileRow("Connection", systemImage: "network")
-        }
-
-        NavigationLink {
-          AppSettingsView()
-        } label: {
-          profileRow("Settings", systemImage: "gearshape")
-        }
-
-        NavigationLink {
-          NotificationSettingsView()
-        } label: {
-          profileRow("Notifications", systemImage: "bell")
-        }
-      }
-      Section {
-        Button("Sign out of \(model.activeRelayLabel)", role: .destructive) {
-          Haptics.heavy()
-          Task { await model.signOut(of: model.appConfiguration.relayURL) }
-        }
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
-    .task(id: model.workspace?.id) {
-      ownedWorkspaceID = nil
-      guard let id = model.workspace?.id, let userID = model.session?.user.id else { return }
-      if let members = try? await model.relay.workspaceMembers(workspaceID: id),
-        members.contains(where: { $0.kind == "user" && $0.principalId == userID && $0.role == "owner" }),
-        model.workspace?.id == id { ownedWorkspaceID = id }
-    }
-    .navigationTitle("Profile")
-    .navigationBarTitleDisplayMode(.inline)
-  }
-
-  private func profileRow(_ title: String, systemImage: String) -> some View {
-    HStack {
-      Label(title, systemImage: systemImage)
-      Spacer(minLength: 12)
-    }
-    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-    .contentShape(Rectangle())
-  }
-}
-
 struct PersonProfileView: View {
   @Environment(AppModel.self) private var model
   let userID: String
@@ -355,53 +278,6 @@ struct PersonProfileView: View {
   private var initials: String {
     let words = displayName.split(separator: " ")
     return words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
-  }
-}
-
-private struct AppSettingsView: View {
-  @Environment(AppModel.self) private var model
-
-  var body: some View {
-    List {
-      Section {
-        NavigationLink {
-          NotificationSettingsView()
-        } label: {
-          HStack {
-            Label("Notifications", systemImage: "bell")
-            Spacer(minLength: 12)
-          }
-          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-          .contentShape(Rectangle())
-        }
-      }
-
-      if let workspace = model.workspace {
-        Section("Workspace") {
-          HStack(spacing: 12) {
-            WorkspaceIdentityAvatar(
-              name: workspace.name,
-              website: workspace.website,
-              imageURL: workspace.imageURL,
-              size: 36
-            )
-            VStack(alignment: .leading, spacing: 2) {
-              Text(workspace.name)
-              if let website = workspace.website, !website.isEmpty {
-                Text(website)
-                  .font(.system(size: 12))
-                  .foregroundStyle(ChiefTheme.secondary)
-                  .lineLimit(1)
-              }
-            }
-          }
-        }
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
-    .navigationTitle("Settings")
-    .navigationBarTitleDisplayMode(.inline)
   }
 }
 
