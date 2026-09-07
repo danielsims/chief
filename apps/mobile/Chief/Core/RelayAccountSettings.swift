@@ -1,6 +1,6 @@
 import Foundation
 
-struct WorkspaceSettingsData: Codable, Sendable {
+struct WorkspaceSettingsData: Codable, Equatable, Sendable {
   var name: String
   var website: String
   var imageURL: URL?

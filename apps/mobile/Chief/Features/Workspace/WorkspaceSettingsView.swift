@@ -5,6 +5,8 @@ struct WorkspaceSettingsView: View {
   @Environment(\.dismiss) private var dismiss
   let workspaceID: String
   @State private var settings: WorkspaceSettingsData?
+  @State private var original: WorkspaceSettingsData?
+  @State private var uploadingPhoto = false
   @State private var saving = false
   @State private var error: String?
   @State private var saved = false
@@ -13,41 +15,66 @@ struct WorkspaceSettingsView: View {
   @State private var confirmation = ""
 
   var body: some View {
-    List {
-      if settings != nil {
-        Section {
-          ProfilePhotoPicker(imageURL: settings?.imageURL) { data in
+    SettingsPage {
+      if let current = settings {
+        HStack(spacing: 16) {
+          ProfilePhotoPicker(imageURL: current.imageURL, name: current.name) { data in
+            uploadingPhoto = true
+            defer { uploadingPhoto = false }
             if let data {
-              settings?.imageURL = try await model.relay.uploadIdentityImage(workspaceID: workspaceID, data: data)
-            } else { settings?.imageURL = nil }
+              settings?.imageURL = try await model.relay.uploadIdentityImage(
+                workspaceID: workspaceID, data: data)
+            } else {
+              settings?.imageURL = nil
+            }
             saved = false
           }
-          TextField("Workspace name", text: field(\.name))
-          TextField("Website", text: field(\.website))
-            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-        } header: { Text("Workspace").textCase(nil) }
-        Section {
-          Button(saving ? "Saving…" : "Save changes") { Task { await save() } }
-            .disabled(saving || settings?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
-          if saved { Text("Changes saved").foregroundStyle(ChiefTheme.secondary) }
-          if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+          VStack(alignment: .leading, spacing: 5) {
+            Text(original?.name ?? current.name)
+              .font(.system(size: 22, weight: .regular, design: .rounded))
+            Text("Workspace").font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
+          }
         }
-        Section {
-          Button("Invite people") { inviteSheet = true }
-        } header: { Text("Members").textCase(nil) }
-        Section {
-          Button("Delete workspace", role: .destructive) { confirmation = ""; deleteSheet = true }
+        SettingsSection(title: "Details") {
+          SettingsTextField(title: "Name", text: field(\.name))
+          SettingsTextField(title: "Website", text: field(\.website), keyboard: .URL)
         }
+        SettingsSection(title: "People") {
+          Button {
+            inviteSheet = true
+          } label: {
+            SettingsDestination(title: "Invite people", icon: "person.badge.plus")
+          }.buttonStyle(.plain)
+        }
+        if let error { Text(error).font(.system(size: 13)).foregroundStyle(.red) }
+        Button("Delete workspace", role: .destructive) {
+          confirmation = ""
+          deleteSheet = true
+        }
+        .font(.system(size: 14))
+        .padding(.vertical, 12)
       } else if let error {
         Text(error).foregroundStyle(ChiefTheme.secondary)
         Button("Try again") { Task { await load() } }
-      } else { ProgressView() }
+      } else {
+        ProgressView().frame(maxWidth: .infinity)
+      }
     }
     .disabled(saving)
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
     .navigationTitle("Workspace settings")
-    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        if saving {
+          ProgressView().controlSize(.small)
+        } else {
+          Button(saved ? "Saved" : "Save") { Task { await save() } }
+            .font(.system(size: 15, weight: .medium))
+            .disabled(
+              uploadingPhoto || settings == original
+                || settings?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+        }
+      }
+    }
     .task { await load() }
     .sheet(isPresented: $inviteSheet) { InvitePeopleSheet() }
     .alert("Delete workspace?", isPresented: $deleteSheet) {
@@ -63,30 +90,46 @@ struct WorkspaceSettingsView: View {
           } catch { self.error = "Couldn’t delete the workspace. Try again." }
           saving = false
         }
-      }.disabled(confirmation != settings?.name)
-    } message: { Text("This deletes all workspace data. Type \(settings?.name ?? "the workspace name") to confirm.") }
+      }.disabled(confirmation != original?.name)
+    } message: {
+      Text(
+        "This deletes all workspace data. Type \(original?.name ?? "the workspace name") to confirm."
+      )
+    }
   }
 
   private func field(_ key: WritableKeyPath<WorkspaceSettingsData, String>) -> Binding<String> {
-    Binding(get: { settings?[keyPath: key] ?? "" }, set: { settings?[keyPath: key] = $0; saved = false })
+    Binding(
+      get: { settings?[keyPath: key] ?? "" },
+      set: {
+        settings?[keyPath: key] = $0
+        saved = false
+      })
   }
 
   private func load() async {
     error = nil
-    do { settings = try await model.relay.workspaceSettings(workspaceID: workspaceID) }
-    catch { self.error = "Workspace settings are available to the owner." }
+    do {
+      settings = try await model.relay.workspaceSettings(workspaceID: workspaceID)
+      original = settings
+    } catch RelayError.httpStatus(403) {
+      self.error = "Only the workspace owner can manage settings."
+    } catch { self.error = "Couldn’t load workspace settings." }
   }
 
   private func save() async {
     guard var settings else { return }
     settings.name = settings.name.trimmingCharacters(in: .whitespacesAndNewlines)
     settings.website = settings.website.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !settings.website.isEmpty && !settings.website.contains("://") { settings.website = "https://" + settings.website }
+    if !settings.website.isEmpty && !settings.website.contains("://") {
+      settings.website = "https://" + settings.website
+    }
     saving = true
     error = nil
     do {
       try await model.relay.saveWorkspaceSettings(workspaceID: workspaceID, settings: settings)
       self.settings = settings
+      original = settings
       saved = true
       await model.hydrateWorkspace()
     } catch { self.error = "Couldn’t save changes. Check the details and try again." }
