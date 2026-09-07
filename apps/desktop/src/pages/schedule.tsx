@@ -21,7 +21,7 @@ import {
   useWorkspaceCapability,
   useWorkspaceData,
 } from "../lib/runtime";
-import { MonthCalendarView, ScheduleFilters } from "./schedule-calendar";
+import { ContinuousMonthView, ScheduleFilters } from "./schedule-calendar";
 import {
   addDays,
   addMonths,
@@ -30,6 +30,7 @@ import {
   startOfDay,
   startOfMonth,
   startOfWeek,
+  workOccurrences,
 } from "./schedule-calendar-core";
 import { ScheduleComposer } from "./schedule-composer";
 import {
@@ -41,6 +42,7 @@ import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
 } from "./schedule-timeline";
+import { useCalendarHistory } from "./use-calendar-history";
 
 export function SchedulePage() {
   const navigate = useNavigate();
@@ -54,6 +56,10 @@ export function SchedulePage() {
   const [selected, setSelected] = useState(today);
   const [view, setView] = useState<CalendarView>("month");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
+  const [scrollRequest, setScrollRequest] = useState({
+    month: currentMonth,
+    token: 0,
+  });
   const [visibleKinds, setVisibleKinds] = useState<ReadonlySet<ScheduleKind>>(
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
@@ -208,10 +214,14 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.drafts]);
 
+  const calendarWork = useCalendarHistory(
+    workspaceData.recurringWork,
+    view === "month" ? activeMonth : selected,
+  );
   const recurringByDay = useMemo(() => {
     const map = new Map<string, RecurringWorkRecord[]>();
-    for (const work of workspaceData.recurringWork) {
-      for (const timestamp of work.upcomingRuns ?? []) {
+    for (const work of calendarWork) {
+      for (const timestamp of workOccurrences(work)) {
         const key = dayKey(new Date(timestamp));
         const items = map.get(key) ?? [];
         if (!items.some((item) => item.id === work.id)) items.push(work);
@@ -219,11 +229,12 @@ export function SchedulePage() {
       }
     }
     return map;
-  }, [workspaceData.recurringWork]);
+  }, [calendarWork]);
 
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
   const requestMonth = (month: Date) => {
+    setScrollRequest((current) => ({ month, token: current.token + 1 }));
     setActiveMonth(month);
     setSelected((current) => (sameMonth(current, month) ? current : month));
   };
@@ -320,7 +331,7 @@ export function SchedulePage() {
                   type="button"
                   onClick={() => {
                     if (option === "month")
-                      setActiveMonth(startOfMonth(selected));
+                      requestMonth(startOfMonth(selected));
                     setView(option);
                   }}
                   className={cn(
@@ -338,8 +349,10 @@ export function SchedulePage() {
 
         <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
           {view === "month" ? (
-            <MonthCalendarView
-              month={activeMonth}
+            <ContinuousMonthView
+              activeMonth={activeMonth}
+              onActiveMonthChange={setActiveMonth}
+              scrollRequest={scrollRequest}
               today={today}
               now={now}
               selected={selected}

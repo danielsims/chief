@@ -1,3 +1,10 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { Check, SlidersHorizontal } from "lucide-react";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -11,13 +18,23 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ScheduledDraft, ScheduleKind } from "./schedule-calendar-core";
 import {
+  addMonths,
   buildMonthCells,
   dayKey,
   DraftEventContent,
   eventSurface,
+  monthKey,
+  monthLabel,
+  sameMonth,
   WEEKDAYS,
   WorkEventContent,
+  workOccurrences,
 } from "./schedule-calendar-core";
+
+const MONTHS_BEFORE = 12;
+const MONTHS_AFTER = 12;
+const CALENDAR_HEADER_HEIGHT = 40;
+const MONTH_TITLE_HANDOFF_DISTANCE = 64;
 
 function DraftChip({
   draft,
@@ -77,7 +94,7 @@ function RecurringWorkChip({
         onOpen(work);
       }}
       onContextMenu={(event) => {
-        if (!onContextMenu) return;
+        if (!onContextMenu || past) return;
         event.preventDefault();
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
@@ -161,7 +178,11 @@ function DayCell({
             key={work.id}
             work={work}
             onOpen={onWorkOpen}
-            past={date < today}
+            past={
+              !workOccurrences(work).some(
+                (at) => dayKey(new Date(at)) === key && at > now,
+              )
+            }
             onContextMenu={
               onWorkContext
                 ? (item, x, y) => onWorkContext(item, date, x, y)
@@ -255,8 +276,9 @@ export function ScheduleFilters({
   );
 }
 
-export function MonthCalendarView({
-  month,
+export function ContinuousMonthView({
+  activeMonth,
+  onActiveMonthChange,
   today,
   now,
   selected,
@@ -268,8 +290,10 @@ export function MonthCalendarView({
   recurringByDay,
   showPosts,
   showAgentWork,
+  scrollRequest,
 }: {
-  month: Date;
+  activeMonth: Date;
+  onActiveMonthChange: (month: Date) => void;
   today: Date;
   now: number;
   selected: Date;
@@ -286,52 +310,179 @@ export function MonthCalendarView({
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   showPosts: boolean;
   showAgentWork: boolean;
+  scrollRequest: { month: Date; token: number };
 }) {
-  const cells = buildMonthCells(month);
+  const months = useMemo(
+    () =>
+      Array.from({ length: MONTHS_BEFORE + MONTHS_AFTER + 1 }, (_, index) =>
+        addMonths(scrollRequest.month, index - MONTHS_BEFORE),
+      ),
+    [scrollRequest.month],
+  );
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const monthSections = useRef(new Map<string, HTMLElement>());
+  const scrollFrame = useRef<number | null>(null);
+  const programmaticMonth = useRef<string | null>(null);
+  const scrollEndTimer = useRef<number | null>(null);
+
+  const scrollToMonth = useCallback((month: Date, behavior: ScrollBehavior) => {
+    const container = calendarRef.current;
+    const key = monthKey(month);
+    const section = monthSections.current.get(key);
+    if (!container || !section) return;
+    programmaticMonth.current = behavior === "smooth" ? key : null;
+    const top =
+      container.scrollTop +
+      section.getBoundingClientRect().top -
+      container.getBoundingClientRect().top -
+      CALENDAR_HEADER_HEIGHT;
+    container.scrollTo({
+      top,
+      behavior,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    scrollToMonth(
+      scrollRequest.month,
+      scrollRequest.token === 0 ? "auto" : "smooth",
+    );
+    onActiveMonthChange(scrollRequest.month);
+  }, [
+    onActiveMonthChange,
+    scrollRequest.month,
+    scrollRequest.token,
+    scrollToMonth,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (scrollFrame.current !== null) {
+        window.cancelAnimationFrame(scrollFrame.current);
+      }
+      if (scrollEndTimer.current !== null) {
+        window.clearTimeout(scrollEndTimer.current);
+      }
+    },
+    [],
+  );
+
+  const syncActiveMonthFromScroll = () => {
+    const container = calendarRef.current;
+    if (!container) return;
+    const threshold =
+      container.getBoundingClientRect().top +
+      CALENDAR_HEADER_HEIGHT +
+      MONTH_TITLE_HANDOFF_DISTANCE;
+    const firstMonth = months.at(0);
+    if (!firstMonth) return;
+    let nextMonth = firstMonth;
+    for (const month of months) {
+      const section = monthSections.current.get(monthKey(month));
+      if (!section || section.getBoundingClientRect().top > threshold) break;
+      nextMonth = month;
+    }
+    if (!sameMonth(nextMonth, activeMonth)) {
+      onActiveMonthChange(nextMonth);
+    }
+  };
+
+  const handleScroll = () => {
+    if (scrollEndTimer.current !== null) {
+      window.clearTimeout(scrollEndTimer.current);
+    }
+    scrollEndTimer.current = window.setTimeout(() => {
+      programmaticMonth.current = null;
+      scrollEndTimer.current = null;
+      syncActiveMonthFromScroll();
+    }, 120);
+    if (scrollFrame.current !== null) return;
+    scrollFrame.current = window.requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      if (programmaticMonth.current !== null) return;
+      syncActiveMonthFromScroll();
+    });
+  };
+
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="bg-card/50 grid h-10 shrink-0 grid-cols-7 border-b">
+    <div
+      ref={calendarRef}
+      onScroll={handleScroll}
+      className="relative h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain"
+    >
+      <div className="bg-card/90 sticky top-0 z-30 grid h-10 grid-cols-7 border-b border-black/[0.055] backdrop-blur-xl dark:border-white/[0.055]">
         {WEEKDAYS.map((weekday) => (
           <div
             key={weekday}
-            className="text-muted-foreground px-3 py-2.5 text-[11px] font-medium"
+            className="text-muted-foreground border-r border-black/[0.055] px-3 py-2.5 text-[11px] font-medium last:border-r-0 dark:border-white/[0.055]"
           >
             {weekday}
           </div>
         ))}
       </div>
-      <div
-        className="grid min-h-0 flex-1 grid-cols-7 overflow-y-auto"
-        style={{
-          gridTemplateRows: `repeat(${cells.length / 7}, minmax(112px, 1fr))`,
-        }}
-      >
-        {cells.map((date, index) =>
-          date ? (
-            <DayCell
-              key={dayKey(date)}
-              date={date}
-              drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
-              recurringWork={
-                showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
-              }
-              today={today}
-              now={now}
-              selected={selected}
-              onSelect={onSelect}
-              onWorkOpen={onWorkOpen}
-              onDraftOpen={onDraftOpen}
-              onWorkContext={onWorkContext}
-            />
-          ) : (
-            <div
-              key={`empty-${index}`}
-              aria-hidden="true"
-              className="calendar-empty-day border-r border-b border-black/[0.055] dark:border-white/[0.055]"
-            />
-          ),
-        )}
-      </div>
+
+      {months.map((month) => {
+        const key = monthKey(month);
+        const cells = buildMonthCells(month);
+        return (
+          <section
+            key={key}
+            ref={(node) => {
+              if (node) monthSections.current.set(key, node);
+              else monthSections.current.delete(key);
+            }}
+            className="relative grid grid-cols-7 border-l border-black/[0.055] dark:border-white/[0.055]"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                scrollToMonth(month, "smooth");
+                onActiveMonthChange(month);
+              }}
+              className={cn(
+                "hover:text-muted-foreground absolute top-2.5 left-3 z-10 text-left text-lg font-medium tracking-[-0.025em] transition-[color,opacity] duration-200",
+                // The page header already names the active month; the in-grid
+                // label fades away instead of duplicating it.
+                sameMonth(month, activeMonth) &&
+                  "pointer-events-none opacity-0",
+              )}
+            >
+              {monthLabel(month)}
+            </button>
+            {cells.map((date, index) =>
+              date ? (
+                <DayCell
+                  key={dayKey(date)}
+                  date={date}
+                  drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
+                  recurringWork={
+                    showAgentWork
+                      ? (recurringByDay.get(dayKey(date)) ?? [])
+                      : []
+                  }
+                  today={today}
+                  now={now}
+                  selected={selected}
+                  onSelect={onSelect}
+                  onWorkOpen={onWorkOpen}
+                  onDraftOpen={onDraftOpen}
+                  onWorkContext={onWorkContext}
+                  boundaryRow={index < 7}
+                />
+              ) : (
+                <div
+                  key={`empty-${index}`}
+                  aria-hidden="true"
+                  className="calendar-empty-day min-h-28 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
+                />
+              ),
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
+
+export const TIMELINE_EVENT_HEIGHT = 44;
+export const TIMELINE_EVENT_GAP = 3;

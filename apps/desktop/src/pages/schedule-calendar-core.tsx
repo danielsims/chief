@@ -79,7 +79,7 @@ function buildMonthCells(month: Date): (Date | null)[] {
 
 function eventSurface(past = false) {
   if (past) {
-    return "bg-muted/35 hover:bg-muted/50 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]";
+    return "opacity-65 bg-muted/70 hover:bg-muted shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]";
   }
   return "bg-muted/70 hover:bg-muted shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.035)]";
 }
@@ -151,13 +151,13 @@ function CalendarEventContent({
           className={cn(
             "size-1.5 shrink-0 rounded-full",
             accent,
-            muted && "opacity-35",
+            muted && "opacity-75",
           )}
         />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-medium tracking-[-0.01em]",
-            muted ? "text-muted-foreground/75" : "text-foreground",
+            "text-foreground",
           )}
         >
           {title}
@@ -166,7 +166,7 @@ function CalendarEventContent({
       <span
         className={cn(
           "mt-0.5 block truncate pl-3 text-[9px] leading-[13px] font-normal tracking-[-0.005em]",
-          muted ? "text-muted-foreground/55" : "text-muted-foreground",
+          "text-muted-foreground",
         )}
       >
         {time ? <span className="tabular-nums">{time}</span> : null}
@@ -239,4 +239,10 @@ function DraftEventContent({
       muted={muted}
     />
   );
+}
+
+export function workOccurrences(work: RecurringWorkRecord) {
+  return [
+    ...new Set([...(work.recordedRuns ?? []), ...(work.upcomingRuns ?? [])]),
+  ].sort((a, b) => a - b);
 }
