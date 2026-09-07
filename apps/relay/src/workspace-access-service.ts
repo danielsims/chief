@@ -17,8 +17,8 @@ import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
 import { requireNativeAgent } from "./workspace-agent-runtime";
-import { refreshMemberDisplayNames } from "./workspace-member-names";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
   agent_id: string;

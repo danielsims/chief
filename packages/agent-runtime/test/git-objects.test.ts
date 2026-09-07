@@ -54,11 +54,7 @@ void test("serves a pack for advertised wants", async () => {
 
 void test("names the Chief Git remote like Buzz smart HTTP", () => {
   assert.equal(
-    chiefGitRemoteUrl(
-      "https://relay.example.com",
-      "workspace-1",
-      "acme-chief",
-    ),
+    chiefGitRemoteUrl("https://relay.example.com", "workspace-1", "acme-chief"),
     "https://relay.example.com/git/workspace-1/acme-chief.git",
   );
   assert.equal(chiefGitRepoSlug("Acme Chief"), "acme-chief");

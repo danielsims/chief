@@ -58,8 +58,7 @@ export async function postProjectRecommendation(input: {
         type: "data-project-recommendation",
         data: {
           title: "Connect a repository",
-          description:
-            "Add the Git repository this workspace should work in.",
+          description: "Add the Git repository this workspace should work in.",
           ...(remoteUrl ? { remoteUrl } : undefined),
         },
       },

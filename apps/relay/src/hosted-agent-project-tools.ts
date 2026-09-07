@@ -61,7 +61,13 @@ function optionalUrl(value: JsonValue | undefined) {
   if (!isJsonString(value) || !value.trim()) return undefined;
   try {
     const parsed = new URL(value.trim());
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
       return undefined;
     }
     return parsed.toString();

@@ -11,8 +11,11 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
-import { registerPushDevice, deletePushDevice, listPushDevices } from "./account-push";
-
+import {
+  deletePushDevice,
+  listPushDevices,
+  registerPushDevice,
+} from "./account-push";
 import { attempt, runResponse, sync } from "./effect";
 import { json, parseJson, relayError } from "./http";
 import {
@@ -82,7 +85,11 @@ export class AccountObject extends DurableObject<Env> {
       }
       if (operation === "register-push-device") {
         if (identity.kind !== "user") {
-          return relayError(403, "user_required", "A user identity is required.");
+          return relayError(
+            403,
+            "user_required",
+            "A user identity is required.",
+          );
         }
         return yield* attempt("account.push.register", () =>
           registerPushDevice(storage, request, env),

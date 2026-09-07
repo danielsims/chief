@@ -5,8 +5,8 @@ import {
 
 import { AuthorizationError } from "./auth";
 import { bindDeviceIdentity } from "./device-identities";
-import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { withTrustedAccountIdentity } from "./internal-context";
+import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { accountStub } from "./workspace-stubs";
 
 export async function routeIdentityAndPush(env: Env, request: Request) {
@@ -15,7 +15,8 @@ export async function routeIdentityAndPush(env: Env, request: Request) {
     return bindDeviceIdentity(env, request);
   }
   if (url.pathname !== "/v1/push/devices") return undefined;
-  if (request.method !== "POST" && request.method !== "DELETE") return undefined;
+  if (request.method !== "POST" && request.method !== "DELETE")
+    return undefined;
   const authenticated = await authenticateRelayRequest(request, env);
   requireAccountBinding(env, authenticated.bound);
   if (authenticated.identity.kind !== "user") {
@@ -28,7 +29,9 @@ export async function routeIdentityAndPush(env: Env, request: Request) {
       ? unregisterPushDeviceCommandSchema.parse(
           await authenticated.request.json(),
         )
-      : registerPushDeviceCommandSchema.parse(await authenticated.request.json());
+      : registerPushDeviceCommandSchema.parse(
+          await authenticated.request.json(),
+        );
   return accountStub(env, authenticated.identity.userId).fetch(
     withTrustedAccountIdentity(authenticated.identity, {
       method: "POST",

@@ -4,9 +4,9 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 
+import { notifyConversationPush } from "./conversation-push";
 import { withTrustedContext } from "./internal-context";
 import { requireInternalResponse } from "./internal-response";
-import { notifyConversationPush } from "./conversation-push";
 
 export function publishConversationWorkspaceEvent(
   context: DurableObjectState,

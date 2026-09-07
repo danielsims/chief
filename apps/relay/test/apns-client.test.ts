@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { apnsReady, conversationPushUrl, sendApnsAlert } from "../src/apns-client";
+import {
+  apnsReady,
+  conversationPushUrl,
+  sendApnsAlert,
+} from "../src/apns-client";
 
 describe("APNs client", () => {
   it("is a no-op when Apple credentials are missing", async () => {

@@ -77,8 +77,5 @@ void test("starts Eve workspace kickoff when the desktop enters the workspace", 
 
   const result = await client.externalAgents.startWorkspaceKickoff();
   assert.equal(result.started, true);
-  assert.equal(
-    path,
-    "/v1/workspaces/workspace-a/onboarding/start",
-  );
+  assert.equal(path, "/v1/workspaces/workspace-a/onboarding/start");
 });

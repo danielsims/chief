@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  cellAgentDefinition,
-} from "../src/relay-cell-agent.js";
+import { cellAgentDefinition } from "../src/relay-cell-agent.js";
 
 void test("uses a workspace-authored agent that is not in the bundled roster", () => {
   const definition = cellAgentDefinition("notes", {
@@ -17,4 +15,3 @@ void test("uses a workspace-authored agent that is not in the bundled roster", (
   assert.equal(definition.name, "Notes");
   assert.match(definition.instructions, /durable notes/u);
 });
-

@@ -29,12 +29,17 @@ export async function refreshMemberDisplayNames(
 export function memberDisplayNames(storage: DurableObjectStorage) {
   const names = new Map<string, string>();
   for (const row of storage.sql
-    .exec<{ principal_kind: string; principal_id: string; display_name: string | null }>(
-      `SELECT principal_kind, principal_id, display_name FROM members`,
-    )
+    .exec<{
+      principal_kind: string;
+      principal_id: string;
+      display_name: string | null;
+    }>(`SELECT principal_kind, principal_id, display_name FROM members`)
     .toArray()) {
     if (!isJsonString(row.display_name) || !row.display_name.trim()) continue;
-    names.set(`${row.principal_kind}:${row.principal_id}`, row.display_name.trim());
+    names.set(
+      `${row.principal_kind}:${row.principal_id}`,
+      row.display_name.trim(),
+    );
   }
   return names;
 }
@@ -78,7 +83,9 @@ async function lookupAuthUserNames(env: Env, userIds: readonly string[]) {
   return names;
 }
 
-export function peopleContextLines(people: readonly { id: string; name: string; role: string }[]) {
+export function peopleContextLines(
+  people: readonly { id: string; name: string; role: string }[],
+) {
   if (people.length === 0) {
     return [
       "No human members are listed yet. Do not invent a @chief (user) tag.",
