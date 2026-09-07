@@ -8,8 +8,9 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const OAUTH_LOOPBACK_EVENT: &str = "chief://oauth-loopback";
-pub const OAUTH_LOOPBACK_PORT: u16 = 3_000;
-pub const OAUTH_LOOPBACK_REDIRECT: &str = "http://localhost:3000/auth/desktop";
+// Port zero asks the OS to reserve an available port for this sign-in attempt.
+const OAUTH_LOOPBACK_PORT: u16 = 0;
+const OAUTH_LOOPBACK_HOST: &str = "127.0.0.1";
 const OAUTH_LOOPBACK_PATH: &str = "/auth/desktop";
 const OAUTH_LOOPBACK_LEGACY_PATH: &str = "/oauth/callback";
 
@@ -37,10 +38,14 @@ pub fn start_oauth_loopback(app: AppHandle) -> Result<String, String> {
     loopback.stop();
     loopback.stop = Arc::new(AtomicBool::new(false));
     let stop = Arc::clone(&loopback.stop);
-    let listeners = bind_loopback_listeners()?;
+    let listener = bind_loopback_listener()?;
+    let address = listener
+        .local_addr()
+        .map_err(|_| "Chief could not determine its browser sign-in address.".to_string())?;
+    let redirect_uri = oauth_loopback_redirect(address.port());
     let handle = app.clone();
-    loopback.worker = Some(thread::spawn(move || run_loopback(handle, listeners, stop)));
-    Ok(OAUTH_LOOPBACK_REDIRECT.to_string())
+    loopback.worker = Some(thread::spawn(move || run_loopback(handle, listener, stop)));
+    Ok(redirect_uri)
 }
 
 #[tauri::command]
@@ -53,45 +58,31 @@ pub fn stop_oauth_loopback(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn bind_loopback_listeners() -> Result<Vec<TcpListener>, String> {
-    let mut listeners = Vec::new();
-    for host in ["127.0.0.1", "::1"] {
-        match TcpListener::bind((host, OAUTH_LOOPBACK_PORT)) {
-            Ok(listener) => {
-                listener.set_nonblocking(true).map_err(|_| {
-                    "Chief could not listen for the browser sign-in callback.".to_string()
-                })?;
-                listeners.push(listener);
-            }
-            Err(_) => continue,
-        }
-    }
-    if listeners.is_empty() {
-        return Err(
-            "Chief could not listen on localhost:3000 for sign-in. Quit anything using that port and try again."
-                .to_string(),
-        );
-    }
-    Ok(listeners)
+pub(crate) fn oauth_loopback_redirect(port: u16) -> String {
+    format!("http://{OAUTH_LOOPBACK_HOST}:{port}{OAUTH_LOOPBACK_PATH}")
 }
 
-fn run_loopback(app: AppHandle, listeners: Vec<TcpListener>, stop: Arc<AtomicBool>) {
+fn bind_loopback_listener() -> Result<TcpListener, String> {
+    let listener = TcpListener::bind((OAUTH_LOOPBACK_HOST, OAUTH_LOOPBACK_PORT))
+        .map_err(|_| "Chief could not start its browser sign-in listener.".to_string())?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|_| "Chief could not listen for the browser sign-in callback.".to_string())?;
+    Ok(listener)
+}
+
+fn run_loopback(app: AppHandle, listener: TcpListener, stop: Arc<AtomicBool>) {
     while !stop.load(Ordering::SeqCst) {
-        let mut idle = true;
-        for listener in &listeners {
-            match listener.accept() {
-                Ok((stream, peer)) => {
-                    idle = false;
-                    if peer.ip().is_loopback() {
-                        handle_connection(&app, stream);
-                    }
+        match listener.accept() {
+            Ok((stream, peer)) => {
+                if peer.ip().is_loopback() {
+                    handle_connection(&app, stream);
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => {}
             }
-        }
-        if idle {
-            thread::sleep(Duration::from_millis(50));
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => break,
         }
     }
 }
@@ -129,7 +120,10 @@ fn handle_connection(app: &AppHandle, mut stream: TcpStream) {
         );
         return;
     }
-    let callback = format!("http://localhost:{OAUTH_LOOPBACK_PORT}{target}");
+    let Ok(address) = stream.local_addr() else {
+        return;
+    };
+    let callback = format!("http://{address}{target}");
     let _ = app.emit(OAUTH_LOOPBACK_EVENT, callback);
     write_response(
         &mut stream,
@@ -199,16 +193,30 @@ fn write_response(stream: &mut TcpStream, status: &str, content_type: &str, body
 
 #[cfg(test)]
 mod tests {
-    use super::{callback_target, request_target};
+    use super::{bind_loopback_listener, callback_target, oauth_loopback_redirect, request_target};
 
     #[test]
     fn reads_the_registered_desktop_callback() {
         let (method, target) = request_target(
-            "GET /auth/desktop?code=abc&state=def HTTP/1.1\r\nHost: localhost:3000\r\n\r\n",
+            "GET /auth/desktop?code=abc&state=def HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         )
         .expect("request line");
         assert_eq!(method, "GET");
         assert!(callback_target(target));
+    }
+
+    #[test]
+    fn reserves_distinct_loopback_ports_for_concurrent_attempts() {
+        let first = bind_loopback_listener().expect("first listener");
+        let second = bind_loopback_listener().expect("second listener");
+        let first_address = first.local_addr().unwrap();
+        let second_address = second.local_addr().unwrap();
+        assert!(first_address.ip().is_loopback());
+        assert_ne!(first_address.port(), 0);
+        assert_ne!(first_address.port(), second_address.port());
+        let redirect = url::Url::parse(&oauth_loopback_redirect(first_address.port())).unwrap();
+        assert_eq!(redirect.port(), Some(first_address.port()));
+        assert_eq!(redirect.path(), "/auth/desktop");
     }
 
     #[test]

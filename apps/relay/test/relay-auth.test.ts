@@ -106,4 +106,43 @@ describe("relay-local authentication", () => {
       "https://heychief.sh/auth/desktop",
     );
   });
+
+  it.each([
+    ["http://127.0.0.1:49152/auth/desktop", true],
+    ["http://127.0.0.1:62347/auth/desktop", true],
+    ["http://localhost:3000/auth/desktop", true],
+    ["http://127.0.0.1.evil.example:49152/auth/desktop", false],
+    ["http://127.0.0.1:49152/other", false],
+    ["http://127.0.0.1:49152/auth/desktop?next=evil", false],
+  ])("validates native redirect %s", async (redirectUri, accepted) => {
+    const authorize = new URL("https://relay.test/api/auth/oauth2/authorize");
+    authorize.search = new URLSearchParams({
+      client_id: "chief-desktop",
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid profile email offline_access",
+      state: "loopback-test-state",
+      code_challenge: "A".repeat(43),
+      code_challenge_method: "S256",
+      resource: "https://relay.test",
+    }).toString();
+    const response = await routeRelayAuth(
+      new Request(authorize, { redirect: "manual" }),
+      relayEnv,
+    );
+    if (!accepted && response.status === 400) {
+      // Unsafe HTTP hosts are rejected before redirect allowlist validation.
+      expect(response.headers.has("location")).toBe(false);
+      return;
+    }
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "");
+    if (accepted) {
+      expect(location.pathname).toBe("/sign-in");
+      expect(location.searchParams.get("redirect_uri")).toBe(redirectUri);
+      expect(location.searchParams.has("error")).toBe(false);
+    } else {
+      expect(location.searchParams.get("error")).toBe("invalid_redirect");
+    }
+  });
 });
