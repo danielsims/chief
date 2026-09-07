@@ -13,6 +13,7 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { readWorkspaceMission } from "./workspace-missions";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
 import { cancelQueuedScheduleRuns } from "./workspace-schedule-runs";
+import { prepareScheduleChannel } from "./workspace-schedule-setup";
 import {
   nextScheduleTime,
   presentWorkspaceSchedule,
@@ -37,6 +38,24 @@ export async function routeWorkspaceSchedule(
     operation === "schedules-list" ? "workspace.read" : "workspace.write",
   );
   if (operation === "schedules-list") {
+    const query = new URL(request.url).searchParams;
+    const from = query.has("from")
+      ? Number(query.get("from"))
+      : Date.now() - 35 * 86_400_000;
+    const to = query.has("to")
+      ? Number(query.get("to"))
+      : Date.now() + 86_400_000;
+    if (
+      !Number.isFinite(from) ||
+      !Number.isFinite(to) ||
+      to <= from ||
+      to - from > 93 * 86_400_000
+    )
+      throw new HttpError(
+        400,
+        "calendar_range_invalid",
+        "Choose a calendar range of up to 93 days.",
+      );
     return json({
       schedules: readWorkspaceSchedules(storage)
         .filter(({ schedule }) =>
@@ -45,128 +64,142 @@ export async function routeWorkspaceSchedule(
             context.principal,
           ),
         )
-        .map(({ schedule }) => presentWorkspaceSchedule(schedule)),
+        .map(({ schedule }) => ({
+          ...presentWorkspaceSchedule(schedule),
+          recordedRuns: [
+            ...new Set([
+              ...storage.sql
+                .exec<{ at: number }>(
+                  "SELECT DISTINCT CAST(json_extract(document_json, '$.scheduledAt') AS INTEGER) AS at FROM workspace_schedule_runs WHERE schedule_id = ? AND at >= ? AND at < ? ORDER BY at",
+                  schedule.id,
+                  from,
+                  to,
+                )
+                .toArray()
+                .map((row) => row.at),
+              ...(schedule.onceAt !== undefined &&
+              schedule.onceAt >= from &&
+              schedule.onceAt < to &&
+              schedule.onceAt <= Date.now()
+                ? [schedule.onceAt]
+                : []),
+            ]),
+          ],
+        })),
     });
   }
   const id = request.headers.get("x-chief-schedule-id");
   if (operation === "schedules-save") {
     const input = workspaceScheduleInputSchema.parse(await parseJson(request));
-    input.collaborators = [...new Set(input.collaborators)].filter(
-      (id) => id !== input.agentId,
-    );
-    if (id && id !== input.id)
-      throw new HttpError(
-        409,
-        "schedule_id_mismatch",
-        "The schedule id does not match the request.",
+    const result = storage.transactionSync(() => {
+      if (context.principal.kind === "user")
+        requireWorkspaceAdministrator(channels, context.principal);
+      const previous = readWorkspaceSchedule(storage, input.id);
+      if (previous)
+        channels.requireChannelVisible(
+          previous.schedule.conversationId,
+          context.principal,
+        );
+      input.collaborators = [...new Set(input.collaborators)].filter(
+        (id) => id !== input.agentId,
       );
-    channels.requireChannelVisible(input.conversationId, context.principal);
-    if (!channels.memberRole("agent", input.agentId))
-      throw new HttpError(
-        404,
-        "schedule_agent_missing",
-        "Choose an agent in this workspace.",
-      );
-    if (
-      !channels.channelMembership(input.conversationId, "agent", input.agentId)
-    )
-      throw new HttpError(
-        409,
-        "schedule_agent_not_in_channel",
-        "Add the agent to this channel before scheduling work.",
-      );
-    for (const agentId of [input.agentId, ...input.collaborators])
-      requireAgentMessageAccess(channels, agentId, context.principal);
-    for (const collaborator of input.collaborators) {
-      if (
-        !channels.channelMembership(input.conversationId, "agent", collaborator)
-      )
+      if (id && id !== input.id)
         throw new HttpError(
           409,
-          "schedule_collaborator_missing",
-          `Add ${collaborator} to this channel first.`,
+          "schedule_id_mismatch",
+          "The schedule id does not match the request.",
         );
-    }
-    try {
-      new Intl.DateTimeFormat("en", { timeZone: input.timezone }).format();
-      if (input.onceAt === undefined && input.triggerMode === "cron") {
-        if (input.cron.split(/\s+/u).length !== 5)
-          throw new Error("Use a five-field cron expression.");
-        validateCron(input.cron, input.timezone);
-      }
-    } catch (error) {
-      throw new HttpError(
-        400,
-        "schedule_time_invalid",
-        error instanceof Error
-          ? error.message
-          : "Choose a valid schedule and timezone.",
-      );
-    }
-    if (input.missionId) {
-      const mission = readWorkspaceMission(storage, input.missionId);
-      if (
-        !mission ||
-        mission.conversationId !== input.conversationId ||
-        ![input.agentId, ...input.collaborators].every(
-          (id) =>
-            mission.ownerAgentId === id || mission.collaborators.includes(id),
-        )
-      ) {
-        throw new HttpError(
-          409,
-          "schedule_mission_invalid",
-          "Choose a mission in this channel and an agent on its team.",
-        );
-      }
-    }
-    const current = readWorkspaceSchedule(storage, input.id);
-    if (!current && readWorkspaceSchedules(storage).length >= 250)
-      throw new HttpError(
-        409,
-        "schedule_limit",
-        "This workspace already has 250 schedules. Remove unused schedules before adding more.",
-      );
-    if (current)
-      channels.requireChannelVisible(
-        current.schedule.conversationId,
+      prepareScheduleChannel(
+        channels,
+        context.workspaceId,
         context.principal,
+        input,
       );
-    if (context.principal.kind === "user")
-      requireWorkspaceAdministrator(channels, context.principal);
-    if (
-      current &&
-      JSON.stringify(workspaceScheduleInputSchema.parse(current.schedule)) ===
-        JSON.stringify(input)
-    )
-      return json(presentWorkspaceSchedule(current.schedule));
-    const userEditingApproved =
-      context.principal.kind === "user" &&
-      current?.approvedBy !== null &&
-      current !== null;
-    const now = Math.max(Date.now(), (current?.schedule.updatedAt ?? 0) + 1);
-    const schedule: WorkspaceSchedule = {
-      ...current?.schedule,
-      ...input,
-      status: userEditingApproved ? current.schedule.status : "needs_approval",
-      placement: "cloud",
-      createdAt: current?.schedule.createdAt ?? now,
-      updatedAt: now,
-      upcomingRuns: [],
-    };
-    if (schedule.status === "active")
-      schedule.nextAt =
-        input.triggerMode === "webhook"
-          ? undefined
-          : input.onceAt !== undefined
-            ? Math.max(now, input.onceAt)
-            : nextScheduleTime(schedule, now);
-    writeWorkspaceSchedule(storage, {
-      schedule,
-      approvedBy: userEditingApproved ? context.principal : null,
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: input.timezone }).format();
+        if (input.onceAt === undefined && input.triggerMode === "cron") {
+          if (input.cron.split(/\s+/u).length !== 5)
+            throw new Error("Use a five-field cron expression.");
+          validateCron(input.cron, input.timezone);
+        }
+      } catch (error) {
+        throw new HttpError(
+          400,
+          "schedule_time_invalid",
+          error instanceof Error
+            ? error.message
+            : "Choose a valid schedule and timezone.",
+        );
+      }
+      if (input.missionId) {
+        const mission = readWorkspaceMission(storage, input.missionId);
+        if (
+          !mission ||
+          mission.conversationId !== input.conversationId ||
+          ![input.agentId, ...input.collaborators].every(
+            (id) =>
+              mission.ownerAgentId === id || mission.collaborators.includes(id),
+          )
+        ) {
+          throw new HttpError(
+            409,
+            "schedule_mission_invalid",
+            "Choose a mission in this channel and an agent on its team.",
+          );
+        }
+      }
+      const current = readWorkspaceSchedule(storage, input.id);
+      if (!current && readWorkspaceSchedules(storage).length >= 250)
+        throw new HttpError(
+          409,
+          "schedule_limit",
+          "This workspace already has 250 schedules. Remove unused schedules before adding more.",
+        );
+      if (current)
+        channels.requireChannelVisible(
+          current.schedule.conversationId,
+          context.principal,
+        );
+      if (context.principal.kind === "user")
+        requireWorkspaceAdministrator(channels, context.principal);
+      if (
+        current &&
+        JSON.stringify(workspaceScheduleInputSchema.parse(current.schedule)) ===
+          JSON.stringify(workspaceScheduleInputSchema.parse(input))
+      )
+        return json(presentWorkspaceSchedule(current.schedule));
+      const userEditingApproved =
+        context.principal.kind === "user" &&
+        current?.approvedBy !== null &&
+        current !== null;
+      const now = Math.max(Date.now(), (current?.schedule.updatedAt ?? 0) + 1);
+      const schedule: WorkspaceSchedule = {
+        ...current?.schedule,
+        ...input,
+        status: userEditingApproved
+          ? current.schedule.status
+          : "needs_approval",
+        placement: "cloud",
+        createdAt: current?.schedule.createdAt ?? now,
+        updatedAt: now,
+        upcomingRuns: [],
+        recordedRuns: [],
+      };
+      if (schedule.status === "active")
+        schedule.nextAt =
+          input.triggerMode === "webhook"
+            ? undefined
+            : input.onceAt !== undefined
+              ? Math.max(now, input.onceAt)
+              : nextScheduleTime(schedule, now);
+      writeWorkspaceSchedule(storage, {
+        schedule,
+        approvedBy: userEditingApproved ? context.principal : null,
+      });
+      return json(presentWorkspaceSchedule(schedule));
     });
     await wakeWorkspaceSchedules(storage);
-    return json(presentWorkspaceSchedule(schedule));
+    return result;
   }
   requireWorkspaceAdministrator(channels, context.principal);
   const actionRequest =

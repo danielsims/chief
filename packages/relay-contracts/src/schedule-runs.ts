@@ -11,6 +11,7 @@ export const scheduleRunStepSchema = z.object({
   phase: z.enum(["plan", "contribute", "finish"]),
   state: z.enum(["pending", "running", "completed", "failed"]),
   jobId: z.string().optional(),
+  assignment: z.string().trim().min(1).max(4000).optional(),
   evidence: z.string().max(4000).optional(),
   error: z.string().optional(),
   startedAt: z.number().optional(),
@@ -84,3 +85,9 @@ export const scheduleWebhookSecretSchema = z.object({
   secret: z.string().optional(),
 });
 export type ScheduleWebhook = z.infer<typeof scheduleWebhookSchema>;
+
+export const scheduleRunCollaboratorSchema = z.object({
+  runId: z.string().min(1).max(256),
+  agentId: agentIdSchema,
+  assignment: z.string().trim().min(1).max(4000),
+});

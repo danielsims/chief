@@ -231,14 +231,17 @@ describe("external agent channel tools", () => {
         externalAgentToolResultSchema.parse(await proposed.json()).result,
       ).status,
     ).toBe("needs_approval");
+    const activationAttempt = await invokeWorkspace("recurringWork.propose", {
+      ...proposalInput,
+      activate: true,
+    });
+    expect(activationAttempt.status).toBe(200);
     expect(
-      (
-        await invokeWorkspace("recurringWork.propose", {
-          ...proposalInput,
-          activate: true,
-        })
+      workspaceScheduleSchema.parse(
+        externalAgentToolResultSchema.parse(await activationAttempt.json())
+          .result,
       ).status,
-    ).toBe(400);
+    ).toBe("needs_approval");
     expect(
       (
         await invokeWorkspace("recurringWork.activate", {

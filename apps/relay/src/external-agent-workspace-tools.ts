@@ -31,6 +31,7 @@ import { WorkspaceChannelService } from "./workspace-channel-service";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { routeWorkspaceMissions } from "./workspace-missions";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
+import { readScheduleRun } from "./workspace-schedule-runs";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 
 type Continuation = Awaited<ReturnType<typeof resolveExternalContinuation>>;
@@ -132,6 +133,24 @@ export async function routeExternalWorkspaceTool(
       );
       return { file };
     }
+    case "missions.addRunCollaborator":
+      if (
+        readScheduleRun(host.storage, requiredString(input, "runId"))?.run
+          .threadRootId !== resolved.continuation.thread_root_id
+      )
+        throw new HttpError(
+          403,
+          "run_scope_mismatch",
+          "Use the run assigned to this delivery.",
+        );
+      return readResult(
+        await routeScheduleRuns(
+          host.storage,
+          host.env,
+          requestFor(resolved, input),
+          "schedules-runs-add-collaborator",
+        ),
+      );
     case "missions.reportRunStep":
       return readResult(
         await routeScheduleRuns(
@@ -187,7 +206,7 @@ export async function routeExternalWorkspaceTool(
         ),
       );
     case "recurringWork.propose": {
-      const schedule = workspaceScheduleInputSchema.strict().parse({
+      const schedule = workspaceScheduleInputSchema.parse({
         ...input,
         id:
           optionalString(input, "id") ??

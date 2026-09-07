@@ -12,6 +12,7 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
   canMessageAgent,
   requireAgentMessageAccess,
@@ -30,6 +31,8 @@ const dispatchMessageSchema = z
     replyAgentId: agentIdSchema.optional(),
     workflowId: z.string().trim().min(1).max(128).optional(),
     missionId: z.string().trim().min(1).max(100).optional(),
+    scheduleStepId: z.string().optional(),
+    instruction: z.string().max(100_000).optional(),
     scheduleRunId: z.string().trim().min(1).max(256).optional(),
   })
   .strict();
@@ -54,6 +57,8 @@ export async function dispatchWorkspaceMessage(
     workflowId = message.id,
     missionId,
     scheduleRunId,
+    scheduleStepId,
+    instruction,
   } = dispatchMessageSchema.parse(await parseJson(request));
   const authorMatchesPrincipal =
     (context.principal.kind === "user" &&
@@ -65,7 +70,8 @@ export async function dispatchWorkspaceMessage(
   if (
     message.workspaceId !== context.workspaceId ||
     message.conversationId !== context.conversationId ||
-    !authorMatchesPrincipal
+    (!authorMatchesPrincipal &&
+      !(scheduleRunId && message.author.kind === "system"))
   ) {
     throw new HttpError(
       409,
@@ -128,12 +134,16 @@ export async function dispatchWorkspaceMessage(
   ).filter((id) => canMessageAgent(store, id, context.principal));
   if (scheduleRunId) {
     const run = readScheduleRun(storage, scheduleRunId)?.run;
-    const step = run?.steps.find((step) => step.id === message.id);
+    const step = run?.steps.find(
+      (step) => step.id === (scheduleStepId ?? message.id),
+    );
+    requireWorkspaceAdministrator(store, context.principal);
     if (
       !run ||
       !step ||
       !scheduleRunIsActive(run) ||
       run.threadRootId !== workflowId ||
+      (scheduleStepId && message.id !== run.threadRootId) ||
       run.schedule.conversationId !== message.conversationId
     )
       throw new HttpError(
@@ -144,14 +154,16 @@ export async function dispatchWorkspaceMessage(
     requireAgentMessageAccess(store, step.agentId, context.principal);
     agentIds = [step.agentId];
   }
-  const threadRootId = owningThreadRoot(channel.kind, message, mentions);
+  const threadRootId = scheduleRunId
+    ? workflowId
+    : owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
   const externalAgents = new ExternalAgentChannelService(storage, env);
 
   await Promise.all(
     agentIds.map(async (agentId) => {
       const id = await deterministicUuid(
-        `${context.workspaceId}:${message.id}:${agentId}:conversation-message`,
+        `${context.workspaceId}:${scheduleStepId ?? message.id}:${agentId}:conversation-message`,
       );
       const deliveredExternally = await externalAgents.enqueue(
         context.workspaceId,
@@ -162,12 +174,15 @@ export async function dispatchWorkspaceMessage(
           occurredAt: now,
           payload: {
             deliveryId: id,
+            ...(scheduleStepId ? { scheduleStepId } : undefined),
             continuation: {
               capability: "placeholder-capability-replaced-by-workspace",
             },
             message: {
               id: message.id,
-              body: message.body,
+              body: scheduleRunId
+                ? (instruction ?? message.body)
+                : message.body,
               author: message.author,
               createdAt: message.createdAt,
             },
@@ -190,10 +205,13 @@ export async function dispatchWorkspaceMessage(
             messageId: message.id,
             workflowId,
             ...(scheduleRunId ? { scheduleRunId } : undefined),
+            ...(scheduleStepId ? { scheduleStepId } : undefined),
             ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             mentions,
-            instruction: dispatchedInstruction(message),
+            instruction: scheduleRunId
+              ? (instruction ?? message.body)
+              : dispatchedInstruction(message),
           },
           availableAt: now,
         },

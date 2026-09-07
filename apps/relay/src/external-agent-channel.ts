@@ -9,12 +9,12 @@ import {
   receiveExternalAgentActivity,
   receiveExternalAgentMessage,
 } from "./external-agent-channel-inbound";
-import { receiveExternalAgentTool } from "./external-agent-channel-tools";
 import {
   randomToken,
   requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
+import { receiveExternalAgentTool } from "./external-agent-channel-tools";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { externalAgentRegistrationReplay } from "./external-agent-registration-result";
 import { HttpError, json, parseJson } from "./http";
@@ -25,6 +25,7 @@ import {
   ProjectRepositoryResolver,
 } from "./project-repository";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
+import { externalRuntimeOwner } from "./workspace-agent-runtime";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
@@ -115,6 +116,15 @@ export class ExternalAgentChannelService {
       existingAgent?.runtime.kind === "native-cell",
     );
     const existingRuntime = this.runtime(command.payload.agentId);
+    // Preparing a replacement deployment must not rotate credentials or redirect
+    // traffic away from the connected deployment before its build succeeds.
+    if (existingRuntime && command.payload.reuseExisting) {
+      return await externalAgentRegistrationReplay(
+        context.workspaceId,
+        existingRuntime,
+        this.secrets,
+      );
+    }
     if (
       existingRuntime?.replaces_native === 1 &&
       existingRuntime.connection_status !== "connected" &&
@@ -386,7 +396,8 @@ export class ExternalAgentChannelService {
       storage: this.storage,
       env: this.env,
       channels: this.channels,
-      runtime: (agentId: string) => this.runtime(agentId),
+      runtime: (agentId: string) =>
+        this.runtime(externalRuntimeOwner(this.storage, agentId)),
     };
   }
 }

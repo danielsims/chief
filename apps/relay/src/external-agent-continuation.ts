@@ -52,6 +52,7 @@ export async function resolveExternalContinuation(
   request: Request,
   rawAgentId: string,
   input: { continuation: { capability: string }; sessionId: string },
+  completionReceipt = false,
 ) {
   const context = readTrustedContext(request);
   const agentId = agentIdSchema.parse(rawAgentId);
@@ -90,8 +91,9 @@ export async function resolveExternalContinuation(
       : undefined;
     if (
       run &&
-      (!scheduleRunIsActive(run) ||
-        (run.startedAt !== undefined &&
+      ((!scheduleRunIsActive(run) && !completionReceipt) ||
+        (scheduleRunIsActive(run) &&
+          run.startedAt !== undefined &&
           Date.now() >=
             run.startedAt + run.schedule.maxDurationMinutes * 60_000))
     )

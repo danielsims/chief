@@ -20,6 +20,7 @@ import { HttpError, json, parseJson } from "./http";
 import { releaseInternalResponse } from "./internal-response";
 import { firstRow } from "./workspace-channel-store";
 import {
+  finishScheduleRun,
   readScheduleRun,
   scheduleRunIsActive,
   writeScheduleRun,
@@ -43,7 +44,13 @@ export async function receiveExternalAgentMessage(
     await parseJson(request),
   );
   const { context, agentId, principal, continuation } =
-    await resolveExternalContinuation(host, request, rawAgentId, input);
+    await resolveExternalContinuation(
+      host,
+      request,
+      rawAgentId,
+      input,
+      !input.publish && input.complete,
+    );
   const payloadHash = await sha256(JSON.stringify(input));
   const messageId = await deterministicUuid(
     `${context.workspaceId}:${agentId}:external:${input.deliveryId}`,
@@ -89,52 +96,52 @@ export async function receiveExternalAgentMessage(
     principal,
     context.requestId,
   );
-  const command = appendMessageCommandSchema.parse({
-    commandId: messageId,
-    protocolVersion: 1,
-    occurredAt: now,
-    payload: {
-      messageId,
+  let duplicate = false;
+  if (input.publish) {
+    const command = appendMessageCommandSchema.parse({
+      commandId: messageId,
+      protocolVersion: 1,
+      occurredAt: now,
+      payload: {
+        messageId,
+        conversationId: continuation.conversation_id,
+        threadRootId: continuation.thread_root_id ?? undefined,
+        body: input.body,
+        mentions: [],
+        components: [],
+      },
+    });
+    const appendRequest = new Request("https://relay.internal/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    });
+    const response = await externalConversationFetch(
+      host.env,
+      context.workspaceId,
+      continuation.conversation_id,
+      appendRequest,
+      principal,
+      context.requestId,
+    );
+    if (!response.ok) return response;
+    const result = appendMessageResultSchema.parse(
+      await response.clone().json(),
+    );
+    const dispatched = await dispatchAppendedMessage(host.env, {
+      request: appendRequest,
+      response,
+      principal,
+      requestId: context.requestId,
+      workspaceId: context.workspaceId,
       conversationId: continuation.conversation_id,
-      threadRootId: continuation.thread_root_id ?? undefined,
-      body: input.body,
-      mentions: [],
-      components: [],
-    },
-  });
-  const appendRequest = new Request("https://relay.internal/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(command),
-  });
-  const response = await externalConversationFetch(
-    host.env,
-    context.workspaceId,
-    continuation.conversation_id,
-    appendRequest,
-    principal,
-    context.requestId,
-  );
-  if (!response.ok) return response;
-  const result = appendMessageResultSchema.parse(await response.clone().json());
-  const dispatched = await dispatchAppendedMessage(host.env, {
-    request: appendRequest,
-    response,
-    principal,
-    requestId: context.requestId,
-    workspaceId: context.workspaceId,
-    conversationId: continuation.conversation_id,
-  });
-  if (!dispatched.ok) return dispatched;
-  await releaseInternalResponse(dispatched);
-  host.storage.sql.exec(
-    "UPDATE external_agent_inbound_receipts SET status = 'accepted', updated_at = ? WHERE agent_id = ? AND delivery_id = ?",
-    new Date().toISOString(),
-    agentId,
-    input.deliveryId,
-  );
+    });
+    if (!dispatched.ok) return dispatched;
+    await releaseInternalResponse(dispatched);
+    duplicate = result.duplicate;
+  }
   // The final reply is durable before a scheduled teammate receives its turn.
-  if (continuation.thread_root_id) {
+  if (input.complete && continuation.thread_root_id) {
     const row = host.storage.sql
       .exec<{ id: string }>(
         "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
@@ -147,7 +154,9 @@ export async function receiveExternalAgentMessage(
     );
     const step = current?.run.steps.find(
       (step) =>
-        step.id === delivery.payload.message.id && step.agentId === agentId,
+        step.id ===
+          (delivery.payload.scheduleStepId ?? delivery.payload.message.id) &&
+        step.agentId === agentId,
     );
     if (
       current &&
@@ -155,19 +164,34 @@ export async function receiveExternalAgentMessage(
       scheduleRunIsActive(current.run) &&
       ["pending", "running"].includes(step.state)
     ) {
-      step.state = "completed";
-      step.completedAt = Date.now();
-      step.evidence ??= input.body.slice(0, 4000);
-      current.run.summary = step.evidence;
-      current.run.nextCheckAt = Date.now();
-      writeScheduleRun(host.storage, current.run, current.principal);
+      if (input.outcome === "failed") {
+        finishScheduleRun(
+          host.storage,
+          current.run.id,
+          "failed",
+          input.body || "The agent turn failed.",
+        );
+      } else {
+        step.state = "completed";
+        step.completedAt = Date.now();
+        step.evidence ??= input.body.slice(0, 4000);
+        current.run.summary = step.evidence;
+        current.run.nextCheckAt = Date.now();
+        writeScheduleRun(host.storage, current.run, current.principal);
+      }
       await wakeWorkspaceSchedules(host.storage);
     }
   }
+  host.storage.sql.exec(
+    "UPDATE external_agent_inbound_receipts SET status = 'accepted', updated_at = ? WHERE agent_id = ? AND delivery_id = ?",
+    new Date().toISOString(),
+    agentId,
+    input.deliveryId,
+  );
   return json(
     externalAgentInboundResultSchema.parse({
-      duplicate: result.duplicate,
-      messageId: result.message.id,
+      duplicate,
+      messageId,
     }),
   );
 }

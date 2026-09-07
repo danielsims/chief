@@ -32,7 +32,7 @@ import {
 } from "./channel-test-helpers";
 import { hexKey } from "./helpers";
 
-async function setup() {
+async function setup(extraPermissions: string[] = []) {
   const ctx = await setupChannelTest();
   const pubkey = hexKey("scheduled-worker");
   await registerTestAgent(ctx, agentId, pubkey);
@@ -46,6 +46,7 @@ async function setup() {
       capabilities: [],
       integrations: [],
       toolPermissions: [
+        ...extraPermissions,
         "workspace.read",
         "workspace.write",
         "messages.read",
@@ -78,6 +79,80 @@ async function setup() {
 }
 
 describe("durable relay schedules", () => {
+  it("accepts a complete agent-authored webhook proposal without an existing channel", async () => {
+    const { ctx, input, principal } = await setup([
+      "channels.create",
+      "members.manage",
+    ]);
+    const { conversationId: _source, ...spec } = input;
+    const response = await channelRpc(ctx, principal, "schedules-save", {
+      ...spec,
+      newChannel: {
+        name: "growth-experiments",
+        inviteUserIds: [ctx.principal.userId],
+      },
+      triggerMode: "webhook",
+      expectedOutcome: "A measured growth experiment",
+      constraints: "Draft only",
+      maxDurationMinutes: 45,
+      skipDates: ["2026-12-25"],
+    });
+    expect(response.status).toBe(200);
+    const schedule = workspaceScheduleSchema.parse(await response.json());
+    expect(schedule.status).toBe("needs_approval");
+    expect(schedule.expectedOutcome).toBe("A measured growth experiment");
+    expect(schedule.maxDurationMinutes).toBe(45);
+    expect(schedule.skipDates).toEqual(["2026-12-25"]);
+    const missions = await channelRpc(ctx, ctx.principal, "missions-list");
+    expect(await missions.text()).toContain(schedule.missionId);
+  });
+
+  it("creates the mission channel and team atomically and reuses them on retry", async () => {
+    const { ctx, input, principal } = await setup();
+    const request = { ...input, newChannel: {}, triggerMode: "webhook" };
+    const denied = await channelRpc(ctx, principal, "schedules-save", request);
+    expect(denied.status).toBe(403);
+    const invalid = await channelRpc(ctx, ctx.principal, "schedules-save", {
+      ...request,
+      timezone: "Not/A_Timezone",
+    });
+    expect(invalid.status).toBe(400);
+    const channelsBefore = await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-list",
+    );
+    const before = await channelsBefore.text();
+    expect(before).not.toContain("review-the-marketing-experiment");
+    const response = await channelRpc(
+      ctx,
+      ctx.principal,
+      "schedules-save",
+      request,
+    );
+    expect(response.status).toBe(200);
+    const schedule = workspaceScheduleSchema.parse(await response.json());
+    expect(schedule.conversationId).toMatch(/^mission-/u);
+    expect(schedule.missionId).toBe(schedule.conversationId);
+    expect(schedule.triggerMode).toBe("webhook");
+    expect(schedule.status).toBe("needs_approval");
+    const retry = await channelRpc(
+      ctx,
+      ctx.principal,
+      "schedules-save",
+      request,
+    );
+    expect(workspaceScheduleSchema.parse(await retry.json()).updatedAt).toBe(
+      schedule.updatedAt,
+    );
+    const channelsAfter = await channelRpc(ctx, ctx.principal, "channels-list");
+    expect(await channelsAfter.text()).toContain(
+      "review-the-marketing-experiment",
+    );
+    const missions = await channelRpc(ctx, ctx.principal, "missions-list");
+    expect(await missions.text()).toContain(schedule.missionId);
+  });
+
   it("skips the whole local date for frequent schedules across a daylight-saving transition", () => {
     const schedule = workspaceScheduleSchema.parse({
       id: "frequent",
@@ -164,7 +239,7 @@ describe("durable relay schedules", () => {
     );
     expect(
       messages.filter((message) => message.body.includes(input.title)),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     const agent = ctx.env.AGENTS.get(
       ctx.env.AGENTS.idFromName(`${ctx.workspaceId}:${agentId}`),
     );
@@ -222,7 +297,6 @@ describe("durable relay schedules", () => {
       input.id,
     );
     expect(staleApproval.status).toBe(409);
-
     const denied = await rpc(
       ctx,
       ctx.principal,
@@ -599,9 +673,9 @@ it("waits for each phase's durable result before handing work to the next teamma
     });
     const lease = (await claimed.json()) as {
       leaseToken: string;
-      job: { payload: { messageId: string } };
+      job: { payload: { scheduleStepId: string } };
     };
-    expect(lease.job.payload.messageId).toBe(initial?.steps[index]?.id);
+    expect(lease.job.payload.scheduleStepId).toBe(initial?.steps[index]?.id);
     const complete = await agentRpc("complete", {
       leaseToken: lease.leaseToken,
       outcome: {
@@ -625,4 +699,52 @@ it("waits for each phase's durable result before handing work to the next teamma
     if (index < 2) expect(next?.steps[index + 1]?.state).toBe("running");
     else expect(next?.state).toBe("completed");
   }
+});
+it("retains recorded calendar occurrences after a run starts and its schedule is paused", async () => {
+  const { ctx, input } = await setup();
+  await rpc(ctx, ctx.principal, "schedules-save", input);
+  await rpc(
+    ctx,
+    ctx.principal,
+    "schedules-action",
+    { action: "approve", commandId: crypto.randomUUID() },
+    input.id,
+  );
+  const at = Date.now() - 60_000;
+  const stub = ctx.env.WORKSPACES.get(
+    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  );
+  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
+    const stored = readWorkspaceSchedule(state.storage, input.id);
+    if (!stored) throw new Error("Expected schedule");
+    enqueueScheduleOccurrence(
+      state.storage,
+      stored.schedule,
+      at,
+      "calendar-history",
+    );
+    await state.storage.deleteAlarm();
+  });
+  await rpc(
+    ctx,
+    ctx.principal,
+    "schedules-action",
+    { action: "pause", commandId: crypto.randomUUID() },
+    input.id,
+  );
+  const list = async (from: number, to: number) => {
+    const response = await channelRpc(
+      ctx,
+      ctx.principal,
+      "schedules-list",
+      undefined,
+      `from=${from}&to=${to}`,
+    );
+    return workspaceSchedulesResultSchema.parse(await response.json())
+      .schedules[0];
+  };
+  const schedule = await list(at - 1, at + 1);
+  expect(schedule?.recordedRuns).toEqual([at]);
+  expect(schedule?.upcomingRuns).toEqual([]);
+  expect((await list(at + 1, at + 60_000))?.recordedRuns).toEqual([]);
 });

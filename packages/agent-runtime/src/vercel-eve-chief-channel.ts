@@ -1,3 +1,5 @@
+import { toneTeammate } from "./prompts/parts/tone-teammate.js";
+
 export const eveChiefChannelReplyGuidance =
   "On this Eve deployment, ordinary assistant text is delivered to the user as a Chief conversation message in DMs and channels unless you already published with channels_messages_post this turn. Write the reply they should see. Do not use Eve's ask_question for Chief conversations; post a Chief message instead. Address people with @Name and their principal id from the delivery roster or channels_members_list; they are users, never @chief (user). If projects_list is empty, call projects.recommend so they can attach a repository from a card. Do not ask them to paste a git URL. When the current conversation id and user message id are supplied, you MUST call channels_reactions_add with emoji 👀 on that exact user message before any other work tool. Do this exactly once per user message. Never react to your own message. Remove your 👀 with channels_reactions_remove immediately before the substantive final reply. Use channels_messages_post for explicit checkpoints, questions the user must answer, or posts to another channel.";
 
@@ -5,9 +7,12 @@ export const chiefChannelSource = `import { createHash, timingSafeEqual } from "
 import { defineChannel, GET, POST } from "eve/channels";
 import { z } from "zod";
 import {
-  publishedDeliveries,
+  hasChiefMessagePosted,
+  sealChiefDelivery,
+  chiefSession,
   setCurrentChiefDelivery,
 } from "../lib/chief-session.ts";
+import { subagentTargets } from "../lib/chief-roster.ts";
 
 const deliverySchema = z.object({ payload: z.object({
   deliveryId: z.string(), sessionAddress: z.string(),
@@ -25,6 +30,7 @@ type ChiefState = {
   conversationId: string; messageId: string; threadRootId: string;
 };
 const reasoningBuckets = new Map<string, number>();
+const reasoningText = new Map<string, string>();
 const latestText = new Map<string, string>();
 const postedReplies = new Set<string>();
 const required = (name: string) => {
@@ -59,6 +65,7 @@ const bindDelivery = (
   sessionId: string,
 ) => {
   setCurrentChiefDelivery({
+    agentId: channel.state.agentId,
     deliveryId: channel.state.deliveryId,
     capability: channel.state.capability,
     sessionId,
@@ -79,7 +86,7 @@ const postToChief = async (path: "activity" | "messages", agentId: string, body:
   });
   if (!response.ok) throw new Error(\`Chief returned HTTP \${response.status}.\`);
 };
-const postActivity = async (
+export const postActivity = async (
   channel: { state: ChiefState },
   sessionId: string,
   component: Record<string, unknown>,
@@ -97,17 +104,20 @@ const postActivity = async (
     });
   });
 };
-const postReply = async (
+const sendReply = async (
   channel: { state: ChiefState },
   sessionId: string,
   turnId: string,
   body: unknown,
+  complete = false,
+  outcome = "completed",
 ) => {
   bindDelivery(channel, sessionId);
   const text = replyText(body);
-  if (!text) return;
-  if (publishedDeliveries.has(channel.state.deliveryId)) return;
-  const key = replyKey(channel.state.deliveryId, turnId);
+  const reply = replyKey(channel.state.deliveryId, turnId);
+  const publish = Boolean(text) && !hasChiefMessagePosted() && !postedReplies.has(reply);
+  if (!publish && !complete) return;
+  const key = complete ? reply + ":complete" : reply;
   if (postedReplies.has(key)) return;
   postedReplies.add(key);
   try {
@@ -116,7 +126,11 @@ const postReply = async (
       continuation: { capability: channel.state.capability },
       sessionId,
       body: text,
+      publish,
+      complete,
+      outcome,
     });
+    if (publish) postedReplies.add(reply);
   } catch (error: unknown) {
     postedReplies.delete(key);
     console.error("[chief-message] publish failed", {
@@ -124,7 +138,19 @@ const postReply = async (
       sessionId,
       turnId,
     });
+    throw error;
   }
+};
+const pendingReplies = new Map<string, Promise<void>>();
+export const postReply = (...args: Parameters<typeof sendReply>) => {
+  const deliveryId = args[0].state.deliveryId;
+  const previous = pendingReplies.get(deliveryId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => sendReply(...args));
+  pendingReplies.set(deliveryId, next);
+  void next.finally(() => {
+    if (pendingReplies.get(deliveryId) === next) pendingReplies.delete(deliveryId);
+  }).catch(() => undefined);
+  return next;
 };
 const rememberText = (turnId: string, body: unknown, finishReason?: string) => {
   const text = replyText(body);
@@ -151,6 +177,7 @@ const actionResult = (result: { kind: string; toolName?: string; subagentName?: 
 
 export default defineChannel<ChiefState, { state: ChiefState }>({
   state: { deliveryId: "", capability: "", agentId: "", conversationId: "", messageId: "", threadRootId: "" },
+  metadata(state) { return { chiefDelivery: sealChiefDelivery(state) }; },
   context(state) {
     return { state };
   },
@@ -163,6 +190,10 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
       if (!authorized(request)) return new Response("Unauthorized", { status: 401 });
       const input = deliverySchema.parse(await request.json());
       const agentId = input.payload.agentId ?? required("CHIEF_AGENT_ID");
+      const target = agentId === required("CHIEF_AGENT_ID") ? undefined : subagentTargets[agentId];
+      if (agentId !== required("CHIEF_AGENT_ID") && !target) {
+        return new Response("Unknown subagent", { status: 422 });
+      }
       const conversationId = input.payload.conversationId ?? "";
       const messageId = input.payload.message.id ?? "";
       const threadRootId = input.payload.threadRootId ?? "";
@@ -176,42 +207,51 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
       };
       const session = await from(input.payload.sessionAddress).send(input.payload.message.body, {
         auth: null,
+        turnPolicy: "queue",
         context: [
-          ${JSON.stringify(eveChiefChannelReplyGuidance)},
+          target
+            ? \`This delivery is assigned to your declared subagent \${target}. Call the \${target} subagent tool now with the full task below and the conversation/thread context. Do not do their work or write a reply on their behalf. The child has its own workspace tools and publishes its own reply. A background task receipt means it is still working. If this child fails to start or reports a terminal failure, call chief_handoff_failed with the reason. Never claim successful work when the child failed.\`
+            : ${JSON.stringify(eveChiefChannelReplyGuidance)},
+          ${JSON.stringify(toneTeammate.render())},
           peopleRoster(input.payload.people),
           conversationId ? \`Current conversation id: \${conversationId}.\` : "",
           messageId ? \`User message id: \${messageId}.\` : "",
           threadRootId ? \`Thread root id: \${threadRootId}.\` : "",
-          conversationId && messageId
+          conversationId && messageId && !target
             ? \`Call channels_reactions_add with channelId \${conversationId}, messageId \${messageId}, and emoji 👀 before any other work tool.\`
             : "",
         ].filter(Boolean),
         state,
       });
-      setCurrentChiefDelivery({ ...state, sessionId: session.id });
       return Response.json({ status: "accepted", sessionId: session.id });
     }),
   ],
   events: {
     async "reasoning.appended"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       const key = \`\${event.turnId}:\${event.stepIndex}\`;
-      const bucket = Math.floor(event.reasoningSoFar.length / 500);
+      const text = (reasoningText.get(key) ?? "") + event.reasoningDelta;
+      reasoningText.set(key, text);
+      const bucket = Math.floor(text.length / 500);
       if (reasoningBuckets.get(key) === bucket) return;
       reasoningBuckets.set(key, bucket);
       await postActivity(channel, context.session.id, {
         id: activityId(\`reasoning:\${key}\`), kind: "thinking", version: 1,
-        payload: { text: event.reasoningSoFar, status: "working", providerSessionId: context.session.id },
+        payload: { text, status: "working", providerSessionId: context.session.id },
       });
     },
     async "reasoning.completed"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       const key = \`\${event.turnId}:\${event.stepIndex}\`;
       reasoningBuckets.delete(key);
+      reasoningText.delete(key);
       await postActivity(channel, context.session.id, {
         id: activityId(\`reasoning:\${key}\`), kind: "thinking", version: 1,
         payload: { text: event.reasoning, status: "completed", providerSessionId: context.session.id },
       });
     },
     async "actions.requested"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       for (const action of event.actions) {
         await postActivity(channel, context.session.id, {
           id: activityId(action.callId), kind: "tool", version: 1,
@@ -220,6 +260,14 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
       }
     },
     async "action.result"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) {
+        const target = subagentTargets[channel.state.agentId];
+        const receipt = z.object({ status: z.literal("working"), taskId: z.string(), agentId: z.string() }).safeParse(event.result.output);
+        if (event.status === "completed" && "toolName" in event.result && event.result.toolName === target && receipt.success) {
+          chiefSession.update((current) => ({ ...current, delegated: true }));
+        }
+        return;
+      }
       const result = actionResult(event.result);
       await postActivity(channel, context.session.id, {
         id: activityId(event.result.callId), kind: "tool", version: 1,
@@ -232,24 +280,35 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
       });
     },
     async "turn.failed"(event, channel, context) {
+      await postReply(channel, context.session.id, event.turnId, channel.state.agentId === required("CHIEF_AGENT_ID") ? event.message : "", true, "failed");
       await postActivity(channel, context.session.id, {
         id: activityId(\`error:\${event.turnId}\`), kind: "error", version: 1,
         payload: { code: event.code, title: "Run interrupted", message: event.message, retryable: "true", providerSessionId: context.session.id },
       });
     },
     async "message.completed"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       const text = rememberText(event.turnId, event.message, event.finishReason);
       if (event.finishReason === "tool-calls") return;
       await postReply(channel, context.session.id, event.turnId, text);
     },
     async "turn.completed"(event, channel, context) {
-      await postReply(channel, context.session.id, event.turnId, latestText.get(event.turnId));
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) {
+        if (!chiefSession.get().delegated) {
+          await postReply(channel, context.session.id, event.turnId, "", true, "failed");
+        }
+        return;
+      }
+      await postReply(channel, context.session.id, event.turnId, latestText.get(event.turnId), true);
+      latestText.delete(event.turnId);
     },
     async "input.requested"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       const text = inputRequestText(event.requests) || latestText.get(event.turnId);
       await postReply(channel, context.session.id, event.turnId, text);
     },
     async "session.waiting"(event, channel, context) {
+      if (channel.state.agentId !== required("CHIEF_AGENT_ID")) return;
       for (const [turnId, text] of latestText) {
         await postReply(channel, context.session.id, turnId, text);
       }

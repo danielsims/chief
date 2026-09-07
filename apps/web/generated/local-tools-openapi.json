@@ -519,7 +519,7 @@
         "operationId": "recurringWork.propose",
         "summary": "Propose recurring or one-time agent work for user approval",
         "responses": { "200": { "description": "Tool operation result" } },
-        "description": "Create a schedule for an agent in a channel. Use a stable id when revising a proposal. The user must approve it in Schedule before it runs. Supply cron and timezone; set onceAt for one-time work. Add missionId when this belongs to a mission.",
+        "description": "Configure the complete scheduled team: lead agentId, collaborators, instructions, optional outcome/constraints/run limit, and a cron, onceAt or webhook trigger. Set newChannel to {} to create a mission channel automatically, or provide its name and inviteUserIds. Otherwise use conversationId; missing teammates are added with membership permission. Supply timezone and optionally skipDates. Use a stable id to revise a proposal. The user must approve the latest proposal before execution; webhook triggers are connected through workspace Webhooks settings.",
         "requestBody": {
           "required": true,
           "content": {
@@ -529,6 +529,33 @@
                 "properties": {
                   "id": { "type": "string" },
                   "conversationId": { "type": "string" },
+                  "newChannel": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "inviteUserIds": {
+                        "type": "array",
+                        "items": {
+                          "allOf": [
+                            { "type": "string" },
+                            { "type": "string", "minLength": 1 }
+                          ]
+                        },
+                        "maxItems": 30,
+                        "default": []
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "skipDates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "maxItems": 366,
+                    "default": []
+                  },
                   "playbookId": { "type": "string" },
                   "missionId": { "type": "string" },
                   "agentId": {
@@ -585,7 +612,8 @@
                     "allOf": [
                       { "type": "string" },
                       { "type": "string", "minLength": 1 }
-                    ]
+                    ],
+                    "default": "0 9 * * *"
                   },
                   "timezone": {
                     "allOf": [
@@ -597,10 +625,9 @@
                     "anyOf": [{ "type": "number" }, { "type": "string" }]
                   },
                   "approvalSummary": {
-                    "allOf": [
-                      { "type": "string" },
-                      { "type": "string", "minLength": 1 }
-                    ]
+                    "type": "string",
+                    "maxLength": 2000,
+                    "default": ""
                   },
                   "proposedToolPatterns": {
                     "type": "array",
@@ -610,19 +637,12 @@
                         { "type": "string", "minLength": 1 }
                       ]
                     },
-                    "maxItems": 30
+                    "maxItems": 30,
+                    "default": []
                   },
                   "activate": { "type": "boolean", "default": false }
                 },
-                "required": [
-                  "agentId",
-                  "title",
-                  "instructions",
-                  "cron",
-                  "timezone",
-                  "approvalSummary",
-                  "proposedToolPatterns"
-                ],
+                "required": ["agentId", "title", "instructions", "timezone"],
                 "additionalProperties": false
               }
             }

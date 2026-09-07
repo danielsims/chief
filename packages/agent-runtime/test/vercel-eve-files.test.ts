@@ -50,6 +50,12 @@ void test("packages declared specialists as native Eve subagents", () => {
     },
     environment: { ...environment, CHIEF_AGENT_ID: "chief" },
   });
+  for (const file of files.filter((file) =>
+    file.path.endsWith("instructions.md"),
+  )) {
+    assert.ok(file.contents.includes("files.write"), file.path);
+    assert.ok(file.contents.includes("artifactIds"), file.path);
+  }
   const paths = files.map((file) => file.path);
   assert.ok(paths.includes("agent/subagents/prospector/agent.ts"));
   assert.ok(paths.includes("agent/subagents/prospector/instructions.md"));
@@ -123,14 +129,15 @@ void test("generated Eve client sends strict workspace inputs without borrowing 
     URL,
     process: { env: environment },
     require: () => ({
-      currentChiefDelivery: {
+      currentChiefDelivery: () => ({
+        agentId: "researcher",
         deliveryId: "delivery-1",
         capability: "c".repeat(43),
         sessionId: "session-1",
         conversationId: "source-channel",
         messageId: "source-message",
         threadRootId: "source-thread",
-      },
+      }),
       noteChiefMessagePosted: () => undefined,
     }),
     fetch: async (_url: URL, init: RequestInit) => {
@@ -144,7 +151,12 @@ void test("generated Eve client sends strict workspace inputs without borrowing 
     .object({
       callChiefTool: z
         .function()
-        .args(z.string(), z.record(z.unknown()))
+        .args(
+          z.string(),
+          z.record(z.unknown()),
+          z.string(),
+          z.object({ session: z.object({ id: z.string() }) }),
+        )
         .returns(z.promise(z.unknown())),
     })
     .parse(module);
@@ -160,17 +172,29 @@ void test("generated Eve client sends strict workspace inputs without borrowing 
     deadline: "2026-12-01T00:00:00.000Z",
     constraints: "Do not publish externally",
   });
-  await client.callChiefTool("missions.create", mission);
-  assert.deepEqual(missionCreateSchema.parse(bodies[0]?.input), mission);
-  await client.callChiefTool("channels.messages.post", {
-    channelId: "different-channel",
-    content: "Mission ready",
+  await client.callChiefTool("missions.create", mission, "researcher", {
+    session: { id: "session-1" },
   });
+  assert.deepEqual(missionCreateSchema.parse(bodies[0]?.input), mission);
+  await client.callChiefTool(
+    "channels.messages.post",
+    {
+      channelId: "different-channel",
+      content: "Mission ready",
+    },
+    "researcher",
+    { session: { id: "session-1" } },
+  );
   assert.deepEqual(bodies[1]?.input, {
     channelId: "different-channel",
     content: "Mission ready",
   });
-  await client.callChiefTool("channels.reactions.add", { emoji: "👀" });
+  await client.callChiefTool(
+    "channels.reactions.add",
+    { emoji: "👀" },
+    "researcher",
+    { session: { id: "session-1" } },
+  );
   assert.deepEqual(bodies[2]?.input, {
     emoji: "👀",
     channelId: "source-channel",

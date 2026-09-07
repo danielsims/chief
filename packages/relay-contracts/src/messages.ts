@@ -133,6 +133,15 @@ export const pluginAuthorizationPayloadSchema = z.union([
     .strict(),
 ]);
 
+export const scheduledRunMessagePayloadSchema = z
+  .object({
+    runId: z.string().min(1).max(256),
+    scheduleId: z.string().min(1).max(256),
+    title: z.string().min(1).max(200),
+    agentIds: z.array(agentIdSchema).max(13),
+  })
+  .strict();
+
 export const messageComponentSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
@@ -143,17 +152,19 @@ export const messageComponentSchema = z
   .strict()
   .superRefine((component, context) => {
     const schema =
-      component.kind === "artifact.reference"
-        ? artifactReferencePayloadSchema
-        : component.kind === "plugin.recommendation"
-          ? pluginRecommendationPayloadSchema
-          : component.kind === "plugin.authorization"
-            ? pluginAuthorizationPayloadSchema
-            : component.kind === "project.recommendation"
-              ? projectRecommendationPayloadSchema
-              : component.kind === "channel-action"
-                ? channelMemberAddedPayloadSchema
-                : undefined;
+      component.kind === "schedule.run"
+        ? scheduledRunMessagePayloadSchema
+        : component.kind === "artifact.reference"
+          ? artifactReferencePayloadSchema
+          : component.kind === "plugin.recommendation"
+            ? pluginRecommendationPayloadSchema
+            : component.kind === "plugin.authorization"
+              ? pluginAuthorizationPayloadSchema
+              : component.kind === "project.recommendation"
+                ? projectRecommendationPayloadSchema
+                : component.kind === "channel-action"
+                  ? channelMemberAddedPayloadSchema
+                  : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {

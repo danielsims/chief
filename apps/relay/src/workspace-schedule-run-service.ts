@@ -21,6 +21,7 @@ import {
   readWorkspaceSchedule,
   wakeWorkspaceSchedules,
 } from "./workspace-schedule-store";
+import { addScheduleRunCollaborator } from "./workspace-schedule-team";
 
 export async function routeScheduleRuns(
   storage: DurableObjectStorage,
@@ -32,6 +33,8 @@ export async function routeScheduleRuns(
   const channels = new WorkspaceChannelStore(storage, env);
   channels.requireWorkspace(context.workspaceId);
   channels.requirePrincipalMember(context.principal);
+  if (operation === "schedules-runs-add-collaborator")
+    return addScheduleRunCollaborator(storage, env, request);
   if (operation === "schedules-runs-report") {
     channels.requireAgentCapability(context.principal, "workspace.write");
     const input = scheduleRunReportSchema.parse(await parseJson(request));
@@ -62,6 +65,8 @@ export async function routeScheduleRuns(
     if (input.status === "blocked")
       finishScheduleRun(storage, current.run.id, "blocked", input.evidence);
     else {
+      step.state = "completed";
+      step.completedAt = Date.now();
       step.evidence = input.evidence;
       current.run.summary = input.evidence;
       current.run.nextCheckAt = Date.now();
