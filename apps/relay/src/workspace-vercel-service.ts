@@ -45,20 +45,34 @@ export class WorkspaceVercelService {
       "Chief could not validate this Vercel access token.",
       () => listVercelEveDestinations({ token }),
     );
+    const previousToken = await this.secrets.get(
+      context.workspaceId,
+      VERCEL_DEPLOYMENT_SECRET,
+    );
+    const gatewayKey = await this.secrets.get(
+      context.workspaceId,
+      "vercel-ai-gateway",
+    );
+    if (!gatewayKey || gatewayKey === token || gatewayKey === previousToken) {
+      const teamId = catalog.selectedTeamId ?? catalog.teams[0]?.id;
+      const key = await this.vercelRequest(
+        "vercel_gateway_key_failed",
+        "Create an AI Gateway key before enabling hosted agents.",
+        () => mintAiGatewayKey(token, teamId, "Chief hosted agents"),
+      );
+      if (key === token)
+        throw new HttpError(
+          400,
+          "vercel_gateway_key_invalid",
+          "Vercel must return a separate AI Gateway key.",
+        );
+      await this.secrets.set(context.workspaceId, "vercel-ai-gateway", key);
+    }
     await this.secrets.set(
       context.workspaceId,
       VERCEL_DEPLOYMENT_SECRET,
       token,
     );
-    if (!(await this.secrets.get(context.workspaceId, "vercel-ai-gateway"))) {
-      const teamId = catalog.selectedTeamId ?? catalog.teams[0]?.id;
-      const key = await mintAiGatewayKey(
-        token,
-        teamId,
-        "Chief hosted agents",
-      ).catch(() => token);
-      await this.secrets.set(context.workspaceId, "vercel-ai-gateway", key);
-    }
     return json(catalog);
   }
 

@@ -23,6 +23,7 @@ import {
   conversationWorkflowId,
   parseConversationPageInteger,
 } from "./conversation-request";
+import { deliverConversationSocketEvent } from "./conversation-socket-delivery";
 import { SqlConversationStore } from "./conversation-store";
 import {
   connectConversationWebSocket,
@@ -35,6 +36,7 @@ import {
   requiredTrustedConversationId,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { requireInternalDeletion } from "./internal-deletion";
 import { validatePluginComponentPlacement } from "./plugin-component-policy";
 import { recordProductEvents } from "./product-events";
 
@@ -97,7 +99,9 @@ export class ConversationObject extends DurableObject<Env> {
     const append = this.append.bind(this);
     const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
-        yield* sync("conversation.identity", () => readTrustedContext(request));
+        yield* sync("conversation.identity", () =>
+          requireInternalDeletion(request),
+        );
         yield* attempt("conversation.delete_all", () =>
           ctx.storage.deleteAll(),
         );
@@ -501,14 +505,9 @@ export class ConversationObject extends DurableObject<Env> {
   }
 
   private broadcast(event: JsonObject) {
-    const serialized = JSON.stringify(event);
-    for (const socket of this.ctx.getWebSockets()) {
-      try {
-        socket.send(serialized);
-      } catch {
-        socket.close(1011, "Delivery failed");
-      }
-    }
+    this.ctx.waitUntil(
+      deliverConversationSocketEvent(this.env, this.ctx.getWebSockets(), event),
+    );
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {

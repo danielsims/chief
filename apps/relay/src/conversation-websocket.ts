@@ -29,10 +29,15 @@ export async function connectConversationWebSocket(
       "The socket ticket is invalid or expired.",
     );
   }
-  principalSchema.parse(JSON.parse(principalJson));
+  const principal = principalSchema.parse(JSON.parse(principalJson));
   const pair = new WebSocketPair();
   const client = pair[0];
   const server = pair[1];
   ctx.acceptWebSocket(server);
+  server.serializeAttachment({
+    principal,
+    workspaceId: context.workspaceId,
+    conversationId: context.conversationId,
+  });
   return new Response(null, { status: 101, webSocket: client });
 }

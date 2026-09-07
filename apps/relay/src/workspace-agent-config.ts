@@ -11,6 +11,10 @@ const collaborationPermissions = [
   "messages.send",
 ] as const;
 
+const legacyCollaborationPermissions = collaborationPermissions.filter(
+  (permission) => permission !== "workspace.write",
+);
+
 const pluginPermissions = ["integrations.manage"] as const;
 
 export function defaultAgentConfigFor(agentId: string) {
@@ -117,8 +121,10 @@ export function effectiveAgentConfigFor(
   const legacyIntegrationConfig =
     (agentId === "ads" || agentId === "setup") &&
     config.capabilities.length === 0 &&
-    config.toolPermissions.length === collaborationPermissions.length &&
-    collaborationPermissions.every((permission) => permissions.has(permission));
+    config.toolPermissions.length === legacyCollaborationPermissions.length &&
+    legacyCollaborationPermissions.every((permission) =>
+      permissions.has(permission),
+    );
   if (legacyIntegrationConfig) {
     capabilities = ["advanced"];
     permissions.add("browser.use");

@@ -199,8 +199,9 @@ describe("external agent channel inbound", () => {
         });
       }),
     );
+    const root = await appendRootMessage(ctx);
     await dispatchTestMessage(ctx, ctx.principal, {
-      id: crypto.randomUUID(),
+      id: root,
       workspaceId: ctx.workspaceId,
       conversationId: "mission-control",
       author: { kind: "user", id: ownerId },
@@ -375,5 +376,36 @@ describe("external agent channel inbound", () => {
     expect(
       messages.find((message) => message.body === inbound.body)?.threadRootId,
     ).toBeUndefined();
+    const removed = await channelRpc(
+      ctx,
+      ctx.principal,
+      "channels-members-remove",
+      channelEnvelope({
+        conversationId,
+        kind: "agent",
+        principalId: "eve-dm",
+      }),
+    );
+    expect(removed.status).toBe(200);
+    const revokedActivity = await receiveExternalActivity(
+      ctx,
+      "eve-dm",
+      registered.channel.token,
+      {
+        deliveryId: `${triggerId}:after-removal`,
+        continuation,
+        sessionId: "eve-dm-session",
+        component: {
+          id: "revoked-activity",
+          kind: "thinking",
+          version: 1,
+          payload: { text: "Should not be delivered", status: "working" },
+        },
+      },
+    );
+    expect(revokedActivity.status).toBe(403);
+    expect(
+      await testConversationMessages(ctx, ctx.principal, conversationId),
+    ).toHaveLength(messages.length);
   });
 });
