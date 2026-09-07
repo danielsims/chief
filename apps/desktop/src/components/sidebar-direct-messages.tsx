@@ -328,7 +328,7 @@ export function SidebarDirectMessages({
                 <div key={agentId}>
                   {row(agentId, agent?.name)}
                   {expanded && children.length > 0 ? (
-                    <div className="mt-0.5 ml-3 space-y-0.5 border-l pl-1">
+                    <div className="before:bg-border relative mt-0.5 space-y-0.5 pl-[17px] before:absolute before:inset-y-0 before:left-4 before:w-px before:-translate-x-1/2">
                       {children.map((child) => row(child.id, child.name))}
                     </div>
                   ) : null}
