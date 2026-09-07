@@ -5,6 +5,12 @@ import os
 let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 
 protocol RelayServing: Sendable {
+  func uploadIdentityImage(workspaceID: String?, data: Data) async throws -> URL
+  func removeProfileImage() async throws
+  func workspaceSettings(workspaceID: String) async throws -> WorkspaceSettingsData
+  func saveWorkspaceSettings(workspaceID: String, settings: WorkspaceSettingsData) async throws
+  func deleteWorkspace(workspaceID: String) async throws
+
   func bindDeviceIdentity(accountToken: String) async throws
   func registerPushDevice(token: String, environment: String) async throws -> Bool
   func createProject(
@@ -1491,7 +1497,7 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
-  private func request<Response: Decodable>(
+  func request<Response: Decodable>(
     path: String,
     method: String,
     body: Data? = nil,

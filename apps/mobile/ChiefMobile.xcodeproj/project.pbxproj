@@ -38,6 +38,7 @@
 		307113C9AF26FB933E6D50E2 /* AgentBrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B63D890CAB204CDB135E2E6 /* AgentBrowserSession.swift */; };
 		32DBB2AA6F56F1223253BCC9 /* AgentConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DEF53D6AA13EFFFB6A1E68 /* AgentConfig.swift */; };
 		3371F608F28C508752B8B275 /* ConversationMenuSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06EB5803FCFD5F5FB079472F /* ConversationMenuSheet.swift */; };
+		34B4583CB4CAC7B5888EABCA /* ChiefTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F41C16FB9059541794B958 /* ChiefTabBar.swift */; };
 		37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */; };
 		38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */; };
 		39578FE04E502922DBB930D1 /* ConversationDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E6A0CEE361E0B804BB8D6F /* ConversationDeepLink.swift */; };
@@ -98,6 +99,7 @@
 		8A4F99F18DD6A88EBDEDFDA2 /* ConversationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8D35A69CA1DA238E60641B /* ConversationCache.swift */; };
 		8C6AE453D51DE0A7ADB172D7 /* agents in Resources */ = {isa = PBXBuildFile; fileRef = FEF7EBF2CF71876B71E9F46C /* agents */; };
 		8D8F7B69835162A1A8E7C1E8 /* AgentIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98236C72F2593788B89CC371 /* AgentIdentityStore.swift */; };
+		8DFC889C5754E3427195F58E /* WorkspaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DBA52B7F50A5AB0BB75455 /* WorkspaceSettingsView.swift */; };
 		8E4BFCDA268466C8D7DD7AB3 /* ThreadParticipantStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE707A588AF29146A09E6A1 /* ThreadParticipantStack.swift */; };
 		8E9C008C6A25E4905A6EE27C /* ConversationPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF911FA125B3E345E9ECF2B /* ConversationPresentationTests.swift */; };
 		90392B538A15D8E64CF20D19 /* MessageAttachmentUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14427A9F701A01C34068FE0 /* MessageAttachmentUploader.swift */; };
@@ -134,6 +136,7 @@
 		C61DB9F27942652DBC1DDC82 /* PluginOAuthLoopbackCallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD293585DA2427CC5BF1E841 /* PluginOAuthLoopbackCallbackTests.swift */; };
 		C87604881BA2E376DA41501A /* ComposerAccessoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54318F982C80A99C41E94EDF /* ComposerAccessoryViews.swift */; };
 		CA1A5F505FD53B74AC98AB9F /* ConversationReferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE24E640C8A982222270AB1 /* ConversationReferenceTests.swift */; };
+		CAB0A3E995218A52103897C8 /* ProfilePhotoPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FBFEBAD67DD45F4E2D036B4 /* ProfilePhotoPicker.swift */; };
 		CAB2F3C4356C47CD35FF109D /* ChannelCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB364083B00585DAF3BCD5A3 /* ChannelCanvasView.swift */; };
 		CAF472468E01FCCA505DA236 /* AgentPackageBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EA670211F01351F49BEF89 /* AgentPackageBundle.swift */; };
 		CC650F891CE4B8D022FAA593 /* OAuthAuthenticationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA7371F3EAFC68C63952892 /* OAuthAuthenticationClient.swift */; };
@@ -157,6 +160,7 @@
 		EAD111B1F4F9ED4A1508223B /* ChiefShimmerText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CB599393958CE3233D3173 /* ChiefShimmerText.swift */; };
 		EC9D02B21E9FF422D19CCB82 /* InferenceCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 232F3C996B7EF2957E299392 /* InferenceCredentialStore.swift */; };
 		ED4234C5D7F5816386155F29 /* WorkspaceData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D570759850439C182A9B280 /* WorkspaceData.swift */; };
+		EDFE4481B2C2FF2FF803D293 /* RelayAccountSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535BCF53AFC32038D93D57D1 /* RelayAccountSettings.swift */; };
 		F30A0C8A572B9E4B2D08139E /* MessageSkill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA800891A8B0A96131E68EA6 /* MessageSkill.swift */; };
 		F59BEE98348BFACBEA4D7127 /* droplet.caf in Resources */ = {isa = PBXBuildFile; fileRef = 5E96644C6E57E3B1C9D7F340 /* droplet.caf */; };
 		F84A8C41C3020D66F742FCCD /* MessageSendRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85EDCFE266EF656E0B9B7EE1 /* MessageSendRecovery.swift */; };
@@ -205,6 +209,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		02F41C16FB9059541794B958 /* ChiefTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefTabBar.swift; sourceTree = "<group>"; };
 		031920B85FC8BCBD6801DA24 /* AgentToolAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolAuthorization.swift; sourceTree = "<group>"; };
 		035C4F0C8C58832BBF85A94C /* ready.caf */ = {isa = PBXFileReference; path = ready.caf; sourceTree = "<group>"; };
 		04C239EE0E7A82C38063DC49 /* MobilePluginRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePluginRuntime.swift; sourceTree = "<group>"; };
@@ -240,6 +245,7 @@
 		2F8AEF859759ADA2D235C11D /* browser-ui */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "browser-ui"; path = "../../../browser-ui"; sourceTree = SOURCE_ROOT; };
 		2F9262D4A5003AC4CADCFF32 /* ConversationReadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationReadState.swift; sourceTree = "<group>"; };
 		2FBAB6FD2D0630F235BBE0E2 /* AgentTurnToolPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnToolPolicy.swift; sourceTree = "<group>"; };
+		2FBFEBAD67DD45F4E2D036B4 /* ProfilePhotoPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoPicker.swift; sourceTree = "<group>"; };
 		301BD2A9B043DB80B0BBB26A /* agent.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = agent.js; sourceTree = "<group>"; };
 		30754C9A259B352E485B5B3E /* AppModelAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelAuthenticationTests.swift; sourceTree = "<group>"; };
 		3220FF0DE5ACD36BBD17B0A8 /* MobileAuthenticationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthenticationSession.swift; sourceTree = "<group>"; };
@@ -252,11 +258,13 @@
 		425DE3C91A48D6A27436E67D /* ChiefMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefMobileApp.swift; sourceTree = "<group>"; };
 		43A2A6690C5EDC8EF62A3FFA /* OnDeviceModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceModelStore.swift; sourceTree = "<group>"; };
 		44DCD3C27E9EA7B6DAC7C39A /* WorkspaceRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRootView.swift; sourceTree = "<group>"; };
+		47DBA52B7F50A5AB0BB75455 /* WorkspaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsView.swift; sourceTree = "<group>"; };
 		48634CF915022D26C6CC80C7 /* ConversationDeepLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDeepLinkTests.swift; sourceTree = "<group>"; };
 		4BF870EE2DD66AEECF25170D /* WorkspaceCompose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCompose.swift; sourceTree = "<group>"; };
 		4EF911FA125B3E345E9ECF2B /* ConversationPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPresentationTests.swift; sourceTree = "<group>"; };
 		4FDE346C1A67FD68C28C0494 /* Chief.Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Chief.Debug.entitlements; sourceTree = "<group>"; };
 		531611CDDD3D04D3709C4D98 /* PluginCatalogClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginCatalogClient.swift; sourceTree = "<group>"; };
+		535BCF53AFC32038D93D57D1 /* RelayAccountSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayAccountSettings.swift; sourceTree = "<group>"; };
 		53D1666AF8304834B5840C7D /* AgentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDetailView.swift; sourceTree = "<group>"; };
 		54318F982C80A99C41E94EDF /* ComposerAccessoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAccessoryViews.swift; sourceTree = "<group>"; };
 		55CF783FD6781448D1FF97D8 /* MessageReferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReferences.swift; sourceTree = "<group>"; };
@@ -692,6 +700,7 @@
 				9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */,
 				531611CDDD3D04D3709C4D98 /* PluginCatalogClient.swift */,
 				D24E5CEBF936390665E0BE1E /* PushAppDelegate.swift */,
+				535BCF53AFC32038D93D57D1 /* RelayAccountSettings.swift */,
 				90093880B1D0B7E1754C3367 /* RelayAPITools.swift */,
 				F0EDEC45AA1FA51F3C92BC12 /* RelayClient.swift */,
 				D821FB95BD37D29DD2B5A127 /* RelayDirectory.swift */,
@@ -715,10 +724,13 @@
 		E64A3178E819A6D8A38D5AF7 /* Workspace */ = {
 			isa = PBXGroup;
 			children = (
+				02F41C16FB9059541794B958 /* ChiefTabBar.swift */,
+				2FBFEBAD67DD45F4E2D036B4 /* ProfilePhotoPicker.swift */,
 				198C948C6D8F953905CC5786 /* RelayConnectionSettingsView.swift */,
 				4BF870EE2DD66AEECF25170D /* WorkspaceCompose.swift */,
 				C6479E5C24A0A51D0689DA99 /* WorkspaceInviteView.swift */,
 				44DCD3C27E9EA7B6DAC7C39A /* WorkspaceRootView.swift */,
+				47DBA52B7F50A5AB0BB75455 /* WorkspaceSettingsView.swift */,
 				1C8BF5647B8487F59E140D8B /* WorkspaceSidebarView.swift */,
 			);
 			path = Workspace;
@@ -957,6 +969,7 @@
 				13CE8BA97BDD051A420BC292 /* ChiefOpenCodeAgentHost.swift in Sources */,
 				0A7E8504B4AA80BD88A93D2A /* ChiefSheet.swift in Sources */,
 				EAD111B1F4F9ED4A1508223B /* ChiefShimmerText.swift in Sources */,
+				34B4583CB4CAC7B5888EABCA /* ChiefTabBar.swift in Sources */,
 				1D3D15BEC2643DBD8C4F5211 /* ChiefTheme.swift in Sources */,
 				C87604881BA2E376DA41501A /* ComposerAccessoryViews.swift in Sources */,
 				E86696CA594D3B787E457A07 /* ComposerTextView.swift in Sources */,
@@ -1002,10 +1015,12 @@
 				C2DF79E9AC1935A35D78C88A /* OpenCodeStreamingClient.swift in Sources */,
 				38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */,
 				E1EDB8495AD62275E2212AF1 /* PluginCatalogClient.swift in Sources */,
+				CAB0A3E995218A52103897C8 /* ProfilePhotoPicker.swift in Sources */,
 				F9735FFBDA3F143A2682709C /* ProjectRepositoryTree.swift in Sources */,
 				A3FDCCE90813A3B5003A9603 /* ProjectsView.swift in Sources */,
 				51A5C31C644DDFA5C7505DC6 /* PushAppDelegate.swift in Sources */,
 				5152FA96DCF73F242326BD52 /* RelayAPITools.swift in Sources */,
+				EDFE4481B2C2FF2FF803D293 /* RelayAccountSettings.swift in Sources */,
 				ACB425C2997D4C61C7662EC4 /* RelayClient.swift in Sources */,
 				B0619361D746278E0CBAA23B /* RelayConnectionSettingsView.swift in Sources */,
 				3B702201AFEA40FA6A90B3E6 /* RelayDirectory.swift in Sources */,
@@ -1031,6 +1046,7 @@
 				B052A54C1C2787268645F410 /* WorkspaceResearchTools.swift in Sources */,
 				27B26ACF4FE0C9DE6EA3C763 /* WorkspaceRootView.swift in Sources */,
 				07A12D8A23B6B15EEE0B2AB5 /* WorkspaceScheduleTools.swift in Sources */,
+				8DFC889C5754E3427195F58E /* WorkspaceSettingsView.swift in Sources */,
 				DE990009CEF3D641ED26197A /* WorkspaceSidebarView.swift in Sources */,
 				1C32FCE72A1B8A6E5CCF6ECF /* WorkspaceStore.swift in Sources */,
 				4B45A30339F88FB27ABB5E9D /* celld.c in Sources */,
