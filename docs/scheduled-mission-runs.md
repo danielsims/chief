@@ -110,3 +110,104 @@ or 5xx with exponential backoff and the same event ID.
 - Neither Codex ACP nor the native Codex distribution ships in the DMG. Selecting
   Codex installs pinned, checksum-verified packages in Chief's private runtime cache.
   An isolated download and ACP initialize handshake passed without a model prompt.
+
+## Creating the complete schedule through tools
+
+Desktop, hosted and external relay agents use `recurringWork.propose`; mobile agents use `workspace_schedule_propose` with the same JSON object in its `schedule` argument. The HTTP endpoint is `POST /v1/workspaces/:workspaceId/schedules`.
+
+```json
+{
+  "id": "weekly-growth-review",
+  "title": "Weekly growth review",
+  "agentId": "chief",
+  "collaborators": ["brand", "content"],
+  "instructions": "Review campaign results, choose one experiment and draft the next iteration.",
+  "newChannel": {},
+  "triggerMode": "cron",
+  "cron": "0 9 * * 1",
+  "timezone": "Australia/Brisbane"
+}
+```
+
+`newChannel: {}` creates a named mission channel and adds the team. Agents can provide `newChannel.name` and `newChannel.inviteUserIds` when they want to name the channel and invite workspace users explicitly. A human creating the schedule joins automatically. The lead receives channel management rights in a newly created channel. Omit `newChannel` and supply `conversationId` to use an existing channel. Channel creation, memberships, mission creation and schedule saving are one transaction; validation failures roll everything back and identical retries reuse the setup.
+
+For one-time work, provide `onceAt` as an ISO timestamp or Unix milliseconds. For a webhook trigger, set `triggerMode: "webhook"`; cron is then unused. All form options are available: collaborators, existing missionId, expectedOutcome, constraints, maxDurationMinutes, skipDates, approvalSummary and proposedToolPatterns. Existing missions are configured through mission tools and referenced by ID. Use the same schedule ID when revising a proposal.
+
+Agents need `workspace.write` to propose schedules, `channels.create` to create a channel and `members.manage` to add participants. Existing-channel additions also require channel management rights. Personal-agent messaging restrictions still apply. Proposals require owner/admin approval before execution; this does not grant agents permission to approve themselves or manage webhook secrets. Signed webhook URLs are configured through Settings → Webhooks and the existing webhook administration API after review.
+
+Calendar clients may request `GET /v1/workspaces/:workspaceId/schedules?from=<epoch-ms>&to=<epoch-ms>` for a range of up to 93 days. Each visible schedule includes `recordedRuns`, the distinct occurrence timestamps recorded in that range. The default range covers the preceding 35 days. Clients combine these with `upcomingRuns` so dispatching or completing a run does not erase it from the calendar.
+
+## Eve subagent delivery
+
+A declared child of an Eve agent uses its parent's external runtime. The relay
+addresses the delivery to the child and sends it to the parent's connected Eve
+endpoint. Chief invokes the matching declared Eve subagent tool; the child's own
+session receives workspace tools and posts its output under its own identity in
+the run thread. A background task receipt only confirms delegation. It does not
+complete the collaborator's run step.
+
+The generated adapter carries delivery context through encrypted channel metadata
+and durable session state. Relay callbacks validate the addressed agent,
+continuation capability, and accepted root session together. Parent acknowledgements
+cannot impersonate the child or complete its work. Child completion and failure
+hooks settle the run step. If a background task fails before a child turn starts,
+Chief reports that failure using the generated `chief_handoff_failed` tool; the run
+timeout remains the final bound on a missing callback.
+
+These changes are emitted by `eveProjectFiles`, including each declared child's
+tools and hooks. Existing deployments require regeneration through Chief's update
+flow. Preparation reuses the existing connection credentials without changing the
+live endpoint; the endpoint switches after the generated deployment succeeds.
+This does not require editing a deployed agent repository by hand.
+
+## Adding teammates during a run
+
+The lead can call `missions.addRunCollaborator` with `runId`, `agentId`, and a
+concrete `assignment` (`POST /v1/workspaces/:workspaceId/schedule-runs/collaborators`).
+The relay atomically appends a tracked contribution and updates the run's team.
+The lead finishes its current turn, then the scheduler dispatches the contribution
+under the selected agent's identity in the same thread. If the lead was already
+producing the final result, its in-flight step keeps its ID and becomes planning;
+a new final review follows the added work. Repeating the same assignment does not
+queue it twice; conflicting assignments and ended runs are rejected.
+
+Only the run's lead may add teammates. Workspace membership, agent sharing,
+availability, channel management, and existing mission team restrictions still
+apply. The recurring schedule's team is unchanged. An agent mention alone does
+not create an assignment.
+
+## Deliverables and progress
+
+The shared artifact instructions are packaged into Eve's root and child agents.
+Production steps save substantial output through `files.write` in the channel,
+then present its saved ID through `channels.messages.post` with `artifactIds`.
+The existing versioned file store, Canvas list, viewer, and channel tabs provide
+the durable home for this output. Chat carries a short update and an artifact
+reference rather than the full document. Planning steps remain short plans.
+
+Desktop scheduled-run cards and composer presence use recorded run steps to show
+the existing matrix indicator for working agents. Cards reflect collaborators
+added during execution. Presence is scoped to loaded channel runs and the open
+thread, clears on terminal states or failed refreshes, and refreshes when the
+window regains focus.
+
+
+## Mobile run experience
+
+Mobile renders the same system-authored run announcement as a native card, with
+team avatars, current collaborators, thread navigation, and the shared matrix
+indicator for agents with running steps. Conversation and thread footers use the
+same recorded state, refresh while active, and clear progress on completion or
+refresh failure. Long-press a card for step details and administrator stop/retry
+actions. Retry commands retain their identity across uncertain network responses.
+
+The channel toolbar opens Canvas, which lists saved channel artifacts. Artifact
+cards open the Markdown or isolated HTML viewer. The on-device agent uses
+`workspace_file_write` and `relay_message_post` with `artifactIds` in the scheduled
+thread; successful scoped post receipts suppress duplicate completion messages.
+`missions_addRunCollaborator` and `missions_reportRunStep` expose the same run
+operations as the relay tools, subject to existing tool approval policies.
+
+Notification destinations survive launch and workspace hydration, including roots
+outside the loaded message page. Read errors stay acknowledged across app launches;
+a new failure can still surface, and successful recovery clears stale alerts.

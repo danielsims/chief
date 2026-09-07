@@ -381,3 +381,141 @@ Release verification (2026-09-05 22:28 AEST):
 The spacing and mention follow-ups are source changes after the 22:28 DMG above; that image does not contain them.
 
 Approved implementation commits: `e6c117fb` (personal-agent access), `4d097fd6` (channel tools and artifact publishing), `896c5a67` (Canvas), `5eff1810` (schedule composer), and `880f098e` (live mentions and specialist DMs). All 18 typechecks and staged lint/source-size checks passed. Eight mention tests passed, including multiword agents and whole-chip deletion; the real composer and message renderer were visually checked in the in-app browser.
+
+### Schedule input and agent API follow-up
+
+- Replace conversational headings with New schedule, Instructions, Lead agent, Teammates and Channel.
+- Make the searchable combobox input the only teammate trigger, with removable selected agents. Keep the list within the dialog scroll boundary and available space; verify pointer and keyboard scrolling through a 24-agent roster.
+- Remove the channel-name field. Move channel, membership, mission and schedule setup into one relay transaction with stable identities and idempotent retries.
+- Expose the complete configuration, optional agent-authored channel name and user invitations, and skip dates through desktop/hosted/external tools and a mobile scheduling tool. Keep activation and webhook-secret administration within existing owner approval rules.
+- Verify eight relay scheduling cases, including atomic rollback, retry identity and an agent creating a webhook proposal without an existing channel. Verify the actual guided form in the browser and compile iOS.
+
+Release verification for this follow-up: relay version `a880149d-23d7-4774-b630-47cb076f987f`; production health OK and anonymous file access 401. Rebuilt `Chief_0.1.0_aarch64.dmg` (60,069,962 bytes; SHA256 `2f72ed6efd7d450f8a92b65590aa1dbb77551d1bfec9260cc17bfa26b75a91d6`). Verified the signed app and packaged plugin host from the mounted image, with no Codex adapter bundled. All 18 typechecks, lint/source-size checks, eight scheduling tests and the iOS simulator build passed. Apple notarization remains unavailable without credentials. This follow-up remains uncommitted for review.
+
+### Calendar history and agent activity follow-up
+
+- Preserve elapsed scheduled occurrences in the calendar using recorded relay runs, including paused schedules, and retain due timestamps through the desktop clock transition. Historical cards stay readable at reduced opacity and remain available for inspection.
+- Restore continuous vertical month scrolling, month-heading synchronization and explicit Today/date jumps. Fetch recorded history for the visible month and its neighbors, with workspace/channel visibility enforced by the relay.
+- Group conversation activity by agent identity and most recent activity, with live roster names and avatars. Selecting an agent reveals full-width tool rows and expandable reasoning; remove the generic workspace/earlier-activity card hierarchy.
+- Add focused regressions for interleaved agents and durable calendar history after a schedule is paused. Browser verification covers month scrolling, Today, completed-card retention, agent selection and reasoning expansion.
+
+Release verification (2026-09-06): relay version `c2d20a51-84d2-4d9a-b782-671c8627b850`, production health OK and anonymous file access 401. Rebuilt `Chief_0.1.0_aarch64.dmg` (59,843,122 bytes; SHA256 `98c8b6e93dd9073381eed68f777c59500c073047052c5ba1e2aedf9ac011efb0`). Verified the signed app and packaged plugin host inside the mounted read-only image; no Codex adapter is bundled. All 18 typechecks, lint/source-size checks, nine relay scheduling tests and three conversation-activity tests passed. Browser review used the actual calendar and Activity components. Signing passed; notarization remains unavailable without Apple credentials. Source changes remain uncommitted for review.
+
+
+### Scheduled handoff and deployment follow-up
+
+Scheduled runs now publish one workspace-authored announcement with a compact run card. Internal phase instructions stay in the job or delivery payload; they are not posted as messages from the user. Replies continue in the run thread.
+
+The Eve adapter reports turn completion separately from visible replies, including when a channel tool already published the work. Reply publication and completion are serialized per delivery, and duplicate completion receipts are idempotent. Completing a scheduled step through the run reporting tool also advances the step. Generated delivery prompts include the shared concise, friendly voice guidance and prohibit em dashes.
+
+Connected Eve agents now expose **Update deployment** in their runtime settings. Desktop deployment always goes through the authenticated relay so the generated agent source is registered in Projects. Agent projects link back to agent settings. Existing deployments created through the previous desktop shortcut still need an explicit redeployment to register their source and install the updated adapter. The hosted adapter runs in Eve, separately from the relay and desktop releases. Chief Git remains a clone-only source snapshot; pushing edits is not supported. No existing Eve deployment was changed during this pass.
+
+The specialist guide line moves left by 1px without shifting the agent rows; the real sidebar component was reviewed in the in-app browser. Repository formatting was repaired with `pnpm format:fix`, including the files reported by CI.
+
+Release verification: production relay `7d54aeb1-baec-453f-adf3-4a91dcafb438`, health OK and anonymous file access 401. The rebuilt Apple Silicon DMG is 59,845,514 bytes with SHA256 `d045827a274ba3da1645b26cf7d04c4837e96b6f60eccd321723ae47c32e50d4`. The app inside the mounted image passes Developer ID signature and packaged plugin host verification; the Codex adapter is not bundled. Notarization remains unavailable without Apple credentials. All 18 typechecks and formatting tasks, repository lint/source-size, 21 relay checks and three adapter-generation/completion checks pass. The iOS simulator build passed for the scheduled-run card. Changes remain uncommitted.
+
+
+### Parent-avatar guide alignment correction
+
+The specialist guide now uses an independently positioned 1px line centred at the parent avatar's midpoint (8px row padding plus half of the 16px avatar). The rendered component measures a 0px difference between the guide and avatar centres; child-row indentation is preserved. Focused lint and formatting checks pass, and the desktop build passes TypeScript and production compilation.
+
+Rebuilt and verified the signed app and packaged runtime inside the DMG: 60,063,967 bytes, SHA256 `f45d421e5bb5a8e78c5f12f67040c6df3376f000aed988e70db6c0d0c14b6772`. No Codex adapter is bundled. This desktop-only correction does not change the production relay or Eve deployments. Source remains uncommitted.
+
+
+### Calendar month-title handoff
+
+The scrolling calendar hands the month title to the page header when the new month's first row is within 64px of the weekday header, replacing the previous 4px threshold. This starts the existing label fade 60px earlier. Browser verification of January to February 2027 confirmed January with the grid label visible at 80px, February with the grid label hidden at 48px and 16px, and correct restoration when scrolling back. Focused formatting and lint checks pass.
+
+Rebuilt DMG: 59,848,325 bytes, SHA256 `0dba4f89bd3f26213735d8cb54d1bbf5882378ad112bd4eb2a34bd3f97def89d`. Desktop compilation and TypeScript pass. The signed app and packaged plugin host were verified inside the mounted image, with no bundled Codex adapter. Source changes remain uncommitted; this calendar change needs no relay deployment.
+
+### Scheduled Eve collaboration and mobile notification recovery
+
+Declared Eve children now inherit their parent's external runtime. Generated child
+sessions receive workspace tools and encrypted delivery context, and publish under
+the child's identity in the scheduled thread. Parent background acknowledgements
+cannot complete a child's run step. The deployment generator and relay own these
+changes; there are no manual patches in the deployed agent project.
+
+The deployment update flow now explicitly reuses an existing registration without
+rotating credentials or replacing the live endpoint during the build. The generated
+repository is saved to Projects. The desktop run announcement aligns with the chat
+body and no longer includes the calendar/clock icon.
+
+Mobile notification links persist until workspace hydration and navigation finish.
+Newer taps supersede older pending links, and thread roots outside loaded history
+are fetched directly. Opening Activity acknowledges errors across app launches;
+newer successful work suppresses recovered failures while history remains available.
+
+Verification on 7 September: all 18 typecheck and formatting tasks pass, as do
+repository lint/source-size checks, the generated Eve build and six adapter tests,
+nine external-runtime/update/handoff tests, nine conversation tests, and seven
+focused iOS notification/acknowledgement tests. The full iOS suite still reports
+onboarding and launch-navigation assertion failures. The reported physical-device
+notification launch failure could not be reproduced or tied to a crash report, so
+it still requires a real-device push-tap check.
+
+Production relay: `8d5403bd-6610-4bcd-aa0f-5453bd37c8f5`, health OK.
+`chief-program` was rebuilt through the normal app deployment flow at Vercel
+`GCRsDpFizbZEDSva6coaUBrNvgHU`. A retry in the marketing channel produced a Chief
+reply at 12:28, a real Marketer contribution at 12:29, and Chief's assembled result
+at 12:29. All three are in thread `67be4839-e478-4c79-bc8f-c22880b73a14`.
+The generated `chief-program` repository is visible in Projects.
+
+The signed Apple Silicon DMG is 60,065,398 bytes, SHA256
+`e923de436a795ccddb3b163ccfaa254da1280fadd201ae71ff04498b3f56a723`.
+Its mounted app passes Developer ID signature and packaged plugin-host verification;
+no Codex adapter is bundled. The app is not notarized. Source changes remain
+uncommitted.
+
+### September 7: scheduled artifacts and explicit team expansion
+
+- Added a lead-only `missions.addRunCollaborator` tool and public run API. It adds
+  a concrete, replay-safe contribution to the current run without changing future
+  schedules. Native scheduling preserves the lead's current step and queues a
+  final review after added work. Permission and mission boundaries remain enforced.
+- Packaged the shared artifact guidance into generated Eve root and child agents;
+  production steps now save substantial output and post artifact references with
+  brief chat updates. No deployment repository was patched manually.
+- Added live scheduled-run matrix indicators to desktop cards and composer
+  presence, with thread scoping, terminal-state cleanup and dynamic team avatars.
+- Deployed relay version `7a3118ec-f832-4b8b-ad4e-ea938bfff01f` (health OK) and
+  regenerated `chief-program` through the app, deployment
+  `7QtHQoiW9ac1Qhwg7Ead3SRyRUbr`.
+- Live verification: Marketer posted the launch post and demo script as artifact
+  `ce23dbe4-20bc-5b30-81af-c96a0aaa76e6` in run thread
+  `5b2a761f-8931-4772-9e45-a2c080d887bb`. Its chat card opened the complete document,
+  including the script table, in the channel Canvas and header tab. The working
+  indicator appeared while Marketer ran and cleared after completion.
+- Verified 15 focused relay tests, then an additional dispatch regression (all
+  four team tests passed), four generator/catalog tests, four activity-presence
+  tests, all 18 workspace type checks and formatting checks, and repository lint.
+  Existing source-length warnings remain. Browser review covered working and
+  completed card states. Dynamic team expansion has integration coverage; the
+  live marketing run used its existing Chief/Marketer team.
+- Updated the signed arm64 DMG, 60,065,816 bytes, SHA-256
+  `ebd776c6361166a44418381ceca5683680c68fd136aa8cb8c7f77b732f195282`.
+  Mounted signature and packaged plugin-host verification passed. Notarization
+  was not run. The temporary verification mount was detached after a busy retry.
+
+
+### September 7: mobile scheduled-run parity and commit verification
+
+- Added native scheduled-run cards with team avatars, current assignments, live
+  matrix progress, thread navigation, and run details with stop/retry actions.
+- Added channel Canvas access and artifact viewing from the run thread. On-device
+  agents can save and present artifacts, report steps, and explicitly add run
+  collaborators; successful thread posts do not produce duplicate completion text.
+- Verified all 96 mobile unit tests and the scheduled-run UI test, including
+  specialist identity, progress, opening the thread, and reading a saved artifact.
+  Corrected two stale workspace-setup expectations. Older general launch UI tests
+  were not rerun in this pass; their earlier navigation failures remain separate.
+- Built and signature-verified the device app, installed it on the paired iPhone,
+  and successfully launched both normally and from a cold start with a scheduled
+  thread deep link. The app process remained alive after launch. An actual APNs
+  notification tap still needs a physical-device check; a URL launch does not
+  exercise the system notification delivery path.
+- Repository formatting and all 18 typecheck tasks passed; lint/source-size passed
+  with existing source-length warnings. Commit hooks repeat the staged checks.
+- Grouped the accumulated work into focused commits covering formatting, scheduled
+  execution, schedule setup, calendar history, generated deployments, chat activity,
+  sidebar alignment, mobile parity, and these verification notes.
