@@ -1,33 +1,21 @@
-import { open, realpath } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
-
 import { requiredEnvironment } from "../context.js";
 import { requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
+import { openWorkspaceFile } from "../workspace-file.js";
 
 export const relayCellMediaTools = [
   defineRelayCellTool(
     "computer.artifacts.publish",
     "workspace.write",
     async ({ client, agentId, conversationId }, input) => {
-      const root = await realpath(requiredEnvironment("CHIEF_CELL_ROOT"));
       const requested = requiredString(input, "path").replace(
         /^\/workspace\/?/u,
         "",
       );
-      const path = await realpath(resolve(root, requested));
-      const scoped = relative(root, path);
-      if (
-        !scoped ||
-        scoped === ".." ||
-        scoped.startsWith(`..${sep}`) ||
-        resolve(root, scoped) !== path
-      ) {
-        throw new Error(
-          "Published files must stay inside the agent workspace.",
-        );
-      }
-      const handle = await open(path, "r");
+      const handle = await openWorkspaceFile(
+        requiredEnvironment("CHIEF_CELL_ROOT"),
+        requested,
+      );
       try {
         const stat = await handle.stat();
         const maximum = 8 * 1024 * 1024;
