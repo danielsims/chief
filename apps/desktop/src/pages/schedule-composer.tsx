@@ -4,10 +4,7 @@ import { Plus } from "lucide-react";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import type { Mission } from "@chief/relay-contracts";
-import {
-  missionCreateSchema,
-  workspaceScheduleInputSchema,
-} from "@chief/relay-contracts";
+import { workspaceScheduleInputSchema } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -88,7 +85,6 @@ export function ScheduleComposer({
   const [channelId, setChannelId] = useState(
     work?.conversationId ?? channels[0]?.id ?? "new",
   );
-  const [channelName, setChannelName] = useState("");
   const [agentId, setAgentId] = useState(
     work?.agentId ??
       agents.find((agent) => agent.id === "chief")?.id ??
@@ -145,12 +141,7 @@ export function ScheduleComposer({
   const patchFields = (patch: Partial<typeof fields>) =>
     setFields((current) => ({ ...current, ...patch }));
   const next = () => {
-    if (
-      !instructions.trim() ||
-      !agentId ||
-      (channelId === "new" && !channelName.trim())
-    )
-      return;
+    if (!instructions.trim() || !agentId) return;
     setError("");
     setStep(1);
   };
@@ -174,14 +165,11 @@ export function ScheduleComposer({
         id,
         title: resolvedTitle,
         conversationId,
+        newChannel: channelId === "new" ? {} : undefined,
         agentId,
         collaborators: selectedTeam.filter((id) => id !== agentId),
         missionId:
-          channelId === "new"
-            ? `mission-${id}`
-            : missionId === "none"
-              ? undefined
-              : missionId,
+          channelId === "new" || missionId === "none" ? undefined : missionId,
         instructions,
         expectedOutcome: outcome,
         constraints,
@@ -194,57 +182,6 @@ export function ScheduleComposer({
         proposedToolPatterns: work?.proposedToolPatterns ?? [],
         skipDates: work?.skipDates ?? [],
       });
-      // Stable IDs let a retry finish a partially completed setup without creating another channel or mission.
-      if (
-        channelId === "new" &&
-        !(await client.listChannels()).some(
-          (channel) => channel.id === conversationId,
-        )
-      ) {
-        await client.createChannel({
-          conversationId,
-          name: channelName.trim(),
-          isPrivate: false,
-        });
-      }
-      const members = await client.listChannelMembers(conversationId);
-      const missing = selectedTeam.filter(
-        (id) =>
-          !members.some(
-            (member) => member.kind === "agent" && member.principalId === id,
-          ),
-      );
-      if (missing.length)
-        await client.addChannelMembers(
-          conversationId,
-          missing.map((principalId) => ({ kind: "agent", principalId })),
-        );
-      if (
-        channelId === "new" &&
-        !(await client.listMissions()).some(
-          (mission) => mission.id === input.missionId,
-        )
-      ) {
-        await client.createMission(
-          missionCreateSchema.parse({
-            id: `mission-${id}`,
-            conversationId,
-            title: resolvedTitle,
-            objective: instructions.slice(0, 4000),
-            ownerAgentId: agentId,
-            collaborators: input.collaborators,
-            success: {
-              kind: "deliverable",
-              description: outcome || instructions.slice(0, 2000),
-            },
-            constraints:
-              constraints ||
-              "Work within the workspace's granted permissions. Ask before spending money or publishing externally.",
-            maxExperiments: 100,
-            deadline: new Date(Date.now() + 365 * 86_400_000).toISOString(),
-          }),
-        );
-      }
       const saved = await client.schedules.save(input);
       await client.schedules.act(saved.id, "approve", {
         expectedUpdatedAt: saved.updatedAt,
@@ -273,13 +210,13 @@ export function ScheduleComposer({
           <DialogTitle className="text-lg font-medium tracking-tight">
             {step === 0
               ? work
-                ? "Edit the plan"
-                : "Give your team a job"
-              : "When should it happen?"}
+                ? "Edit schedule"
+                : "New schedule"
+              : "Schedule timing"}
           </DialogTitle>
           <DialogDescription className="text-sm leading-6">
             {step === 0
-              ? "Describe the work. Your team will take it from here."
+              ? "Define the work and choose the team."
               : "Set a rhythm, pick a time, or connect an event."}
           </DialogDescription>
         </DialogHeader>
@@ -295,7 +232,7 @@ export function ScheduleComposer({
           {step === 0 ? (
             <>
               <label className="block space-y-2">
-                <span>What should the team do?</span>
+                <span>Instructions</span>
                 <textarea
                   autoFocus
                   required
@@ -307,7 +244,7 @@ export function ScheduleComposer({
                 />
               </label>
               <div className="space-y-2">
-                <span>Who’s taking the lead?</span>
+                <span>Lead agent</span>
                 <Choice
                   label="Lead"
                   value={agentId}
@@ -329,7 +266,7 @@ export function ScheduleComposer({
                 </Choice>
               </div>
               <div className="space-y-2">
-                <span>Who else should help?</span>
+                <span>Teammates</span>
                 <AgentMultiselect
                   agents={agents.filter((agent) => agent.id !== agentId)}
                   value={collaborators}
@@ -337,7 +274,7 @@ export function ScheduleComposer({
                 />
               </div>
               <div className="space-y-2">
-                <span>Where will they work?</span>
+                <span>Channel</span>
                 <Choice
                   label="Channel"
                   value={channelId}
@@ -358,25 +295,9 @@ export function ScheduleComposer({
                     </span>
                   </SelectItem>
                 </Choice>
-                {channelId === "new" && (
-                  <Input
-                    aria-label="New channel name"
-                    required
-                    maxLength={80}
-                    value={channelName}
-                    onChange={(event) =>
-                      setChannelName(
-                        event.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9-]/gu, "-"),
-                      )
-                    }
-                    placeholder="e.g. growth-experiments"
-                  />
-                )}
                 <p className="text-muted-foreground text-sm leading-5">
                   {channelId === "new"
-                    ? "A dedicated mission channel for this team and their work."
+                    ? "A channel will be created and the team added automatically."
                     : "Teammates will be added to this channel."}
                 </p>
               </div>
