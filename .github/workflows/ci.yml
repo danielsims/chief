@@ -28,6 +28,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Commit hook regression tests
+        run: pnpm test:commit-hook
+
   format:
     runs-on: ubuntu-latest
     steps:
