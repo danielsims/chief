@@ -69,6 +69,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       ...data,
       recurringWork: data.recurringWork.map((work) => ({
         ...work,
+        recordedRuns: [
+          ...new Set([
+            ...(work.recordedRuns ?? []),
+            ...(work.upcomingRuns ?? []).filter(
+              (timestamp) => timestamp <= now,
+            ),
+          ]),
+        ],
         upcomingRuns: work.upcomingRuns?.filter((timestamp) => timestamp > now),
       })),
     }),

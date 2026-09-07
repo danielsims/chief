@@ -15,6 +15,7 @@ import {
   TIMELINE_ROW_HEIGHT,
   TIMELINE_START_HOUR,
   WorkEventContent,
+  workOccurrences,
 } from "./schedule-calendar-core";
 
 const TIMELINE_EVENT_HEIGHT = 44;
@@ -223,7 +224,7 @@ export function FocusedCalendarView({
               : [];
             const recurring = showAgentWork
               ? (recurringByDay.get(key) ?? []).flatMap((work) => {
-                  const timestamp = work.upcomingRuns?.find(
+                  const timestamp = workOccurrences(work).find(
                     (run) => dayKey(new Date(run)) === key,
                   );
                   return timestamp === undefined ? [] : [{ work, timestamp }];
