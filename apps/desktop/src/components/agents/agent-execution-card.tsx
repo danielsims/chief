@@ -79,13 +79,24 @@ export function AgentExecutionCard({
 
   if (execution.deployment.kind === "vercel-eve") {
     return (
-      <ExternalAgentExecutionCard
-        agentName={agentName}
-        agentId={agentId}
-        connectionStatus={execution.deployment.connectionStatus}
-        client={relayClient?.externalAgents ?? null}
-        onChanged={onExternalAgentChanged}
-      />
+      <>
+        <ExternalAgentExecutionCard
+          agentName={agentName}
+          agentId={agentId}
+          connectionStatus={execution.deployment.connectionStatus}
+          client={relayClient?.externalAgents ?? null}
+          onChanged={onExternalAgentChanged}
+          onDeploy={() => setDeployingToEve(true)}
+        />
+        {deployingToEve ? (
+          <AgentEveDeploymentPanel
+            agent={agent}
+            client={relayClient ?? null}
+            onCancel={() => setDeployingToEve(false)}
+            onDeployed={onExternalAgentChanged}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -315,12 +326,14 @@ function ExternalAgentExecutionCard({
   connectionStatus,
   client,
   onChanged,
+  onDeploy,
 }: {
   agentId: string;
   agentName: string;
   connectionStatus: "pending_setup" | "connected" | "degraded";
   client: RelayClient["externalAgents"] | null;
   onChanged?: () => Promise<void>;
+  onDeploy: () => void;
 }) {
   const [working, setWorking] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -350,6 +363,14 @@ function ExternalAgentExecutionCard({
             {agentName} runs in Vercel Eve and connects through the Chief relay.
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!client || working}
+          onClick={onDeploy}
+        >
+          Update deployment
+        </Button>
         <Select value="vercel-eve" disabled>
           <SelectTrigger className="bg-background/70 h-9 w-auto min-w-36 rounded-xl px-2.5 text-xs">
             <DeploymentOption

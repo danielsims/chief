@@ -83,6 +83,7 @@ export async function runEveAgentDeployment({
     instructions: deploymentInstructions,
     endpoint: provisionalEndpoint,
     replaceNative: true,
+    reuseExisting: true,
   });
   const channel = { agentId: agent.id, ...registration.channel };
   const result = await provisionEveAgent({

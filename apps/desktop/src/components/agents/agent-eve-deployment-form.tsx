@@ -14,7 +14,6 @@ import {
 
 import type { DestinationCatalog } from "./agent-eve-deployment-run";
 import type { EveConnectionPhase } from "./eve-provisioning-dialog";
-import { rememberVercelAccessToken } from "../../lib/vercel-eve-runtime";
 import {
   VercelConnection,
   VercelDestinationFields,
@@ -198,7 +197,6 @@ export function EveDestinationForm({
             if (!client)
               throw new Error("Chief is still connecting to this workspace.");
             const next = await client.connectVercel(token);
-            rememberVercelAccessToken(client.workspaceId, token);
             if (client.workspaceId) {
               destinationCatalogCache.set(client.workspaceId, next);
             }

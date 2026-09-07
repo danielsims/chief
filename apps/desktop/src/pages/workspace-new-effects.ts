@@ -37,7 +37,6 @@ import {
   saveStoredRelayConnection,
   validateRelayConnection,
 } from "../lib/relay-connection";
-import { rememberVercelAccessToken } from "../lib/vercel-eve-runtime";
 import {
   pendingCreateDraftKey,
   pendingCreateRelayKey,
@@ -292,7 +291,6 @@ export async function submitWorkspaceCreate({
       const client = relayClient.forWorkspace(snapshot.id);
       try {
         const catalog = await connectEveWorkspace({ client, token });
-        rememberVercelAccessToken(snapshot.id, token);
         persistCreateDraft({
           eveWorkspaceId: snapshot.id,
           eveAutoDeploy: true,
