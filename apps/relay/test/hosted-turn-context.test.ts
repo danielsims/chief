@@ -71,7 +71,9 @@ describe("hosted agent turn context", () => {
     expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain(
       "Do not narrate that the user only tagged you",
     );
-    expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain("Never invent a @chief (user)");
+    expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain(
+      "Never invent a @chief (user)",
+    );
   });
 
   it("requires channel creation and membership before claiming completion", () => {

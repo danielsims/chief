@@ -98,8 +98,6 @@
     "APNS_TEAM_ID": "XMMXB25823",
     "APNS_BUNDLE_ID": "sh.heychief.mobile",
   },
-  "routes": [
-    { "pattern": "relay.heychief.sh", "custom_domain": true },
-  ],
+  "routes": [{ "pattern": "relay.heychief.sh", "custom_domain": true }],
   "observability": { "enabled": false },
 }

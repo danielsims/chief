@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { workspaceSnapshotSchema } from '@chief/relay-contracts';
-import type { WorkspaceSnapshot } from '@chief/relay-contracts';
+import type { WorkspaceSnapshot } from "@chief/relay-contracts";
+import { workspaceSnapshotSchema } from "@chief/relay-contracts";
 
 import { startPendingEveWorkspaceKickoff } from "../src/lib/relay-eve-kickoff.js";
 
@@ -52,7 +52,10 @@ void test("starts Eve kickoff only for an incomplete connected Eve workspace", (
     },
   };
 
-  startPendingEveWorkspaceKickoff(client, snapshot({ onboardingComplete: true }));
+  startPendingEveWorkspaceKickoff(
+    client,
+    snapshot({ onboardingComplete: true }),
+  );
   startPendingEveWorkspaceKickoff(
     client,
     snapshot({

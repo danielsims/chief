@@ -1,3 +1,4 @@
+import { recommendProjectTool } from "../../runtime/projects/recommend-project.js";
 import { commitProjectCheckoutTool } from "./commit-project-checkout.js";
 import { compareProjectBranchesTool } from "./compare-project-branches.js";
 import { createProjectCheckoutTool } from "./create-project-checkout.js";
@@ -9,7 +10,6 @@ import { inspectProjectTool } from "./inspect-project.js";
 import { listProjectsTool } from "./list-projects.js";
 import { publishProjectCheckoutTool } from "./publish-project-checkout.js";
 import { releaseProjectCheckoutTool } from "./release-project-checkout.js";
-import { recommendProjectTool } from "../../runtime/projects/recommend-project.js";
 import { requestProjectAccessTool } from "./request-project-access.js";
 
 export const projectsToolkit = [

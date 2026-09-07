@@ -40,9 +40,9 @@ describe("Eve workspace onboarding", () => {
     await verifyExternalAgent(ctx, "chief");
     expect((await activeTestSnapshot(ctx)).onboardingComplete).toBe(false);
     expect(
-      (await testConversationMessages(ctx, ctx.principal, "mission-control")).map(
-        (message) => message.body,
-      ),
+      (
+        await testConversationMessages(ctx, ctx.principal, "mission-control")
+      ).map((message) => message.body),
     ).not.toContain(WORKSPACE_ONBOARDING_OPENING_MESSAGE);
 
     const started = await startEveOnboarding(ctx);

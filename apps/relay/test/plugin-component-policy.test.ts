@@ -103,7 +103,8 @@ describe("plugin component policy", () => {
               conversationId,
               agentId,
               title: "Connect a repository",
-              description: "Add the Git repository this workspace should work in.",
+              description:
+                "Add the Git repository this workspace should work in.",
             },
           },
         ],

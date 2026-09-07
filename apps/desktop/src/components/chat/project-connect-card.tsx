@@ -4,8 +4,8 @@ import { Check, FolderGit2 } from "lucide-react";
 import type { GenerativeProjectRecommendationData } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
-import { AddProjectDialog } from "../projects/add-project-dialog";
 import { useProjects } from "../../lib/runtime-projects";
+import { AddProjectDialog } from "../projects/add-project-dialog";
 
 function repositoryHost(url: string | undefined) {
   if (!url) return null;

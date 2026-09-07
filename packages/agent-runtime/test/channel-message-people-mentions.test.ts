@@ -8,8 +8,7 @@ import {
 } from "../src/channel-message-mentions.js";
 
 void test("matches a multi-word person name inside markdown and punctuation", () => {
-  const content =
-    "**Hey @Daniel Sims, first brand profile is done**";
+  const content = "**Hey @Daniel Sims, first brand profile is done**";
   assert.equal(hasTextualMention(content, "Daniel Sims"), true);
   assert.equal(
     messageMentionsPerson({

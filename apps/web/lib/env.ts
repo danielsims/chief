@@ -3,9 +3,7 @@ import { z } from "zod/v4";
 
 export const env = createEnv({
   server: {
-    CHIEF_RELAY_URL: z
-      .url()
-      .default("https://relay.heychief.sh"),
+    CHIEF_RELAY_URL: z.url().default("https://relay.heychief.sh"),
     GITHUB_TOKEN: z.string().min(1).optional(),
   },
   client: {},

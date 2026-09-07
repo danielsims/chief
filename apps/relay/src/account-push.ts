@@ -12,7 +12,9 @@ export async function registerPushDevice(
   request: Request,
   env: Env,
 ) {
-  const command = registerPushDeviceCommandSchema.parse(await parseJson(request));
+  const command = registerPushDeviceCommandSchema.parse(
+    await parseJson(request),
+  );
   const updatedAt = new Date().toISOString();
   storage.sql.exec(
     `INSERT INTO push_devices (token, environment, updated_at)
