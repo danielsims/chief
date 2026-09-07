@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
+import { Link } from "react-router";
 
 import type {
   ProjectCommitSummary,
@@ -115,6 +116,19 @@ export function ProjectDetail({
             <RefreshCw size={14} />
             Refresh
           </Button>
+          {project.agentId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              render={
+                <Link
+                  to={`/agents?agent=${encodeURIComponent(project.agentId)}`}
+                />
+              }
+            >
+              Manage agent
+            </Button>
+          ) : null}
           {repositoryPath ? (
             <Button
               variant="outline"

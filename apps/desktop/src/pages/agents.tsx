@@ -20,10 +20,7 @@ import {
   useRuntime,
   useWorkspaceChannels,
 } from "../lib/runtime";
-import {
-  provisionEveAgent,
-  rememberVercelAccessToken,
-} from "../lib/vercel-eve-runtime";
+import { provisionEveAgent } from "../lib/vercel-eve-runtime";
 import { TeamAgentCard } from "./agents-components";
 
 export function AgentsPage() {
@@ -246,7 +243,6 @@ export function AgentsPage() {
           if (!relay.client) {
             throw new Error("Chief is still connecting to this workspace.");
           }
-          rememberVercelAccessToken(relay.client.workspaceId, token);
           return await relay.client.connectVercel(token);
         }}
         onConnected={relay.refresh}
