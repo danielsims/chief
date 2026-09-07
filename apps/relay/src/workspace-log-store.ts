@@ -8,6 +8,11 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { initializeWorkspaceLog as initializeWorkspaceLogTable } from "./db/migrations/initialize-workspace-log";
+import { logFindReadWorkspaceLogs } from "./queries/log/find-read-workspace-logs";
+import { logFindReadWorkspaceLogsWorkspaceId } from "./queries/log/find-read-workspace-logs-workspace-id";
+import { logInsertAppendWorkspaceLogs } from "./queries/log/insert-append-workspace-logs";
+
 const storedLogRowSchema = z.object({
   sequence: z.number().int(),
   workspace_id: z.string(),
@@ -24,25 +29,7 @@ const storedLogRowSchema = z.object({
 });
 
 export function initializeWorkspaceLog(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS log (
-      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-      workspace_id TEXT NOT NULL,
-      log_id TEXT NOT NULL,
-      correlation_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      operation TEXT NOT NULL,
-      deployment TEXT,
-      agent_id TEXT,
-      conversation_id TEXT,
-      message TEXT NOT NULL,
-      payload_json TEXT,
-      created_at TEXT NOT NULL,
-      UNIQUE (workspace_id, log_id)
-    );
-    CREATE INDEX IF NOT EXISTS log_timeline
-      ON log (workspace_id, sequence DESC);
-  `);
+  initializeWorkspaceLogTable(storage);
 }
 
 export function appendWorkspaceLogs(
@@ -51,23 +38,19 @@ export function appendWorkspaceLogs(
 ) {
   storage.transactionSync(() => {
     for (const entry of batch.logs) {
-      storage.sql.exec(
-        `INSERT OR IGNORE INTO log (
-          workspace_id, log_id, correlation_id, type, operation, deployment,
-          agent_id, conversation_id, message, payload_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        entry.workspaceId,
-        entry.id,
-        entry.correlationId,
-        entry.type,
-        entry.operation,
-        entry.deployment ?? null,
-        entry.agentId ?? null,
-        entry.conversationId ?? null,
-        entry.message,
-        entry.metadata ? JSON.stringify(entry.metadata) : null,
-        entry.createdAt,
-      );
+      logInsertAppendWorkspaceLogs(storage, {
+        workspaceId: entry.workspaceId,
+        logId: entry.id,
+        correlationId: entry.correlationId,
+        type: entry.type,
+        operation: entry.operation,
+        deployment: entry.deployment ?? null,
+        agentId: entry.agentId ?? null,
+        conversationId: entry.conversationId ?? null,
+        message: entry.message,
+        payloadJson: entry.metadata ? JSON.stringify(entry.metadata) : null,
+        createdAt: entry.createdAt,
+      });
     }
   });
 }
@@ -85,22 +68,13 @@ export function readWorkspaceLogs(
   const cursor = Number(url.searchParams.get("cursor") ?? 0);
   const rows = (
     cursor > 0
-      ? storage.sql.exec(
-          `SELECT * FROM log WHERE workspace_id = ? AND sequence < ?
-           ORDER BY sequence DESC LIMIT ?`,
-          workspaceId,
-          cursor,
-          limit,
-        )
-      : storage.sql.exec(
-          `SELECT * FROM log WHERE workspace_id = ?
-           ORDER BY sequence DESC LIMIT ?`,
-          workspaceId,
-          limit,
-        )
-  )
-    .toArray()
-    .map((row) => storedLogRowSchema.parse(row));
+      ? logFindReadWorkspaceLogs(storage, {
+          workspaceId: workspaceId,
+          sequence: cursor,
+          limit: limit,
+        })
+      : logFindReadWorkspaceLogsWorkspaceId(storage, workspaceId, limit)
+  ).map((row) => storedLogRowSchema.parse(row));
   const logs = rows.map((row) => ({
     id: String(row.log_id),
     correlationId: String(row.correlation_id),

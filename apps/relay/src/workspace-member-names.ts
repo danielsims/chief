@@ -1,40 +1,32 @@
+import { getUserNames } from "@chief/auth/d1-users";
 import { isJsonString } from "@chief/relay-contracts";
 
-interface UserNameRow {
-  id: string;
-  name: string;
-}
+import { membersFindMemberDisplayNames } from "./queries/members/find-member-display-names";
+import { membersFindRefreshMemberDisplayNames } from "./queries/members/find-refresh-member-display-names";
+import { membersFindWorkspacePeople } from "./queries/members/find-workspace-people";
+import { membersUpdateRefreshMemberDisplayNames } from "./queries/members/update-refresh-member-display-names";
 
 export async function refreshMemberDisplayNames(
   storage: DurableObjectStorage,
   env: Env,
 ) {
-  const userIds = storage.sql
-    .exec<{ principal_id: string }>(
-      `SELECT principal_id FROM members WHERE principal_kind = 'user'`,
-    )
-    .toArray()
-    .map((row) => row.principal_id);
+  const userIds = membersFindRefreshMemberDisplayNames<{
+    principal_id: string;
+  }>(storage).map((row) => row.principal_id);
   if (userIds.length === 0) return;
   const names = await lookupAuthUserNames(env, userIds);
   for (const [userId, name] of names) {
-    storage.sql.exec(
-      `UPDATE members SET display_name = ? WHERE principal_kind = 'user' AND principal_id = ?`,
-      name,
-      userId,
-    );
+    membersUpdateRefreshMemberDisplayNames(storage, name, userId);
   }
 }
 
 export function memberDisplayNames(storage: DurableObjectStorage) {
   const names = new Map<string, string>();
-  for (const row of storage.sql
-    .exec<{
-      principal_kind: string;
-      principal_id: string;
-      display_name: string | null;
-    }>(`SELECT principal_kind, principal_id, display_name FROM members`)
-    .toArray()) {
+  for (const row of membersFindMemberDisplayNames<{
+    principal_kind: string;
+    principal_id: string;
+    display_name: string | null;
+  }>(storage)) {
     if (!isJsonString(row.display_name) || !row.display_name.trim()) continue;
     names.set(
       `${row.principal_kind}:${row.principal_id}`,
@@ -45,36 +37,26 @@ export function memberDisplayNames(storage: DurableObjectStorage) {
 }
 
 export function workspacePeople(storage: DurableObjectStorage) {
-  return storage.sql
-    .exec<{
-      principal_id: string;
-      role: string;
-      display_name: string | null;
-    }>(
-      `SELECT principal_id, role, display_name FROM members WHERE principal_kind = 'user' ORDER BY principal_id`,
-    )
-    .toArray()
-    .map((row) => ({
-      id: row.principal_id,
-      name:
-        isJsonString(row.display_name) && row.display_name.trim()
-          ? row.display_name.trim()
-          : row.principal_id,
-      role: row.role,
-    }));
+  return membersFindWorkspacePeople<{
+    principal_id: string;
+    role: string;
+    display_name: string | null;
+  }>(storage).map((row) => ({
+    id: row.principal_id,
+    name:
+      isJsonString(row.display_name) && row.display_name.trim()
+        ? row.display_name.trim()
+        : row.principal_id,
+    role: row.role,
+  }));
 }
 
 async function lookupAuthUserNames(env: Env, userIds: readonly string[]) {
   const names = new Map<string, string>();
   if (userIds.length === 0) return names;
-  const placeholders = userIds.map(() => "?").join(", ");
   try {
-    const rows = await env.AUTH_DB.prepare(
-      `SELECT id, name FROM user WHERE id IN (${placeholders})`,
-    )
-      .bind(...userIds)
-      .all<UserNameRow>();
-    for (const row of rows.results) {
+    const rows = await getUserNames(env.AUTH_DB, userIds);
+    for (const row of rows) {
       if (row.id && row.name.trim()) names.set(row.id, row.name.trim());
     }
   } catch {

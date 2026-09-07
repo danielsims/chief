@@ -16,6 +16,18 @@ import type { MemberRow, WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
+import { agentKeysFindAgentKeys } from "./queries/agent-keys/find-agent-keys";
+import { agentKeysFindAuthorize } from "./queries/agent-keys/find-authorize";
+import { agentKeysFindRegisterAgentKey } from "./queries/agent-keys/find-register-agent-key";
+import { agentKeysInsertRegisterAgentKey } from "./queries/agent-keys/insert-register-agent-key";
+import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
+import { channelMembersInsertRegisterAgentKey } from "./queries/channel-members/insert-register-agent-key";
+import { membersFindAuthorize } from "./queries/members/find-authorize";
+import { membersFindHumanOwnerCount } from "./queries/members/find-human-owner-count";
+import { membersFindMembersList } from "./queries/members/find-members-list";
+import { membersInsertRegisterAgentKey } from "./queries/members/insert-register-agent-key";
+import { membersUpdateMemberRoleSet } from "./queries/members/update-member-role-set";
+import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { requireNativeAgent } from "./workspace-agent-runtime";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
@@ -55,24 +67,16 @@ export class WorkspaceAccessService {
     const agent =
       identity.kind === "user"
         ? firstRow<AgentKeyRow>(
-            this.storage.sql.exec(
-              "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE pubkey = ?",
-              identity.pubkey,
-            ),
+            agentKeysFindAuthorize(this.storage, identity.pubkey),
           )
         : undefined;
     const kind = agent ? "agent" : "user";
     const principalId = agent ? agent.agent_id : identityId(identity);
     const member = firstRow<MemberRow>(
-      this.storage.sql.exec(
-        `SELECT principal_kind, principal_id, role FROM members
-         WHERE principal_kind = ? AND principal_id = ?`,
-        kind,
-        principalId,
-      ),
+      membersFindAuthorize(this.storage, kind, principalId),
     );
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+      workspaceFindAuthorize(this.storage),
     );
     if (!member || !workspace) {
       return relayError(
@@ -112,16 +116,10 @@ export class WorkspaceAccessService {
     const input = registerAgentKeyCommandSchema.parse(await parseJson(request));
     requireNativeAgent(this.storage, input.agentId);
     const existingAgent = firstRow<AgentKeyRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE agent_id = ?",
-        input.agentId,
-      ),
+      agentKeysFindRegisterAgentKey(this.storage, input.agentId),
     );
     const existingKey = firstRow<AgentKeyRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE pubkey = ?",
-        input.pubkey,
-      ),
+      agentKeysFindAuthorize(this.storage, input.pubkey),
     );
     if (existingAgent && existingAgent.pubkey !== input.pubkey) {
       throw new HttpError(
@@ -142,39 +140,19 @@ export class WorkspaceAccessService {
     }
     const createdAt = new Date().toISOString();
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        `INSERT INTO agent_keys (agent_id, pubkey, created_at)
-         VALUES (?, ?, ?)`,
-        input.agentId,
-        input.pubkey,
-        createdAt,
-      );
-      this.storage.sql.exec(
-        `INSERT INTO members (principal_kind, principal_id, role, created_at)
-         VALUES ('agent', ?, 'member', ?)
-         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
-        input.agentId,
-        createdAt,
-      );
-      this.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) SELECT conversation_id, 'agent', ?, 'member', ? FROM channels
-          WHERE conversation_id = ?
-        ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-        input.agentId,
-        createdAt,
-        input.agentId,
-      );
+      agentKeysInsertRegisterAgentKey(this.storage, {
+        agentId: input.agentId,
+        pubkey: input.pubkey,
+        createdAt: createdAt,
+      });
+      membersInsertRegisterAgentKey(this.storage, input.agentId, createdAt);
+      channelMembersAddAgentToExistingChannel(this.storage, {
+        agentId: input.agentId,
+        joinedAt: createdAt,
+        conversationId: input.agentId,
+      });
       if (input.agentId === "chief") {
-        this.storage.sql.exec(
-          `INSERT INTO channel_members (
-            conversation_id, principal_kind, principal_id, role, joined_at
-          ) VALUES ('mission-control', 'agent', 'chief', 'owner', ?)
-          ON CONFLICT(conversation_id, principal_kind, principal_id) DO UPDATE
-          SET role = 'owner'`,
-          createdAt,
-        );
+        channelMembersInsertRegisterAgentKey(this.storage, createdAt);
       }
     });
     recordProductEvents(this.env, ["agent-created"]);
@@ -182,10 +160,9 @@ export class WorkspaceAccessService {
   }
 
   agentKeys() {
-    const rows = this.storage.sql
-      .exec("SELECT agent_id, pubkey FROM agent_keys ORDER BY agent_id")
-      .toArray()
-      .map((row) => agentKeyRowSchema.parse(row));
+    const rows = agentKeysFindAgentKeys(this.storage).map((row) =>
+      agentKeyRowSchema.parse(row),
+    );
     return json({
       agents: rows.map((row) => ({
         agentId: agentIdSchema.parse(String(row.agent_id)),
@@ -200,12 +177,9 @@ export class WorkspaceAccessService {
     this.channels.requireAgentCapability(context.principal, "members.read");
     await refreshMemberDisplayNames(this.storage, this.env);
     const names = this.channels.principalNames();
-    const rows = this.storage.sql
-      .exec(
-        "SELECT principal_kind, principal_id, role FROM members ORDER BY principal_kind, principal_id",
-      )
-      .toArray()
-      .map((row) => memberListRowSchema.parse(row));
+    const rows = membersFindMembersList(this.storage).map((row) =>
+      memberListRowSchema.parse(row),
+    );
     return json(
       workspaceMemberListSchema.parse({
         members: rows.map((row) => ({
@@ -263,13 +237,11 @@ export class WorkspaceAccessService {
       );
     }
 
-    this.storage.sql.exec(
-      `UPDATE members SET role = ?
-       WHERE principal_kind = ? AND principal_id = ?`,
-      input.role,
-      kind,
-      principalId,
-    );
+    membersUpdateMemberRoleSet(this.storage, {
+      role: input.role,
+      principalKind: kind,
+      principalId: principalId,
+    });
     return json(
       updateWorkspaceMemberRoleResultSchema.parse({
         member: { kind, principalId, role: input.role },
@@ -278,10 +250,7 @@ export class WorkspaceAccessService {
   }
   private humanOwnerCount() {
     const row = firstRow<{ count: number }>(
-      this.storage.sql.exec(
-        `SELECT COUNT(*) AS count FROM members
-         WHERE principal_kind = 'user' AND role = 'owner'`,
-      ),
+      membersFindHumanOwnerCount(this.storage),
     );
     return Number(row?.count ?? 0);
   }

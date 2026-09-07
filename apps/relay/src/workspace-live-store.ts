@@ -4,6 +4,12 @@ import {
   conversationEventSchema,
 } from "@chief/relay-contracts";
 
+import { initializeWorkspaceLiveTables } from "./db/migrations/initialize-workspace-live-tables";
+import { workspaceLiveCountersFindCurrentSequence } from "./queries/workspace-live-counters/find-current-sequence";
+import { workspaceLiveCountersUpdatePublish } from "./queries/workspace-live-counters/update-publish";
+import { workspaceLiveEventsDeletePublish } from "./queries/workspace-live-events/delete-publish";
+import { workspaceLiveEventsInsertPublish } from "./queries/workspace-live-events/insert-publish";
+import { listConversationEvents } from "./queries/workspace-live-events/list-conversation-events";
 import {
   consumeSocketTicket,
   createSocketTicket,
@@ -18,21 +24,7 @@ interface LiveEventRow extends Record<string, SqlStorageValue> {
 }
 
 export function initializeWorkspaceLive(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS workspace_live_counters (
-      name TEXT PRIMARY KEY,
-      value INTEGER NOT NULL
-    );
-    INSERT OR IGNORE INTO workspace_live_counters (name, value)
-      VALUES ('sequence', 0);
-    CREATE TABLE IF NOT EXISTS workspace_live_events (
-      sequence INTEGER PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      event_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS workspace_live_events_conversation_idx
-      ON workspace_live_events (conversation_id, sequence);
-  `);
+  initializeWorkspaceLiveTables(storage);
   initializeSocketTickets(storage);
 }
 
@@ -50,9 +42,7 @@ export class WorkspaceLiveStore {
   currentSequence() {
     return (
       firstRow<{ value: number }>(
-        this.storage.sql.exec(
-          "SELECT value FROM workspace_live_counters WHERE name = 'sequence'",
-        ),
+        workspaceLiveCountersFindCurrentSequence(this.storage),
       )?.value ?? 0
     );
   }
@@ -61,30 +51,21 @@ export class WorkspaceLiveStore {
     const conversationId = source.payload.message.conversationId;
     return this.storage.transactionSync(() => {
       const row = firstRow<{ value: number }>(
-        this.storage.sql.exec(
-          `UPDATE workspace_live_counters SET value = value + 1
-           WHERE name = 'sequence' RETURNING value`,
-        ),
+        workspaceLiveCountersUpdatePublish(this.storage),
       );
       if (!row) throw new Error("Workspace live sequence is unavailable.");
       const event = conversationEventSchema.parse({
         ...source,
         sequence: row.value,
       });
-      this.storage.sql.exec(
-        `INSERT INTO workspace_live_events (
-          sequence, conversation_id, event_json
-        ) VALUES (?, ?, ?)`,
-        event.sequence,
-        conversationId,
-        JSON.stringify(event),
-      );
+      workspaceLiveEventsInsertPublish(this.storage, {
+        sequence: event.sequence,
+        conversationId: conversationId,
+        eventJson: JSON.stringify(event),
+      });
       const pruneThrough = event.sequence - RETAINED_EVENT_COUNT;
       if (pruneThrough > 0) {
-        this.storage.sql.exec(
-          "DELETE FROM workspace_live_events WHERE sequence <= ?",
-          pruneThrough,
-        );
+        workspaceLiveEventsDeletePublish(this.storage, pruneThrough);
       }
       return event;
     });
@@ -97,17 +78,11 @@ export class WorkspaceLiveStore {
         nextSequence: null,
       });
     }
-    const placeholders = conversationIds.map(() => "?").join(", ");
-    const rows = [
-      ...this.storage.sql.exec<LiveEventRow>(
-        `SELECT sequence, event_json FROM workspace_live_events
-         WHERE sequence > ? AND conversation_id IN (${placeholders})
-         ORDER BY sequence ASC LIMIT ?`,
-        after,
-        ...conversationIds,
-        limit + 1,
-      ),
-    ];
+    const rows = listConversationEvents<LiveEventRow>(this.storage, {
+      after: after,
+      conversationIds: conversationIds,
+      limit: limit + 1,
+    });
     const hasMore = rows.length > limit;
     const events = rows
       .slice(0, limit)

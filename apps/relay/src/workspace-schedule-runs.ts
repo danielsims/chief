@@ -6,14 +6,16 @@ import type {
 import { principalSchema, scheduleRunSchema } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+import { workspaceScheduleRunsFindListScheduleRuns } from "./queries/workspace-schedule-runs/find-list-schedule-runs";
+import { workspaceScheduleRunsFindQueueScheduleRun } from "./queries/workspace-schedule-runs/find-queue-schedule-run";
+import { workspaceScheduleRunsFindReadScheduleRun } from "./queries/workspace-schedule-runs/find-read-schedule-run";
+import { workspaceScheduleRunsInsertWriteScheduleRun } from "./queries/workspace-schedule-runs/insert-write-schedule-run";
 
 export function readScheduleRun(storage: DurableObjectStorage, id: string) {
-  const row = storage.sql
-    .exec<{ document_json: string; principal_json: string }>(
-      "SELECT document_json, principal_json FROM workspace_schedule_runs WHERE id = ?",
-      id,
-    )
-    .toArray()[0];
+  const row = workspaceScheduleRunsFindReadScheduleRun<{
+    document_json: string;
+    principal_json: string;
+  }>(storage, id)[0];
   return row
     ? {
         run: scheduleRunSchema.parse(JSON.parse(row.document_json)),
@@ -27,31 +29,25 @@ export function writeScheduleRun(
   run: ScheduleRun,
   principal: Principal,
 ) {
-  storage.sql.exec(
-    `INSERT INTO workspace_schedule_runs(id, schedule_id, state, next_check_at, created_at, document_json, principal_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,
-    next_check_at=excluded.next_check_at, document_json=excluded.document_json`,
-    run.id,
-    run.scheduleId,
-    run.state,
-    run.nextCheckAt ?? null,
-    run.createdAt,
-    JSON.stringify(run),
-    JSON.stringify(principal),
-  );
+  workspaceScheduleRunsInsertWriteScheduleRun(storage, {
+    id: run.id,
+    scheduleId: run.scheduleId,
+    state: run.state,
+    nextCheckAt: run.nextCheckAt ?? null,
+    createdAt: run.createdAt,
+    documentJson: JSON.stringify(run),
+    principalJson: JSON.stringify(principal),
+  });
 }
 
 export function listScheduleRuns(
   storage: DurableObjectStorage,
   scheduleId: string,
 ) {
-  return storage.sql
-    .exec<{ document_json: string }>(
-      "SELECT document_json FROM workspace_schedule_runs WHERE schedule_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 100",
-      scheduleId,
-    )
-    .toArray()
-    .map((row) => scheduleRunSchema.parse(JSON.parse(row.document_json)));
+  return workspaceScheduleRunsFindListScheduleRuns<{ document_json: string }>(
+    storage,
+    scheduleId,
+  ).map((row) => scheduleRunSchema.parse(JSON.parse(row.document_json)));
 }
 
 export function queueScheduleRun(
@@ -77,11 +73,9 @@ export function queueScheduleRun(
       );
     return existing.run;
   }
-  const count = storage.sql
-    .exec<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM workspace_schedule_runs WHERE state IN ('queued', 'running')",
-    )
-    .one().count;
+  const count =
+    workspaceScheduleRunsFindQueueScheduleRun<{ count: number }>(storage)[0]
+      ?.count ?? 0;
   if (count >= 100)
     throw new HttpError(
       429,

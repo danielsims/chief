@@ -12,6 +12,7 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
   canMessageAgent,
@@ -83,12 +84,10 @@ export async function dispatchWorkspaceMessage(
   // Scheduled handoffs belong to the run coordinator. Agent prose mentioning a
   // coworker must not create a second, competing turn outside that sequence.
   if (context.principal.kind === "agent" && message.threadRootId) {
-    const scheduled = storage.sql
-      .exec(
-        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
-        message.threadRootId,
-      )
-      .toArray()[0];
+    const scheduled = workspaceScheduleRunsFindReceiveExternalAgentMessage(
+      storage,
+      message.threadRootId,
+    )[0];
     if (scheduled) return json({ agentIds: [] });
   }
   const store = new WorkspaceChannelStore(storage, env);

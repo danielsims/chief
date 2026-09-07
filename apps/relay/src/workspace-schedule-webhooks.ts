@@ -10,6 +10,14 @@ import {
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { workspaceScheduleWebhooksDeleteRouteScheduleWebhooks } from "./queries/workspace-schedule-webhooks/delete-route-schedule-webhooks";
+import { workspaceScheduleWebhooksFindReadWebhook } from "./queries/workspace-schedule-webhooks/find-read-webhook";
+import { workspaceScheduleWebhooksFindRouteScheduleWebhooks } from "./queries/workspace-schedule-webhooks/find-route-schedule-webhooks";
+import { workspaceScheduleWebhooksFindRouteScheduleWebhooksCount } from "./queries/workspace-schedule-webhooks/find-route-schedule-webhooks-count";
+import { workspaceScheduleWebhooksInsertSaveWebhook } from "./queries/workspace-schedule-webhooks/insert-save-webhook";
+import { workspaceWebhookDeliveriesFindReceiveDelivery } from "./queries/workspace-webhook-deliveries/find-receive-delivery";
+import { workspaceWebhookDeliveriesFindReceiveDeliveryCount } from "./queries/workspace-webhook-deliveries/find-receive-delivery-count";
+import { workspaceWebhookDeliveriesInsertReceiveDelivery } from "./queries/workspace-webhook-deliveries/insert-receive-delivery";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
   canMessageAgent,
@@ -24,12 +32,10 @@ import {
 } from "./workspace-schedule-store";
 
 function readWebhook(storage: DurableObjectStorage, id: string) {
-  const row = storage.sql
-    .exec<{ document_json: string; secret: string }>(
-      "SELECT document_json, secret FROM workspace_schedule_webhooks WHERE id = ?",
-      id,
-    )
-    .toArray()[0];
+  const row = workspaceScheduleWebhooksFindReadWebhook<{
+    document_json: string;
+    secret: string;
+  }>(storage, id)[0];
   return row
     ? {
         webhook: scheduleWebhookSchema.parse(JSON.parse(row.document_json)),
@@ -42,12 +48,11 @@ function saveWebhook(
   webhook: ScheduleWebhook,
   secret: string,
 ) {
-  storage.sql.exec(
-    "INSERT INTO workspace_schedule_webhooks(id, document_json, secret) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET document_json=excluded.document_json, secret=excluded.secret",
-    webhook.id,
-    JSON.stringify(webhook),
-    secret,
-  );
+  workspaceScheduleWebhooksInsertSaveWebhook(storage, {
+    id: webhook.id,
+    documentJson: JSON.stringify(webhook),
+    secret: secret,
+  });
 }
 function newSecret() {
   return `whsec_${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))}`;
@@ -67,11 +72,9 @@ export async function routeScheduleWebhooks(
   requireWorkspaceAdministrator(channels, context.principal);
   if (operation === "webhooks-list") {
     return json({
-      webhooks: storage.sql
-        .exec<{ document_json: string }>(
-          "SELECT document_json FROM workspace_schedule_webhooks ORDER BY rowid DESC",
-        )
-        .toArray()
+      webhooks: workspaceScheduleWebhooksFindRouteScheduleWebhooks<{
+        document_json: string;
+      }>(storage)
         .map((row) =>
           scheduleWebhookSchema.parse(JSON.parse(row.document_json)),
         )
@@ -112,11 +115,9 @@ export async function routeScheduleWebhooks(
       context.principal,
     );
     if (
-      storage.sql
-        .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM workspace_schedule_webhooks",
-        )
-        .one().count >= 250
+      (workspaceScheduleWebhooksFindRouteScheduleWebhooksCount<{
+        count: number;
+      }>(storage)[0]?.count ?? 0) >= 250
     )
       throw new HttpError(
         409,
@@ -163,10 +164,7 @@ export async function routeScheduleWebhooks(
     await parseJson(request),
   );
   if (action === "delete") {
-    storage.sql.exec(
-      "DELETE FROM workspace_schedule_webhooks WHERE id = ?",
-      id,
-    );
+    workspaceScheduleWebhooksDeleteRouteScheduleWebhooks(storage, id);
     return json({ webhook: { ...current.webhook, enabled: false } });
   }
   const webhook = {
@@ -334,13 +332,10 @@ async function receiveDelivery(
       "webhook_disabled",
       "This webhook is disabled or its secret changed.",
     );
-  const previous = storage.sql
-    .exec<{ run_id: string; body_hash: string }>(
-      "SELECT run_id, body_hash FROM workspace_webhook_deliveries WHERE webhook_id = ? AND delivery_id = ?",
-      id,
-      deliveryId,
-    )
-    .toArray()[0];
+  const previous = workspaceWebhookDeliveriesFindReceiveDelivery<{
+    run_id: string;
+    body_hash: string;
+  }>(storage, id, deliveryId)[0];
   if (previous) {
     if (previous.body_hash !== bodyHash)
       throw new HttpError(
@@ -369,13 +364,10 @@ async function receiveDelivery(
     stored.approvedBy,
   );
   const now = Date.now();
-  const recent = storage.sql
-    .exec<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM workspace_webhook_deliveries WHERE webhook_id = ? AND received_at > ?",
-      id,
-      now - 60_000,
-    )
-    .one().count;
+  const recent =
+    workspaceWebhookDeliveriesFindReceiveDeliveryCount<{
+      count: number;
+    }>(storage, id, now - 60_000)[0]?.count ?? 0;
   if (recent >= 60)
     throw new HttpError(
       429,
@@ -389,14 +381,13 @@ async function receiveDelivery(
     scheduledAt: now,
     input,
   });
-  storage.sql.exec(
-    "INSERT INTO workspace_webhook_deliveries(webhook_id, delivery_id, body_hash, run_id, received_at) VALUES (?, ?, ?, ?, ?)",
-    id,
-    deliveryId,
-    bodyHash,
-    run.id,
-    now,
-  );
+  workspaceWebhookDeliveriesInsertReceiveDelivery(storage, {
+    webhookId: id,
+    deliveryId: deliveryId,
+    bodyHash: bodyHash,
+    runId: run.id,
+    receivedAt: now,
+  });
   saveWebhook(
     storage,
     { ...current.webhook, lastDeliveryAt: now, lastRunId: run.id },

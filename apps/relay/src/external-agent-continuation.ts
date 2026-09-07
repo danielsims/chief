@@ -9,6 +9,8 @@ import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { requireChannelToken, sha256 } from "./external-agent-channel-security";
 import { HttpError } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { externalAgentOutboxFindResolveExternalContinuation } from "./queries/external-agent-outbox/find-resolve-external-continuation";
+import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { firstRow } from "./workspace-channel-store";
 import {
   readScheduleRun,
@@ -66,8 +68,8 @@ export async function resolveExternalContinuation(
   }
   await requireChannelToken(request, runtime.token_hash);
   const continuation = firstRow<ExternalContinuationRow>(
-    host.storage.sql.exec(
-      `SELECT conversation_id, thread_root_id, session_id, payload_json FROM external_agent_outbox WHERE agent_id = ? AND capability_hash = ? AND status = 'accepted'`,
+    externalAgentOutboxFindResolveExternalContinuation(
+      host.storage,
       agentId,
       await sha256(input.continuation.capability),
     ),
@@ -80,12 +82,9 @@ export async function resolveExternalContinuation(
     );
   }
   if (continuation.thread_root_id) {
-    const scheduled = host.storage.sql
-      .exec<{ id: string }>(
-        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
-        continuation.thread_root_id,
-      )
-      .toArray()[0];
+    const scheduled = workspaceScheduleRunsFindReceiveExternalAgentMessage<{
+      id: string;
+    }>(host.storage, continuation.thread_root_id)[0];
     const run = scheduled
       ? readScheduleRun(host.storage, scheduled.id)?.run
       : undefined;

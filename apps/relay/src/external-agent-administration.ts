@@ -19,6 +19,18 @@ import {
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { externalAgentInboundReceiptsDeleteDisconnect } from "./queries/external-agent-inbound-receipts/delete-disconnect";
+import { externalAgentOutboxDeleteDisconnect } from "./queries/external-agent-outbox/delete-disconnect";
+import { externalAgentRuntimesDeleteDisconnect } from "./queries/external-agent-runtimes/delete-disconnect";
+import { externalAgentRuntimesFindDisconnect } from "./queries/external-agent-runtimes/find-disconnect";
+import { externalAgentRuntimesFindRotateCredentials } from "./queries/external-agent-runtimes/find-rotate-credentials";
+import { externalAgentRuntimesFindUpdateEndpoint } from "./queries/external-agent-runtimes/find-update-endpoint";
+import { externalAgentRuntimesFindVerifyConnection } from "./queries/external-agent-runtimes/find-verify-connection";
+import { externalAgentRuntimesUpdateRotateCredentials } from "./queries/external-agent-runtimes/update-rotate-credentials";
+import { externalAgentRuntimesUpdateUpdateEndpoint } from "./queries/external-agent-runtimes/update-update-endpoint";
+import { externalAgentRuntimesUpdateVerifyConnection } from "./queries/external-agent-runtimes/update-verify-connection";
+import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
@@ -86,10 +98,7 @@ export class ExternalAgentAdministration {
     }
     const { selectedApps } = verification.data;
     const runtime = firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT endpoint_url, token_secret_ref, delivery_signing_secret_ref, registration_result_json FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindVerifyConnection(this.storage, agentId),
     );
     if (!runtime)
       throw new HttpError(
@@ -152,13 +161,13 @@ export class ExternalAgentAdministration {
       },
     };
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        "UPDATE external_agent_runtimes SET connection_status = 'connected', updated_at = ? WHERE agent_id = ?",
+      externalAgentRuntimesUpdateVerifyConnection(
+        this.storage,
         new Date().toISOString(),
         agentId,
       );
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify({
           ...snapshot,
           selectedApps: selectedApps ?? snapshot.selectedApps,
@@ -201,10 +210,7 @@ export class ExternalAgentAdministration {
     );
     requireVerifiedEveEndpoint(endpoint);
     const runtime = firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT endpoint_url, token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_result_json, replaces_native FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindUpdateEndpoint(this.storage, agentId),
     );
     if (!runtime)
       throw new HttpError(
@@ -221,14 +227,13 @@ export class ExternalAgentAdministration {
       );
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        "UPDATE external_agent_runtimes SET endpoint_url = ?, updated_at = ? WHERE agent_id = ?",
-        endpoint,
-        new Date().toISOString(),
-        agentId,
-      );
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      externalAgentRuntimesUpdateUpdateEndpoint(this.storage, {
+        endpointUrl: endpoint,
+        updatedAt: new Date().toISOString(),
+        agentId: agentId,
+      });
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify({
           ...snapshot,
           agents: snapshot.agents.map((agent) =>
@@ -276,10 +281,7 @@ export class ExternalAgentAdministration {
     requireWorkspaceAdministrator(this.channels, context.principal);
     const agentId = agentIdSchema.parse(rawAgentId);
     const runtime = firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT token_secret_ref, delivery_signing_secret_ref, replaces_native FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindDisconnect(this.storage, agentId),
     );
     if (!runtime)
       throw new HttpError(
@@ -302,26 +304,14 @@ export class ExternalAgentAdministration {
     const replacesNative = runtime.replaces_native === 1;
     const restoreNative = replacesNative && externalAgent;
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        "DELETE FROM external_agent_inbound_receipts WHERE agent_id = ?",
-        agentId,
-      );
-      this.storage.sql.exec(
-        "DELETE FROM external_agent_outbox WHERE agent_id = ?",
-        agentId,
-      );
-      this.storage.sql.exec(
-        "DELETE FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      );
+      externalAgentInboundReceiptsDeleteDisconnect(this.storage, agentId);
+      externalAgentOutboxDeleteDisconnect(this.storage, agentId);
+      externalAgentRuntimesDeleteDisconnect(this.storage, agentId);
       if (!replacesNative) {
-        this.storage.sql.exec(
-          "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
-          agentId,
-        );
+        membersDeleteDisconnect(this.storage, agentId);
       }
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify({
           ...snapshot,
           agents: restoreNative
@@ -349,10 +339,7 @@ export class ExternalAgentAdministration {
     requireWorkspaceAdministrator(this.channels, context.principal);
     const agentId = agentIdSchema.parse(rawAgentId);
     const runtime = firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_result_json FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindRotateCredentials(this.storage, agentId),
     );
     if (!runtime)
       throw new HttpError(
@@ -386,16 +373,15 @@ export class ExternalAgentAdministration {
     this.storage.transactionSync(() => {
       this.secrets.writePrepared(prepared);
       this.secrets.writePrepared(preparedDeliverySigningSecret);
-      this.storage.sql.exec(
-        "UPDATE external_agent_runtimes SET token_hash = ?, delivery_signing_key_id = ?, delivery_signing_secret_ref = ?, connection_status = 'pending_setup', updated_at = ? WHERE agent_id = ?",
-        tokenHash,
-        deliverySigningKeyId,
-        deliverySigningSecretRef,
-        new Date().toISOString(),
-        agentId,
-      );
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      externalAgentRuntimesUpdateRotateCredentials(this.storage, {
+        tokenHash: tokenHash,
+        deliverySigningKeyId: deliverySigningKeyId,
+        deliverySigningSecretRef: deliverySigningSecretRef,
+        updatedAt: new Date().toISOString(),
+        agentId: agentId,
+      });
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify({
           ...snapshot,
           agents: snapshot.agents.map((agent) =>

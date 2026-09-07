@@ -1,6 +1,8 @@
 import type { AgentSummary } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+import { externalAgentRuntimesFindRequireNativeAgent } from "./queries/external-agent-runtimes/find-require-native-agent";
+import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-agent";
 import { firstRow } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
@@ -10,9 +12,7 @@ export function workspaceAgent(
 ): AgentSummary {
   const row = firstRow<
     { snapshot_json: string | null } & Record<string, SqlStorageValue>
-  >(
-    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
-  );
+  >(workspaceFindWorkspaceAgent(storage));
   const snapshot = row?.snapshot_json
     ? decodeWorkspaceSnapshot(row.snapshot_json)
     : undefined;
@@ -46,10 +46,7 @@ export function requireNativeAgent(
   agentId: string,
 ) {
   const external = firstRow(
-    storage.sql.exec(
-      "SELECT agent_id FROM external_agent_runtimes WHERE agent_id = ?",
-      agentId,
-    ),
+    externalAgentRuntimesFindRequireNativeAgent(storage, agentId),
   );
   if (external) {
     throw new HttpError(
@@ -92,9 +89,7 @@ export function externalRuntimeOwner(
 ) {
   const row = firstRow<
     { snapshot_json: string | null } & Record<string, SqlStorageValue>
-  >(
-    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
-  );
+  >(workspaceFindWorkspaceAgent(storage));
   const snapshot = row?.snapshot_json
     ? decodeWorkspaceSnapshot(row.snapshot_json)
     : undefined;

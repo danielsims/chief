@@ -35,6 +35,22 @@ import {
   hostedAutomaticRetryAt,
 } from "./agent-runtime-support";
 import { HttpError, json, parseJson } from "./http";
+import { jobsFindClaim } from "./queries/jobs/find-claim";
+import { jobsFindComplete } from "./queries/jobs/find-complete";
+import { jobsFindMaintainHostedLease } from "./queries/jobs/find-maintain-hosted-lease";
+import { jobsFindNextAlarm } from "./queries/jobs/find-next-alarm";
+import { jobsFindRefreshExisting } from "./queries/jobs/find-refresh-existing";
+import { jobsFindRenew } from "./queries/jobs/find-renew";
+import { jobsFindSupersedeConversation } from "./queries/jobs/find-supersede-conversation";
+import { jobsInsertEnqueue } from "./queries/jobs/insert-enqueue";
+import { jobsUpdateClaim } from "./queries/jobs/update-claim";
+import { jobsUpdateComplete } from "./queries/jobs/update-complete";
+import { updateJobReceipt } from "./queries/jobs/update-job-receipt";
+import { jobsUpdateRenew } from "./queries/jobs/update-renew";
+import { jobsUpdateSupersedeConversation } from "./queries/jobs/update-supersede-conversation";
+import { receiptsFindEnqueue } from "./queries/receipts/find-enqueue";
+import { receiptsInsertEnqueue } from "./queries/receipts/insert-enqueue";
+import { receiptsUpdateUpdateReceipt } from "./queries/receipts/update-update-receipt";
 
 type TrustedContext = ReturnType<typeof readTrustedContext>;
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
@@ -55,10 +71,7 @@ export class AgentJobQueue {
       await parseJson(request),
     );
     const prior = firstAgentRow<{ job_json: string }>(
-      this.storage.sql.exec(
-        "SELECT job_json FROM receipts WHERE command_id = ?",
-        command.commandId,
-      ),
+      receiptsFindEnqueue(this.storage, command.commandId),
     );
     if (prior) {
       return this.refreshExisting(command, prior.job_json, repairTerminal);
@@ -76,18 +89,14 @@ export class AgentJobQueue {
       updatedAt: now,
     });
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        `INSERT INTO jobs (
-          job_id, job_json, status, available_at, lease_token, lease_expires_at,
-          updated_at
-        ) VALUES (?, ?, 'pending', ?, NULL, NULL, ?)`,
-        job.id,
-        JSON.stringify(job),
-        job.availableAt,
-        now,
-      );
-      this.storage.sql.exec(
-        "INSERT INTO receipts (command_id, job_json) VALUES (?, ?)",
+      jobsInsertEnqueue(this.storage, {
+        jobId: job.id,
+        jobJson: JSON.stringify(job),
+        availableAt: job.availableAt,
+        updatedAt: now,
+      });
+      receiptsInsertEnqueue(
+        this.storage,
         command.commandId,
         JSON.stringify(job),
       );
@@ -106,14 +115,7 @@ export class AgentJobQueue {
     const input = claimAgentJobSchema.parse(await parseJson(request));
     const now = new Date();
     const candidate = firstAgentRow<{ job_id: string; job_json: string }>(
-      this.storage.sql.exec(
-        `SELECT job_id, job_json FROM jobs
-         WHERE (status = 'pending' AND available_at <= ?)
-            OR (status = 'leased' AND lease_expires_at <= ?)
-         ORDER BY available_at ASC, rowid ASC LIMIT 1`,
-        now.toISOString(),
-        now.toISOString(),
-      ),
+      jobsFindClaim(this.storage, now.toISOString(), now.toISOString()),
     );
     if (!candidate) {
       await this.scheduleNextAlarm();
@@ -136,15 +138,13 @@ export class AgentJobQueue {
       leaseExpiresAt,
       updatedAt: now.toISOString(),
     });
-    this.storage.sql.exec(
-      `UPDATE jobs SET job_json = ?, status = 'leased', lease_token = ?,
-       lease_expires_at = ?, updated_at = ? WHERE job_id = ?`,
-      JSON.stringify(job),
-      leaseToken,
-      leaseExpiresAt,
-      now.toISOString(),
-      job.id,
-    );
+    jobsUpdateClaim(this.storage, {
+      jobJson: JSON.stringify(job),
+      leaseToken: leaseToken,
+      leaseExpiresAt: leaseExpiresAt,
+      updatedAt: now.toISOString(),
+      jobId: job.id,
+    });
     await this.scheduleNextAlarm();
     return json({ job, leaseToken });
   }
@@ -153,10 +153,7 @@ export class AgentJobQueue {
     requireAgentPrincipal(context.principal);
     const input = completeAgentJobSchema.parse(await parseJson(request));
     const row = firstAgentRow<{ job_id: string; job_json: string }>(
-      this.storage.sql.exec(
-        "SELECT job_id, job_json FROM jobs WHERE lease_token = ? AND status = 'leased'",
-        input.leaseToken,
-      ),
+      jobsFindComplete(this.storage, input.leaseToken),
     );
     if (!row) {
       throw new HttpError(
@@ -223,17 +220,14 @@ export class AgentJobQueue {
         availableAt: previous.availableAt,
       });
     }
-    this.storage.sql.exec(
-      `UPDATE jobs SET job_json = ?, status = ?, available_at = ?,
-       lease_token = NULL, lease_expires_at = NULL, updated_at = ?
-       WHERE job_id = ? AND lease_token = ?`,
-      JSON.stringify(job),
-      job.status,
-      job.availableAt,
-      now,
-      job.id,
-      input.leaseToken,
-    );
+    jobsUpdateComplete(this.storage, {
+      jobJson: JSON.stringify(job),
+      status: job.status,
+      availableAt: job.availableAt,
+      updatedAt: now,
+      jobId: job.id,
+      leaseToken: input.leaseToken,
+    });
     if (job.status === "pending" && Date.parse(job.availableAt) <= Date.now()) {
       this.broadcastAvailable(job, now);
     } else {
@@ -252,10 +246,7 @@ export class AgentJobQueue {
     requireAgentPrincipal(context.principal);
     const input = renewAgentJobSchema.parse(await parseJson(request));
     const row = firstAgentRow<{ job_json: string }>(
-      this.storage.sql.exec(
-        "SELECT job_json FROM jobs WHERE lease_token = ? AND status = 'leased'",
-        input.leaseToken,
-      ),
+      jobsFindRenew(this.storage, input.leaseToken),
     );
     if (!row) {
       throw new HttpError(
@@ -269,12 +260,11 @@ export class AgentJobQueue {
     const leaseExpiresAt = new Date(
       Date.now() + input.leaseSeconds * 1_000,
     ).toISOString();
-    this.storage.sql.exec(
-      "UPDATE jobs SET lease_expires_at = ? WHERE job_id = ? AND lease_token = ?",
-      leaseExpiresAt,
-      job.id,
-      input.leaseToken,
-    );
+    jobsUpdateRenew(this.storage, {
+      leaseExpiresAt: leaseExpiresAt,
+      jobId: job.id,
+      leaseToken: input.leaseToken,
+    });
     await this.scheduleNextAlarm();
     return json({ leaseExpiresAt });
   }
@@ -282,11 +272,9 @@ export class AgentJobQueue {
   supersedeConversation(conversationId: string, replacementJobId: string) {
     const now = new Date().toISOString();
     const superseded: string[] = [];
-    for (const row of this.storage.sql
-      .exec<{ job_json: string }>(
-        "SELECT job_json FROM jobs WHERE status IN ('pending', 'leased')",
-      )
-      .toArray()) {
+    for (const row of jobsFindSupersedeConversation<{ job_json: string }>(
+      this.storage,
+    )) {
       const previous = agentJobSchema.parse(JSON.parse(row.job_json));
       if (
         previous.id === replacementJobId ||
@@ -301,13 +289,11 @@ export class AgentJobQueue {
         leaseExpiresAt: null,
         updatedAt: now,
       });
-      this.storage.sql.exec(
-        `UPDATE jobs SET job_json = ?, status = 'completed', lease_token = NULL,
-         lease_expires_at = NULL, updated_at = ? WHERE job_id = ?`,
-        JSON.stringify(job),
-        now,
-        job.id,
-      );
+      jobsUpdateSupersedeConversation(this.storage, {
+        jobJson: JSON.stringify(job),
+        updatedAt: now,
+        jobId: job.id,
+      });
       superseded.push(job.id);
     }
     return superseded;
@@ -324,13 +310,7 @@ export class AgentJobQueue {
       status: string;
       lease_token: string | null;
       lease_expires_at: string | null;
-    }>(
-      this.storage.sql.exec(
-        `SELECT job_json, status, lease_token, lease_expires_at FROM jobs
-         WHERE job_id = ?`,
-        jobId,
-      ),
-    );
+    }>(jobsFindMaintainHostedLease(this.storage, jobId));
     if (!row || row.status === "completed" || row.status === "failed") {
       return undefined;
     }
@@ -360,15 +340,13 @@ export class AgentJobQueue {
       leaseExpiresAt,
       updatedAt: now.toISOString(),
     });
-    this.storage.sql.exec(
-      `UPDATE jobs SET job_json = ?, status = 'leased', lease_token = ?,
-       lease_expires_at = ?, updated_at = ? WHERE job_id = ?`,
-      JSON.stringify(job),
-      leaseToken,
-      leaseExpiresAt,
-      job.updatedAt,
-      job.id,
-    );
+    jobsUpdateClaim(this.storage, {
+      jobJson: JSON.stringify(job),
+      leaseToken: leaseToken,
+      leaseExpiresAt: leaseExpiresAt,
+      updatedAt: job.updatedAt,
+      jobId: job.id,
+    });
     return { job, leaseToken };
   }
 
@@ -398,14 +376,7 @@ export class AgentJobQueue {
 
   async scheduleNextAlarm() {
     const row = firstAgentRow<{ next_at: string | null }>(
-      this.storage.sql.exec(
-        `SELECT MIN(next_at) AS next_at FROM (
-           SELECT available_at AS next_at FROM jobs WHERE status = 'pending'
-           UNION ALL
-           SELECT lease_expires_at AS next_at FROM jobs
-             WHERE status = 'leased' AND lease_expires_at IS NOT NULL
-         )`,
-      ),
+      jobsFindNextAlarm(this.storage),
     );
     if (!row?.next_at) {
       await this.storage.deleteAlarm();
@@ -430,10 +401,7 @@ export class AgentJobQueue {
       updatedAt: now,
     });
     const stored = firstAgentRow<{ status: string }>(
-      this.storage.sql.exec(
-        "SELECT status FROM jobs WHERE job_id = ?",
-        priorJob.id,
-      ),
+      jobsFindRefreshExisting(this.storage, priorJob.id),
     );
     if (
       repairTerminal &&
@@ -466,21 +434,14 @@ export class AgentJobQueue {
 
   private updateReceipt(commandId: string, job: AgentJob, reset: boolean) {
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        reset
-          ? `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
-             lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE job_id = ?`
-          : "UPDATE jobs SET job_json = ?, available_at = ?, updated_at = ? WHERE job_id = ?",
-        JSON.stringify(job),
-        job.availableAt,
-        job.updatedAt,
-        job.id,
-      );
-      this.storage.sql.exec(
-        "UPDATE receipts SET job_json = ? WHERE command_id = ?",
-        JSON.stringify(job),
-        commandId,
-      );
+      updateJobReceipt(this.storage, {
+        jobId: job.id,
+        jobJson: JSON.stringify(job),
+        availableAt: job.availableAt,
+        updatedAt: job.updatedAt,
+        reset,
+      });
+      receiptsUpdateUpdateReceipt(this.storage, JSON.stringify(job), commandId);
     });
   }
 

@@ -24,6 +24,15 @@ import {
   projectRepository,
   ProjectRepositoryResolver,
 } from "./project-repository";
+import { externalAgentDefinitionsInsertRegister } from "./queries/external-agent-definitions/insert-register";
+import { externalAgentDeploymentsInsertRegister } from "./queries/external-agent-deployments/insert-register";
+import { externalAgentRuntimesFindRegister } from "./queries/external-agent-runtimes/find-register";
+import { externalAgentRuntimesFindRuntime } from "./queries/external-agent-runtimes/find-runtime";
+import { externalAgentRuntimesInsertRegister } from "./queries/external-agent-runtimes/insert-register";
+import { externalAgentRuntimesUpdateUpdateEndpoint } from "./queries/external-agent-runtimes/update-update-endpoint";
+import { membersInsertRegister } from "./queries/members/insert-register";
+import { projectsFindRegister } from "./queries/projects/find-register";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { externalRuntimeOwner } from "./workspace-agent-runtime";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
@@ -82,10 +91,7 @@ export class ExternalAgentChannelService {
     requireVerifiedEveEndpoint(command.payload.endpoint);
     const payloadHash = await sha256(JSON.stringify(command.payload));
     const replay = firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM external_agent_runtimes WHERE registration_command_id = ?",
-        command.commandId,
-      ),
+      externalAgentRuntimesFindRegister(this.storage, command.commandId),
     );
     if (replay) {
       if (replay.registration_payload_hash !== payloadHash)
@@ -130,12 +136,11 @@ export class ExternalAgentChannelService {
       existingRuntime.connection_status !== "connected" &&
       replacesNative
     ) {
-      this.storage.sql.exec(
-        "UPDATE external_agent_runtimes SET endpoint_url = ?, updated_at = ? WHERE agent_id = ?",
-        command.payload.endpoint,
-        new Date().toISOString(),
-        command.payload.agentId,
-      );
+      externalAgentRuntimesUpdateUpdateEndpoint(this.storage, {
+        endpointUrl: command.payload.endpoint,
+        updatedAt: new Date().toISOString(),
+        agentId: command.payload.agentId,
+      });
       return await externalAgentRegistrationReplay(
         context.workspaceId,
         existingRuntime,
@@ -155,12 +160,7 @@ export class ExternalAgentChannelService {
     const definitionInput = command.payload.definition;
     if (
       definitionInput &&
-      !firstRow(
-        this.storage.sql.exec(
-          "SELECT project_id FROM projects WHERE project_id = ?",
-          definitionInput.projectId,
-        ),
-      )
+      !firstRow(projectsFindRegister(this.storage, definitionInput.projectId))
     )
       throw new HttpError(
         404,
@@ -255,10 +255,7 @@ export class ExternalAgentChannelService {
     });
     const concurrentReplay = this.storage.transactionSync(() => {
       const claimed = firstRow<RuntimeRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM external_agent_runtimes WHERE registration_command_id = ?",
-          command.commandId,
-        ),
+        externalAgentRuntimesFindRegister(this.storage, command.commandId),
       );
       if (claimed) return claimed;
       if (
@@ -272,60 +269,54 @@ export class ExternalAgentChannelService {
         );
       this.secrets.writePrepared(preparedToken);
       this.secrets.writePrepared(preparedDeliverySigningSecret);
-      this.storage.sql.exec(
-        `INSERT INTO external_agent_runtimes (agent_id, endpoint_url, token_hash, token_secret_ref, delivery_signing_key_id, delivery_signing_secret_ref, registration_command_id, registration_payload_hash, registration_result_json, replaces_native, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        agent.id,
-        command.payload.endpoint,
-        tokenHash,
-        tokenSecretRef,
-        deliverySigningKeyId,
-        deliverySigningSecretRef,
-        command.commandId,
-        payloadHash,
-        JSON.stringify({
+      externalAgentRuntimesInsertRegister(this.storage, {
+        agentId: agent.id,
+        endpointUrl: command.payload.endpoint,
+        tokenHash: tokenHash,
+        tokenSecretRef: tokenSecretRef,
+        deliverySigningKeyId: deliverySigningKeyId,
+        deliverySigningSecretRef: deliverySigningSecretRef,
+        registrationCommandId: command.commandId,
+        registrationPayloadHash: payloadHash,
+        registrationResultJson: JSON.stringify({
           agent: result.agent,
           channel: {
             inboundUrl: result.channel.inboundUrl,
             deliverySigningKeyId,
           },
         }),
-        replacesNative ? 1 : 0,
-        now,
-        now,
-      );
+        replacesNative: replacesNative ? 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      });
       if (definition)
-        this.storage.sql.exec(
-          `INSERT INTO external_agent_definitions (agent_id, project_id, repository_id, provider_id, repository_identity, path, requested_ref, verification_status, resolved_commit_sha, content_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          agent.id,
-          definition.projectId,
-          definition.repositoryId,
-          definition.repository.provider,
-          definition.repository.provider === "github"
-            ? `${definition.repository.owner}/${definition.repository.name}`
-            : definition.repository.repositoryId,
-          definition.path,
-          definition.requestedRef,
-          definition.verification.status,
-          definition.verification.status === "verified"
-            ? definition.verification.resolvedCommitSha
-            : null,
-          definition.verification.status === "verified"
-            ? definition.verification.contentDigest
-            : null,
-        );
-      this.storage.sql.exec(
-        "INSERT INTO external_agent_deployments (agent_id, status) VALUES (?, 'unattested')",
-        agent.id,
-      );
+        externalAgentDefinitionsInsertRegister(this.storage, {
+          agentId: agent.id,
+          projectId: definition.projectId,
+          repositoryId: definition.repositoryId,
+          providerId: definition.repository.provider,
+          repositoryIdentity:
+            definition.repository.provider === "github"
+              ? `${definition.repository.owner}/${definition.repository.name}`
+              : definition.repository.repositoryId,
+          path: definition.path,
+          requestedRef: definition.requestedRef,
+          verificationStatus: definition.verification.status,
+          resolvedCommitSha:
+            definition.verification.status === "verified"
+              ? definition.verification.resolvedCommitSha
+              : null,
+          contentDigest:
+            definition.verification.status === "verified"
+              ? definition.verification.contentDigest
+              : null,
+        });
+      externalAgentDeploymentsInsertRegister(this.storage, agent.id);
       if (!replacesNative) {
-        this.storage.sql.exec(
-          "INSERT INTO members (principal_kind, principal_id, role, created_at) VALUES ('agent', ?, 'member', ?)",
-          agent.id,
-          now,
-        );
+        membersInsertRegister(this.storage, agent.id, now);
       }
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify(nextSnapshot),
       );
       return undefined;
@@ -384,10 +375,7 @@ export class ExternalAgentChannelService {
 
   runtime(agentId: string) {
     return firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindRuntime(this.storage, agentId),
     );
   }
 

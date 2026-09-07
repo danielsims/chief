@@ -16,7 +16,23 @@ import {
 
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { requireAgentPrincipal } from "./agent-job-store";
+import { addWorkspaceFileAsset } from "./db/migrations/add-workspace-file-asset";
+import { getWorkspaceFileColumns } from "./db/migrations/get-workspace-file-columns";
+import { initializeWorkspaceDataTables } from "./db/migrations/initialize-workspace-data-tables";
 import { HttpError, json, parseJson } from "./http";
+import { brandProfileFindGetBrandProfile } from "./queries/brand-profile/find-get-brand-profile";
+import { brandProfileInsertSaveBrandProfile } from "./queries/brand-profile/insert-save-brand-profile";
+import { prospectsFindListProspects } from "./queries/prospects/find-list-prospects";
+import { prospectsFindSaveProspect } from "./queries/prospects/find-save-prospect";
+import { prospectsInsertSaveProspect } from "./queries/prospects/insert-save-prospect";
+import { workspaceFilesFindListFiles } from "./queries/workspace-files/find-list-files";
+import { workspaceFilesFindSaveBrandProfile } from "./queries/workspace-files/find-save-brand-profile";
+import { workspaceFilesFindSaveFile } from "./queries/workspace-files/find-save-file";
+import { workspaceFilesFindSaveFileFileId } from "./queries/workspace-files/find-save-file-file-id";
+import { workspaceFilesFindSaveFilePath } from "./queries/workspace-files/find-save-file-path";
+import { workspaceFilesInsertSaveBrandProfile } from "./queries/workspace-files/insert-save-brand-profile";
+import { workspaceFilesInsertSaveFile } from "./queries/workspace-files/insert-save-file";
+import { workspaceFilesUpdateUpdateFile } from "./queries/workspace-files/update-update-file";
 import {
   initializeWorkspaceMachines,
   routeWorkspaceMachines,
@@ -53,42 +69,10 @@ interface ProspectRow extends Record<string, SqlStorageValue> {
 }
 
 export function initializeWorkspaceData(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS brand_profile (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      markdown TEXT NOT NULL,
-      source_urls_json TEXT NOT NULL,
-      version INTEGER NOT NULL,
-      author_agent_id TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS workspace_files (
-      file_id TEXT PRIMARY KEY,
-      path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      content TEXT NOT NULL,
-      conversation_id TEXT NOT NULL,
-      author_agent_id TEXT NOT NULL,
-      version INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS prospects (
-      prospect_id TEXT PRIMARY KEY,
-      prospect_json TEXT NOT NULL,
-      relevance TEXT NOT NULL,
-      found_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS prospects_recent_idx
-      ON prospects (updated_at DESC);
-  `);
-  const columns = [
-    ...storage.sql.exec<{ name: string }>("PRAGMA table_info(workspace_files)"),
-  ];
+  initializeWorkspaceDataTables(storage);
+  const columns = [...getWorkspaceFileColumns<{ name: string }>(storage)];
   if (!columns.some((column) => column.name === "asset_json")) {
-    storage.sql.exec("ALTER TABLE workspace_files ADD COLUMN asset_json TEXT");
+    addWorkspaceFileAsset(storage);
   }
   initializeWorkspaceProjects(storage);
   initializeWorkspaceMachines(storage);
@@ -141,9 +125,7 @@ export async function routeWorkspaceData(
 }
 
 function getBrandProfile(storage: DurableObjectStorage) {
-  const row = firstRow<BrandRow>(
-    storage.sql.exec("SELECT * FROM brand_profile LIMIT 1"),
-  );
+  const row = firstRow<BrandRow>(brandProfileFindGetBrandProfile(storage));
   if (!row) return new Response(null, { status: 204 });
   return json(brandProfileSchema.parse(brandFromRow(row)));
 }
@@ -154,52 +136,28 @@ async function saveBrandProfile(
   agentId: string,
 ) {
   const input = brandProfileSaveSchema.parse(await parseJson(request));
-  const prior = firstRow<BrandRow>(
-    storage.sql.exec("SELECT * FROM brand_profile LIMIT 1"),
-  );
+  const prior = firstRow<BrandRow>(brandProfileFindGetBrandProfile(storage));
   const priorFile = firstRow<FileRow>(
-    storage.sql.exec(
-      "SELECT * FROM workspace_files WHERE file_id = 'brand-profile'",
-    ),
+    workspaceFilesFindSaveBrandProfile(storage),
   );
   const now = new Date().toISOString();
   const version = (prior?.version ?? 0) + 1;
   const createdAt = priorFile?.created_at ?? now;
-  storage.sql.exec(
-    `INSERT INTO brand_profile (
-      singleton, markdown, source_urls_json, version, author_agent_id, updated_at
-    ) VALUES (1, ?, ?, ?, ?, ?)
-    ON CONFLICT(singleton) DO UPDATE SET
-      markdown = excluded.markdown,
-      source_urls_json = excluded.source_urls_json,
-      version = excluded.version,
-      author_agent_id = excluded.author_agent_id,
-      updated_at = excluded.updated_at`,
-    input.markdown,
-    JSON.stringify(input.sourceUrls),
-    version,
-    agentId,
-    now,
-  );
-  storage.sql.exec(
-    `INSERT INTO workspace_files (
-      file_id, path, title, mime_type, content, conversation_id,
-      author_agent_id, version, created_at, updated_at
-    ) VALUES ('brand-profile', 'brand/profile.md', 'Brand profile',
-      'text/markdown', ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(file_id) DO UPDATE SET
-      content = excluded.content,
-      conversation_id = excluded.conversation_id,
-      author_agent_id = excluded.author_agent_id,
-      version = excluded.version,
-      updated_at = excluded.updated_at`,
-    input.markdown,
-    input.conversationId,
-    agentId,
-    version,
-    createdAt,
-    now,
-  );
+  brandProfileInsertSaveBrandProfile(storage, {
+    markdown: input.markdown,
+    sourceUrlsJson: JSON.stringify(input.sourceUrls),
+    version: version,
+    authorAgentId: agentId,
+    updatedAt: now,
+  });
+  workspaceFilesInsertSaveBrandProfile(storage, {
+    content: input.markdown,
+    conversationId: input.conversationId,
+    authorAgentId: agentId,
+    version: version,
+    createdAt: createdAt,
+    updatedAt: now,
+  });
   const profile = brandProfileSchema.parse({
     markdown: input.markdown,
     sourceUrls: input.sourceUrls,
@@ -208,9 +166,7 @@ async function saveBrandProfile(
     updatedAt: now,
   });
   const fileRow = firstRow<FileRow>(
-    storage.sql.exec(
-      "SELECT * FROM workspace_files WHERE file_id = 'brand-profile'",
-    ),
+    workspaceFilesFindSaveBrandProfile(storage),
   );
   if (!fileRow) {
     throw new HttpError(
@@ -230,10 +186,7 @@ async function saveProspect(
 ) {
   const input = prospectSaveSchema.parse(await parseJson(request));
   const prior = firstRow<ProspectRow & { found_at: string }>(
-    storage.sql.exec(
-      "SELECT prospect_json, found_at FROM prospects WHERE prospect_id = ?",
-      input.id,
-    ),
+    prospectsFindSaveProspect(storage, input.id),
   );
   const now = new Date().toISOString();
   const prospect = prospectSchema.parse({
@@ -242,29 +195,20 @@ async function saveProspect(
     foundAt: prior?.found_at ?? now,
     updatedAt: now,
   });
-  storage.sql.exec(
-    `INSERT INTO prospects (
-      prospect_id, prospect_json, relevance, found_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(prospect_id) DO UPDATE SET
-      prospect_json = excluded.prospect_json,
-      relevance = excluded.relevance,
-      updated_at = excluded.updated_at`,
-    prospect.id,
-    JSON.stringify(prospect),
-    prospect.relevance,
-    prospect.foundAt,
-    prospect.updatedAt,
-  );
+  prospectsInsertSaveProspect(storage, {
+    prospectId: prospect.id,
+    prospectJson: JSON.stringify(prospect),
+    relevance: prospect.relevance,
+    foundAt: prospect.foundAt,
+    updatedAt: prospect.updatedAt,
+  });
   return json(prospect);
 }
 
 function listProspects(storage: DurableObjectStorage) {
-  const prospects = [
-    ...storage.sql.exec<ProspectRow>(
-      "SELECT prospect_json FROM prospects ORDER BY updated_at DESC LIMIT 500",
-    ),
-  ].map((row) => prospectSchema.parse(JSON.parse(row.prospect_json)));
+  const prospects = [...prospectsFindListProspects<ProspectRow>(storage)].map(
+    (row) => prospectSchema.parse(JSON.parse(row.prospect_json)),
+  );
   return json(prospectsResultSchema.parse({ prospects }));
 }
 
@@ -272,11 +216,7 @@ function listFiles(
   storage: DurableObjectStorage,
   canRead: (conversationId: string) => boolean,
 ) {
-  const files = [
-    ...storage.sql.exec<FileRow>(
-      "SELECT * FROM workspace_files ORDER BY updated_at DESC",
-    ),
-  ]
+  const files = [...workspaceFilesFindListFiles<FileRow>(storage)]
     .filter((row) => canRead(row.conversation_id))
     .map(fileFromRow);
   return json(workspaceFilesResultSchema.parse({ files }));
@@ -312,15 +252,8 @@ async function saveFile(
   }
   const prior = firstRow<FileRow>(
     input.id
-      ? storage.sql.exec(
-          "SELECT * FROM workspace_files WHERE file_id = ? OR path = ? LIMIT 1",
-          input.id,
-          input.path,
-        )
-      : storage.sql.exec(
-          "SELECT * FROM workspace_files WHERE path = ? LIMIT 1",
-          input.path,
-        ),
+      ? workspaceFilesFindSaveFile(storage, input.id, input.path)
+      : workspaceFilesFindSaveFilePath(storage, input.path),
   );
   if (prior && !canRead(prior.conversation_id))
     throw new HttpError(404, "workspace_file_not_found", "File not found.");
@@ -355,35 +288,20 @@ async function saveFile(
   const now = new Date().toISOString();
   const id = prior?.file_id ?? input.id ?? crypto.randomUUID();
   const version = (prior?.version ?? 0) + 1;
-  storage.sql.exec(
-    `INSERT INTO workspace_files (
-      file_id, path, title, mime_type, content, conversation_id,
-      author_agent_id, version, created_at, updated_at, asset_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(file_id) DO UPDATE SET
-      path = excluded.path,
-      title = excluded.title,
-      mime_type = excluded.mime_type,
-      content = excluded.content,
-      conversation_id = excluded.conversation_id,
-      author_agent_id = excluded.author_agent_id,
-      version = excluded.version,
-      updated_at = excluded.updated_at`,
-    id,
-    input.path,
-    input.title,
-    input.mimeType,
-    input.content,
-    input.conversationId,
-    agentId,
-    version,
-    prior?.created_at ?? now,
-    now,
-    asset ? JSON.stringify(asset) : null,
-  );
-  const row = firstRow<FileRow>(
-    storage.sql.exec("SELECT * FROM workspace_files WHERE file_id = ?", id),
-  );
+  workspaceFilesInsertSaveFile(storage, {
+    fileId: id,
+    path: input.path,
+    title: input.title,
+    mimeType: input.mimeType,
+    content: input.content,
+    conversationId: input.conversationId,
+    authorAgentId: agentId,
+    version: version,
+    createdAt: prior?.created_at ?? now,
+    updatedAt: now,
+    assetJson: asset ? JSON.stringify(asset) : null,
+  });
+  const row = firstRow<FileRow>(workspaceFilesFindSaveFileFileId(storage, id));
   if (!row) throw new Error("Saved file could not be read back.");
   return json(workspaceFileSchema.parse(fileFromRow(row)), {
     status: prior ? 200 : 201,
@@ -397,12 +315,7 @@ function readableFile(
 ) {
   const fileId = request.headers.get("x-chief-workspace-file-id")?.trim();
   const row = fileId
-    ? firstRow<FileRow>(
-        storage.sql.exec(
-          "SELECT * FROM workspace_files WHERE file_id = ?",
-          fileId,
-        ),
-      )
+    ? firstRow<FileRow>(workspaceFilesFindSaveFileFileId(storage, fileId))
     : undefined;
   if (!row || !canRead(row.conversation_id))
     throw new HttpError(404, "workspace_file_not_found", "File not found.");
@@ -440,18 +353,15 @@ async function updateFile(
   }
   const updatedAt = new Date().toISOString();
   const version = prior.version + 1;
-  storage.sql.exec(
-    `UPDATE workspace_files
-     SET title = ?, content = ?, version = ?, updated_at = ?
-     WHERE file_id = ?`,
-    input.title,
-    input.content,
-    version,
-    updatedAt,
-    fileId,
-  );
+  workspaceFilesUpdateUpdateFile(storage, {
+    title: input.title,
+    content: input.content,
+    version: version,
+    updatedAt: updatedAt,
+    fileId: fileId,
+  });
   const row = firstRow<FileRow>(
-    storage.sql.exec("SELECT * FROM workspace_files WHERE file_id = ?", fileId),
+    workspaceFilesFindSaveFileFileId(storage, fileId),
   );
   if (!row) throw new Error("Updated file could not be read back.");
   return json(workspaceFileSchema.parse(fileFromRow(row)));

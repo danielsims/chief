@@ -3,6 +3,8 @@ import { z } from "zod";
 import { buildGitRepository } from "@chief/agent-runtime/git-objects";
 import { projectRepositoryFilesSchema } from "@chief/relay-contracts";
 
+import { projectRepositoriesFindProjectRepository } from "./queries/project-repositories/find-project-repository";
+import { projectsFindProjectFiles } from "./queries/projects/find-project-files";
 import { firstRow } from "./workspace-channel-store";
 
 interface ProjectRepositoryRow extends Record<string, SqlStorageValue> {
@@ -47,10 +49,7 @@ export function projectRepository(
   projectId: string,
 ): ProjectRepository | undefined {
   const row = firstRow<ProjectRepositoryRow>(
-    storage.sql.exec(
-      "SELECT * FROM project_repositories WHERE project_id = ?",
-      projectId,
-    ),
+    projectRepositoriesFindProjectRepository(storage, projectId),
   );
   if (!row) return undefined;
   return {
@@ -124,10 +123,7 @@ export class ProjectRepositoryResolver {
   private projectFiles(projectId: string) {
     if (!this.storage) return undefined;
     const row = firstRow<{ repository_files_json: string | null }>(
-      this.storage.sql.exec(
-        "SELECT repository_files_json FROM projects WHERE project_id = ?",
-        projectId,
-      ),
+      projectsFindProjectFiles(this.storage, projectId),
     );
     if (!row?.repository_files_json) return undefined;
     return projectRepositoryFilesSchema

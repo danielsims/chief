@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
 import { agentSummarySchema } from "@chief/relay-contracts";
 
+import { externalAgentRuntimesFindExternalAgentSnapshotRows } from "./queries/external-agent-runtimes/find-external-agent-snapshot-rows";
+
 const registrationResultJsonSchema = z.json();
 type RegistrationResultJson = z.infer<typeof registrationResultJsonSchema>;
 
@@ -18,11 +20,9 @@ export interface ExternalAgentSnapshotRow extends Record<
 }
 
 export function externalAgentSnapshotRows(storage: DurableObjectStorage) {
-  return storage.sql
-    .exec<ExternalAgentSnapshotRow>(
-      "SELECT agent_id, endpoint_url, connection_status, registration_result_json, replaces_native FROM external_agent_runtimes",
-    )
-    .toArray();
+  return externalAgentRuntimesFindExternalAgentSnapshotRows<ExternalAgentSnapshotRow>(
+    storage,
+  );
 }
 
 export function reconcileExternalAgentSnapshot(

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { HttpError } from "./http";
+import { secretsDelete } from "./queries/secrets/delete";
+import { getSecretRecord } from "./queries/secrets/get-secret";
+import { listSecretsRecord } from "./queries/secrets/list-secrets";
+import { upsertSecretRecord } from "./queries/secrets/upsert-secret";
 
 /**
  * Workspace-scoped encrypted secrets, modelled on Executor's encrypted-secrets
@@ -149,23 +153,17 @@ export class WorkspaceSecretStore {
   }
 
   writePrepared(secret: PreparedWorkspaceSecret) {
-    this.storage.sql.exec(
-      `INSERT INTO secrets (key, value_json, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
-         updated_at = excluded.updated_at`,
-      secret.key,
-      secret.valueJson,
-      secret.updatedAt,
-    );
+    upsertSecretRecord(this.storage, {
+      key: secret.key,
+      valueJson: secret.valueJson,
+      updatedAt: secret.updatedAt,
+    });
   }
 
   async get(workspaceId: string, name: string): Promise<string | null> {
     const normalized = validateSecretName(name);
     const row = this.firstRow<SecretRow>(
-      this.storage.sql.exec(
-        "SELECT key, value_json, updated_at FROM secrets WHERE key = ?",
-        this.rowKey(workspaceId, normalized),
-      ),
+      getSecretRecord(this.storage, this.rowKey(workspaceId, normalized)),
     );
     if (!row) return null;
     const key = await this.keyPromise;
@@ -177,12 +175,7 @@ export class WorkspaceSecretStore {
 
   list(workspaceId: string): { name: string; updatedAt: string }[] {
     const prefix = `${COLLECTION}:${workspaceId}:`;
-    const rows = this.storage.sql
-      .exec<SecretRow>(
-        "SELECT key, value_json, updated_at FROM secrets WHERE key LIKE ? ORDER BY key",
-        `${prefix}%`,
-      )
-      .toArray();
+    const rows = listSecretsRecord<SecretRow>(this.storage, prefix);
     return rows.map((row) => ({
       name: String(row.key).slice(prefix.length),
       updatedAt: String(row.updated_at),
@@ -191,10 +184,7 @@ export class WorkspaceSecretStore {
 
   delete(workspaceId: string, name: string) {
     const normalized = validateSecretName(name);
-    this.storage.sql.exec(
-      "DELETE FROM secrets WHERE key = ?",
-      this.rowKey(workspaceId, normalized),
-    );
+    secretsDelete(this.storage, this.rowKey(workspaceId, normalized));
   }
 
   private firstRow<T>(cursor: Iterable<T>) {

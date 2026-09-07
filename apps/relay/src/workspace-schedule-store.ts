@@ -8,6 +8,13 @@ import {
   workspaceScheduleSchema,
 } from "@chief/relay-contracts";
 
+import { initializeScheduleRunTables } from "./db/migrations/initialize-schedule-run-tables";
+import { initializeScheduleTables } from "./db/migrations/initialize-schedule-tables";
+import { workspaceSchedulesFindNextDeadline } from "./queries/workspace-schedules/find-next-deadline";
+import { workspaceSchedulesFindReadWorkspaceSchedule } from "./queries/workspace-schedules/find-read-workspace-schedule";
+import { workspaceSchedulesFindReadWorkspaceSchedules } from "./queries/workspace-schedules/find-read-workspace-schedules";
+import { workspaceSchedulesInsertWriteWorkspaceSchedule } from "./queries/workspace-schedules/insert-write-workspace-schedule";
+
 const storedScheduleSchema = z.object({
   schedule: workspaceScheduleSchema,
   approvedBy: principalSchema.nullable(),
@@ -20,33 +27,13 @@ type ScheduleRow = { id: string; document_json: string } & Record<
 >;
 
 export function initializeWorkspaceSchedules(storage: DurableObjectStorage) {
-  storage.sql.exec(`CREATE TABLE IF NOT EXISTS workspace_schedule_runs (
-    id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, state TEXT NOT NULL,
-    next_check_at INTEGER, created_at INTEGER NOT NULL, document_json TEXT NOT NULL, principal_json TEXT NOT NULL
-  ); CREATE INDEX IF NOT EXISTS schedule_runs_due ON workspace_schedule_runs(next_check_at);
-  CREATE INDEX IF NOT EXISTS schedule_runs_history ON workspace_schedule_runs(schedule_id, created_at);
-  CREATE TABLE IF NOT EXISTS workspace_schedule_webhooks (
-    id TEXT PRIMARY KEY, document_json TEXT NOT NULL, secret TEXT NOT NULL
-  ); CREATE TABLE IF NOT EXISTS workspace_webhook_deliveries (
-    webhook_id TEXT NOT NULL, delivery_id TEXT NOT NULL, body_hash TEXT NOT NULL, run_id TEXT NOT NULL,
-    received_at INTEGER NOT NULL, PRIMARY KEY(webhook_id, delivery_id)
-  );`);
-  storage.sql.exec(`CREATE TABLE IF NOT EXISTS workspace_schedules (
-    id TEXT PRIMARY KEY, document_json TEXT NOT NULL, next_at INTEGER
-  ); CREATE TABLE IF NOT EXISTS workspace_schedule_commands (command_id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, action TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS workspace_schedule_dispatches (
-    id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, scheduled_at INTEGER NOT NULL,
-    command_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL,
-    retry_at INTEGER NOT NULL, error TEXT, created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0
-  ); CREATE INDEX IF NOT EXISTS workspace_schedule_due ON workspace_schedules(next_at);
-  CREATE INDEX IF NOT EXISTS workspace_schedule_dispatch_due ON workspace_schedule_dispatches(state, retry_at);`);
+  initializeScheduleRunTables(storage);
+  initializeScheduleTables(storage);
 }
 
 export function readWorkspaceSchedules(storage: DurableObjectStorage) {
   return [
-    ...storage.sql.exec<ScheduleRow>(
-      "SELECT id, document_json FROM workspace_schedules ORDER BY next_at, id",
-    ),
+    ...workspaceSchedulesFindReadWorkspaceSchedules<ScheduleRow>(storage),
   ].map((row) => storedScheduleSchema.parse(JSON.parse(row.document_json)));
 }
 
@@ -55,10 +42,7 @@ export function readWorkspaceSchedule(
   id: string,
 ) {
   const row = [
-    ...storage.sql.exec<ScheduleRow>(
-      "SELECT id, document_json FROM workspace_schedules WHERE id = ?",
-      id,
-    ),
+    ...workspaceSchedulesFindReadWorkspaceSchedule<ScheduleRow>(storage, id),
   ][0];
   return row ? storedScheduleSchema.parse(JSON.parse(row.document_json)) : null;
 }
@@ -67,12 +51,14 @@ export function writeWorkspaceSchedule(
   storage: DurableObjectStorage,
   value: StoredSchedule,
 ) {
-  storage.sql.exec(
-    "INSERT INTO workspace_schedules(id, document_json, next_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET document_json=excluded.document_json, next_at=excluded.next_at",
-    value.schedule.id,
-    JSON.stringify(value),
-    value.schedule.status === "active" ? (value.schedule.nextAt ?? null) : null,
-  );
+  workspaceSchedulesInsertWriteWorkspaceSchedule(storage, {
+    id: value.schedule.id,
+    documentJson: JSON.stringify(value),
+    nextAt:
+      value.schedule.status === "active"
+        ? (value.schedule.nextAt ?? null)
+        : null,
+  });
 }
 
 export function nextScheduleTime(
@@ -120,12 +106,9 @@ export function presentWorkspaceSchedule(schedule: WorkspaceSchedule) {
 
 export function scheduleDeadline(storage: DurableObjectStorage) {
   const row = [
-    ...storage.sql.exec<
+    ...workspaceSchedulesFindNextDeadline<
       { deadline: number | null } & Record<string, SqlStorageValue>
-    >(`SELECT MIN(deadline) AS deadline FROM (
-    SELECT MIN(next_at) AS deadline FROM workspace_schedules
-    UNION ALL SELECT MIN(next_check_at) AS deadline FROM workspace_schedule_runs
-  )`),
+    >(storage),
   ][0];
   return row?.deadline ?? undefined;
 }

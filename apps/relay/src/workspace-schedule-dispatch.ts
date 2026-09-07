@@ -14,6 +14,9 @@ import {
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { externalAgentOutboxUpdateStopScheduleTeam } from "./queries/external-agent-outbox/update-stop-schedule-team";
+import { workspaceScheduleRunsFindAdvanceScheduleRun } from "./queries/workspace-schedule-runs/find-advance-schedule-run";
+import { workspaceScheduleRunsFindDrainWorkspaceSchedules } from "./queries/workspace-schedule-runs/find-drain-workspace-schedules";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
@@ -107,12 +110,10 @@ export async function drainWorkspaceSchedules(
     schedule.updatedAt = now;
     writeWorkspaceSchedule(storage, stored);
   }
-  const due = storage.sql
-    .exec<{ id: string }>(
-      "SELECT id FROM workspace_schedule_runs WHERE next_check_at <= ? ORDER BY created_at, rowid LIMIT 20",
-      now,
-    )
-    .toArray();
+  const due = workspaceScheduleRunsFindDrainWorkspaceSchedules<{ id: string }>(
+    storage,
+    now,
+  );
   for (const { id } of due) {
     try {
       const run = readScheduleRun(storage, id);
@@ -202,13 +203,11 @@ async function advanceScheduleRun(
     return;
   }
   if (run.state === "queued") {
-    const other = storage.sql
-      .exec<{ id: string }>(
-        "SELECT id FROM workspace_schedule_runs WHERE schedule_id = ? AND state = 'running' AND id != ? LIMIT 1",
-        run.scheduleId,
-        id,
-      )
-      .toArray()[0];
+    const other = workspaceScheduleRunsFindAdvanceScheduleRun<{ id: string }>(
+      storage,
+      run.scheduleId,
+      id,
+    )[0];
     if (other) {
       writeScheduleRun(
         storage,
@@ -464,10 +463,7 @@ async function stopScheduleTeam(
 ) {
   const { run, principal } = current;
   // Revoke undelivered external handoffs; accepted callbacks also check run state.
-  storage.sql.exec(
-    "UPDATE external_agent_outbox SET status = 'dropped', delivering_since = NULL WHERE thread_root_id = ? AND status IN ('queued', 'delivering', 'reconciling')",
-    run.threadRootId,
-  );
+  externalAgentOutboxUpdateStopScheduleTeam(storage, run.threadRootId);
   for (const agentId of new Set(run.steps.map((step) => step.agentId))) {
     const response = await env.AGENTS.get(
       env.AGENTS.idFromName(`${principal.workspaceId}:${agentId}`),

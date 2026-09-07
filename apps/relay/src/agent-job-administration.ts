@@ -7,6 +7,11 @@ import {
 
 import { firstAgentRow } from "./agent-job-store";
 import { HttpError } from "./http";
+import { jobsFindCancelAgentWorkflow } from "./queries/jobs/find-cancel-agent-workflow";
+import { jobsFindListAgentJobs } from "./queries/jobs/find-list-agent-jobs";
+import { jobsFindRetryAgentJob } from "./queries/jobs/find-retry-agent-job";
+import { jobsUpdateMarkJobFailed } from "./queries/jobs/update-mark-job-failed";
+import { jobsUpdateRetryAgentJob } from "./queries/jobs/update-retry-agent-job";
 
 export function listAgentJobs(
   storage: DurableObjectStorage,
@@ -15,9 +20,8 @@ export function listAgentJobs(
 ) {
   requireJobAdministrator(principal);
   const jobs = Array.from(
-    storage.sql.exec<{ job_json: string }>(
-      `SELECT job_json FROM jobs WHERE (? IS NULL OR json_extract(job_json, '$.payload.workflowId') = ?)
-       ORDER BY updated_at DESC, rowid DESC LIMIT 200`,
+    jobsFindListAgentJobs<{ job_json: string }>(
+      storage,
       workflowId ?? null,
       workflowId ?? null,
     ),
@@ -34,7 +38,7 @@ export function retryAgentJob(
   requireJobAdministrator(principal);
   const jobId = jobIdSchema.parse(decodeURIComponent(rawJobId));
   const row = firstAgentRow<{ job_json: string }>(
-    storage.sql.exec("SELECT job_json FROM jobs WHERE job_id = ?", jobId),
+    jobsFindRetryAgentJob(storage, jobId),
   );
   if (!row) {
     throw new HttpError(
@@ -61,15 +65,12 @@ export function retryAgentJob(
     leaseExpiresAt: null,
     updatedAt: now,
   });
-  storage.sql.exec(
-    `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
-     lease_token = NULL, lease_expires_at = NULL, updated_at = ?
-     WHERE job_id = ?`,
-    JSON.stringify(job),
-    now,
-    now,
-    job.id,
-  );
+  jobsUpdateRetryAgentJob(storage, {
+    jobJson: JSON.stringify(job),
+    availableAt: now,
+    updatedAt: now,
+    jobId: job.id,
+  });
   return job;
 }
 
@@ -80,12 +81,10 @@ export function cancelAgentWorkflow(
 ) {
   requireJobAdministrator(principal);
   const now = new Date().toISOString();
-  for (const row of storage.sql
-    .exec<{ job_json: string }>(
-      "SELECT job_json FROM jobs WHERE status IN ('pending', 'leased') AND json_extract(job_json, '$.payload.workflowId') = ?",
-      workflowId,
-    )
-    .toArray()) {
+  for (const row of jobsFindCancelAgentWorkflow<{ job_json: string }>(
+    storage,
+    workflowId,
+  )) {
     const job = agentJobSchema.parse(JSON.parse(row.job_json));
     markJobFailed(
       storage,
@@ -108,13 +107,11 @@ export function markJobFailed(
     leaseExpiresAt: null,
     updatedAt: now,
   });
-  storage.sql.exec(
-    `UPDATE jobs SET job_json = ?, status = 'failed', lease_token = NULL,
-     lease_expires_at = NULL, updated_at = ? WHERE job_id = ?`,
-    JSON.stringify(job),
-    now,
-    job.id,
-  );
+  jobsUpdateMarkJobFailed(storage, {
+    jobJson: JSON.stringify(job),
+    updatedAt: now,
+    jobId: job.id,
+  });
   return job;
 }
 

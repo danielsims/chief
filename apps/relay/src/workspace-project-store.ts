@@ -9,7 +9,25 @@ import {
 } from "@chief/relay-contracts";
 
 import type { ProjectRow } from "./workspace-project-git";
+import { addProjectAgent } from "./db/migrations/add-project-agent";
+import { addProjectRepositoryFiles } from "./db/migrations/add-project-repository-files";
+import { getProjectColumns } from "./db/migrations/get-project-columns";
+import { initializeProjectTables } from "./db/migrations/initialize-project-tables";
 import { HttpError, json, parseJson } from "./http";
+import { projectStoreMigrationsFindMigrateSnapshotProjects } from "./queries/project-store-migrations/find-migrate-snapshot-projects";
+import { projectStoreMigrationsInsertMigrateSnapshotProjects } from "./queries/project-store-migrations/insert-migrate-snapshot-projects";
+import { projectsDeleteRemove } from "./queries/projects/delete-remove";
+import { projectsFindChiefGitRepositoryFiles } from "./queries/projects/find-chief-git-repository-files";
+import { projectsFindCreateProject } from "./queries/projects/find-create-project";
+import { projectsFindProjectIdsOwnedByAgent } from "./queries/projects/find-project-ids-owned-by-agent";
+import { projectsFindSaveAgentProjectFiles } from "./queries/projects/find-save-agent-project-files";
+import { projectsFindWorkspaceProjects } from "./queries/projects/find-workspace-projects";
+import { projectsInsertMigrateSnapshotProjects } from "./queries/projects/insert-migrate-snapshot-projects";
+import { projectsInsertSaveAgentProjectFiles } from "./queries/projects/insert-save-agent-project-files";
+import { projectsUpdateBackfillAgentProjectFiles } from "./queries/projects/update-backfill-agent-project-files";
+import { projectsUpdateSaveAgentProjectFiles } from "./queries/projects/update-save-agent-project-files";
+import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-agent";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import {
   ensureProjectRepository,
@@ -23,57 +41,21 @@ export { chiefGitRepositoryFiles } from "./workspace-project-git";
 const SNAPSHOT_PROJECTS_MIGRATION = "snapshot-projects-v1";
 
 export function initializeWorkspaceProjects(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      project_id TEXT PRIMARY KEY,
-      agent_id TEXT,
-      name TEXT NOT NULL,
-      description TEXT,
-      repository_kind TEXT NOT NULL,
-      provider_id TEXT NOT NULL,
-      canonical_remote_url TEXT,
-      repository_web_url TEXT,
-      repository_files_json TEXT,
-      default_branch TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS projects_remote_unique
-      ON projects (canonical_remote_url)
-      WHERE canonical_remote_url IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS projects_updated_idx
-      ON projects (updated_at DESC);
-    CREATE TABLE IF NOT EXISTS project_store_migrations (
-      migration_id TEXT PRIMARY KEY,
-      completed_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS project_repositories (
-      repository_id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL UNIQUE,
-      provider_id TEXT NOT NULL,
-      canonical_remote_url TEXT NOT NULL,
-      provider_repository_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
-    );
-  `);
+  initializeProjectTables(storage);
   const columns = new Set(
-    storage.sql
-      .exec<Record<string, SqlStorageValue>>("PRAGMA table_info(projects)")
+    getProjectColumns<Record<string, SqlStorageValue>>(storage)
       .toArray()
       .map((column) => (isJsonString(column.name) ? column.name : "")),
   );
   if (!columns.has("agent_id")) {
-    storage.sql.exec("ALTER TABLE projects ADD COLUMN agent_id TEXT");
+    addProjectAgent(storage);
   }
   if (!columns.has("repository_files_json")) {
-    storage.sql.exec(
-      "ALTER TABLE projects ADD COLUMN repository_files_json TEXT",
-    );
+    addProjectRepositoryFiles(storage);
   }
-  for (const project of storage.sql
-    .exec<ProjectRow>("SELECT * FROM projects")
-    .toArray()) {
+  for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
+    storage,
+  )) {
     ensureProjectRepository(storage, project);
   }
 }
@@ -110,23 +92,21 @@ export function workspaceProjects(
   migrateSnapshotProjects(storage, workspaceId);
   backfillAgentProjectFiles(storage);
   const organizationId = workspaceIdSchema.parse(workspaceId);
-  return [
-    ...storage.sql.exec<ProjectRow>(
-      "SELECT * FROM projects ORDER BY updated_at DESC",
-    ),
-  ].map((row) => relayProjectSchema.parse(projectFromRow(row, organizationId)));
+  return [...projectsFindWorkspaceProjects<ProjectRow>(storage)].map((row) =>
+    relayProjectSchema.parse(projectFromRow(row, organizationId)),
+  );
 }
 
 function backfillAgentProjectFiles(storage: DurableObjectStorage) {
   const workspace = firstRow<{ snapshot_json: string | null }>(
-    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
+    workspaceFindWorkspaceAgent(storage),
   );
   if (!workspace?.snapshot_json) return;
   const agents = decodeWorkspaceSnapshot(workspace.snapshot_json).agents;
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
-  for (const project of storage.sql
-    .exec<ProjectRow>("SELECT * FROM projects")
-    .toArray()) {
+  for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
+    storage,
+  )) {
     if (
       project.repository_files_json &&
       !hasLegacyUndefinedReadme(project.repository_files_json)
@@ -173,13 +153,12 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
         content: `${instructions}\n`,
       },
     ];
-    storage.sql.exec(
-      "UPDATE projects SET agent_id = ?, description = ?, repository_files_json = ? WHERE project_id = ?",
-      agent.id,
-      description,
-      JSON.stringify(files),
-      project.project_id,
-    );
+    projectsUpdateBackfillAgentProjectFiles(storage, {
+      agentId: agent.id,
+      description: description,
+      repositoryFilesJson: JSON.stringify(files),
+      projectId: project.project_id,
+    });
   }
 }
 
@@ -215,52 +194,37 @@ export function saveAgentProjectFiles(
     input.files.map((file) => ({ path: file.path, content: file.contents })),
   );
   const existing = firstRow<ProjectRow>(
-    storage.sql.exec(
-      "SELECT * FROM projects WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
-      input.agentId,
-    ),
+    projectsFindSaveAgentProjectFiles(storage, input.agentId),
   );
   if (existing) {
-    storage.sql.exec(
-      `UPDATE projects
-       SET name = ?, description = ?, provider_id = ?, canonical_remote_url = ?,
-           repository_web_url = ?, repository_files_json = ?, updated_at = ?
-       WHERE project_id = ?`,
-      input.name,
-      input.description,
-      "chief-git",
-      input.canonicalRemoteUrl,
-      input.canonicalRemoteUrl.replace(/\.git$/u, ""),
-      repositoryFiles,
-      now,
-      existing.project_id,
-    );
+    projectsUpdateSaveAgentProjectFiles(storage, {
+      name: input.name,
+      description: input.description,
+      providerId: "chief-git",
+      canonicalRemoteUrl: input.canonicalRemoteUrl,
+      repositoryWebUrl: input.canonicalRemoteUrl.replace(/\.git$/u, ""),
+      repositoryFilesJson: repositoryFiles,
+      updatedAt: now,
+      projectId: existing.project_id,
+    });
   } else {
-    storage.sql.exec(
-      `INSERT INTO projects (
-        project_id, agent_id, name, description, repository_kind, provider_id,
-        canonical_remote_url, repository_web_url, repository_files_json,
-        default_branch, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      crypto.randomUUID(),
-      input.agentId,
-      input.name,
-      input.description,
-      "cloned",
-      "chief-git",
-      input.canonicalRemoteUrl,
-      input.canonicalRemoteUrl.replace(/\.git$/u, ""),
-      repositoryFiles,
-      "main",
-      now,
-      now,
-    );
+    projectsInsertSaveAgentProjectFiles(storage, {
+      projectId: crypto.randomUUID(),
+      agentId: input.agentId,
+      name: input.name,
+      description: input.description,
+      repositoryKind: "cloned",
+      providerId: "chief-git",
+      canonicalRemoteUrl: input.canonicalRemoteUrl,
+      repositoryWebUrl: input.canonicalRemoteUrl.replace(/\.git$/u, ""),
+      repositoryFilesJson: repositoryFiles,
+      defaultBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
   }
   const saved = firstRow<ProjectRow>(
-    storage.sql.exec(
-      "SELECT * FROM projects WHERE agent_id = ? ORDER BY updated_at DESC LIMIT 1",
-      input.agentId,
-    ),
+    projectsFindSaveAgentProjectFiles(storage, input.agentId),
   );
   if (saved) ensureProjectRepository(storage, saved);
   syncSnapshotProjects(storage, workspaceId);
@@ -284,25 +248,22 @@ async function createProject(
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   try {
-    storage.sql.exec(
-      `INSERT INTO projects (
-        project_id, agent_id, name, description, repository_kind, provider_id,
-        canonical_remote_url, repository_web_url, repository_files_json, default_branch,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      input.agentId ?? null,
-      input.name,
-      input.description ?? null,
-      input.repositoryKind,
-      input.providerId,
-      input.canonicalRemoteUrl ?? null,
-      input.repositoryWebUrl ?? null,
-      input.repositoryFiles ? JSON.stringify(input.repositoryFiles) : null,
-      input.defaultBranch,
-      now,
-      now,
-    );
+    projectsInsertSaveAgentProjectFiles(storage, {
+      projectId: id,
+      agentId: input.agentId ?? null,
+      name: input.name,
+      description: input.description ?? null,
+      repositoryKind: input.repositoryKind,
+      providerId: input.providerId,
+      canonicalRemoteUrl: input.canonicalRemoteUrl ?? null,
+      repositoryWebUrl: input.repositoryWebUrl ?? null,
+      repositoryFilesJson: input.repositoryFiles
+        ? JSON.stringify(input.repositoryFiles)
+        : null,
+      defaultBranch: input.defaultBranch,
+      createdAt: now,
+      updatedAt: now,
+    });
   } catch (error) {
     if (input.canonicalRemoteUrl) {
       throw new HttpError(
@@ -314,9 +275,7 @@ async function createProject(
     throw error;
   }
   syncSnapshotProjects(storage, workspaceId);
-  const row = firstRow<ProjectRow>(
-    storage.sql.exec("SELECT * FROM projects WHERE project_id = ?", id),
-  );
+  const row = firstRow<ProjectRow>(projectsFindCreateProject(storage, id));
   if (row) ensureProjectRepository(storage, row);
   if (!row) throw new Error("Created project could not be read back.");
   ensureProjectRepository(storage, row);
@@ -339,12 +298,12 @@ function deleteProject(
     throw new HttpError(400, "project_id_missing", "Project id is required.");
   }
   const existing = firstRow<ProjectRow>(
-    storage.sql.exec("SELECT * FROM projects WHERE project_id = ?", projectId),
+    projectsFindCreateProject(storage, projectId),
   );
   if (!existing) {
     throw new HttpError(404, "project_not_found", "Project not found.");
   }
-  storage.sql.exec("DELETE FROM projects WHERE project_id = ?", projectId);
+  projectsDeleteRemove(storage, projectId);
   syncSnapshotProjects(storage, workspaceId);
   return json(
     relayProjectDeleteResultSchema.parse({ id: projectId, deleted: true }),
@@ -387,12 +346,12 @@ function syncSnapshotProjects(
   workspaceId: string,
 ) {
   const row = firstRow<{ snapshot_json: string | null }>(
-    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
+    workspaceFindWorkspaceAgent(storage),
   );
   if (!row?.snapshot_json) return;
   const snapshot = decodeWorkspaceSnapshot(row.snapshot_json);
-  storage.sql.exec(
-    "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+  workspaceUpdateVerifyConnection(
+    storage,
     JSON.stringify({
       ...snapshot,
       projects: workspaceProjects(storage, workspaceId),
@@ -405,14 +364,14 @@ export function migrateSnapshotProjects(
   workspaceId: string,
 ) {
   const migrated = firstRow<{ migration_id: string }>(
-    storage.sql.exec(
-      "SELECT migration_id FROM project_store_migrations WHERE migration_id = ?",
+    projectStoreMigrationsFindMigrateSnapshotProjects(
+      storage,
       SNAPSHOT_PROJECTS_MIGRATION,
     ),
   );
   if (migrated) return;
   const row = firstRow<{ snapshot_json: string | null }>(
-    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
+    workspaceFindWorkspaceAgent(storage),
   );
   if (!row?.snapshot_json) return;
   const snapshot = decodeWorkspaceSnapshot(row.snapshot_json);
@@ -420,37 +379,29 @@ export function migrateSnapshotProjects(
   storage.transactionSync(() => {
     for (const project of snapshot.projects) {
       if (project.organizationId !== organizationId) continue;
-      storage.sql.exec(
-        `INSERT OR IGNORE INTO projects (
-          project_id, agent_id, name, description, repository_kind, provider_id,
-          canonical_remote_url, repository_web_url, repository_files_json, default_branch,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        project.id,
-        project.agentId ?? null,
-        project.name,
-        project.description ?? null,
-        project.repositoryKind,
-        project.providerId,
-        project.canonicalRemoteUrl ?? null,
-        project.repositoryWebUrl ?? null,
-        project.repositoryFiles
+      projectsInsertMigrateSnapshotProjects(storage, {
+        projectId: project.id,
+        agentId: project.agentId ?? null,
+        name: project.name,
+        description: project.description ?? null,
+        repositoryKind: project.repositoryKind,
+        providerId: project.providerId,
+        canonicalRemoteUrl: project.canonicalRemoteUrl ?? null,
+        repositoryWebUrl: project.repositoryWebUrl ?? null,
+        repositoryFilesJson: project.repositoryFiles
           ? JSON.stringify(project.repositoryFiles)
           : null,
-        project.defaultBranch,
-        project.createdAt,
-        project.updatedAt,
-      );
+        defaultBranch: project.defaultBranch,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      });
       const row = firstRow<ProjectRow>(
-        storage.sql.exec(
-          "SELECT * FROM projects WHERE project_id = ?",
-          project.id,
-        ),
+        projectsFindCreateProject(storage, project.id),
       );
       if (row) ensureProjectRepository(storage, row);
     }
-    storage.sql.exec(
-      "INSERT INTO project_store_migrations (migration_id, completed_at) VALUES (?, ?)",
+    projectStoreMigrationsInsertMigrateSnapshotProjects(
+      storage,
       SNAPSHOT_PROJECTS_MIGRATION,
       new Date().toISOString(),
     );
@@ -464,11 +415,9 @@ export function projectIdsOwnedByAgent(
 ) {
   migrateSnapshotProjects(storage, workspaceId);
   const normalizedAgentId = normalizeProjectOwner(agentId);
-  return storage.sql
-    .exec<Pick<ProjectRow, "project_id" | "agent_id" | "name">>(
-      "SELECT project_id, agent_id, name FROM projects",
-    )
-    .toArray()
+  return projectsFindProjectIdsOwnedByAgent<
+    Pick<ProjectRow, "project_id" | "agent_id" | "name">
+  >(storage)
     .filter((project) => {
       if (project.agent_id === agentId) return true;
       const name = normalizeProjectOwner(project.name);
