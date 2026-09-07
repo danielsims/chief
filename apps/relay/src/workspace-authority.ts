@@ -27,6 +27,7 @@ import {
 } from "./organization-tenancy";
 import { recordProductEvents } from "./product-events";
 import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
+import { readWorkspaceSettings } from "./workspace-settings";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 export {
@@ -201,6 +202,10 @@ export async function activeManagedWorkspace(
       "invalid_workspace_snapshot",
       "The workspace returned an invalid snapshot.",
     );
+  }
+  if (env.ACCOUNT_IDENTITY_MODE === "chief-account") {
+    const settings = await readWorkspaceSettings(env, entry.workspaceId);
+    if (settings) Object.assign(snapshot, settings);
   }
   snapshot.runtime =
     entry.command?.agentRuntime === "relay-cell" ? entry.command.runtime : null;

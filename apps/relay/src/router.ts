@@ -38,6 +38,7 @@ import { routeScheduleRunRequest } from "./router-schedule-runs";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
 import { routeWorkspaceGit } from "./router-workspace-git";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
+import { routeWorkspaceSettings } from "./router-workspace-settings";
 import { routeWorkspaceVercel } from "./router-workspace-vercel";
 import {
   activeManagedWorkspace,
@@ -111,6 +112,11 @@ export async function routeRelayRequest(
       routeMissionRequest(env, request, requestId),
     );
     if (missionResponse) return missionResponse;
+
+    const settingsResponse = yield* attempt("relay.workspace_settings", () =>
+      routeWorkspaceSettings(env, request, requestId),
+    );
+    if (settingsResponse) return settingsResponse;
 
     const workspaceResponse = yield* routeWorkspaceRequest(
       env,
