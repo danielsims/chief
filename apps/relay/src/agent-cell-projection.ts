@@ -9,6 +9,8 @@ import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import { firstAgentRow } from "./agent-job-store";
 import { safeJsonArray } from "./agent-object-values";
+import { cellRecordsFindLoadArray } from "./queries/cell-records/find-load-array";
+import { cellRecordsInsertPutRecord } from "./queries/cell-records/insert-put-record";
 
 const DURABLE_MEMORY_ENTRY_LIMIT = 8;
 const DURABLE_MEMORY_CHARACTER_LIMIT = 6_000;
@@ -103,7 +105,7 @@ export function recordCompletedTurn(
 
 function loadArray(storage: DurableObjectStorage, key: string) {
   const row = firstAgentRow<{ value_json: string }>(
-    storage.sql.exec("SELECT value_json FROM cell_records WHERE key = ?", key),
+    cellRecordsFindLoadArray(storage, key),
   );
   return row ? safeJsonArray(row.value_json) : [];
 }
@@ -114,12 +116,9 @@ function putRecord(
   value: JsonValue,
   updatedAt: string,
 ) {
-  storage.sql.exec(
-    `INSERT INTO cell_records (key, value_json, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
-       updated_at = excluded.updated_at`,
-    key,
-    JSON.stringify(value),
-    updatedAt,
-  );
+  cellRecordsInsertPutRecord(storage, {
+    key: key,
+    valueJson: JSON.stringify(value),
+    updatedAt: updatedAt,
+  });
 }

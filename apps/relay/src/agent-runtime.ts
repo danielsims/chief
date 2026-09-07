@@ -63,6 +63,7 @@ import {
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
 import { hostedDurableTools } from "./hosted-agent-tools";
+import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export class AgentRuntime {
@@ -143,14 +144,7 @@ export class AgentRuntime {
       const now = new Date().toISOString();
       const due = yield* sync("agent.job.find_due", () =>
         firstAgentRow<{ job_json: string }>(
-          storage.sql.exec(
-            `SELECT job_json FROM jobs
-             WHERE (status = 'pending' AND available_at <= ?)
-                OR (status = 'leased' AND lease_expires_at <= ?)
-             ORDER BY available_at ASC, rowid ASC LIMIT 1`,
-            now,
-            now,
-          ),
+          jobsFindCurrentAgentWorkflowId(storage, now, now),
         ),
       );
       if (!due) {

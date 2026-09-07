@@ -16,3 +16,5 @@ export async function updateChiefUserImage(
     throw new Error("The authenticated Chief user no longer exists.");
   }
 }
+
+export { getUserNames } from "./queries/get-user-names";

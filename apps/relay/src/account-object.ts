@@ -16,6 +16,9 @@ import {
   listPushDevices,
   registerPushDevice,
 } from "./account-push";
+import { findLegacyAccountDirectory } from "./db/migrations/find-legacy-account-directory";
+import { initializeAccountTables } from "./db/migrations/initialize-account-tables";
+import { migrateAccountDirectory } from "./db/migrations/migrate-account-directory";
 import { attempt, runResponse, sync } from "./effect";
 import { json, parseJson, relayError } from "./http";
 import {
@@ -23,6 +26,17 @@ import {
   withTrustedIdentity,
 } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { deviceActiveWorkspacesDeleteRemove } from "./queries/device-active-workspaces/delete-remove";
+import { deviceActiveWorkspacesInsertSetActiveWorkspace } from "./queries/device-active-workspaces/insert-set-active-workspace";
+import { workspaceDirectoryV2DeleteRemove } from "./queries/workspace-directory-v2/delete-remove";
+import { workspaceDirectoryV2FindActiveDirectory } from "./queries/workspace-directory-v2/find-active-directory";
+import { workspaceDirectoryV2FindActiveDirectoryRow } from "./queries/workspace-directory-v2/find-active-directory-row";
+import { workspaceDirectoryV2FindCreate } from "./queries/workspace-directory-v2/find-create";
+import { workspaceDirectoryV2FindList } from "./queries/workspace-directory-v2/find-list";
+import { workspaceDirectoryV2FindSwitchWorkspace } from "./queries/workspace-directory-v2/find-switch-workspace";
+import { workspaceDirectoryV2InsertCreate } from "./queries/workspace-directory-v2/insert-create";
+import { workspaceDirectoryV2InsertJoin } from "./queries/workspace-directory-v2/insert-join";
+import { workspaceDirectoryV2UpdateJoin } from "./queries/workspace-directory-v2/update-join";
 
 interface DirectoryRow extends Record<string, SqlStorageValue> {
   workspace_id: string;
@@ -38,29 +52,7 @@ export class AccountObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     void state.blockConcurrencyWhile(() => {
-      state.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS workspace_directory_v2 (
-          workspace_id TEXT PRIMARY KEY,
-          operation_id TEXT NOT NULL UNIQUE,
-          name TEXT NOT NULL,
-          website TEXT NOT NULL DEFAULT '',
-          create_command_json TEXT,
-          created_at TEXT NOT NULL,
-          active INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS one_active_workspace_v2
-          ON workspace_directory_v2 (active) WHERE active = 1;
-        CREATE TABLE IF NOT EXISTS device_active_workspaces (
-          device_pubkey TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS push_devices (
-          token TEXT PRIMARY KEY,
-          environment TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
+      initializeAccountTables(state.storage);
       migrateLegacyDirectory(state.storage);
       return Promise.resolve();
     });
@@ -145,10 +137,7 @@ export class AccountObject extends DurableObject<Env> {
       await parseJson(request),
     );
     const prior = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        "SELECT * FROM workspace_directory_v2 WHERE operation_id = ?",
-        command.commandId,
-      ),
+      workspaceDirectoryV2FindCreate(this.ctx.storage, command.commandId),
     );
     if (prior) {
       this.setActiveWorkspace(identity.pubkey, prior.workspace_id);
@@ -160,18 +149,14 @@ export class AccountObject extends DurableObject<Env> {
     );
     const createdAt = new Date().toISOString();
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO workspace_directory_v2 (
-          workspace_id, operation_id, name, website, create_command_json,
-          created_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, 0)`,
-        workspaceId,
-        command.commandId,
-        command.name,
-        command.website,
-        JSON.stringify(command),
-        createdAt,
-      );
+      workspaceDirectoryV2InsertCreate(this.ctx.storage, {
+        workspaceId: workspaceId,
+        operationId: command.commandId,
+        name: command.name,
+        website: command.website,
+        createCommandJson: JSON.stringify(command),
+        createdAt: createdAt,
+      });
       this.setActiveWorkspace(identity.pubkey, workspaceId, createdAt);
     });
     return json({ workspaceId, command, createdAt, created: true });
@@ -192,9 +177,7 @@ export class AccountObject extends DurableObject<Env> {
       identity.pubkey,
     )?.workspace_id;
     const rows = [
-      ...this.ctx.storage.sql.exec<DirectoryRow>(
-        "SELECT * FROM workspace_directory_v2 ORDER BY created_at ASC",
-      ),
+      ...workspaceDirectoryV2FindList<DirectoryRow>(this.ctx.storage),
     ];
     const workspaces = await Promise.all(
       rows.map(async (row) => {
@@ -250,10 +233,7 @@ export class AccountObject extends DurableObject<Env> {
     );
     const target = workspaceIdSchema.parse(command.workspaceId);
     const existing = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        "SELECT * FROM workspace_directory_v2 WHERE workspace_id = ?",
-        target,
-      ),
+      workspaceDirectoryV2FindSwitchWorkspace(this.ctx.storage, target),
     );
     if (!existing) {
       return relayError(
@@ -292,32 +272,23 @@ export class AccountObject extends DurableObject<Env> {
       );
     }
     const existing = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        "SELECT * FROM workspace_directory_v2 WHERE workspace_id = ?",
-        workspaceId,
-      ),
+      workspaceDirectoryV2FindSwitchWorkspace(this.ctx.storage, workspaceId),
     );
     this.ctx.storage.transactionSync(() => {
       if (existing) {
-        this.ctx.storage.sql.exec(
-          `UPDATE workspace_directory_v2 SET name = ?, website = ?
-           WHERE workspace_id = ?`,
-          name,
-          website,
-          workspaceId,
-        );
+        workspaceDirectoryV2UpdateJoin(this.ctx.storage, {
+          name: name,
+          website: website,
+          workspaceId: workspaceId,
+        });
       } else {
-        this.ctx.storage.sql.exec(
-          `INSERT INTO workspace_directory_v2 (
-            workspace_id, operation_id, name, website, create_command_json,
-            created_at, active
-          ) VALUES (?, ?, ?, ?, NULL, ?, 0)`,
-          workspaceId,
-          operationId,
-          name,
-          website,
-          createdAt,
-        );
+        workspaceDirectoryV2InsertJoin(this.ctx.storage, {
+          workspaceId: workspaceId,
+          operationId: operationId,
+          name: name,
+          website: website,
+          createdAt: createdAt,
+        });
       }
       this.setActiveWorkspace(identity.pubkey, workspaceId);
     });
@@ -329,10 +300,7 @@ export class AccountObject extends DurableObject<Env> {
     if (!isJsonObject(input)) throw new Error("Expected a JSON object.");
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const existing = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        "SELECT * FROM workspace_directory_v2 WHERE workspace_id = ?",
-        workspaceId,
-      ),
+      workspaceDirectoryV2FindSwitchWorkspace(this.ctx.storage, workspaceId),
     );
     if (!existing) {
       return relayError(
@@ -342,35 +310,20 @@ export class AccountObject extends DurableObject<Env> {
       );
     }
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        "DELETE FROM device_active_workspaces WHERE workspace_id = ?",
-        workspaceId,
-      );
-      this.ctx.storage.sql.exec(
-        "DELETE FROM workspace_directory_v2 WHERE workspace_id = ?",
-        workspaceId,
-      );
+      deviceActiveWorkspacesDeleteRemove(this.ctx.storage, workspaceId);
+      workspaceDirectoryV2DeleteRemove(this.ctx.storage, workspaceId);
     });
     return json({ workspaceId, removed: true });
   }
 
   private activeDirectoryRow(devicePubkey: string) {
     const selected = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        `SELECT directory.* FROM workspace_directory_v2 AS directory
-         INNER JOIN device_active_workspaces AS active
-           ON active.workspace_id = directory.workspace_id
-         WHERE active.device_pubkey = ? LIMIT 1`,
-        devicePubkey,
-      ),
+      workspaceDirectoryV2FindActiveDirectory(this.ctx.storage, devicePubkey),
     );
     if (selected) return selected;
 
     const fallback = firstRow<DirectoryRow>(
-      this.ctx.storage.sql.exec(
-        `SELECT * FROM workspace_directory_v2
-         ORDER BY created_at DESC LIMIT 1`,
-      ),
+      workspaceDirectoryV2FindActiveDirectoryRow(this.ctx.storage),
     );
     if (fallback) this.setActiveWorkspace(devicePubkey, fallback.workspace_id);
     return fallback;
@@ -381,17 +334,11 @@ export class AccountObject extends DurableObject<Env> {
     workspaceId: string,
     updatedAt = new Date().toISOString(),
   ) {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO device_active_workspaces (
-        device_pubkey, workspace_id, updated_at
-      ) VALUES (?, ?, ?)
-      ON CONFLICT(device_pubkey) DO UPDATE SET
-        workspace_id = excluded.workspace_id,
-        updated_at = excluded.updated_at`,
-      devicePubkey,
-      workspaceId,
-      updatedAt,
-    );
+    deviceActiveWorkspacesInsertSetActiveWorkspace(this.ctx.storage, {
+      devicePubkey: devicePubkey,
+      workspaceId: workspaceId,
+      updatedAt: updatedAt,
+    });
   }
 
   private async maybeRecordProductEvents() {
@@ -441,25 +388,11 @@ function parseStoredCreateCommand(value: string | null) {
 }
 
 function migrateLegacyDirectory(storage: DurableObjectStorage) {
-  const legacy = storage.sql
-    .exec<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_directory'",
-    )
-    .toArray();
+  const legacy = findLegacyAccountDirectory<{ name: string }>(
+    storage,
+  ).toArray();
   if (legacy.length === 0) return;
-  storage.sql.exec(`
-    INSERT INTO workspace_directory_v2 (
-      workspace_id, operation_id, name, website, create_command_json,
-      created_at, active
-    )
-    SELECT workspace_id, command_id,
-      COALESCE(json_extract(draft_json, '$.name'), 'Workspace'),
-      COALESCE(json_extract(draft_json, '$.website'), ''),
-      draft_json, created_at, active
-    FROM workspace_directory
-    WHERE true
-    ON CONFLICT(workspace_id) DO NOTHING
-  `);
+  migrateAccountDirectory(storage);
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {

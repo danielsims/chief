@@ -8,6 +8,22 @@ import {
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
+import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
+import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
+import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
+import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
+import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
+import { channelMembersInsertSeedSnapshotChannels } from "./queries/channel-members/insert-seed-snapshot-channels";
+import { channelsFindChannelsCreate } from "./queries/channels/find-channels-create";
+import { channelsInsertSeedSnapshotChannels } from "./queries/channels/insert-seed-snapshot-channels";
+import { externalAgentRuntimesFindAgentIsLive } from "./queries/external-agent-runtimes/find-agent-is-live";
+import { membersFindAuthorize } from "./queries/members/find-authorize";
+import { membersFindWorkspaceAgentIds } from "./queries/members/find-workspace-agent-ids";
+import { membersInsertRegisterAgentKey } from "./queries/members/insert-register-agent-key";
+import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
+import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-agent";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import {
   defaultAgentConfigFor,
   effectiveAgentConfigFor,
@@ -90,29 +106,20 @@ export class WorkspaceChannelStore {
 
   memberRole(kind: string, principalId: string) {
     const member = firstRow<MemberRow>(
-      this.storage.sql.exec(
-        `SELECT principal_kind, principal_id, role FROM members
-         WHERE principal_kind = ? AND principal_id = ?`,
-        kind,
-        principalId,
-      ),
+      membersFindAuthorize(this.storage, kind, principalId),
     );
     return member?.role ?? null;
   }
 
   workspaceAgentIds() {
-    return this.storage.sql
-      .exec<MemberRow>(
-        `SELECT principal_kind, principal_id, role FROM members
-         WHERE principal_kind = 'agent' ORDER BY principal_id ASC`,
-      )
-      .toArray()
-      .map((row) => row.principal_id);
+    return membersFindWorkspaceAgentIds<MemberRow>(this.storage).map(
+      (row) => row.principal_id,
+    );
   }
 
   requireWorkspace(expectedWorkspaceId: string) {
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+      workspaceFindAuthorize(this.storage),
     );
     if (!workspace) {
       throw new HttpError(
@@ -134,12 +141,7 @@ export class WorkspaceChannelStore {
   requirePrincipalMember(principal: Principal) {
     const { kind, id } = principalKindId(principal);
     const member = firstRow<MemberRow>(
-      this.storage.sql.exec(
-        `SELECT principal_kind, principal_id, role FROM members
-         WHERE principal_kind = ? AND principal_id = ?`,
-        kind,
-        id,
-      ),
+      membersFindAuthorize(this.storage, kind, id),
     );
     if (!member) {
       throw new HttpError(
@@ -153,10 +155,7 @@ export class WorkspaceChannelStore {
 
   agentConfiguration(agentId: string) {
     const row = firstRow<AgentConfigRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
-        agentId,
-      ),
+      agentConfigsFindConfigGet(this.storage, agentId),
     );
     return row
       ? effectiveAgentConfigFor(
@@ -168,10 +167,7 @@ export class WorkspaceChannelStore {
 
   agentPubkey(agentId: string) {
     return firstRow<{ pubkey: string }>(
-      this.storage.sql.exec(
-        "SELECT pubkey FROM agent_keys WHERE agent_id = ?",
-        agentId,
-      ),
+      agentKeysFindAgentPubkey(this.storage, agentId),
     )?.pubkey;
   }
 
@@ -192,10 +188,7 @@ export class WorkspaceChannelStore {
 
   agentIsLive(agentId: string) {
     const runtime = firstRow<{ connection_status: string }>(
-      this.storage.sql.exec(
-        "SELECT connection_status FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
-      ),
+      externalAgentRuntimesFindAgentIsLive(this.storage, agentId),
     );
     return (
       this.agentConfiguration(agentId).enabled ||
@@ -208,12 +201,7 @@ export class WorkspaceChannelStore {
     principalId: string,
   ) {
     const member = firstRow<MemberRow>(
-      this.storage.sql.exec(
-        `SELECT principal_kind, principal_id, role FROM members
-         WHERE principal_kind = ? AND principal_id = ?`,
-        kind,
-        principalId,
-      ),
+      membersFindAuthorize(this.storage, kind, principalId),
     );
     if (!member) {
       throw new HttpError(
@@ -285,22 +273,17 @@ export class WorkspaceChannelStore {
     principalId: string,
   ) {
     return firstRow<ChannelMemberRow>(
-      this.storage.sql.exec(
-        `SELECT * FROM channel_members
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        kind,
-        principalId,
-      ),
+      channelMembersFindChannelsMembersRemove(this.storage, {
+        conversationId: conversationId,
+        principalKind: kind,
+        principalId: principalId,
+      }),
     );
   }
 
   requireChannel(conversationId: string) {
     const row = firstRow<ChannelRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM channels WHERE conversation_id = ?",
-        conversationId,
-      ),
+      channelsFindChannelsCreate(this.storage, conversationId),
     );
     if (!row) {
       throw new HttpError(
@@ -326,14 +309,10 @@ export class WorkspaceChannelStore {
   }
 
   channelMemberRows(conversationId: string) {
-    const rows = this.storage.sql
-      .exec(
-        `SELECT * FROM channel_members
-         WHERE conversation_id = ? ORDER BY joined_at ASC, principal_id ASC`,
-        conversationId,
-      )
-      .toArray()
-      .map((row) => channelMemberRowSchema.parse(row));
+    const rows = channelMembersFindChannelMemberRows(
+      this.storage,
+      conversationId,
+    ).map((row) => channelMemberRowSchema.parse(row));
     const names = this.principalNames();
     return rows.map((row) => ({
       kind: row.principal_kind,
@@ -351,9 +330,7 @@ export class WorkspaceChannelStore {
   principalNames() {
     const names = memberDisplayNames(this.storage);
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec(
-        "SELECT snapshot_json FROM workspace WHERE singleton = 1",
-      ),
+      workspaceFindWorkspaceAgent(this.storage),
     );
     if (!workspace?.snapshot_json) return names;
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
@@ -370,24 +347,19 @@ export class WorkspaceChannelStore {
     mutate: (conversations: WorkspaceSnapshot["conversations"]) => void,
   ) {
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec(
-        "SELECT snapshot_json FROM workspace WHERE singleton = 1",
-      ),
+      workspaceFindWorkspaceAgent(this.storage),
     );
     if (!workspace?.snapshot_json) return;
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     mutate(snapshot.conversations);
-    this.storage.sql.exec(
-      "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
-      JSON.stringify(snapshot),
-    );
+    workspaceUpdateVerifyConnection(this.storage, JSON.stringify(snapshot));
   }
 
   /** Backfills channel authority for managed snapshots created before the
    * channel tables existed. This is idempotent and never overwrites roles. */
   ensureSnapshotChannels() {
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+      workspaceFindAuthorize(this.storage),
     );
     if (!workspace?.snapshot_json) return;
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
@@ -404,36 +376,15 @@ export class WorkspaceChannelStore {
    * execute immediately under the relay's trusted Durable Object boundary. */
   seedSnapshotAgents(snapshot: WorkspaceSnapshot, createdAt: string) {
     for (const agent of workspaceAgentProfiles(snapshot)) {
-      this.storage.sql.exec(
-        `INSERT INTO members (principal_kind, principal_id, role, created_at)
-         VALUES ('agent', ?, 'member', ?)
-         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
-        agent.id,
-        createdAt,
-      );
-      this.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) SELECT conversation_id, 'agent', ?, 'member', ? FROM channels
-          WHERE conversation_id = ?
-        ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-        agent.id,
-        createdAt,
-        agent.id,
-      );
+      membersInsertRegisterAgentKey(this.storage, agent.id, createdAt);
+      channelMembersAddAgentToExistingChannel(this.storage, {
+        agentId: agent.id,
+        joinedAt: createdAt,
+        conversationId: agent.id,
+      });
     }
     if (snapshot.agents.some((agent) => agent.id === "chief")) {
-      this.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) SELECT 'mission-control', 'agent', 'chief', 'owner', ?
-          WHERE EXISTS (
-            SELECT 1 FROM channels WHERE conversation_id = 'mission-control'
-          )
-        ON CONFLICT(conversation_id, principal_kind, principal_id) DO UPDATE
-          SET role = 'owner'`,
-        createdAt,
-      );
+      channelMembersEnsureMissionChief(this.storage, createdAt);
     }
   }
 
@@ -443,32 +394,22 @@ export class WorkspaceChannelStore {
     createdAt: string,
   ) {
     for (const conversation of snapshot.conversations) {
-      this.storage.sql.exec(
-        `INSERT INTO channels (
-          conversation_id, workspace_id, name, kind, is_private, archived,
-          description, created_by_kind, created_by_id, version, created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'user', ?, 1, ?, ?)
-        ON CONFLICT(conversation_id) DO UPDATE SET kind = excluded.kind`,
-        conversation.id,
-        snapshot.id,
-        conversation.name,
-        conversation.kind,
-        conversation.isPrivate ? 1 : 0,
-        conversation.archived ? 1 : 0,
-        ownerId,
-        createdAt,
-        createdAt,
-      );
-      this.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) VALUES (?, 'user', ?, 'owner', ?)
-        ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-        conversation.id,
-        ownerId,
-        createdAt,
-      );
+      channelsInsertSeedSnapshotChannels(this.storage, {
+        conversationId: conversation.id,
+        workspaceId: snapshot.id,
+        name: conversation.name,
+        kind: conversation.kind,
+        isPrivate: conversation.isPrivate ? 1 : 0,
+        archived: conversation.archived ? 1 : 0,
+        createdById: ownerId,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      });
+      channelMembersInsertSeedSnapshotChannels(this.storage, {
+        conversationId: conversation.id,
+        principalId: ownerId,
+        joinedAt: createdAt,
+      });
     }
   }
 }

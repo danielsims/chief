@@ -11,6 +11,20 @@ import {
 import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
+import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
+import { agentConfigsInsertConfigSet } from "./queries/agent-configs/insert-config-set";
+import { agentKeysDeleteRemove } from "./queries/agent-keys/delete-remove";
+import { channelMembersDeleteRemove } from "./queries/channel-members/delete-remove";
+import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
+import { channelMembershipBatchesDeleteRemove } from "./queries/channel-membership-batches/delete-remove";
+import { channelMembershipEventsDeleteRemove } from "./queries/channel-membership-events/delete-remove";
+import { channelsDeleteRemove } from "./queries/channels/delete-remove";
+import { channelsFindAgentDirects } from "./queries/channels/find-agent-directs";
+import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
+import { membersInsertRegister } from "./queries/members/insert-register";
+import { projectsDeleteRemove } from "./queries/projects/delete-remove";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
 import {
   requireAgentMessageAccess,
@@ -80,13 +94,9 @@ export class WorkspaceAgentAccessService {
     });
     const now = new Date().toISOString();
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        "INSERT INTO members (principal_kind, principal_id, role, created_at) VALUES ('agent', ?, 'member', ?)",
-        agent.id,
-        now,
-      );
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+      membersInsertRegister(this.storage, agent.id, now);
+      workspaceUpdateVerifyConnection(
+        this.storage,
         JSON.stringify({ ...snapshot, agents: [...snapshot.agents, agent] }),
       );
     });
@@ -99,10 +109,7 @@ export class WorkspaceAgentAccessService {
     const agentId = requestedAgentId(request);
     requireNativeAgent(this.storage, agentId);
     const row = firstRow<AgentConfigRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
-        agentId,
-      ),
+      agentConfigsFindConfigGet(this.storage, agentId),
     );
     if (!row) {
       return json({
@@ -185,15 +192,11 @@ export class WorkspaceAgentAccessService {
       requirePersonalAgentOwner(this.channels, agentId, context.principal);
     }
     const updatedAt = new Date().toISOString();
-    this.storage.sql.exec(
-      `INSERT INTO agent_configs (agent_id, config_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(agent_id) DO UPDATE SET config_json = excluded.config_json,
-         updated_at = excluded.updated_at`,
-      agentId,
-      JSON.stringify(parsedConfig),
-      updatedAt,
-    );
+    agentConfigsInsertConfigSet(this.storage, {
+      agentId: agentId,
+      configJson: JSON.stringify(parsedConfig),
+      updatedAt: updatedAt,
+    });
     return json({ agentId, config: parsedConfig, updatedAt });
   }
 
@@ -225,18 +228,9 @@ export class WorkspaceAgentAccessService {
     ) {
       throw new HttpError(404, "agent_not_found", "The agent does not exist.");
     }
-    const directConversationIds = this.storage.sql
-      .exec<{ conversation_id: string }>(
-        `SELECT c.conversation_id FROM channels c
-         INNER JOIN channel_members cm
-           ON cm.conversation_id = c.conversation_id
-         WHERE c.kind = 'direct'
-           AND cm.principal_kind = 'agent'
-           AND cm.principal_id = ?`,
-        agentId,
-      )
-      .toArray()
-      .map((row) => row.conversation_id);
+    const directConversationIds = channelsFindAgentDirects<{
+      conversation_id: string;
+    }>(this.storage, agentId).map((row) => row.conversation_id);
     const projectIds = projectIdsOwnedByAgent(
       this.storage,
       context.workspaceId,
@@ -249,50 +243,23 @@ export class WorkspaceAgentAccessService {
 
     this.storage.transactionSync(() => {
       for (const conversationId of directConversationIds) {
-        this.storage.sql.exec(
-          "DELETE FROM channel_members WHERE conversation_id = ?",
-          conversationId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM channel_membership_events WHERE conversation_id = ?",
-          conversationId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM channel_membership_batches WHERE conversation_id = ?",
-          conversationId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM channels WHERE conversation_id = ?",
-          conversationId,
-        );
+        channelMembersDeleteRemove(this.storage, conversationId);
+        channelMembershipEventsDeleteRemove(this.storage, conversationId);
+        channelMembershipBatchesDeleteRemove(this.storage, conversationId);
+        channelsDeleteRemove(this.storage, conversationId);
       }
       for (const removedAgentId of removedAgentIds) {
-        this.storage.sql.exec(
-          "DELETE FROM channel_members WHERE principal_kind = 'agent' AND principal_id = ?",
-          removedAgentId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM agent_keys WHERE agent_id = ?",
-          removedAgentId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM agent_configs WHERE agent_id = ?",
-          removedAgentId,
-        );
-        this.storage.sql.exec(
-          "DELETE FROM members WHERE principal_kind = 'agent' AND principal_id = ?",
-          removedAgentId,
-        );
+        channelMembersDeleteRemoveRow(this.storage, removedAgentId);
+        agentKeysDeleteRemove(this.storage, removedAgentId);
+        agentConfigsDeleteRemove(this.storage, removedAgentId);
+        membersDeleteDisconnect(this.storage, removedAgentId);
       }
       for (const projectId of projectIds) {
-        this.storage.sql.exec(
-          "DELETE FROM projects WHERE project_id = ?",
-          projectId,
-        );
+        projectsDeleteRemove(this.storage, projectId);
       }
       if (snapshot) {
-        this.storage.sql.exec(
-          "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
+        workspaceUpdateVerifyConnection(
+          this.storage,
           JSON.stringify({
             ...snapshot,
             agents: snapshot.agents.filter((agent) => agent.id !== agentId),

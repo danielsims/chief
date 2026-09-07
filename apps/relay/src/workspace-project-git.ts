@@ -3,6 +3,8 @@ import { projectRepositoryFilesSchema } from "@chief/relay-contracts";
 import { serveChiefGitHttp } from "./chief-git-http";
 import { HttpError } from "./http";
 import { githubRepositoryIdentity } from "./project-repository";
+import { projectRepositoriesInsertEnsureProjectRepository } from "./queries/project-repositories/insert-ensure-project-repository";
+import { projectsFindChiefGitRepositoryFiles } from "./queries/projects/find-chief-git-repository-files";
 
 export interface ProjectRow extends Record<string, SqlStorageValue> {
   project_id: string;
@@ -50,7 +52,7 @@ export function chiefGitRepositoryFiles(
   repo: string,
 ) {
   const normalized = repo.replace(/\.git$/u, "").toLowerCase();
-  const rows = storage.sql.exec<ProjectRow>("SELECT * FROM projects").toArray();
+  const rows = projectsFindChiefGitRepositoryFiles<ProjectRow>(storage);
   const row = rows.find((project) => {
     const remote = project.canonical_remote_url?.replace(/\.git$/u, "") ?? "";
     const identity = remote.split("/").at(-1)?.toLowerCase();
@@ -79,18 +81,14 @@ export function ensureProjectRepository(
       ? { id: "chief-git", identity: project.project_id }
       : null;
   if (!provider) return;
-  storage.sql.exec(
-    `INSERT OR IGNORE INTO project_repositories (
-      repository_id, project_id, provider_id, canonical_remote_url,
-      provider_repository_id, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    crypto.randomUUID(),
-    project.project_id,
-    provider.id,
-    project.canonical_remote_url,
-    provider.identity,
-    project.created_at,
-  );
+  projectRepositoriesInsertEnsureProjectRepository(storage, {
+    repositoryId: crypto.randomUUID(),
+    projectId: project.project_id,
+    providerId: provider.id,
+    canonicalRemoteUrl: project.canonical_remote_url,
+    providerRepositoryId: provider.identity,
+    createdAt: project.created_at,
+  });
 }
 
 export function normalizeProjectOwner(value: string) {

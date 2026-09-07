@@ -10,6 +10,11 @@ import { conversationIdSchema, missionSchema } from "@chief/relay-contracts";
 
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { HttpError } from "./http";
+import { channelMembersInsertPrepareScheduleChannel } from "./queries/channel-members/insert-prepare-schedule-channel";
+import { channelMembersInsertPrepareScheduleChannelRow } from "./queries/channel-members/insert-prepare-schedule-channel-row";
+import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
+import { channelsInsertPrepareScheduleChannel } from "./queries/channels/insert-prepare-schedule-channel";
+import { missionsInsertPrepareScheduleChannel } from "./queries/missions/insert-prepare-schedule-channel";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { principalKindId } from "./workspace-channel-store";
 import { readWorkspaceMission } from "./workspace-missions";
@@ -41,12 +46,7 @@ export function prepareScheduleChannel(
         "Choose an existing mission or create a new channel, not both.",
       );
     const exists =
-      store.storage.sql
-        .exec(
-          "SELECT conversation_id FROM channels WHERE conversation_id = ?",
-          conversationId,
-        )
-        .toArray().length > 0;
+      channelsFindCreateChannel(store.storage, conversationId).length > 0;
     if (!exists) {
       store.requireAgentCapability(principal, "channels.create");
       const { kind, id } = principalKindId(principal);
@@ -64,26 +64,22 @@ export function prepareScheduleChannel(
           .replace(/^-+|-+$/gu, "")
           .slice(0, 64) ||
           "mission");
-      store.storage.sql.exec(
-        `INSERT INTO channels (conversation_id, workspace_id, name, kind, is_private, archived, description,
-          created_by_kind, created_by_id, version, created_at, updated_at)
-         VALUES (?, ?, ?, 'channel', 0, 0, ?, ?, ?, 1, ?, ?)`,
-        conversationId,
-        workspaceId,
-        name,
-        input.instructions.slice(0, 1000),
-        kind,
-        id,
-        now,
-        now,
-      );
-      store.storage.sql.exec(
-        "INSERT INTO channel_members (conversation_id, principal_kind, principal_id, role, joined_at) VALUES (?, ?, ?, 'owner', ?)",
-        conversationId,
-        kind,
-        id,
-        now,
-      );
+      channelsInsertPrepareScheduleChannel(store.storage, {
+        conversationId: conversationId,
+        workspaceId: workspaceId,
+        name: name,
+        description: input.instructions.slice(0, 1000),
+        createdByKind: kind,
+        createdById: id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      channelMembersInsertPrepareScheduleChannel(store.storage, {
+        conversationId: conversationId,
+        principalKind: kind,
+        principalId: id,
+        joinedAt: now,
+      });
       store.rewriteSnapshot((conversations) => {
         conversations.push({
           id: conversationId,
@@ -123,16 +119,16 @@ export function prepareScheduleChannel(
     store.requireChannelManager(input.conversationId, principal);
     for (const { kind, id } of missing) {
       store.requireWorkspaceMember(kind, id);
-      store.storage.sql.exec(
-        "INSERT OR IGNORE INTO channel_members (conversation_id, principal_kind, principal_id, role, joined_at) VALUES (?, ?, ?, ?, ?)",
-        input.conversationId,
-        kind,
-        id,
-        input.newChannel && kind === "agent" && id === input.agentId
-          ? "admin"
-          : "member",
-        now,
-      );
+      channelMembersInsertPrepareScheduleChannelRow(store.storage, {
+        conversationId: input.conversationId,
+        principalKind: kind,
+        principalId: id,
+        role:
+          input.newChannel && kind === "agent" && id === input.agentId
+            ? "admin"
+            : "member",
+        joinedAt: now,
+      });
     }
   }
   if (
@@ -163,8 +159,8 @@ export function prepareScheduleChannel(
       createdAt: now,
       updatedAt: now,
     });
-    store.storage.sql.exec(
-      "INSERT INTO missions (mission_id, document_json) VALUES (?, ?)",
+    missionsInsertPrepareScheduleChannel(
+      store.storage,
       mission.id,
       JSON.stringify(mission),
     );

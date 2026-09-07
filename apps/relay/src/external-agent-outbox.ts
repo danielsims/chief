@@ -12,6 +12,21 @@ import {
   sha256,
 } from "./external-agent-channel-security";
 import { HttpError } from "./http";
+import { acceptDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/accept-delivery";
+import { claimDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/claim-delivery";
+import { dropReconcilingDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/drop-reconciling-delivery";
+import { getDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/get-delivery";
+import { getNextAttemptExternalAgentOutbox } from "./queries/external-agent-outbox/get-next-attempt";
+import { getNextDueDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/get-next-due-delivery";
+import { getOldestLeaseExternalAgentOutbox } from "./queries/external-agent-outbox/get-oldest-lease";
+import { insertDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/insert-delivery";
+import { listReconcilingDeliveriesExternalAgentOutbox } from "./queries/external-agent-outbox/list-reconciling-deliveries";
+import { markDeliveryReconcilingExternalAgentOutbox } from "./queries/external-agent-outbox/mark-delivery-reconciling";
+import { recordDeliveryFailureExternalAgentOutbox } from "./queries/external-agent-outbox/record-delivery-failure";
+import { requeueDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/requeue-delivery";
+import { resendReconcilingDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/resend-reconciling-delivery";
+import { retryStaleDeliveriesExternalAgentOutbox } from "./queries/external-agent-outbox/retry-stale-deliveries";
+import { externalAgentRuntimesFindRuntimeAgentIdEndpointUrlTokenSecretRefConnectionStatus } from "./queries/external-agent-runtimes/find-runtime-agent-id-endpoint-url-token-secret-ref-connection-status";
 import { externalRuntimeOwner } from "./workspace-agent-runtime";
 import { firstRow } from "./workspace-channel-store";
 import { workspacePeople } from "./workspace-member-names";
@@ -110,27 +125,26 @@ export class ExternalAgentOutbox {
     const capabilityHash = await sha256(capability);
     const existing = this.storage.transactionSync(() => {
       const claimed = firstRow<OutboxRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM external_agent_outbox WHERE agent_id = ? AND delivery_id = ?",
+        getDeliveryExternalAgentOutbox(
+          this.storage,
           agentId,
           command.payload.deliveryId,
         ),
       );
       if (claimed) return claimed;
-      this.storage.sql.exec(
-        `INSERT INTO external_agent_outbox (agent_id, delivery_id, payload_hash, payload_json, capability_hash, conversation_id, thread_root_id, session_address, delivery_generation, status, attempts, next_attempt_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'queued', 0, ?, ?, ?)`,
-        agentId,
-        payload.payload.deliveryId,
-        semanticHash,
-        JSON.stringify(payload),
-        capabilityHash,
-        conversationId,
-        threadRootId ?? null,
-        sessionAddress,
-        now,
-        now,
-        now,
-      );
+      insertDeliveryExternalAgentOutbox(this.storage, {
+        agentId: agentId,
+        deliveryId: payload.payload.deliveryId,
+        payloadHash: semanticHash,
+        payloadJson: JSON.stringify(payload),
+        capabilityHash: capabilityHash,
+        conversationId: conversationId,
+        threadRootId: threadRootId ?? null,
+        sessionAddress: sessionAddress,
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
       return undefined;
     });
     if (
@@ -148,35 +162,34 @@ export class ExternalAgentOutbox {
 
   async drain(workspaceId: string) {
     const now = Date.now();
-    this.storage.sql.exec(
-      `UPDATE external_agent_outbox SET status = 'retry', next_attempt_at = ?, delivering_since = NULL WHERE status = 'delivering' AND delivering_since < ?`,
+    retryStaleDeliveriesExternalAgentOutbox(
+      this.storage,
       new Date(now).toISOString(),
       new Date(now - STALE_DELIVERY_MS).toISOString(),
     );
     const row = firstRow<OutboxRow>(
-      this.storage.sql.exec(
-        `SELECT * FROM external_agent_outbox WHERE status IN ('queued', 'retry') AND next_attempt_at <= ? ORDER BY next_attempt_at, created_at LIMIT 1`,
+      getNextDueDeliveryExternalAgentOutbox(
+        this.storage,
         new Date(now).toISOString(),
       ),
     );
     if (!row) return this.scheduleNext();
     const claimed = this.storage.transactionSync(() => {
       const current = firstRow<OutboxRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM external_agent_outbox WHERE agent_id = ? AND delivery_id = ?",
+        getDeliveryExternalAgentOutbox(
+          this.storage,
           row.agent_id,
           row.delivery_id,
         ),
       );
       if (!current || !["queued", "retry"].includes(current.status))
         return false;
-      this.storage.sql.exec(
-        `UPDATE external_agent_outbox SET status = 'delivering', attempts = attempts + 1, delivering_since = ?, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
-        new Date(now).toISOString(),
-        new Date(now).toISOString(),
-        row.agent_id,
-        row.delivery_id,
-      );
+      claimDeliveryExternalAgentOutbox(this.storage, {
+        deliveringSince: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+        agentId: row.agent_id,
+        deliveryId: row.delivery_id,
+      });
       return true;
     });
     if (!claimed) return this.scheduleNext();
@@ -189,26 +202,21 @@ export class ExternalAgentOutbox {
       const attempts = row.attempts + 1;
       const dead = attempts >= MAX_DELIVERY_ATTEMPTS;
       const delay = Math.min(300_000, 5_000 * 4 ** Math.max(0, attempts - 1));
-      this.storage.sql.exec(
-        `UPDATE external_agent_outbox SET status = ?, next_attempt_at = ?, delivering_since = NULL, last_error = ?, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
-        dead ? "dead" : "retry",
-        new Date(Date.now() + delay).toISOString(),
-        error instanceof Error ? error.message : String(error),
-        new Date().toISOString(),
-        row.agent_id,
-        row.delivery_id,
-      );
+      recordDeliveryFailureExternalAgentOutbox(this.storage, {
+        status: dead ? "dead" : "retry",
+        nextAttemptAt: new Date(Date.now() + delay).toISOString(),
+        lastError: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date().toISOString(),
+        agentId: row.agent_id,
+        deliveryId: row.delivery_id,
+      });
     }
     await this.scheduleNext();
   }
 
   async requeue(agentId: string, deliveryId: string) {
     const row = firstRow<OutboxRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM external_agent_outbox WHERE agent_id = ? AND delivery_id = ?",
-        agentId,
-        deliveryId,
-      ),
+      getDeliveryExternalAgentOutbox(this.storage, agentId, deliveryId),
     );
     if (!row)
       throw new HttpError(
@@ -223,13 +231,12 @@ export class ExternalAgentOutbox {
         "Only dead-letter deliveries can be requeued.",
       );
     const now = new Date().toISOString();
-    this.storage.sql.exec(
-      `UPDATE external_agent_outbox SET status = 'queued', attempts = 0, next_attempt_at = ?, delivering_since = NULL, last_error = NULL, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
-      now,
-      now,
-      agentId,
-      deliveryId,
-    );
+    requeueDeliveryExternalAgentOutbox(this.storage, {
+      nextAttemptAt: now,
+      updatedAt: now,
+      agentId: agentId,
+      deliveryId: deliveryId,
+    });
     await this.storage.setAlarm(Date.now());
   }
 
@@ -250,12 +257,11 @@ export class ExternalAgentOutbox {
     }
     if (decision === "inspect") return witnessed;
     if (decision === "drop") {
-      this.storage.sql.exec(
-        `UPDATE external_agent_outbox SET status = 'dropped', delivering_since = NULL, last_error = NULL, updated_at = ? WHERE agent_id = ? AND delivery_id = ? AND status = 'reconciling'`,
-        new Date().toISOString(),
-        agentId,
-        deliveryId,
-      );
+      dropReconcilingDeliveryExternalAgentOutbox(this.storage, {
+        updatedAt: new Date().toISOString(),
+        agentId: agentId,
+        deliveryId: deliveryId,
+      });
       return { status: "dropped" as const };
     }
     const parsed = externalAgentDeliveryCommandSchema.parse(
@@ -267,45 +273,38 @@ export class ExternalAgentOutbox {
       payload: { ...parsed.payload, deliveryGeneration: generation },
     };
     const now = new Date().toISOString();
-    this.storage.sql.exec(
-      `UPDATE external_agent_outbox SET status = 'queued', payload_json = ?, delivery_generation = ?, attempts = 0, next_attempt_at = ?, delivering_since = NULL, session_id = NULL, last_error = NULL, updated_at = ? WHERE agent_id = ? AND delivery_id = ? AND status = 'reconciling'`,
-      JSON.stringify(payload),
-      generation,
-      now,
-      now,
-      agentId,
-      deliveryId,
-    );
+    resendReconcilingDeliveryExternalAgentOutbox(this.storage, {
+      payloadJson: JSON.stringify(payload),
+      deliveryGeneration: generation,
+      nextAttemptAt: now,
+      updatedAt: now,
+      agentId: agentId,
+      deliveryId: deliveryId,
+    });
     await this.storage.setAlarm(Date.now());
     return { status: "resend_queued" as const, deliveryGeneration: generation };
   }
 
   reconciliations(agentId: string) {
-    return this.storage.sql
-      .exec<
-        {
-          delivery_id: string;
-          delivery_generation: number;
-          last_error: string | null;
-          created_at: string;
-        } & Record<string, SqlStorageValue>
-      >(
-        `SELECT delivery_id, delivery_generation, last_error, created_at FROM external_agent_outbox WHERE agent_id = ? AND status = 'reconciling' ORDER BY created_at`,
-        agentId,
-      )
-      .toArray()
-      .map((row) => ({
-        deliveryId: row.delivery_id,
-        deliveryGeneration: row.delivery_generation,
-        lastError: row.last_error,
-        createdAt: row.created_at,
-      }));
+    return listReconcilingDeliveriesExternalAgentOutbox<
+      {
+        delivery_id: string;
+        delivery_generation: number;
+        last_error: string | null;
+        created_at: string;
+      } & Record<string, SqlStorageValue>
+    >(this.storage, agentId).map((row) => ({
+      deliveryId: row.delivery_id,
+      deliveryGeneration: row.delivery_generation,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+    }));
   }
 
   private runtime(agentId: string) {
     return firstRow<RuntimeRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, endpoint_url, token_secret_ref, connection_status FROM external_agent_runtimes WHERE agent_id = ?",
+      externalAgentRuntimesFindRuntimeAgentIdEndpointUrlTokenSecretRefConnectionStatus(
+        this.storage,
         externalRuntimeOwner(this.storage, agentId),
       ),
     );
@@ -335,13 +334,13 @@ export class ExternalAgentOutbox {
       await response.json(),
     );
     if (result.status === "reconciling") {
-      this.storage.sql.exec(
-        `UPDATE external_agent_outbox SET status = 'reconciling', delivering_since = NULL, last_error = ?, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
-        "Eve accepted the reconciliation handoff without a durable witness.",
-        new Date().toISOString(),
-        row.agent_id,
-        row.delivery_id,
-      );
+      markDeliveryReconcilingExternalAgentOutbox(this.storage, {
+        lastError:
+          "Eve accepted the reconciliation handoff without a durable witness.",
+        updatedAt: new Date().toISOString(),
+        agentId: row.agent_id,
+        deliveryId: row.delivery_id,
+      });
       return;
     }
     this.accept(row.agent_id, row.delivery_id, result.sessionId);
@@ -349,11 +348,7 @@ export class ExternalAgentOutbox {
 
   private requireReconciling(agentId: string, deliveryId: string) {
     const row = firstRow<OutboxRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM external_agent_outbox WHERE agent_id = ? AND delivery_id = ?",
-        agentId,
-        deliveryId,
-      ),
+      getDeliveryExternalAgentOutbox(this.storage, agentId, deliveryId),
     );
     if (!row)
       throw new HttpError(
@@ -384,13 +379,12 @@ export class ExternalAgentOutbox {
   }
 
   private accept(agentId: string, deliveryId: string, sessionId: string) {
-    this.storage.sql.exec(
-      `UPDATE external_agent_outbox SET status = 'accepted', session_id = ?, delivering_since = NULL, last_error = NULL, updated_at = ? WHERE agent_id = ? AND delivery_id = ?`,
-      sessionId,
-      new Date().toISOString(),
-      agentId,
-      deliveryId,
-    );
+    acceptDeliveryExternalAgentOutbox(this.storage, {
+      sessionId: sessionId,
+      updatedAt: new Date().toISOString(),
+      agentId: agentId,
+      deliveryId: deliveryId,
+    });
   }
 
   private async inspect(workspaceId: string, row: OutboxRow) {
@@ -425,18 +419,10 @@ export class ExternalAgentOutbox {
   private async scheduleNext() {
     const pending = firstRow<
       { next_attempt_at: string } & Record<string, SqlStorageValue>
-    >(
-      this.storage.sql.exec(
-        `SELECT next_attempt_at FROM external_agent_outbox WHERE status IN ('queued', 'retry') ORDER BY next_attempt_at LIMIT 1`,
-      ),
-    );
+    >(getNextAttemptExternalAgentOutbox(this.storage));
     const delivering = firstRow<
       { delivering_since: string } & Record<string, SqlStorageValue>
-    >(
-      this.storage.sql.exec(
-        `SELECT delivering_since FROM external_agent_outbox WHERE status = 'delivering' AND delivering_since IS NOT NULL ORDER BY delivering_since LIMIT 1`,
-      ),
-    );
+    >(getOldestLeaseExternalAgentOutbox(this.storage));
     const deadlines = [
       pending ? new Date(pending.next_attempt_at).getTime() : undefined,
       delivering

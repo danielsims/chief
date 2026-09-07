@@ -11,6 +11,11 @@ import {
 import type { MessageRow } from "./conversation-rows";
 import { firstConversationRow, toMessage } from "./conversation-rows";
 import { HttpError } from "./http";
+import { countersUpdateUpsertAgentActivity } from "./queries/counters/update-upsert-agent-activity";
+import { eventsInsertUpsertAgentActivity } from "./queries/events/insert-upsert-agent-activity";
+import { messagesFindUpsertAgentActivity } from "./queries/messages/find-upsert-agent-activity";
+import { messagesInsertUpsertAgentActivity } from "./queries/messages/insert-upsert-agent-activity";
+import { messagesUpdateUpsertAgentActivity } from "./queries/messages/update-upsert-agent-activity";
 
 export interface UpsertActivityInput {
   messageId: string;
@@ -29,10 +34,7 @@ export function upsertAgentActivity(
 ) {
   return storage.transactionSync(() => {
     const prior = firstConversationRow<MessageRow>(
-      storage.sql.exec(
-        "SELECT * FROM messages WHERE message_id = ?",
-        input.messageId,
-      ),
+      messagesFindUpsertAgentActivity(storage, input.messageId),
     );
     if (
       prior &&
@@ -77,9 +79,7 @@ export function upsertAgentActivity(
     let sequence = Number(prior?.sequence ?? 0);
     if (!prior) {
       const counter = firstConversationRow<{ value: number }>(
-        storage.sql.exec(
-          "UPDATE counters SET value = value + 1 WHERE name = 'sequence' RETURNING value",
-        ),
+        countersUpdateUpsertAgentActivity(storage),
       );
       if (!counter) throw new Error("Conversation sequence is unavailable.");
       sequence = counter.value;
@@ -103,29 +103,24 @@ export function upsertAgentActivity(
     });
 
     if (prior) {
-      storage.sql.exec(
-        "UPDATE messages SET components_json = ? WHERE message_id = ?",
+      messagesUpdateUpsertAgentActivity(
+        storage,
         JSON.stringify(message.components),
         message.id,
       );
     } else {
-      storage.sql.exec(
-        `INSERT INTO messages (
-          message_id, command_id, sequence, workspace_id, conversation_id,
-          thread_root_id, author_kind, author_id, body, mentions_json,
-          components_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '[]', ?, ?)`,
-        message.id,
-        input.correlationId,
-        message.sequence,
-        message.workspaceId,
-        message.conversationId,
-        message.threadRootId ?? null,
-        "agent",
-        input.actor.agentId,
-        JSON.stringify(message.components),
-        message.createdAt,
-      );
+      messagesInsertUpsertAgentActivity(storage, {
+        messageId: message.id,
+        commandId: input.correlationId,
+        sequence: message.sequence,
+        workspaceId: message.workspaceId,
+        conversationId: message.conversationId,
+        threadRootId: message.threadRootId ?? null,
+        authorKind: "agent",
+        authorId: input.actor.agentId,
+        componentsJson: JSON.stringify(message.components),
+        createdAt: message.createdAt,
+      });
     }
 
     const event = conversationEventSchema.parse({
@@ -143,12 +138,11 @@ export function upsertAgentActivity(
       occurredAt: new Date().toISOString(),
       payload: { message },
     });
-    storage.sql.exec(
-      "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
-      event.sequence,
-      event.eventId,
-      JSON.stringify(event),
-    );
+    eventsInsertUpsertAgentActivity(storage, {
+      sequence: event.sequence,
+      eventId: event.eventId,
+      eventJson: JSON.stringify(event),
+    });
     return {
       created: !prior,
       message: prior

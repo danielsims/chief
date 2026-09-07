@@ -7,6 +7,10 @@ import {
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { workspaceScheduleCommandsFindRouteWorkspaceSchedule } from "./queries/workspace-schedule-commands/find-route-workspace-schedule";
+import { workspaceScheduleCommandsInsertRouteWorkspaceSchedule } from "./queries/workspace-schedule-commands/insert-route-workspace-schedule";
+import { workspaceScheduleRunsListScheduledTimes } from "./queries/workspace-schedule-runs/list-scheduled-times";
+import { workspaceSchedulesDeleteRouteWorkspaceSchedule } from "./queries/workspace-schedules/delete-route-workspace-schedule";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
@@ -68,15 +72,10 @@ export async function routeWorkspaceSchedule(
           ...presentWorkspaceSchedule(schedule),
           recordedRuns: [
             ...new Set([
-              ...storage.sql
-                .exec<{ at: number }>(
-                  "SELECT DISTINCT CAST(json_extract(document_json, '$.scheduledAt') AS INTEGER) AS at FROM workspace_schedule_runs WHERE schedule_id = ? AND at >= ? AND at < ? ORDER BY at",
-                  schedule.id,
-                  from,
-                  to,
-                )
-                .toArray()
-                .map((row) => row.at),
+              ...workspaceScheduleRunsListScheduledTimes<{ at: number }>(
+                storage,
+                { scheduleId: schedule.id, from: from, to: to },
+              ).map((row) => row.at),
               ...(schedule.onceAt !== undefined &&
               schedule.onceAt >= from &&
               schedule.onceAt < to &&
@@ -218,10 +217,7 @@ export async function routeWorkspaceSchedule(
     context.principal,
   );
   if (operation === "schedules-delete") {
-    storage.sql.exec(
-      "DELETE FROM workspace_schedules WHERE id = ?",
-      stored.schedule.id,
-    );
+    workspaceSchedulesDeleteRouteWorkspaceSchedule(storage, stored.schedule.id);
     cancelQueuedScheduleRuns(storage, stored.schedule.id);
     await wakeWorkspaceSchedules(storage);
     return json({ deleted: true });
@@ -234,12 +230,9 @@ export async function routeWorkspaceSchedule(
     );
   const { action, commandId, expectedUpdatedAt } = actionRequest;
   const previousCommand = [
-    ...storage.sql.exec<
+    ...workspaceScheduleCommandsFindRouteWorkspaceSchedule<
       { schedule_id: string; action: string } & Record<string, SqlStorageValue>
-    >(
-      "SELECT schedule_id, action FROM workspace_schedule_commands WHERE command_id = ?",
-      commandId,
-    ),
+    >(storage, commandId),
   ][0];
   if (previousCommand) {
     if (
@@ -295,12 +288,11 @@ export async function routeWorkspaceSchedule(
               : nextScheduleTime(stored.schedule, now);
       }
     }
-    storage.sql.exec(
-      "INSERT INTO workspace_schedule_commands(command_id, schedule_id, action) VALUES (?, ?, ?)",
-      commandId,
-      stored.schedule.id,
-      action,
-    );
+    workspaceScheduleCommandsInsertRouteWorkspaceSchedule(storage, {
+      commandId: commandId,
+      scheduleId: stored.schedule.id,
+      action: action,
+    });
     stored.schedule.updatedAt = now;
     writeWorkspaceSchedule(storage, stored);
   });

@@ -1,20 +1,17 @@
 import type { Principal } from "@chief/relay-contracts";
 
+import { initializeSocketTickets as initializeSocketTicketTables } from "./db/migrations/initialize-socket-tickets";
+import { socketTicketsDeleteConsumeSocketTicket } from "./queries/socket-tickets/delete-consume-socket-ticket";
+import { socketTicketsDeleteCreateSocketTicket } from "./queries/socket-tickets/delete-create-socket-ticket";
+import { socketTicketsInsertCreateSocketTicket } from "./queries/socket-tickets/insert-create-socket-ticket";
+
 interface SocketTicketRow extends Record<string, SqlStorageValue> {
   principal_json: string;
   expires_at: string;
 }
 
 export function initializeSocketTickets(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS socket_tickets (
-      ticket_hash TEXT PRIMARY KEY,
-      principal_json TEXT NOT NULL,
-      expires_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS socket_tickets_expiry_idx
-      ON socket_tickets (expires_at);
-  `);
+  initializeSocketTicketTables(storage);
 }
 
 export async function createSocketTicket(
@@ -23,17 +20,12 @@ export async function createSocketTicket(
 ) {
   const ticket = randomTicket();
   const expiresAt = new Date(Date.now() + 30_000).toISOString();
-  storage.sql.exec(
-    `INSERT INTO socket_tickets (ticket_hash, principal_json, expires_at)
-     VALUES (?, ?, ?)`,
-    await hashTicket(ticket),
-    JSON.stringify(principal),
-    expiresAt,
-  );
-  storage.sql.exec(
-    "DELETE FROM socket_tickets WHERE expires_at < ?",
-    new Date().toISOString(),
-  );
+  socketTicketsInsertCreateSocketTicket(storage, {
+    ticketHash: await hashTicket(ticket),
+    principalJson: JSON.stringify(principal),
+    expiresAt: expiresAt,
+  });
+  socketTicketsDeleteCreateSocketTicket(storage, new Date().toISOString());
   return { ticket, expiresAt };
 }
 
@@ -44,11 +36,7 @@ export async function consumeSocketTicket(
   const ticketHash = await hashTicket(ticket);
   return storage.transactionSync(() => {
     const row = firstRow<SocketTicketRow>(
-      storage.sql.exec(
-        `DELETE FROM socket_tickets WHERE ticket_hash = ?
-         RETURNING principal_json, expires_at`,
-        ticketHash,
-      ),
+      socketTicketsDeleteConsumeSocketTicket(storage, ticketHash),
     );
     if (!row || row.expires_at < new Date().toISOString()) return null;
     return row.principal_json;

@@ -26,6 +26,7 @@ import {
 } from "./hosted-agent-tools/input";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelService } from "./workspace-channel-service";
 import { routeWorkspaceData } from "./workspace-data-store";
@@ -291,12 +292,7 @@ async function createChannel(
     `${resolved.context.workspaceId}:${resolved.agentId}:channel:${operationKey}`,
   );
   const conversationId = `channel-${commandId}`;
-  const existing = host.storage.sql
-    .exec(
-      "SELECT conversation_id FROM channels WHERE conversation_id = ?",
-      conversationId,
-    )
-    .toArray()[0];
+  const existing = channelsFindCreateChannel(host.storage, conversationId)[0];
   if (existing)
     host.channels.requireChannelVisible(conversationId, resolved.principal);
   const command = channelCreateCommandSchema.parse({

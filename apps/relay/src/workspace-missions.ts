@@ -9,27 +9,24 @@ import {
 
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { missionsFindReadWorkspaceMission } from "./queries/missions/find-read-workspace-mission";
+import { missionsFindRouteWorkspaceMissions } from "./queries/missions/find-route-workspace-missions";
+import { missionsInsertSaveMission } from "./queries/missions/insert-save-mission";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 
 export function readWorkspaceMission(
   storage: DurableObjectStorage,
   id: string,
 ) {
-  const row = storage.sql
-    .exec<{ document_json: string }>(
-      "SELECT document_json FROM missions WHERE mission_id = ?",
-      id,
-    )
-    .toArray()[0];
+  const row = missionsFindReadWorkspaceMission<{ document_json: string }>(
+    storage,
+    id,
+  )[0];
   return row ? missionSchema.parse(JSON.parse(row.document_json)) : null;
 }
 
 function saveMission(storage: DurableObjectStorage, mission: Mission) {
-  storage.sql.exec(
-    "INSERT INTO missions (mission_id, document_json) VALUES (?, ?) ON CONFLICT(mission_id) DO UPDATE SET document_json = excluded.document_json",
-    mission.id,
-    JSON.stringify(mission),
-  );
+  missionsInsertSaveMission(storage, mission.id, JSON.stringify(mission));
   return json(mission);
 }
 
@@ -48,11 +45,9 @@ export async function routeWorkspaceMissions(
     operation === "missions-list" ? "workspace.read" : "workspace.write",
   );
   if (operation === "missions-list") {
-    const missions = storage.sql
-      .exec<{ document_json: string }>(
-        "SELECT document_json FROM missions ORDER BY rowid DESC",
-      )
-      .toArray()
+    const missions = missionsFindRouteWorkspaceMissions<{
+      document_json: string;
+    }>(storage)
       .map((row) => missionSchema.parse(JSON.parse(row.document_json)))
       .filter((mission) =>
         store
