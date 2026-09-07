@@ -127,31 +127,18 @@ struct ConversationLoadFailureView: View {
   let onRetry: () -> Void
 
   var body: some View {
-    VStack(spacing: 14) {
-      Image(systemName: "wifi.exclamationmark")
-        .font(.system(size: 34, weight: .medium))
+    VStack(spacing: 10) {
+      Image(systemName: "bubble.left")
+        .font(.system(size: 22))
+        .foregroundStyle(ChiefTheme.tertiary)
+      Text("Conversation unavailable")
+        .font(.system(size: 15, weight: .medium))
         .foregroundStyle(ChiefTheme.secondary)
-      VStack(spacing: 5) {
-        Text("We couldn't load this conversation")
-          .font(.system(size: 18, weight: .semibold, design: .rounded))
-          .foregroundStyle(ChiefTheme.accent)
-        Text(
-          "Chief is having trouble reaching the workspace right now. Your messages are safe — try again in a moment."
-        )
-        .font(.system(size: 14))
-        .foregroundStyle(ChiefTheme.secondary)
-        .multilineTextAlignment(.center)
-        .lineSpacing(2)
-      }
-      .frame(maxWidth: 300)
       Button("Try again", action: onRetry)
-        .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(.black)
-        .frame(maxWidth: 240)
-        .frame(height: 46)
-        .background(.white, in: RoundedRectangle(cornerRadius: 13))
-        .buttonStyle(.plain)
-        .padding(.top, 6)
+        .font(.system(size: 13))
+        .tint(ChiefTheme.secondary)
+        .buttonStyle(.borderless)
+        .padding(8)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding(.horizontal, ChiefTheme.pagePadding)

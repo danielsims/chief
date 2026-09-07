@@ -141,7 +141,7 @@ struct AgentDetailView: View {
 
   private var agentIdentity: some View {
     HStack(alignment: .top, spacing: 14) {
-      AgentMark(name: agent.name, size: 52, working: agent.status == .working)
+      AgentMark(name: agent.name, size: 52, working: model.isAgentWorking(agentID: agent.id))
       VStack(alignment: .leading, spacing: 3) {
         Text(agent.name)
           .font(.system(size: 20, weight: .semibold, design: .rounded))
@@ -153,7 +153,7 @@ struct AgentDetailView: View {
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(ChiefTheme.secondary)
         }
-        Text(agent.status == .working ? "Working now" : "Available")
+        Text(model.isAgentWorking(agentID: agent.id) ? "Working now" : "Available")
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.tertiary)
         if !agent.description.isEmpty {
@@ -407,8 +407,9 @@ private struct AgentPermissionsView: View {
           }
         }
       }
-      Section {
-        ForEach(AgentConfig.allToolPermissions, id: \.self) { permission in
+      ForEach(AgentPermissionGroup.all, id: \.title) { group in
+        Section {
+        ForEach(group.permissions, id: \.self) { permission in
           ChiefBooleanRow(
             title: AgentSettingsCopy.displayName(permission),
             detail: AgentSettingsCopy.permissionDetail(permission),
@@ -422,8 +423,7 @@ private struct AgentPermissionsView: View {
             onChange()
           }
         }
-      } footer: {
-        Text("Every tool call is checked against these grants by the runtime and again at the relay boundary.")
+        } header: { Text(group.title).textCase(nil) }
       }
     }
     .scrollContentBackground(.hidden)

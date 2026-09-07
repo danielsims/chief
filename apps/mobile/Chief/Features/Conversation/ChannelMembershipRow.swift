@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ChannelMembershipRow: View {
+  @Environment(AppModel.self) private var model
   let action: MessageComponent
   let createdAt: Date
   let fallbackBody: String
@@ -10,13 +11,7 @@ struct ChannelMembershipRow: View {
       if action.payload["actorType"] == "agent" {
         AgentMark(name: actorName, size: 22)
       } else {
-        RoundedRectangle(cornerRadius: 6)
-          .fill(ChiefTheme.elevated)
-          .frame(width: 22, height: 22)
-          .overlay {
-            Text(actorName.prefix(1).uppercased())
-              .font(.system(size: 9, weight: .semibold))
-          }
+        UserAvatar(user: actorUser, size: 22)
       }
       Text(summary)
         .font(.system(size: 12))
@@ -31,8 +26,18 @@ struct ChannelMembershipRow: View {
     .accessibilityElement(children: .combine)
   }
 
+  private var actorUser: ChiefUser {
+    if let user = model.session?.user, action.payload["actorId"] == user.id {
+      return user
+    }
+    return ChiefUser(id: action.payload["actorId"] ?? "member",
+      name: actorName == "You" ? "Member" : actorName, imageURL: nil)
+  }
+
   private var actorName: String {
-    action.payload["actorName"] ?? "Chief"
+    if action.payload["actorId"] == model.session?.user.id { return "You" }
+    let name = action.payload["actorName"] ?? "Chief"
+    return name == "You" ? "A member" : name
   }
 
   private var summary: AttributedString {
