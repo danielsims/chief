@@ -11,23 +11,23 @@ import { publishOnboardingResult } from "./agent-onboarding";
 import { deterministicUuid } from "./external-agent-channel-security";
 import { json } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { agentConfigsUpdateEnableHostedSpecialists } from "./queries/agent-configs/update-enable-hosted-specialists";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
-import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 const GATEWAY_SECRET = "vercel-ai-gateway";
-const DEPLOYMENT_SECRET = "vercel-deployment";
 
-export async function prepareEveWorkspaceOnboarding(input: {
+export function prepareEveWorkspaceOnboarding(input: {
   env: Env;
   storage: DurableObjectStorage;
   channels: WorkspaceChannelStore;
   workspaceId: string;
   snapshot: WorkspaceSnapshot;
 }) {
-  if (input.snapshot.onboardingComplete) return;
-  await enableHostedSpecialists(input);
+  if (input.snapshot.onboardingComplete) return Promise.resolve();
+  enableHostedSpecialists(input);
+  return Promise.resolve();
 }
 
 export async function startEveWorkspaceKickoffFromRequest(
@@ -73,7 +73,7 @@ export async function startEveWorkspaceKickoff(input: {
   ) {
     return false;
   }
-  await enableHostedSpecialists(input);
+  enableHostedSpecialists(input);
   const occurredAt = new Date(input.createdAt).toISOString();
   const jobId = await deterministicUuid(
     `${input.workspaceId}:eve-onboarding-job`,
@@ -115,20 +115,12 @@ export async function startEveWorkspaceKickoff(input: {
   return true;
 }
 
-async function enableHostedSpecialists(input: {
+function enableHostedSpecialists(input: {
   env: Env;
   storage: DurableObjectStorage;
   channels: WorkspaceChannelStore;
   workspaceId: string;
 }) {
-  const secrets = new WorkspaceSecretStore(
-    input.storage,
-    input.env.RELAY_SECRET_KEY,
-  );
-  if (!(await secrets.get(input.workspaceId, GATEWAY_SECRET))) {
-    const token = await secrets.get(input.workspaceId, DEPLOYMENT_SECRET);
-    if (token) await secrets.set(input.workspaceId, GATEWAY_SECRET, token);
-  }
   const now = new Date().toISOString();
   for (const agentId of input.channels.workspaceAgentIds()) {
     if (agentId === "chief") continue;
@@ -138,9 +130,8 @@ async function enableHostedSpecialists(input: {
       config.inference.provider === "opencode"
         ? { ...config.inference, secretRef: GATEWAY_SECRET }
         : config.inference;
-    input.storage.sql.exec(
-      `UPDATE agent_configs SET config_json = ?, updated_at = ? WHERE agent_id = ?`,
-      JSON.stringify(
+    agentConfigsUpdateEnableHostedSpecialists(input.storage, {
+      configJson: JSON.stringify(
         agentConfigSchema.parse({
           ...config,
           enabled: true,
@@ -148,8 +139,8 @@ async function enableHostedSpecialists(input: {
           inference,
         }),
       ),
-      now,
-      agentId,
-    );
+      updatedAt: now,
+      agentId: agentId,
+    });
   }
 }

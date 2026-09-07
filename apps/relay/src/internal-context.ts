@@ -49,6 +49,7 @@ export function withTrustedContext(
   headers.set(workspaceHeader, input.workspaceId);
   if (input.conversationId)
     headers.set(conversationHeader, input.conversationId);
+  else headers.delete(conversationHeader);
   return new Request(request, { headers });
 }
 

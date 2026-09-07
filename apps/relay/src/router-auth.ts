@@ -21,19 +21,21 @@ export async function authenticateRelayRequest(
   const signedIdentity = new RelayAuthenticator().authenticate(request, body);
   await enforceIdentityRequestLimits(env, request, signedIdentity.pubkey);
   const resolved = await resolveDeviceIdentity(env, signedIdentity, request);
-  if (body === undefined) {
-    return {
-      identity: resolved.identity,
-      request,
-      bound: resolved.bound,
-    };
+  // Authenticate the original signed request before removing the relay's
+  // reserved headers. Only internal routers may issue trusted context or
+  // operations; a valid public signature does not grant that authority.
+  const headers = new Headers(request.headers);
+  const names: string[] = [];
+  headers.forEach((_value, name) => names.push(name));
+  for (const name of names) {
+    if (name.startsWith("x-chief-")) headers.delete(name);
   }
   return {
     identity: resolved.identity,
     bound: resolved.bound,
     request: new Request(request.url, {
       method: request.method,
-      headers: request.headers,
+      headers,
       body,
     }),
   };

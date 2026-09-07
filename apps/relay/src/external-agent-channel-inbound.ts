@@ -18,6 +18,10 @@ import {
 } from "./external-agent-conversation";
 import { HttpError, json, parseJson } from "./http";
 import { releaseInternalResponse } from "./internal-response";
+import { externalAgentInboundReceiptsFindReceiveExternalAgentMessage } from "./queries/external-agent-inbound-receipts/find-receive-external-agent-message";
+import { externalAgentInboundReceiptsInsertReceiveExternalAgentMessage } from "./queries/external-agent-inbound-receipts/insert-receive-external-agent-message";
+import { externalAgentInboundReceiptsUpdateReceiveExternalAgentMessage } from "./queries/external-agent-inbound-receipts/update-receive-external-agent-message";
+import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { firstRow } from "./workspace-channel-store";
 import {
   finishScheduleRun,
@@ -56,8 +60,8 @@ export async function receiveExternalAgentMessage(
     `${context.workspaceId}:${agentId}:external:${input.deliveryId}`,
   );
   const receipt = firstRow<ReceiptRow>(
-    host.storage.sql.exec(
-      "SELECT * FROM external_agent_inbound_receipts WHERE agent_id = ? AND delivery_id = ?",
+    externalAgentInboundReceiptsFindReceiveExternalAgentMessage(
+      host.storage,
       agentId,
       input.deliveryId,
     ),
@@ -77,14 +81,16 @@ export async function receiveExternalAgentMessage(
     );
   const now = new Date().toISOString();
   if (!receipt)
-    host.storage.sql.exec(
-      `INSERT INTO external_agent_inbound_receipts (agent_id, delivery_id, payload_hash, message_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'claimed', ?, ?)`,
-      agentId,
-      input.deliveryId,
-      payloadHash,
-      messageId,
-      now,
-      now,
+    externalAgentInboundReceiptsInsertReceiveExternalAgentMessage(
+      host.storage,
+      {
+        agentId: agentId,
+        deliveryId: input.deliveryId,
+        payloadHash: payloadHash,
+        messageId: messageId,
+        createdAt: now,
+        updatedAt: now,
+      },
     );
   host.channels.requirePrincipalMember(principal);
   host.channels.requireAgentCapability(principal, "messages.send");
@@ -142,12 +148,9 @@ export async function receiveExternalAgentMessage(
   }
   // The final reply is durable before a scheduled teammate receives its turn.
   if (input.complete && continuation.thread_root_id) {
-    const row = host.storage.sql
-      .exec<{ id: string }>(
-        "SELECT id FROM workspace_schedule_runs WHERE json_extract(document_json, '$.threadRootId') = ? LIMIT 1",
-        continuation.thread_root_id,
-      )
-      .toArray()[0];
+    const row = workspaceScheduleRunsFindReceiveExternalAgentMessage<{
+      id: string;
+    }>(host.storage, continuation.thread_root_id)[0];
     const current = row ? readScheduleRun(host.storage, row.id) : null;
     const delivery = externalAgentDeliveryCommandSchema.parse(
       JSON.parse(continuation.payload_json),
@@ -182,12 +185,11 @@ export async function receiveExternalAgentMessage(
       await wakeWorkspaceSchedules(host.storage);
     }
   }
-  host.storage.sql.exec(
-    "UPDATE external_agent_inbound_receipts SET status = 'accepted', updated_at = ? WHERE agent_id = ? AND delivery_id = ?",
-    new Date().toISOString(),
-    agentId,
-    input.deliveryId,
-  );
+  externalAgentInboundReceiptsUpdateReceiveExternalAgentMessage(host.storage, {
+    updatedAt: new Date().toISOString(),
+    agentId: agentId,
+    deliveryId: input.deliveryId,
+  });
   return json(
     externalAgentInboundResultSchema.parse({
       duplicate,
@@ -206,6 +208,16 @@ export async function receiveExternalAgentActivity(
   );
   const { context, agentId, principal, continuation } =
     await resolveExternalContinuation(host, request, rawAgentId, input);
+  host.channels.requirePrincipalMember(principal);
+  host.channels.requireAgentCapability(principal, "messages.send");
+  host.channels.requireChannelVisible(continuation.conversation_id, principal);
+  await requireExternalThreadRoot(
+    host.env,
+    context.workspaceId,
+    continuation,
+    principal,
+    context.requestId,
+  );
   const messageId = await deterministicUuid(
     `${context.workspaceId}:${agentId}:external:${input.deliveryId}:activity:${input.component.id}`,
   );

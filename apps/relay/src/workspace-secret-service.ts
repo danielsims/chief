@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { AgentConfig, Principal } from "@chief/relay-contracts";
 import { secretNameSchema } from "@chief/relay-contracts";
 
 import { HttpError, json, parseJson } from "./http";
@@ -12,12 +13,14 @@ const secretInputSchema = z.object({
   value: z.string().trim().min(1).max(20_000),
 });
 
-/**
- * Workspace-scoped secret CRUD. Every secret is entered against exactly one
- * workspace and is invisible to every other workspace. Only a workspace owner
- * can write or delete. Plaintext reads are reserved for an agent running in
- * that workspace; users can list configured names without retrieving values.
- */
+const internalSecret = (name: string) =>
+  name === "vercel-deployment" || name.startsWith("external-agent.");
+
+function grantedSecret(config: AgentConfig) {
+  if (!config.enabled || !("secretRef" in config.inference)) return undefined;
+  const name = config.inference.secretRef;
+  return name && !internalSecret(name) ? name : undefined;
+}
 export class WorkspaceSecretService {
   private readonly channels: WorkspaceChannelStore;
   private readonly store: WorkspaceSecretStore;
@@ -40,8 +43,14 @@ export class WorkspaceSecretService {
 
   async get(request: Request) {
     const context = readTrustedContext(request);
-    this.requireAgent(context);
+    const config = this.requireAgent(context);
     const name = requestedSecretName(request);
+    if (grantedSecret(config) !== name)
+      throw new HttpError(
+        403,
+        "secret_access_denied",
+        "This agent is not granted access to this secret.",
+      );
     const value = await this.store.get(context.workspaceId, name);
     if (value === null) {
       throw new HttpError(
@@ -50,13 +59,32 @@ export class WorkspaceSecretService {
         "The secret does not exist.",
       );
     }
-    return json({ workspaceId: context.workspaceId, name, value });
+    if (
+      value === (await this.store.get(context.workspaceId, "vercel-deployment"))
+    )
+      throw new HttpError(
+        403,
+        "secret_infrastructure_credential",
+        "A deployment credential cannot be used as an agent API key.",
+      );
+    return json(
+      { workspaceId: context.workspaceId, name, value },
+      { headers: { "cache-control": "no-store" } },
+    );
   }
 
   list(request: Request) {
     const context = readTrustedContext(request);
     this.requireMember(context);
-    const secrets = this.store.list(context.workspaceId);
+    const grant =
+      context.principal.kind === "agent"
+        ? grantedSecret(this.requireAgent(context))
+        : undefined;
+    const secrets = this.store
+      .list(context.workspaceId)
+      .filter(
+        (secret) => context.principal.kind !== "agent" || secret.name === grant,
+      );
     return json({ workspaceId: context.workspaceId, secrets });
   }
 
@@ -81,14 +109,13 @@ export class WorkspaceSecretService {
       );
     }
     this.requireMember(context);
+    const config = this.channels.agentConfiguration(context.principal.agentId);
+    if (!config.enabled)
+      throw new HttpError(403, "agent_disabled", "This agent is disabled.");
+    return config;
   }
 
-  private requireOwner(principal: {
-    kind: string;
-    userId?: string;
-    agentId?: string;
-    service?: string;
-  }) {
+  private requireOwner(principal: Principal) {
     if (principal.kind !== "user") {
       throw new HttpError(
         403,
@@ -96,7 +123,7 @@ export class WorkspaceSecretService {
         "Only the workspace owner can manage secrets.",
       );
     }
-    const role = this.channels.memberRole("user", principal.userId ?? "");
+    const role = this.channels.memberRole("user", principal.userId);
     if (role !== "owner") {
       throw new HttpError(
         403,
