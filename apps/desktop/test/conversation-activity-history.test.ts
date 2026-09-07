@@ -83,3 +83,50 @@ void test("activity labels omit private setup markers", () => {
 
   assert.equal(turn?.prompt, "Connect GitHub to the repository.");
 });
+
+void test("interleaved agents keep separate activity and results follow their tool owner", () => {
+  const turns = conversationActivityTurns([
+    {
+      id: "request",
+      role: "user",
+      blocks: [{ type: "text", text: "Work together" }],
+    },
+    {
+      id: "a",
+      role: "assistant",
+      agentId: "engineer",
+      createdAt: 10,
+      blocks: [{ type: "tool_use", id: "read", name: "read", input: {} }],
+    },
+    {
+      id: "b",
+      role: "assistant",
+      agentId: "brand",
+      createdAt: 20,
+      blocks: [{ type: "thinking", thinking: "Review the campaign." }],
+    },
+    {
+      id: "c",
+      role: "assistant",
+      createdAt: 30,
+      blocks: [
+        { type: "tool_result", tool_use_id: "read", content: "file contents" },
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    turns.map(({ agentId, updatedAt, blocks }) => ({
+      agentId,
+      updatedAt,
+      types: blocks.map((block) => block.type),
+    })),
+    [
+      {
+        agentId: "engineer",
+        updatedAt: 30,
+        types: ["tool_use", "tool_result"],
+      },
+      { agentId: "brand", updatedAt: 20, types: ["thinking"] },
+    ],
+  );
+});

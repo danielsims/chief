@@ -24,6 +24,7 @@ import { AgentActivityPanel } from "./agent-activity-panel";
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
+  scheduledAgentActivityPresence,
   taskAgentActivityPresence,
 } from "./agent-activity-presence";
 import { ApprovalCard } from "./approval-card";
@@ -48,6 +49,7 @@ import {
 } from "./conversation-timeline-entries";
 import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
+import { ScheduledRunMessage } from "./scheduled-run-message";
 import {
   taskActivitySubtitle,
   ThreadSpecialistTaskCard,
@@ -125,10 +127,10 @@ export function ChiefChatAuxiliaryPanels({
     activeRootTurn,
     childSessions,
     controls,
-    currentTurnBlocks,
     interrupt,
     mentionCandidates,
-    previousActivityTurns,
+    activityTurns,
+    activityAgentId,
     respondPermission,
     respondQuestion,
     send,
@@ -187,12 +189,20 @@ export function ChiefChatAuxiliaryPanels({
             label: activityAgentName(activeRootTurn.agentId),
           }
         : undefined;
-    return mergeAgentActivityPresence(
-      root,
-      taskAgentActivityPresence(activeThreadChildSessions, activityAgentName),
-    );
+    return mergeAgentActivityPresence(root, [
+      ...taskAgentActivityPresence(
+        activeThreadChildSessions,
+        activityAgentName,
+      ),
+      ...scheduledAgentActivityPresence(
+        core.scheduleRuns,
+        activityAgentName,
+        threadRootId,
+      ),
+    ]);
   }, [
     activeRootTurn,
+    core.scheduleRuns,
     activeThreadChildSessions,
     controls.status,
     threadRootId,
@@ -296,6 +306,15 @@ export function ChiefChatAuxiliaryPanels({
             <ChatDateSeparator
               timestamp={activeThreadRoot?.metadata?.createdAt}
             />
+            {activeThreadRoot?.metadata?.scheduledRun ? (
+              <ScheduledRunMessage
+                run={activeThreadRoot.metadata.scheduledRun}
+                progress={core.scheduleRuns.find(
+                  (run) =>
+                    run.id === activeThreadRoot.metadata?.scheduledRun?.runId,
+                )}
+              />
+            ) : null}
             {activeThreadRoot?.role === "user" ? (
               <div id={`chief-message-${activeThreadRoot.id}`}>
                 <UserMessage
@@ -475,9 +494,9 @@ export function ChiefChatAuxiliaryPanels({
 
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
-      blocks={currentTurnBlocks}
       error={controls.error}
-      previousTurns={previousActivityTurns}
+      turns={activityTurns}
+      activeAgentId={activityAgentId}
       running={controls.status === "running"}
       tasks={childSessions}
       onClose={() => setActivityOpen(false)}

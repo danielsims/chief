@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import type { SessionRecord } from "@chief/agent-runtime/types";
+import type { ScheduleRun } from "@chief/relay-contracts";
 
 import {
   isWorkspaceAgentId,
@@ -9,6 +10,7 @@ import {
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
+  scheduledAgentActivityPresence,
   taskAgentActivityPresence,
 } from "./agent-activity-presence";
 
@@ -25,12 +27,14 @@ export function useMainAgentActivity({
   running,
   statusLabel,
   tasks,
+  scheduleRuns,
 }: {
   activeRootTurn: { agentId: string; threadRootId?: string } | null;
   channelAgentIds?: readonly string[];
   directAgentId?: string;
   running: boolean;
   statusLabel: string;
+  scheduleRuns: readonly ScheduleRun[];
   tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[];
 }) {
   const agents = useMemo(() => {
@@ -43,11 +47,18 @@ export function useMainAgentActivity({
       running && !activeRootTurn?.threadRootId && rootAgentId
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
-    return mergeAgentActivityPresence(
-      root,
-      taskAgentActivityPresence(tasks, activityAgentName),
-    );
-  }, [activeRootTurn, channelAgentIds, directAgentId, running, tasks]);
+    return mergeAgentActivityPresence(root, [
+      ...taskAgentActivityPresence(tasks, activityAgentName),
+      ...scheduledAgentActivityPresence(scheduleRuns, activityAgentName),
+    ]);
+  }, [
+    activeRootTurn,
+    channelAgentIds,
+    directAgentId,
+    running,
+    tasks,
+    scheduleRuns,
+  ]);
 
   return {
     agents,

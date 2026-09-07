@@ -18,6 +18,7 @@ import {
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
+  scheduledRunMessagePayloadSchema,
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
@@ -115,6 +116,15 @@ export function agentRunEvent(message: ConversationMessage) {
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const scheduledRun =
+    message.author.kind === "system"
+      ? message.components.find(
+          (component) => component.kind === "schedule.run",
+        )
+      : undefined;
+  const schedulePayload = scheduledRunMessagePayloadSchema.safeParse(
+    scheduledRun?.payload,
+  );
   const channelAction = message.components
     .map(channelActionFromComponent)
     .find((action) => action !== undefined);
@@ -133,6 +143,9 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         ? { mentions: message.mentions }
         : undefined),
       ...(channelAction ? { channelAction } : undefined),
+      ...(schedulePayload.success
+        ? { scheduledRun: schedulePayload.data }
+        : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },

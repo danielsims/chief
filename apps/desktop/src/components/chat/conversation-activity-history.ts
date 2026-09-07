@@ -4,12 +4,15 @@ export interface ConversationActivityMessage {
   id: string;
   role: "assistant" | "user";
   createdAt?: number;
+  agentId?: string;
   blocks: ContentBlock[];
 }
 
 export interface ConversationActivityTurn {
   id: string;
   startedAt?: number;
+  updatedAt?: number;
+  agentId?: string;
   prompt: string;
   blocks: ContentBlock[];
 }
@@ -44,35 +47,46 @@ export function conversationActivityTurns(
   messages: readonly ConversationActivityMessage[],
 ): ConversationActivityTurn[] {
   const turns: ConversationActivityTurn[] = [];
-  let current: ConversationActivityTurn | null = null;
-
-  const finishCurrent = () => {
-    if (current) turns.push(current);
-  };
-
+  let prompt: ConversationActivityMessage | undefined;
+  let groups = new Map<string, ConversationActivityTurn>();
+  const toolAgents = new Map<string, string>();
+  let lastAgentId: string | undefined;
   for (const message of messages) {
     if (message.role === "user") {
-      finishCurrent();
-      current = {
-        id: message.id,
-        startedAt: message.createdAt,
-        prompt: visiblePrompt(message.blocks),
-        blocks: [],
-      };
+      prompt = message;
+      groups = new Map();
+      lastAgentId = undefined;
       continue;
     }
-
-    const tools = activityBlocks(message.blocks);
-    if (tools.length === 0) continue;
-    current ??= {
-      id: `assistant:${message.id}`,
-      startedAt: message.createdAt,
-      prompt: "Agent-initiated work",
-      blocks: [],
-    };
-    current.blocks.push(...tools);
+    const blocks = activityBlocks(message.blocks);
+    if (!blocks.length) continue;
+    const result = blocks.find((block) => block.type === "tool_result");
+    const agentId =
+      message.agentId ??
+      (result?.type === "tool_result"
+        ? toolAgents.get(result.tool_use_id)
+        : undefined) ??
+      lastAgentId;
+    lastAgentId = agentId;
+    for (const block of blocks)
+      if (block.type === "tool_use" && agentId)
+        toolAgents.set(block.id, agentId);
+    const key = agentId ?? "unknown";
+    let turn = groups.get(key);
+    if (!turn) {
+      const sourceId = prompt?.id ?? `assistant:${message.id}`;
+      turn = {
+        id: agentId ? `${sourceId}:${agentId}` : sourceId,
+        agentId,
+        startedAt: message.createdAt ?? prompt?.createdAt,
+        prompt: prompt ? visiblePrompt(prompt.blocks) : "Agent-initiated work",
+        blocks: [],
+      };
+      groups.set(key, turn);
+      turns.push(turn);
+    }
+    turn.updatedAt = message.createdAt ?? turn.updatedAt;
+    turn.blocks.push(...blocks);
   }
-
-  finishCurrent();
   return turns;
 }
