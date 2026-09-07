@@ -145,7 +145,7 @@ function ActivityTool({
 }
 
 function ActivityReasoning({ thought }: { thought: string }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   return (
     <details
       className="group/reasoning border-border/45 border-t first:border-t-0"
@@ -174,7 +174,9 @@ function ActivityReasoning({ thought }: { thought: string }) {
 export function ToolActivityGroup({
   blocks,
   active,
+  flat = false,
 }: {
+  flat?: boolean;
   blocks: ContentBlock[];
   active: boolean;
 }) {
@@ -185,6 +187,14 @@ export function ToolActivityGroup({
   const hasReasoning = entries.some((entry) => entry.kind === "reasoning");
   const [expanded, setExpanded] = useState(true);
   if (entries.length === 0) return null;
+  const content = entries.map((entry) =>
+    entry.kind === "tool" ? (
+      <ActivityTool key={entry.key} call={entry.call} active={active} />
+    ) : (
+      <ActivityReasoning key={entry.key} thought={entry.thought} />
+    ),
+  );
+  if (flat) return <div className="w-full">{content}</div>;
   const completed = calls.filter((call) => call.result).length;
   const incomplete = calls.length - completed;
   const working = active && incomplete > 0;
@@ -220,15 +230,7 @@ export function ToolActivityGroup({
           className="text-muted-foreground transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="border-border/45 border-t">
-        {entries.map((entry) =>
-          entry.kind === "tool" ? (
-            <ActivityTool key={entry.key} call={entry.call} active={active} />
-          ) : (
-            <ActivityReasoning key={entry.key} thought={entry.thought} />
-          ),
-        )}
-      </div>
+      <div className="border-border/45 border-t">{content}</div>
     </details>
   );
 }

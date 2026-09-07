@@ -29,6 +29,7 @@ import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
 import { useMentionPeople } from "./mention-people-context";
+import { useScheduledRunProgress } from "./use-scheduled-run-progress";
 
 /**
  * Connects a Chief conversation to runtime, authentication, workspace, and
@@ -167,25 +168,14 @@ export function useChiefChatCore({
                   id: message.id,
                   role: message.role,
                   createdAt: message.metadata?.createdAt,
+                  agentId: message.metadata?.agentId ?? directAgent?.id,
                   blocks: withoutMarkerLines(messageBlocks(message)),
                 },
               ]
             : [],
         ),
       ),
-    [chat.messages],
-  );
-  const currentActivityTurnId = activityTurns.at(-1)?.id;
-  const previousActivityTurns = useMemo(
-    () =>
-      activityTurns
-        .filter(
-          (turn) =>
-            turn.id !== currentActivityTurnId &&
-            turn.blocks.some((block) => block.type === "tool_use"),
-        )
-        .reverse(),
-    [activityTurns, currentActivityTurnId],
+    [chat.messages, directAgent?.id],
   );
   const activeExecution =
     selectedExecution ?? chat.execution ?? initialExecution;
@@ -289,7 +279,9 @@ export function useChiefChatCore({
     );
   };
 
+  const scheduleRuns = useScheduledRunProgress(chat.messages);
   return {
+    scheduleRuns,
     ...chat,
     activeCapabilities: resolved.capabilities,
     activeExecution,
@@ -308,7 +300,8 @@ export function useChiefChatCore({
     markThreadRead,
     mentionCandidates,
     pendingInput,
-    previousActivityTurns,
+    activityTurns,
+    activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
     runtimeStatus,
     selectedExecution,
     send,
