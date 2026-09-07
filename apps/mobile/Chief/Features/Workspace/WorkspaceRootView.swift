@@ -105,60 +105,6 @@ struct WorkspaceHeader: View {
   }
 }
 
-private struct ChiefTabBar: View {
-  @Binding var selection: WorkspaceTab
-  let unreadCount: Int
-
-  var body: some View {
-    HStack(spacing: 4) {
-      tab(.home, "Home", "house.fill", badge: unreadCount)
-      tab(.plugins, "Plugins", "puzzlepiece.extension.fill")
-      tab(.projects, "Projects", "shippingbox")
-      tab(.agents, "Agents", "person.2.fill")
-    }
-    .padding(4)
-    .frame(maxWidth: .infinity, minHeight: 60)
-    .background(.ultraThinMaterial, in: Capsule())
-    .overlay { Capsule().stroke(Color.white.opacity(0.09), lineWidth: 0.5) }
-    .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
-  }
-
-  private func tab(_ tab: WorkspaceTab, _ label: String, _ icon: String, badge: Int = 0)
-    -> some View
-  {
-    Button {
-      Haptics.selection()
-      selection = tab
-    } label: {
-      VStack(spacing: 3) {
-        ZStack(alignment: .topTrailing) {
-          Image(systemName: icon)
-            .font(.system(size: 16, weight: selection == tab ? .semibold : .regular))
-          if badge > 0 && tab == .home {
-            Text(badge > 99 ? "99+" : "\(badge)")
-              .font(.system(size: 9, weight: .bold))
-              .foregroundStyle(.black)
-              .padding(.horizontal, 4)
-              .frame(minWidth: 16, minHeight: 16)
-              .background(.white, in: Capsule())
-              .offset(x: 12, y: -7)
-          }
-        }
-        Text(label).font(.system(size: 10.5, weight: selection == tab ? .semibold : .medium))
-      }
-      .foregroundStyle(selection == tab ? Color.white : ChiefTheme.secondary)
-      .frame(maxWidth: .infinity, minHeight: 50)
-      .background(
-        selection == tab ? Color.black.opacity(0.24) : .clear,
-        in: Capsule()
-      )
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(label)
-  }
-}
-
 private struct WorkspaceSwitcherSheet: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
@@ -284,6 +230,7 @@ private struct WorkspaceAvatar: View {
 
 struct UserProfileView: View {
   @Environment(AppModel.self) private var model
+  @State private var ownedWorkspaceID: String?
   var body: some View {
     List {
       Section {
@@ -298,6 +245,16 @@ struct UserProfileView: View {
           }
         }
         .padding(.vertical, 4)
+      }
+      Section {
+        ProfilePhotoPicker(imageURL: model.session?.user.imageURL) { data in
+          try await model.saveProfileImage(data)
+        }
+      } header: { Text("Profile photo").textCase(nil) }
+      if let ownedWorkspaceID {
+        Section {
+          NavigationLink("Workspace settings") { WorkspaceSettingsView(workspaceID: ownedWorkspaceID) }
+        }
       }
       Section {
         NavigationLink {
@@ -327,6 +284,13 @@ struct UserProfileView: View {
     }
     .scrollContentBackground(.hidden)
     .background(ChiefTheme.background)
+    .task(id: model.workspace?.id) {
+      ownedWorkspaceID = nil
+      guard let id = model.workspace?.id, let userID = model.session?.user.id else { return }
+      if let members = try? await model.relay.workspaceMembers(workspaceID: id),
+        members.contains(where: { $0.kind == "user" && $0.principalId == userID && $0.role == "owner" }),
+        model.workspace?.id == id { ownedWorkspaceID = id }
+    }
     .navigationTitle("Profile")
     .navigationBarTitleDisplayMode(.inline)
   }

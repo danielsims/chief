@@ -765,6 +765,22 @@ final class AppModel {
     return false
   }
 
+  func saveProfileImage(_ data: Data?) async throws {
+    guard let current = session else { throw RelayError.unauthorized }
+    let relayURL = appConfiguration.relayURL
+    let imageURL: URL?
+    if let data { imageURL = try await relay.uploadIdentityImage(workspaceID: nil, data: data) }
+    else { try await relay.removeProfileImage(); imageURL = nil }
+    guard let latest = session, latest.user.id == current.user.id,
+      appConfiguration.relayURL == relayURL else { return }
+    let updated = ChiefSession(accessToken: latest.accessToken, sessionToken: latest.sessionToken,
+      refreshToken: latest.refreshToken, accessTokenExpiresAt: latest.accessTokenExpiresAt,
+      user: ChiefUser(id: current.user.id, name: latest.user.name, imageURL: imageURL),
+      workspaceID: latest.workspaceID)
+    try sessions.save(updated)
+    session = updated
+  }
+
   func completeSignIn(_ signedIn: ChiefSession) {
     do {
       try sessions.save(signedIn)
