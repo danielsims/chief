@@ -485,6 +485,13 @@ final class AppModel {
     !workingAgentNames(workspaceID: workspaceID, conversationID: conversationID).isEmpty
   }
 
+  func isAgentWorking(agentID: String) -> Bool {
+    guard let workspaceID = workspace?.id else { return false }
+    return workingAgents.contains { entry in
+      entry.key.workspaceID == workspaceID && entry.value.contains(agentID)
+    }
+  }
+
   func workingAgentNames(workspaceID: String?, conversationID: String) -> [String] {
     workingAgentPresences(
       workspaceID: workspaceID,
@@ -1735,6 +1742,7 @@ final class AppModel {
   }
 
   func openConversation(_ id: String, threadRootID: String? = nil) {
+    let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
     selectedConversationID = id
     if let threadRootID, !threadRootID.isEmpty {
@@ -1875,6 +1883,14 @@ final class AppModel {
     workspaceLiveConversationIDs = []
     if let client = workspaceLiveClient { Task { await client.disconnect() } }
     workspaceLiveClient = nil
+    // A disconnected stream cannot vouch for remote work still being active.
+    // Keep turns owned by this phone; their local completion clears them.
+    workingAgents = workingAgents.reduce(into: [:]) { result, entry in
+      let local = entry.value.filter { agentID in
+        activeAgentActivityIDs["\(entry.key.workspaceID):\(entry.key.conversationID):\(agentID)"] != nil
+      }
+      if !local.isEmpty { result[entry.key] = Set(local) }
+    }
   }
 
   private func configureReadState(for workspaceID: String) {
@@ -1901,13 +1917,6 @@ final class AppModel {
   ) {
     guard workspace?.id == workspaceID else { return }
     messages.forEach(conversations.merge)
-    for message in messages.sorted(by: { $0.createdAt < $1.createdAt }) {
-      if message.isAgentActivityProjection {
-        updateRelayActivityPresence(message)
-      } else {
-        clearRelayActivityPresence(for: message)
-      }
-    }
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     if hydratedReadConversations.insert(key).inserted {
       let context = ConversationReadState.channelKey(conversationID)
@@ -2010,12 +2019,12 @@ final class AppModel {
         conversationID: message.conversationID,
         isWorking: false
       )
-    } else if running {
+    } else {
       setRelayAgentWorking(
         agentID: agentID,
         workspaceID: message.workspaceID,
         conversationID: message.conversationID,
-        isWorking: true
+        isWorking: running
       )
     }
   }

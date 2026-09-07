@@ -168,7 +168,7 @@ struct DMsGroup: View {
       }
     } label: {
       HStack(spacing: 9) {
-        AgentMark(name: agent.name, size: 24, working: agent.status == .working)
+        AgentMark(name: agent.name, size: 24, working: model.isAgentWorking(agentID: agent.id))
         Text(agent.name)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ChiefTheme.secondary)
@@ -245,15 +245,16 @@ private struct CollapsibleGroup<Content: View>: View {
 }
 
 private struct AgentRow: View {
+  @Environment(AppModel.self) private var model
   let agent: AgentSummary
 
   var body: some View {
     NavigationLink(value: agent.id) {
       HStack(spacing: 12) {
-        AgentMark(name: agent.name, size: 34, working: agent.status == .working)
+        AgentMark(name: agent.name, size: 34, working: model.isAgentWorking(agentID: agent.id))
         VStack(alignment: .leading, spacing: 2) {
           Text(agent.name).font(.system(size: 15, weight: .medium))
-          Text(agent.subagentCountLabel.map { "\(agent.role) · \($0)" } ?? (agent.status == .working ? "Working now" : agent.role))
+          Text(agent.subagentCountLabel.map { "\(agent.role) · \($0)" } ?? (model.isAgentWorking(agentID: agent.id) ? "Working now" : agent.role))
             .font(.system(size: 13))
             .foregroundStyle(ChiefTheme.secondary)
         }
