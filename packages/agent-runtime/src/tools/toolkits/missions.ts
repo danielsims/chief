@@ -84,6 +84,21 @@ export const updateMissionStatusDefinition = defineAgentTool({
 export const missionToolDefinitions = [
   defineAgentTool({
     method: "POST",
+    path: "/local-tools/missions/run-collaborators",
+    operation: {
+      operationId: "missions.addRunCollaborator",
+      summary: "Assign another teammate to the current scheduled run",
+      description:
+        "Lead only. Call while the run is active with a concrete assignment. Finish your current turn after a successful handoff. On success the teammate joins the channel and receives a tracked contribution step. Repeating the same assignment is safe. This changes this run only; update the recurring schedule explicitly for future runs. Mentions do not queue work.",
+    },
+    inputSchema: z.object({
+      runId: boundedText(256),
+      agentId: boundedText(80),
+      assignment: boundedText(4000),
+    }),
+  }),
+  defineAgentTool({
+    method: "POST",
     path: "/local-tools/missions/run-step",
     operation: {
       operationId: "missions.reportRunStep",

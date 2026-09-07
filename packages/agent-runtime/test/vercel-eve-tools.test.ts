@@ -6,7 +6,12 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { channelApiOperations } from "@chief/channel-api";
 import { parseJsonObject, toJsonObject } from "@chief/relay-contracts";
 
+import {
+  listRecurringWorkDefinition,
+  proposeRecurringWorkDefinition,
+} from "../src/tools/toolkits/automation/recurring-work-definitions.js";
 import { workspaceTools } from "../src/tools/toolkits/index.js";
+import { missionToolDefinitions } from "../src/tools/toolkits/missions.js";
 import { eveProjectFiles } from "../src/vercel-eve-files.js";
 import {
   eveChiefChannelTools,
@@ -39,18 +44,28 @@ void test("Eve Chief tools stay aligned with the channel API and local tools", (
     assert.equal(tool.path, api.path);
   }
   for (const tool of eveChiefTools) {
-    const local = workspaceTools.find(
-      (candidate) => candidate.operation.operationId === tool.operationId,
-    );
+    const local = [
+      ...workspaceTools,
+      ...missionToolDefinitions,
+      listRecurringWorkDefinition,
+      proposeRecurringWorkDefinition,
+    ].find((candidate) => candidate.operation.operationId === tool.operationId);
     assert.ok(local, `workspaceTools is missing ${tool.operationId}`);
     assert.equal(local.method, tool.method);
     assert.equal(local.path, tool.path);
     const expected = [
       ...pathParameterNames(local.path),
-      ...schemaPropertyKeys(local.inputSchema),
-      ...schemaPropertyKeys(local.querySchema),
+      ...schemaPropertyKeys(
+        "inputSchema" in local ? local.inputSchema : undefined,
+      ),
+      ...schemaPropertyKeys(
+        "querySchema" in local ? local.querySchema : undefined,
+      ),
     ];
-    assert.deepEqual([...Object.keys(tool.input)].sort(), [...new Set(expected)].sort());
+    assert.deepEqual(
+      [...Object.keys(tool.input)].sort(),
+      [...new Set(expected)].sort(),
+    );
   }
 });
 
@@ -94,8 +109,9 @@ void test("packaged Eve projects include Chief tools generated from the catalog"
     (path) =>
       path.startsWith("agent/tools/") &&
       !eveChiefTools.some(
-        (tool) => path === `agent/tools/${eveToolFileSlug(tool.operationId)}.ts`,
+        (tool) =>
+          path === `agent/tools/${eveToolFileSlug(tool.operationId)}.ts`,
       ),
   );
-  assert.deepEqual(extraTools, []);
+  assert.deepEqual(extraTools, ["agent/tools/chief_handoff_failed.ts"]);
 });

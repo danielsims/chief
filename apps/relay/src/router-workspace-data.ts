@@ -108,7 +108,7 @@ export function routeWorkspaceDataRequest(
     return yield* attempt("relay.workspace_data.forward", () =>
       workspace.fetch(
         withTrustedContext(
-          new Request("https://workspace.internal", {
+          new Request(`https://workspace.internal${url.search}`, {
             method: "POST",
             headers: {
               "x-chief-internal-operation": operation,

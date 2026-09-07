@@ -4,7 +4,17 @@ import { agentIdSchema, conversationIdSchema } from "./identifiers";
 
 export const workspaceScheduleInputSchema = z.object({
   id: z.string().trim().min(1).max(120),
-  conversationId: conversationIdSchema,
+  conversationId: conversationIdSchema.optional(),
+  newChannel: z
+    .object({
+      name: z.string().trim().min(1).max(80).optional(),
+      inviteUserIds: z
+        .array(z.string().trim().min(1).max(160))
+        .max(30)
+        .default([]),
+    })
+    .strict()
+    .optional(),
   agentId: agentIdSchema,
   collaborators: z.array(agentIdSchema).max(12).default([]),
   expectedOutcome: z.string().trim().max(2_000).default(""),
@@ -29,6 +39,7 @@ export const workspaceScheduleInputSchema = z.object({
 });
 
 export const workspaceScheduleSchema = workspaceScheduleInputSchema.extend({
+  conversationId: conversationIdSchema,
   status: z.enum(["draft", "needs_approval", "active", "paused", "error"]),
   placement: z.literal("cloud"),
   nextAt: z.number().optional(),
@@ -39,6 +50,7 @@ export const workspaceScheduleSchema = workspaceScheduleInputSchema.extend({
   createdAt: z.number(),
   updatedAt: z.number(),
   upcomingRuns: z.array(z.number()).default([]),
+  recordedRuns: z.array(z.number()).default([]),
 });
 
 export const workspaceScheduleActionSchema = z.object({

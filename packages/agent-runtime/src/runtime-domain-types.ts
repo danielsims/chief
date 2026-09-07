@@ -118,6 +118,7 @@ export interface RecurringWorkRecord {
   updatedAt: number;
   /** Computed by the runtime for calendar rendering, never persisted. */
   upcomingRuns?: number[];
+  recordedRuns?: number[];
 }
 
 export interface OnboardingWorkJob {

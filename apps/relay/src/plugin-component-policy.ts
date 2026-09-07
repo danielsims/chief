@@ -22,6 +22,12 @@ export function validatePluginComponentPlacement(
   threadRootId?: string,
 ) {
   for (const component of components) {
+    if (component.kind === "schedule.run" && principal.kind !== "service")
+      throw new HttpError(
+        403,
+        "schedule_component_author",
+        "Only the relay can announce scheduled runs.",
+      );
     const parsed =
       component.kind === "plugin.recommendation"
         ? pluginRecommendationPayloadSchema.parse(component.payload)

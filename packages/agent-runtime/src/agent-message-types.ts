@@ -205,6 +205,12 @@ export type ChiefMessageEventMetadata =
     };
 
 export interface ChiefMessageMetadata {
+  scheduledRun?: {
+    runId: string;
+    scheduleId: string;
+    title: string;
+    agentIds: string[];
+  };
   createdAt: number;
   event?: ChiefMessageEventMetadata;
   /** Agent that authored a shared-channel message. */

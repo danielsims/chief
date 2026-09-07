@@ -25,10 +25,14 @@ describe("workspace Vercel connection", () => {
     const vercelFetch = vi.fn(
       async (request: RequestInfo | URL, init?: RequestInit) => {
         const url = requestUrl(request);
-        expect(url.pathname).toBe("/v2/teams");
         expect(requestHeaders(request, init).get("authorization")).toBe(
           `Bearer ${token}`,
         );
+        if (url.pathname === "/v1/api-keys") {
+          expect(url.searchParams.get("teamId")).toBe("team-1");
+          return Response.json({ apiKeyString: "test-gateway-key" });
+        }
+        expect(url.pathname).toBe("/v2/teams");
         return Response.json({
           teams: [{ id: "team-1", name: "Daniel", slug: "daniel" }],
         });
@@ -51,7 +55,8 @@ describe("workspace Vercel connection", () => {
       projects: [],
     });
     expect(JSON.stringify(payload)).not.toContain(token);
-    expect(vercelFetch).toHaveBeenCalledOnce();
+    expect(JSON.stringify(payload)).not.toContain("test-gateway-key");
+    expect(vercelFetch).toHaveBeenCalledTimes(2);
   });
 
   it("returns an actionable error when Vercel rejects a token", async () => {

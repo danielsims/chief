@@ -102,6 +102,8 @@ export function presentWorkspaceSchedule(schedule: WorkspaceSchedule) {
     return { ...schedule, upcomingRuns: [] };
   const now = Date.now();
   const runs: number[] = [];
+  if (schedule.nextAt !== undefined && schedule.nextAt <= now)
+    runs.push(schedule.nextAt);
   if (schedule.onceAt !== undefined)
     runs.push(schedule.nextAt ?? schedule.onceAt);
   else {

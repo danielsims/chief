@@ -21,6 +21,47 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("external agent channels", () => {
+  it("prepares an existing deployment with the same credentials and keeps its live endpoint", async () => {
+    const ctx = await setupChannelTest();
+    const registered = await registerExternalAgent(ctx, {
+      agentId: "eve-update",
+    });
+    await verifyExternalAgent(ctx, "eve-update");
+    const prepare = (reuseExisting: boolean) =>
+      workspaceFetch(
+        ctx,
+        "external-agent-register",
+        registerExternalAgentCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          protocolVersion: 1,
+          occurredAt: new Date().toISOString(),
+          payload: {
+            agentId: "eve-update",
+            name: "Eve",
+            role: "Engineer",
+            endpoint: "https://replacement.vercel.app/channels/chief/messages",
+            reuseExisting,
+          },
+        }),
+        ctx.principal,
+        `https://relay.test/v1/workspaces/${ctx.workspaceId}/agents/external`,
+      );
+    expect((await prepare(false)).status).toBe(409);
+    const response = await prepare(true);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      channel: registered.channel,
+    });
+    expect((await activeTestSnapshot(ctx)).agents).toContainEqual(
+      expect.objectContaining({
+        id: "eve-update",
+        runtime: expect.objectContaining({
+          endpoint: "https://chief-agent.vercel.app/channels/chief/messages",
+          connectionStatus: "connected",
+        }),
+      }),
+    );
+  });
   it("registers an Eve runtime with Project-backed definition provenance", async () => {
     const ctx = await setupChannelTest();
     const projectResponse = await workspaceFetch(

@@ -50,6 +50,14 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
       "Create a channel for a feature, campaign, or mission. Reuse a stable operationKey on retries. You are added as its owner. Use channels.members.add next to invite the mission team and relevant people before creating the mission.",
     input: {
       name: "z.string().trim().min(1).max(60)",
+      description: "z.string().trim().max(160).optional()",
+      topic: "z.string().trim().max(250).optional()",
+      kind: 'z.enum(["standard", "feature"]).optional()',
+      agentIds: "z.array(z.string().min(1).max(80)).max(20).optional()",
+      members:
+        'z.array(z.object({ type: z.enum(["user", "agent"]), id: z.string().min(1).max(120) })).max(20).optional()',
+      workstream:
+        'z.object({ status: z.enum(["planned", "active", "review", "complete", "cancelled"]).optional(), repository: z.string().max(500).optional(), baseBranch: z.string().max(160).optional(), branch: z.string().max(160).optional(), pullRequestUrls: z.array(z.string().url().max(1000)).max(20).optional() }).optional()',
       operationKey: "z.string().regex(/^[a-z0-9][a-z0-9-]{5,79}$/)",
       visibility: 'z.enum(["public", "private"]).default("public")',
     },
@@ -57,6 +65,7 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
   defineEveChannelTool({
     operationId: "channels.members.add",
     input: {
+      expectedVersion: "z.number().int().min(1).optional()",
       channelId: "z.string().min(1).max(160)",
       members:
         'z.array(z.object({ type: z.enum(["user", "agent"]), id: z.string().min(1).max(120) })).min(1).max(20)',
@@ -103,6 +112,7 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
     input: {
       channelId: "z.string().min(1)",
       content: "z.string().min(1).max(8000)",
+      artifactIds: "z.array(z.string().min(1).max(160)).max(20).optional()",
       threadRootId: "z.string().min(1).max(160).optional()",
       mentions: "z.array(z.string().min(1).max(120)).max(20).optional()",
       idempotencyKey: "z.string().min(1).max(120).optional()",
@@ -177,9 +187,25 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
       name: "z.string().min(1).max(240)",
       path: "z.string().min(1).max(512).optional()",
       content: "z.string().min(1).max(200000)",
+      format: 'z.enum(["markdown", "html", "csv", "json"]).default("markdown")',
+      agentId: "z.string().min(1).max(80).optional()",
+      sourceSessionId: "z.string().min(1).max(120).optional()",
       kind: 'z.enum(["document", "email"]).default("document")',
       conversationId: "z.string().min(1).max(160).optional()",
       expectedVersionId: "z.string().min(1).max(120).optional()",
+    },
+  },
+  {
+    operationId: "missions.addRunCollaborator",
+    method: "POST",
+    path: "/local-tools/missions/run-collaborators",
+    execute: "relay",
+    description:
+      "Lead only: assign another teammate to an active run. Finish your current turn after the handoff. A successful call adds them to this run and queues their contribution after the plan. Supply a concrete assignment; repeating it is safe. This does not change future runs. Mentions alone do not queue work.",
+    input: {
+      runId: "z.string().min(1).max(256)",
+      agentId: "z.string().min(1).max(80)",
+      assignment: "z.string().min(1).max(4000)",
     },
   },
   {
@@ -290,6 +316,12 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
         "z.union([z.number().int().positive(), z.string().datetime()]).optional()",
       approvalSummary: "z.string().min(1).max(2000)",
       proposedToolPatterns: "z.array(z.string().max(300)).max(30).default([])",
+      newChannel:
+        "z.object({ name: z.string().min(1).max(80).optional(), inviteUserIds: z.array(z.string().min(1).max(160)).max(30).default([]) }).optional()",
+      skipDates:
+        "z.array(z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/)).max(366).default([])",
+      playbookId: "z.string().min(1).max(120).optional()",
+      activate: "z.boolean().default(false)",
     },
   },
 

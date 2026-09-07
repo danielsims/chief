@@ -3,6 +3,7 @@ import type {
   WorkspaceScheduleInput,
 } from "@chief/relay-contracts";
 import {
+  scheduleRunCollaboratorSchema,
   scheduleRunListSchema,
   scheduleRunReportSchema,
   scheduleRunSchema,
@@ -67,6 +68,22 @@ export class RelaySchedulesClient extends RelayClientBase {
       },
     );
   }
+  addCollaborator(input: {
+    runId: string;
+    agentId: string;
+    assignment: string;
+  }) {
+    return this.fetchJson(
+      this.workspaceUrl("schedule-runs/collaborators"),
+      scheduleRunSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(scheduleRunCollaboratorSchema.parse(input)),
+      },
+    );
+  }
   async webhooks() {
     return (
       await this.fetchJson(
@@ -103,12 +120,14 @@ export class RelaySchedulesClient extends RelayClientBase {
     );
   }
 
-  async list() {
+  async list(range?: { from: number; to: number }) {
+    const url = new URL(this.workspaceUrl("schedules"));
+    if (range) {
+      url.searchParams.set("from", String(range.from));
+      url.searchParams.set("to", String(range.to));
+    }
     return (
-      await this.fetchJson(
-        this.workspaceUrl("schedules"),
-        workspaceSchedulesResultSchema,
-      )
+      await this.fetchJson(url.toString(), workspaceSchedulesResultSchema)
     ).schedules;
   }
 

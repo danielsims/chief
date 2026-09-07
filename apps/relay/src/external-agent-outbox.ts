@@ -1,8 +1,8 @@
 import type { ExternalAgentDeliveryCommand } from "@chief/relay-contracts";
 import {
   externalAgentDeliveryCommandSchema,
-  parseJsonObject,
   externalAgentDeliveryResultSchema,
+  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import {
@@ -12,6 +12,7 @@ import {
   sha256,
 } from "./external-agent-channel-security";
 import { HttpError } from "./http";
+import { externalRuntimeOwner } from "./workspace-agent-runtime";
 import { firstRow } from "./workspace-channel-store";
 import { workspacePeople } from "./workspace-member-names";
 import { setWorkspaceAlarm } from "./workspace-schedule-store";
@@ -68,7 +69,15 @@ export class ExternalAgentOutbox {
     conversationId: string,
     threadRootId?: string,
   ) {
-    if (this.runtime(agentId)?.connection_status !== "connected") return false;
+    const runtime = this.runtime(agentId);
+    if (!runtime) return false;
+    if (runtime.connection_status !== "connected") {
+      throw new HttpError(
+        409,
+        "external_agent_unavailable",
+        "This agent deployment is not connected.",
+      );
+    }
     const semanticHash = await sha256(
       JSON.stringify({
         message: command.payload.message,
@@ -297,7 +306,7 @@ export class ExternalAgentOutbox {
     return firstRow<RuntimeRow>(
       this.storage.sql.exec(
         "SELECT agent_id, endpoint_url, token_secret_ref, connection_status FROM external_agent_runtimes WHERE agent_id = ?",
-        agentId,
+        externalRuntimeOwner(this.storage, agentId),
       ),
     );
   }

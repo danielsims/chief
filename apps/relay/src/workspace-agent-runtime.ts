@@ -36,7 +36,7 @@ export function workspaceAgent(
     ...subagent,
     ownerUserId: subagent.ownerUserId ?? parent?.ownerUserId,
     status: "idle",
-    runtime: { kind: "native-cell" },
+    runtime: parent?.runtime ?? { kind: "native-cell" },
     subagents: [],
   };
 }
@@ -83,4 +83,27 @@ export function requireNativeAgent(
     );
   }
   return agent;
+}
+
+/** Resolve only roster-declared children to their owning deployment. */
+export function externalRuntimeOwner(
+  storage: DurableObjectStorage,
+  agentId: string,
+) {
+  const row = firstRow<
+    { snapshot_json: string | null } & Record<string, SqlStorageValue>
+  >(
+    storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
+  );
+  const snapshot = row?.snapshot_json
+    ? decodeWorkspaceSnapshot(row.snapshot_json)
+    : undefined;
+  if (snapshot?.agents.some((agent) => agent.id === agentId)) return agentId;
+  return (
+    snapshot?.agents.find(
+      (agent) =>
+        agent.runtime.kind !== "native-cell" &&
+        agent.subagents.some((child) => child.id === agentId),
+    )?.id ?? agentId
+  );
 }

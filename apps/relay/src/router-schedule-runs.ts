@@ -21,16 +21,19 @@ export async function routeScheduleRunRequest(
     /^\/v1\/workspaces\/([^/]+)\/schedules\/([^/]+)\/runs(?:\/([^/]+)\/actions)?$/u.exec(
       url.pathname,
     );
-  const report = /^\/v1\/workspaces\/([^/]+)\/schedule-runs\/report$/u.exec(
-    url.pathname,
-  );
+  const report =
+    /^\/v1\/workspaces\/([^/]+)\/schedule-runs\/(report|collaborators)$/u.exec(
+      url.pathname,
+    );
   if (!hooks && !runs && !report) return undefined;
   const workspaceId = workspaceIdSchema.parse(
     decodeURIComponent((hooks ?? runs ?? report)?.[1] ?? ""),
   );
   const delivery = hooks?.[3] === "deliveries";
   const operation = report
-    ? "schedules-runs-report"
+    ? report[2] === "collaborators"
+      ? "schedules-runs-add-collaborator"
+      : "schedules-runs-report"
     : delivery
       ? "webhooks-deliver"
       : hooks

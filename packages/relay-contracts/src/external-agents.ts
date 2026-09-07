@@ -42,6 +42,7 @@ export const externalAgentRegistrationPayloadSchema = z
     endpoint: z.url().max(2_048),
     definition: externalAgentDefinitionInputSchema.optional(),
     replaceNative: z.boolean().default(false),
+    reuseExisting: z.boolean().optional(),
   })
   .strict();
 
@@ -111,6 +112,7 @@ export const externalAgentDeliveryPayloadSchema = z
   .object({
     deliveryId: z.string().trim().min(8).max(256),
     deliveryGeneration: z.number().int().positive().default(1),
+    scheduleStepId: z.string().optional(),
     // Assigned by Chief's durable outbox. Internal enqueue commands omit it;
     // every request delivered to Eve contains it.
     sessionAddress: z.string().trim().min(32).max(256).optional(),
@@ -124,7 +126,7 @@ export const externalAgentDeliveryPayloadSchema = z
         body: z.string().max(100_000),
         author: z
           .object({
-            kind: z.enum(["user", "agent"]),
+            kind: z.enum(["user", "agent", "system"]),
             id: z.string().trim().min(1).max(256),
           })
           .strict(),
@@ -191,9 +193,16 @@ export const externalAgentInboundMessageSchema = z
     deliveryId: z.string().trim().min(8).max(256),
     continuation: chiefChannelContinuationSchema,
     sessionId: z.string().trim().min(1).max(256),
-    body: z.string().trim().min(1).max(100_000),
+    body: z.string().trim().max(100_000).default(""),
+    publish: z.boolean().default(true),
+    complete: z.boolean().default(true),
+    outcome: z.enum(["completed", "failed"]).default("completed"),
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) => !input.publish || input.body.length > 0,
+    "A published reply requires text.",
+  );
 
 export const externalAgentInboundResultSchema = z
   .object({
@@ -241,7 +250,7 @@ export type ChiefChannelContinuation = z.infer<
 export type ExternalAgentDeliveryCommand = z.infer<
   typeof externalAgentDeliveryCommandSchema
 >;
-export type ExternalAgentInboundMessage = z.infer<
+export type ExternalAgentInboundMessage = z.input<
   typeof externalAgentInboundMessageSchema
 >;
 export type ExternalAgentInboundActivity = z.infer<
