@@ -1,21 +1,31 @@
 import SwiftUI
 
 struct ConversationActivityFooter: View {
+  @Environment(AppModel.self) private var model
+  @Environment(\.scheduledRuns) private var scheduledRuns
   let agents: [AgentActivityPresence]
+  var scheduledThreadRootID: String? = nil
   let errorCount: Int
   let openActivity: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
-      if !agents.isEmpty {
-        AgentTypingRow(agents: agents, openActivity: openActivity)
+      if !visibleAgents.isEmpty {
+        AgentTypingRow(agents: visibleAgents, openActivity: openActivity)
           .transition(.opacity)
       }
       if errorCount > 0 {
         AgentActivityErrorStatus(count: errorCount, openActivity: openActivity)
       }
     }
-    .animation(.easeOut(duration: 0.2), value: agents)
+    .animation(.easeOut(duration: 0.2), value: visibleAgents)
+  }
+  private var visibleAgents: [AgentActivityPresence] {
+    let scheduled = WorkspaceScheduleRun.workingPresences(Array(scheduledRuns.values), threadRootID: scheduledThreadRootID) { id in
+      model.workspace?.agentDisplayName(id) ?? WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
+    }
+    var seen = Set<String>()
+    return (agents + scheduled).filter { seen.insert($0.id).inserted }
   }
 }
 

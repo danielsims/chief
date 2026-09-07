@@ -10,7 +10,16 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   static let shared = MobileNotifications()
   static var remotePushRegistered = false
   /// Survives the race between a lock-screen tap and SwiftUI becoming ready.
-  static var pendingOpen: ConversationDeepLink?
+  static var pendingOpen: ConversationDeepLink? {
+    get {
+      guard let value = UserDefaults.standard.string(forKey: "chief.notification.pending-url"),
+        let url = URL(string: value) else { return nil }
+      return ConversationDeepLink(url: url)
+    }
+    set {
+      UserDefaults.standard.set(newValue?.url.absoluteString, forKey: "chief.notification.pending-url")
+    }
+  }
 
   static let didOpenConversation = Notification.Name(
     "sh.heychief.mobile.notification.open-conversation"
@@ -19,12 +28,6 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   private override init() {
     super.init()
     UNUserNotificationCenter.current().delegate = self
-  }
-
-  static func takePendingOpen() -> ConversationDeepLink? {
-    let value = pendingOpen
-    pendingOpen = nil
-    return value
   }
 
   static var configuredSound: UNNotificationSound? {
@@ -120,7 +123,8 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse
   ) async {
-    guard let link = ConversationDeepLink(userInfo: response.notification.request.content.userInfo)
+    guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
+      let link = ConversationDeepLink(userInfo: response.notification.request.content.userInfo)
     else { return }
     await MainActor.run {
       Self.pendingOpen = link

@@ -1,8 +1,15 @@
 import Foundation
 
 actor FixtureRelayClient: RelayServing {
-    private var fixtureMessages = DemoWorkspace.messages
+    private var fixtureMessages = DemoWorkspace.messages + (ScheduledRunDemo.enabled ? [ScheduledRunDemo.message, ScheduledRunDemo.reply] : [])
     private var provisioningCredential: String?
+
+    func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
+      ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id && scheduleID == "demo-schedule" ? [ScheduledRunDemo.run] : []
+    }
+    func listWorkspaceFiles(workspaceID: String, signingIdentity: NostrIdentity?) async throws -> [WorkspaceFileRecord] {
+      ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id ? [ScheduledRunDemo.file] : []
+    }
 
     func bindDeviceIdentity(accountToken: String) async throws {}
 

@@ -66,6 +66,8 @@ final class AppModel {
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
   private var pendingConversationDeepLink: ConversationDeepLink?
+  private var isApplyingConversationDeepLink = false
+  var activityErrorAcknowledgements = ActivityErrorAcknowledgements()
   var selectedTab: WorkspaceTab = .home
   var onboarding = OnboardingDraft()
   var inferenceCredential = ""
@@ -531,25 +533,6 @@ final class AppModel {
         && (conversationID == "mission-control" || record.conversationID == conversationID)
         && (agentID == nil || record.agentID == agentID)
     }.sorted { $0.updatedAt > $1.updatedAt }
-  }
-
-  func activityErrorCount(workspaceID: String?, conversationID: String) -> Int {
-    let latestByAgent = Dictionary(
-      grouping: activityRecords(workspaceID: workspaceID, conversationID: conversationID),
-      by: \.agentID
-    ).compactMap { $0.value.first }
-    var agentIDs = Set(
-      latestByAgent.compactMap { record in
-        record.components.contains { $0.kind == "error" } ? record.agentID : nil
-      }
-    )
-    agentIDs.formUnion(
-      failedAgentJobs(
-        workspaceID: workspaceID,
-        conversationID: conversationID
-      ).map(\.agentId)
-    )
-    return agentIDs.count
   }
 
   func failedAgentJobs(
@@ -1756,7 +1739,7 @@ final class AppModel {
     selectedConversationID = id
     if let threadRootID, !threadRootID.isEmpty {
       selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
-    } else if selectedThread?.conversationID == id {
+    } else {
       selectedThread = nil
     }
   }
@@ -1771,22 +1754,33 @@ final class AppModel {
 
   func handleConversationDeepLink(_ link: ConversationDeepLink) async {
     pendingConversationDeepLink = link
+    MobileNotifications.pendingOpen = link
     await applyPendingConversationDeepLinkIfReady()
   }
 
   func applyPendingConversationDeepLinkIfReady() async {
-    if pendingConversationDeepLink == nil {
-      pendingConversationDeepLink = MobileNotifications.takePendingOpen()
+    if let notification = MobileNotifications.pendingOpen {
+      pendingConversationDeepLink = notification
     }
-    guard let link = pendingConversationDeepLink else { return }
-    guard phase == .workspace, isWorkspaceReadyForPresentation else { return }
-    if link.workspaceID != workspace?.id {
-      if isSwitchingWorkspace { return }
-      let switched = await switchWorkspace(workspaceID: link.workspaceID)
-      guard switched, workspace?.id == link.workspaceID else { return }
+    guard !isApplyingConversationDeepLink else { return }
+    guard phase == .workspace, isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
+    isApplyingConversationDeepLink = true
+    defer { isApplyingConversationDeepLink = false }
+    while let link = pendingConversationDeepLink {
+      if link.workspaceID != workspace?.id {
+        let switched = await switchWorkspace(workspaceID: link.workspaceID)
+        // A newer tap takes precedence, including while hydration awaits I/O.
+        if let notification = MobileNotifications.pendingOpen {
+          pendingConversationDeepLink = notification
+        }
+        guard pendingConversationDeepLink == link else { continue }
+        guard switched, workspace?.id == link.workspaceID else { return }
+      }
+      guard isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
+      pendingConversationDeepLink = nil
+      openConversation(link.conversationID, threadRootID: link.threadRootID)
+      if MobileNotifications.pendingOpen == link { MobileNotifications.pendingOpen = nil }
     }
-    pendingConversationDeepLink = nil
-    openConversation(link.conversationID, threadRootID: link.threadRootID)
   }
 
   // MARK: - Read state and workspace-wide live delivery

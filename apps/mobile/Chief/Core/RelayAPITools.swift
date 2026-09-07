@@ -113,6 +113,8 @@ struct RelayMessagePostTool: RelayTool {
       if let existing {
         return toolResultJSON([
           "messageId": existing.id,
+          "conversationId": existing.conversationID,
+          "threadRootId": existing.threadRootID ?? "",
           "sequence": existing.sequence,
           "duplicate": true,
         ])
@@ -129,6 +131,8 @@ struct RelayMessagePostTool: RelayTool {
     )
     return toolResultJSON([
       "messageId": message.id,
+      "conversationId": message.conversationID,
+      "threadRootId": message.threadRootID ?? "",
       "sequence": message.sequence,
       "duplicate": false,
     ])

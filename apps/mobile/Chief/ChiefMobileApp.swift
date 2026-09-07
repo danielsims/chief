@@ -51,6 +51,7 @@ struct AppRootView: View {
     .tint(ChiefTheme.accent)
     .onChange(of: scenePhase) { _, phase in
       model.setAppActive(phase == .active)
+      if phase == .active { Task { await model.consumeNotificationDeepLink() } }
       AgentBackgroundActivityCoordinator.shared.setApplicationActive(phase == .active)
     }
     .onReceive(
@@ -63,6 +64,9 @@ struct AppRootView: View {
       NotificationCenter.default.publisher(for: MobileNotifications.didOpenConversation)
     ) { _ in
       Task { await model.consumeNotificationDeepLink() }
+    }
+    .onChange(of: model.isSwitchingWorkspace) { _, switching in
+      if !switching { Task { await model.consumeNotificationDeepLink() } }
     }
     .onChange(of: model.isWorkspaceReadyForPresentation) { _, ready in
       guard ready else { return }

@@ -136,16 +136,17 @@ actor WorkspaceAgentLoop {
           }
           : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence.",
         lease.job.payload.threadRootId.map {
-          "Mission Control kickoff threadRootId: \($0)"
+          "Current assignment threadRootId: \($0)"
         },
         lease.job.payload.skillId.map {
           "Apply this attached skill: [chief-skill:\($0)]"
         },
       ].compactMap { $0 }.joined(separator: "\n")
-      let deliveryInstruction =
-        lease.job.kind == "conversation.message"
+      let scheduledThread = lease.job.payload.scheduleRunId == nil ? nil : lease.job.payload.threadRootId
+      let deliveryInstruction = scheduledThread.map(ScheduledRunDelivery.instruction)
+        ?? (lease.job.kind == "conversation.message"
         ? "Return exactly one final reply. Do not call relay_message_post for \(conversationID); Chief publishes your returned reply there."
-        : ""
+        : "")
       let turn = try await completeJobTurn(
         scope: scope,
         conversationID: conversationID,
@@ -155,12 +156,15 @@ actor WorkspaceAgentLoop {
         jobKind: lease.job.kind,
         expectedThreadRootID: lease.job.payload.threadRootId
       )
+      let alreadyPublished = scheduledThread.map {
+        ScheduledRunDelivery.alreadyPublished(components: turn.components, conversationID: conversationID, threadRootID: $0)
+      } ?? false
       try await relay.completeAgentJob(
         workspaceID: workspaceID,
         agentID: agentID,
         leaseToken: lease.leaseToken,
         completion: AgentJobCompletion(
-          publishedMessage: AgentPublishedMessage(
+          publishedMessage: alreadyPublished ? nil : AgentPublishedMessage(
             conversationId: conversationID,
             body: turn.reply,
             components: []

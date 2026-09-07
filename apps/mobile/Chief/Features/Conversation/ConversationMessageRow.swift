@@ -22,6 +22,8 @@ struct ConversationMessageRow: View {
         createdAt: message.createdAt,
         fallbackBody: message.body
       )
+    } else if let reference = ScheduledRunReference(message: message) {
+      ScheduledRunMessageCard(reference: reference, replyCount: replyCount, openThread: showsThreadSummary ? { onReply(message) } : nil)
     } else {
       ordinaryMessage
     }
