@@ -307,13 +307,15 @@ export function ChiefChatAuxiliaryPanels({
               timestamp={activeThreadRoot?.metadata?.createdAt}
             />
             {activeThreadRoot?.metadata?.scheduledRun ? (
-              <ScheduledRunMessage
-                run={activeThreadRoot.metadata.scheduledRun}
-                progress={core.scheduleRuns.find(
-                  (run) =>
-                    run.id === activeThreadRoot.metadata?.scheduledRun?.runId,
-                )}
-              />
+              <div className="mx-auto w-full max-w-3xl py-2 pl-11">
+                <ScheduledRunMessage
+                  run={activeThreadRoot.metadata.scheduledRun}
+                  progress={core.scheduleRuns.find(
+                    (run) =>
+                      run.id === activeThreadRoot.metadata?.scheduledRun?.runId,
+                  )}
+                />
+              </div>
             ) : null}
             {activeThreadRoot?.role === "user" ? (
               <div id={`chief-message-${activeThreadRoot.id}`}>
