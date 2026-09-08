@@ -91,10 +91,13 @@ export function DashboardSidePanels({
   workspaceData,
 }: DashboardSidePanelsProps) {
   return (
-    <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(210px,0.85fr)_minmax(270px,1.15fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
+    <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(170px,0.85fr)_minmax(140px,1.15fr)] gap-2.5 max-[760px]:min-h-[240px] max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
       <section
         aria-label="Team output and insights"
-        className={cn(surfaceClassName, "relative min-w-0 overflow-visible")}
+        className={cn(
+          surfaceClassName,
+          "[container-type:size] relative min-w-0 overflow-visible [container-name:insights]",
+        )}
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) {
             setAnalyticsPaused(false);
@@ -125,10 +128,10 @@ export function DashboardSidePanels({
                 ease: [0.22, 1, 0.36, 1],
               }}
             >
-              <h2 className="mt-10 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
+              <h2 className="m-0 line-clamp-2 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
                 {activeAnalyticsSlide.title}
               </h2>
-              <div className="mt-4 flex items-baseline gap-2">
+              <div className="mt-2 flex items-baseline gap-2">
                 {activeAnalyticsSlide.value ? (
                   <strong className="text-[22px] font-medium">
                     {activeAnalyticsSlide.value}
@@ -142,11 +145,13 @@ export function DashboardSidePanels({
                 ) : null}
               </div>
               {activeAnalyticsSlide.points ? (
-                <AnalyticsChart
-                  label={activeAnalyticsSlide.label}
-                  points={activeAnalyticsSlide.points}
-                  reduceMotion={Boolean(prefersReducedMotion)}
-                />
+                <div className="[@container_insights_(max-height:230px)]:hidden">
+                  <AnalyticsChart
+                    label={activeAnalyticsSlide.label}
+                    points={activeAnalyticsSlide.points}
+                    reduceMotion={Boolean(prefersReducedMotion)}
+                  />
+                </div>
               ) : null}
             </motion.article>
           ) : null}
@@ -299,7 +304,7 @@ export function DashboardSidePanels({
               })}
             </div>
           ) : (
-            <div className="text-muted-foreground flex h-full min-h-36 items-center justify-center text-center">
+            <div className="text-muted-foreground flex h-full min-h-16 items-center justify-center text-center">
               <span className="grid gap-1">
                 <strong className="text-foreground text-sm font-medium">
                   No upcoming work
