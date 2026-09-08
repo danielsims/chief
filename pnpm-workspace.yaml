@@ -3,8 +3,6 @@ packages:
   - "packages/*"
   - "tooling/*"
 
-useNodeVersion: 24.14.0
-nodeVersion: 24.14.0
 engineStrict: true
 packageManagerStrict: true
 packageManagerStrictVersion: true
