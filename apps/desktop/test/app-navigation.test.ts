@@ -76,7 +76,7 @@ void test("app routes and external links share one navigation contract", () => {
     kind: "view",
     view: "plugins",
   });
-  assert.equal(parseChiefNavigationHref("/Users/daniel/report.md"), null);
+  assert.equal(parseChiefNavigationHref("/tmp/report.md"), null);
 });
 
 void test("agent-authored Chief links survive Markdown sanitizing as app routes", () => {

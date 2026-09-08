@@ -37,7 +37,7 @@ final class ProjectRepositoryTreeTests: XCTestCase {
       name: "chief",
       repositoryKind: "cloned",
       providerID: "github",
-      canonicalRemoteURL: "https://github.com/danielsims/a-very-long-repository-url.git",
+      canonicalRemoteURL: "https://github.com/test-workspace/a-very-long-repository-url.git",
       defaultBranch: "main",
       createdAt: "2026-09-01T00:00:00.000Z",
       updatedAt: "2026-09-01T00:00:00.000Z"

@@ -42,9 +42,9 @@ function fixture() {
   git(
     repository,
     "-c",
-    "user.name=Daniel",
+    "user.name=Workspace",
     "-c",
-    "user.email=daniel@example.com",
+    "user.email=owner@example.com",
     "commit",
     "-m",
     "Initial commit",

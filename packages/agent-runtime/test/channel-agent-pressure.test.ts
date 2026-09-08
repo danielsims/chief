@@ -66,7 +66,7 @@ void test("agent message and reaction tools survive repeated threaded turns and 
       const user = {
         type: "user" as const,
         id: "workspace-owner",
-        name: "Daniel Sims",
+        name: "Workspace Owner",
       };
       const engineer = {
         type: "agent" as const,

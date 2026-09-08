@@ -39,7 +39,7 @@ export function MonthJump({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-xl font-medium tracking-[-0.025em] transition-colors"
+          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg pr-1.5 text-xl font-medium tracking-[-0.025em] transition-colors"
         >
           <span className="truncate">{monthLabel(month)}</span>
           <ChevronDown

@@ -9,7 +9,7 @@ import type { ChannelInboxMessage } from "../lib/channel-inbox";
 import { AgentAvatar } from "../components/agent-avatar";
 import { AttentionPill } from "../components/attention-pill";
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { useAuth } from "../lib/auth/auth-context";
 import { channelIdsNeedingUser } from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
@@ -121,29 +121,28 @@ export function InboxPage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-h-0 flex-col overflow-hidden">
-      <header className="border-border/60 flex shrink-0 items-end justify-between gap-4 border-b px-7 py-5">
-        <div>
-          <PageTitle>Inbox</PageTitle>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Messages and handoffs that arrived while you were elsewhere.
-          </p>
-        </div>
-        <div className="bg-muted/35 flex rounded-lg p-1">
-          {(["all", "unread", "needs-you"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setFilter(value)}
-              className={cn(
-                "text-muted-foreground h-7 rounded-md px-3 text-xs capitalize transition-colors",
-                filter === value && "bg-background text-foreground shadow-sm",
-              )}
-            >
-              {value.replace("-", " ")}
-            </button>
-          ))}
-        </div>
-      </header>
+      <PageHeader
+        title="Inbox"
+        description="Messages and handoffs that arrived while you were elsewhere."
+        className="shadow-[inset_0_-1px_color-mix(in_srgb,var(--border)_60%,transparent)]"
+        actions={
+          <div className="bg-muted/35 flex rounded-lg p-1">
+            {(["all", "unread", "needs-you"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setFilter(value)}
+                className={cn(
+                  "text-muted-foreground h-7 rounded-md px-3 text-xs capitalize transition-colors",
+                  filter === value && "bg-background text-foreground shadow-sm",
+                )}
+              >
+                {value.replace("-", " ")}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       <div className="bg-card min-h-0 flex-1 overflow-hidden">
         {filteredMessages.length === 0 ? (

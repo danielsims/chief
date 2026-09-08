@@ -48,7 +48,7 @@ final class ConversationPresentationTests: XCTestCase {
 
   func testTimelineDoesNotGroupDifferentAuthors() {
     let messages = [
-      message(id: "user", author: .user(id: "user-1", name: "Daniel"), minute: 0),
+      message(id: "user", author: .user(id: "user-1", name: "Workspace"), minute: 0),
       message(id: "agent", author: .agent(id: "chief", name: "Chief"), minute: 1),
     ]
 
@@ -99,14 +99,14 @@ final class ConversationPresentationTests: XCTestCase {
   }
 
   func testMessageBodyChipsSpacedPersonNames() {
-    let people = [MentionAgent(id: "daniel", name: "Daniel Sims", role: "You")]
+    let people = [MentionAgent(id: "workspace-owner", name: "Workspace Owner", role: "You")]
     let segments = MessageBodyParser.split(
-      "Hey @Daniel Sims, first brand profile is done",
+      "Hey @Workspace Owner, first brand profile is done",
       channelNames: [],
       people: people
     )
     XCTAssertTrue(
-      segments.contains(.mention(agentID: "daniel", label: "@Daniel Sims"))
+      segments.contains(.mention(agentID: "workspace-owner", label: "@Workspace Owner"))
     )
   }
 

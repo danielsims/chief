@@ -26,7 +26,7 @@ import {
   FileTypeIcon,
 } from "../components/files/file-presentation";
 import { MediaPreview } from "../components/files/media-preview";
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../lib/runtime";
 
@@ -91,175 +91,177 @@ export function FilesLibrary({
   }, [files, query, category, sort]);
 
   return (
-    <section className="mx-auto flex min-h-[calc(100vh-112px)] max-w-6xl flex-col pt-4 pb-16">
-      <header className="flex flex-wrap items-end justify-between gap-4 pb-7">
-        <div>
-          <PageTitle>Files</PageTitle>
-          <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
-            The work your team makes, kept together. Documents, images, and
-            media ready for the next step.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {onRefresh ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRefresh}
-              aria-label="Refresh files"
-            >
-              <RefreshCw size={14} />
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/plugins")}
-          >
-            <SlidersHorizontal size={13} /> Connect tools
-          </Button>
-        </div>
-      </header>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-y py-3">
-        <div className="flex flex-wrap gap-1" aria-label="File categories">
-          {categories.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setCategory(item)}
-              aria-pressed={category === item}
-              className={`rounded-md px-3 py-1.5 text-xs transition-colors ${category === item ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted"}`}
-            >
-              {item}
-              <span className="ml-1.5 opacity-60">
-                {item === "All files"
-                  ? files.length
-                  : files.filter((file) => fileCategory(file) === item).length}
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="bg-muted/40 flex h-8 items-center gap-2 rounded-md border px-2.5">
-            <Search size={13} className="text-muted-foreground" />
-            <input
-              aria-label="Search files"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search files"
-              className="w-32 bg-transparent text-xs outline-none sm:w-40"
-            />
-          </label>
-          <Select
-            value={sort}
-            onValueChange={(value) =>
-              setSort(value === "name" ? "name" : "recent")
-            }
-          >
-            <SelectTrigger
-              aria-label="Sort files"
-              className="h-8 w-[132px] rounded-md text-[13px]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="rounded-lg p-1">
-              <SelectItem value="recent">Last updated</SelectItem>
-              <SelectItem value="name">Name</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex rounded-md border p-0.5">
-            <button
-              type="button"
-              aria-label="Grid view"
-              aria-pressed={view === "grid"}
-              onClick={() => setView("grid")}
-              className={`rounded p-1.5 ${view === "grid" ? "bg-muted" : "text-muted-foreground"}`}
-            >
-              <LayoutGrid size={13} />
-            </button>
-            <button
-              type="button"
-              aria-label="List view"
-              aria-pressed={view === "list"}
-              onClick={() => setView("list")}
-              className={`rounded p-1.5 ${view === "list" ? "bg-muted" : "text-muted-foreground"}`}
-            >
-              <List size={13} />
-            </button>
-          </div>
-        </div>
-      </div>
-      {error ? (
-        <div
-          role="alert"
-          className="text-destructive mt-5 rounded-lg border p-4 text-sm"
-        >
-          {error}
-        </div>
-      ) : null}
-      {loading && files.length === 0 ? (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((index) => (
-            <div
-              key={index}
-              className="bg-muted h-64 animate-pulse rounded-xl"
-            />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex min-h-80 flex-col items-center justify-center text-center">
-          <FolderOpen
-            size={42}
-            strokeWidth={1.1}
-            className="text-muted-foreground/40 mb-5"
-          />
-          <h2 className="text-xl tracking-tight">
-            {files.length ? "No matching files" : "Your team's work lives here"}
-          </h2>
-          <p className="text-muted-foreground mt-2 max-w-md text-sm leading-6">
-            {files.length
-              ? "Try another search or file type."
-              : "Ask an agent to draft a document or publish a finished image, recording, or PDF. It will be saved here for the workspace."}
-          </p>
-          {files.length ? (
-            <Button
-              variant="ghost"
-              className="mt-3"
-              onClick={() => {
-                setCategory("All files");
-                setQuery("");
-              }}
-            >
-              Clear filters
-            </Button>
-          ) : (
+    <section className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
+      <PageHeader
+        title="Files"
+        description="Documents, images, and media created by your team."
+        actions={
+          <>
+            {onRefresh ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRefresh}
+                aria-label="Refresh files"
+              >
+                <RefreshCw size={14} />
+              </Button>
+            ) : null}
             <Button
               variant="outline"
-              className="mt-5"
-              onClick={() => navigate("/conversations")}
+              size="sm"
+              onClick={() => navigate("/plugins")}
             >
-              Start with your team <ArrowUpRight size={13} />
+              <SlidersHorizontal size={13} /> Connect tools
             </Button>
-          )}
+          </>
+        }
+      />
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-y py-3">
+          <div className="flex flex-wrap gap-1" aria-label="File categories">
+            {categories.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setCategory(item)}
+                aria-pressed={category === item}
+                className={`rounded-md px-3 py-1.5 text-xs transition-colors ${category === item ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                {item}
+                <span className="ml-1.5 opacity-60">
+                  {item === "All files"
+                    ? files.length
+                    : files.filter((file) => fileCategory(file) === item)
+                        .length}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="bg-muted/40 flex h-8 items-center gap-2 rounded-md border px-2.5">
+              <Search size={13} className="text-muted-foreground" />
+              <input
+                aria-label="Search files"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search files"
+                className="w-32 bg-transparent text-xs outline-none sm:w-40"
+              />
+            </label>
+            <Select
+              value={sort}
+              onValueChange={(value) =>
+                setSort(value === "name" ? "name" : "recent")
+              }
+            >
+              <SelectTrigger
+                aria-label="Sort files"
+                className="h-8 w-[132px] rounded-md text-[13px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-lg p-1">
+                <SelectItem value="recent">Last updated</SelectItem>
+                <SelectItem value="name">Name</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex rounded-md border p-0.5">
+              <button
+                type="button"
+                aria-label="Grid view"
+                aria-pressed={view === "grid"}
+                onClick={() => setView("grid")}
+                className={`rounded p-1.5 ${view === "grid" ? "bg-muted" : "text-muted-foreground"}`}
+              >
+                <LayoutGrid size={13} />
+              </button>
+              <button
+                type="button"
+                aria-label="List view"
+                aria-pressed={view === "list"}
+                onClick={() => setView("list")}
+                className={`rounded p-1.5 ${view === "list" ? "bg-muted" : "text-muted-foreground"}`}
+              >
+                <List size={13} />
+              </button>
+            </div>
+          </div>
         </div>
-      ) : (
-        <div
-          className={
-            view === "grid"
-              ? "mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-              : "mt-4 divide-y rounded-xl border px-4"
-          }
-        >
-          {filtered.map((file) => (
-            <FileCard
-              key={file.id}
-              file={file}
-              view={view}
-              onOpen={() => navigate(`/files/${encodeURIComponent(file.id)}`)}
+        {error ? (
+          <div
+            role="alert"
+            className="text-destructive mt-5 rounded-lg border p-4 text-sm"
+          >
+            {error}
+          </div>
+        ) : null}
+        {loading && files.length === 0 ? (
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((index) => (
+              <div
+                key={index}
+                className="bg-muted h-64 animate-pulse rounded-xl"
+              />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex min-h-80 flex-col items-center justify-center text-center">
+            <FolderOpen
+              size={42}
+              strokeWidth={1.1}
+              className="text-muted-foreground/40 mb-5"
             />
-          ))}
-        </div>
-      )}
+            <h2 className="text-xl tracking-tight">
+              {files.length
+                ? "No matching files"
+                : "Your team's work lives here"}
+            </h2>
+            <p className="text-muted-foreground mt-2 max-w-md text-sm leading-6">
+              {files.length
+                ? "Try another search or file type."
+                : "Ask an agent to draft a document or publish a finished image, recording, or PDF. It will be saved here for the workspace."}
+            </p>
+            {files.length ? (
+              <Button
+                variant="ghost"
+                className="mt-3"
+                onClick={() => {
+                  setCategory("All files");
+                  setQuery("");
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="mt-5"
+                onClick={() => navigate("/conversations")}
+              >
+                Start with your team <ArrowUpRight size={13} />
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div
+            className={
+              view === "grid"
+                ? "mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                : "mt-4 divide-y rounded-xl border px-4"
+            }
+          >
+            {filtered.map((file) => (
+              <FileCard
+                key={file.id}
+                file={file}
+                view={view}
+                onOpen={() => navigate(`/files/${encodeURIComponent(file.id)}`)}
+              />
+            ))}
+          </div>
+        )}
+      </main>
     </section>
   );
 }

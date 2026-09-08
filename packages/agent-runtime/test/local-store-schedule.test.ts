@@ -89,7 +89,7 @@ void test("resolved action decisions remain in workspace history", async () => {
       resolution: {
         answers: { "Which direction?": "Connect GitHub" },
         resolvedAt: 2,
-        resolvedBy: { id: "daniel", name: "Daniel Simms" },
+        resolvedBy: { id: "workspace-owner", name: "Workspace" },
       },
     });
 
@@ -102,7 +102,7 @@ void test("resolved action decisions remain in workspace history", async () => {
         resolution: {
           answers: { "Which direction?": "Connect GitHub" },
           resolvedAt: 2,
-          resolvedBy: { id: "daniel", name: "Daniel Simms" },
+          resolvedBy: { id: "workspace-owner", name: "Workspace" },
         },
       },
     ]);

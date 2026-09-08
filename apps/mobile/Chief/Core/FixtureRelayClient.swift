@@ -70,7 +70,7 @@ actor FixtureRelayClient: RelayServing {
             workspaceID: workspaceID,
             conversationID: conversationID,
             threadRootID: threadRootID,
-            author: .user(id: "daniel", name: "Daniel Sims"),
+            author: .user(id: "workspace-owner", name: "Workspace Owner"),
             body: body,
             mentions: mentions,
             components: components,
@@ -302,7 +302,7 @@ actor FixtureRelayClient: RelayServing {
         signingIdentity: NostrIdentity?
     ) async throws -> [WorkspaceMember] {
         [
-            .init(kind: "user", principalId: "daniel", role: "owner", name: "Daniel"),
+            .init(kind: "user", principalId: "workspace-owner", role: "owner", name: "Workspace Owner"),
             .init(kind: "agent", principalId: "chief", role: "member", name: "Chief"),
             .init(kind: "agent", principalId: "engineer", role: "member", name: "Engineer"),
         ]
@@ -341,7 +341,7 @@ actor FixtureRelayClient: RelayServing {
         var memberships: [ChannelMembership] = []
         for conversation in DemoWorkspace.snapshot.conversations where conversation.kind == .channel {
             memberships.append(
-                .init(conversationId: conversation.id, kind: "user", principalId: "daniel", role: "owner", joinedAt: .now)
+                .init(conversationId: conversation.id, kind: "user", principalId: "workspace-owner", role: "owner", joinedAt: .now)
             )
             memberships.append(
                 .init(conversationId: conversation.id, kind: "agent", principalId: "chief", role: "owner", joinedAt: .now)
@@ -498,7 +498,7 @@ enum DemoWorkspace {
                 isPrivate: false,
                 unreadCount: 0,
                 requiresAttention: false,
-                lastMessage: "Daniel joined the workspace."
+                lastMessage: "The workspace owner joined."
             ),
             .init(
                 id: "chief-dm",
@@ -528,8 +528,8 @@ enum DemoWorkspace {
                 description: "The Chief application repository.",
                 repositoryKind: "cloned",
                 providerID: "github",
-                canonicalRemoteURL: "https://github.com/danielsims/chief.git",
-                repositoryWebURL: "https://github.com/danielsims/chief",
+                canonicalRemoteURL: "https://github.com/test-workspace/chief.git",
+                repositoryWebURL: "https://github.com/test-workspace/chief",
                 repositoryFiles: [
                     .init(
                         path: "README.md",
@@ -558,7 +558,7 @@ enum DemoWorkspace {
             conversationID: "mission-control",
             threadRootID: nil,
             author: .agent(id: "chief", name: "Chief"),
-            body: "Morning Daniel. The team is moving. Engineering has the relay vertical slice ready for review.",
+            body: "The team is moving. Engineering has the relay vertical slice ready for review.",
             components: [],
             createdAt: .now.addingTimeInterval(-1_800),
             sequence: 1

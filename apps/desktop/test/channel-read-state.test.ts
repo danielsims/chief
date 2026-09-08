@@ -35,7 +35,7 @@ function message(input: {
     content: "Hello",
     actor:
       input.actorId === "workspace-owner"
-        ? { type: "user", id: input.actorId, name: "Daniel" }
+        ? { type: "user", id: input.actorId, name: "Workspace" }
         : { type: "agent", id: input.actorId ?? "chief", name: "Chief" },
     kind: 9,
     createdAt: input.createdAt,

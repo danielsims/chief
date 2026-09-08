@@ -58,7 +58,7 @@ void test("notifies for agents and other people but not the workspace owner", ()
   );
   assert.equal(
     shouldPlayChannelNotification(
-      message({ type: "user", id: "workspace-owner", name: "Daniel Sims" }),
+      message({ type: "user", id: "workspace-owner", name: "Workspace Owner" }),
     ),
     false,
   );

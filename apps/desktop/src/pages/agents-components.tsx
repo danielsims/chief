@@ -117,8 +117,8 @@ export function TeamAgentCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-background hover:bg-muted/35 group flex flex-col rounded-2xl border border-black/[0.1] px-5 py-4 text-left transition-[background-color,border-color,box-shadow] dark:border-white/[0.1]",
-        selected && "bg-accent/40 border-foreground/15 shadow-sm",
+        "bg-muted hover:bg-accent/70 group flex flex-col rounded-2xl px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
+        selected && "bg-accent/40 ring-foreground/15 ring-1",
       )}
     >
       <span className="flex w-full flex-col">
