@@ -1,7 +1,7 @@
 {
   "name": "@chief/web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "generate:agent-api": "pnpm --dir ../../packages/agent-runtime generate:local-tools-openapi ../../apps/web/generated/local-tools-openapi.json",
