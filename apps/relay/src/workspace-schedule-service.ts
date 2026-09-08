@@ -19,6 +19,7 @@ import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
 import { cancelQueuedScheduleRuns } from "./workspace-schedule-runs";
 import { prepareScheduleChannel } from "./workspace-schedule-setup";
 import {
+  ensureWorkspaceAlarm,
   nextScheduleTime,
   presentWorkspaceSchedule,
   readWorkspaceSchedule,
@@ -42,6 +43,7 @@ export async function routeWorkspaceSchedule(
     operation === "schedules-list" ? "workspace.read" : "workspace.write",
   );
   if (operation === "schedules-list") {
+    await ensureWorkspaceAlarm(storage);
     const query = new URL(request.url).searchParams;
     const from = query.has("from")
       ? Number(query.get("from"))

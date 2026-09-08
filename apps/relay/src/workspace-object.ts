@@ -23,6 +23,7 @@ import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
+import { runWorkspaceAlarm } from "./workspace-alarm";
 import {
   routeWorkspaceChannel,
   routeWorkspaceDirect,
@@ -30,7 +31,6 @@ import {
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
-import { drainExternalAgentOutbox } from "./workspace-external-agent-alarm";
 import { externalAgentRouter } from "./workspace-external-agent-router";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
@@ -38,10 +38,9 @@ import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { routeWorkspaceMissions } from "./workspace-missions";
-import { drainWorkspaceSchedules } from "./workspace-schedule-dispatch";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
-import { wakeWorkspaceSchedules } from "./workspace-schedule-store";
+import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
 import { routeScheduleWebhooks } from "./workspace-schedule-webhooks";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
@@ -56,9 +55,9 @@ import { WorkspaceVercelService } from "./workspace-vercel-service";
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    void state.blockConcurrencyWhile(() => {
+    void state.blockConcurrencyWhile(async () => {
       initializeWorkspaceSchema(state.storage, env);
-      return Promise.resolve();
+      await ensureWorkspaceAlarm(state.storage);
     });
   }
 
@@ -102,12 +101,7 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   async alarm() {
-    try {
-      await drainExternalAgentOutbox(this.ctx.storage, this.env);
-      await drainWorkspaceSchedules(this.ctx.storage, this.env);
-    } finally {
-      await wakeWorkspaceSchedules(this.ctx.storage);
-    }
+    await runWorkspaceAlarm(this.ctx.storage, this.env);
   }
 
   private routeOperation(request: Request, operation: string | null) {
