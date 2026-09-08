@@ -1,30 +1,10 @@
 import type { AgentPrincipal, Principal } from "@chief/relay-contracts";
 
+import { initializeAgentTables } from "./db/migrations/initialize-agent-tables";
 import { HttpError } from "./http";
 
 export function initializeAgentJobs(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      job_id TEXT PRIMARY KEY,
-      job_json TEXT NOT NULL,
-      status TEXT NOT NULL,
-      available_at TEXT NOT NULL,
-      lease_token TEXT UNIQUE,
-      lease_expires_at TEXT,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS jobs_claim_idx
-      ON jobs (status, available_at, lease_expires_at);
-    CREATE TABLE IF NOT EXISTS receipts (
-      command_id TEXT PRIMARY KEY,
-      job_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS cell_records (
-      key TEXT PRIMARY KEY,
-      value_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-  `);
+  initializeAgentTables(storage);
 }
 
 export function firstAgentRow<T>(cursor: Iterable<T>): T | undefined {

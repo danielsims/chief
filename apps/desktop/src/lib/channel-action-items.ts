@@ -225,7 +225,7 @@ export function directMessageAttentionTargets({
   const availableIds = new Set(directMessageIds);
   const directAgentsByConversationId = new Map<string, WorkspaceAgentId>();
   for (const chat of directMessageChats) {
-    if (isWorkspaceAgentId(chat.agent)) {
+    if (availableIds.has(chat.agent)) {
       directAgentsByConversationId.set(chat.id, chat.agent);
     }
   }

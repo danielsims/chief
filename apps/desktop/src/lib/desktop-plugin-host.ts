@@ -4,11 +4,39 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
-const PLUGIN_HOST_URL = "http://127.0.0.1:4318";
+interface PluginHostConnection {
+  token: string;
+  port: number;
+}
 
-let tokenPromise: Promise<string> | null = null;
+let connectionPromise: Promise<PluginHostConnection> | null = null;
 
 type PluginHostRequest =
+  | { workspaceId: string; operation: "snapshots" }
+  | {
+      workspaceId: string;
+      operation: "browse";
+      projectId: string;
+      ref: string;
+      path?: string;
+    }
+  | {
+      workspaceId: string;
+      operation: "commit";
+      projectId: string;
+      ref: string;
+      commit: string;
+    }
+  | {
+      workspaceId: string;
+      operation: "compare";
+      projectId: string;
+      baseRef: string;
+      compareRef: string;
+    }
+  | { workspaceId: string; source: "attach"; path: string }
+  | { workspaceId: string; source: "clone"; remoteUrl: string }
+  | { workspaceId: string; connectionId: string; projectId: string }
   | { workspaceId: string; refresh: boolean }
   | { workspaceId: string; pluginId: string; trusted: boolean }
   | {
@@ -27,24 +55,30 @@ function delay(milliseconds: number) {
   );
 }
 
-async function hostToken() {
+async function hostConnection() {
   if (!isTauri()) {
-    throw new Error("Plugin installation requires the Chief desktop app.");
+    throw new Error(
+      "Connecting local projects and plugins requires the Chief desktop app.",
+    );
   }
-  tokenPromise ??= invoke<string>("start_plugin_host");
+  connectionPromise ??= invoke<PluginHostConnection>("start_plugin_host");
   try {
-    return await tokenPromise;
+    return await connectionPromise;
   } catch (error) {
-    tokenPromise = null;
+    connectionPromise = null;
     throw error;
   }
 }
 
-async function waitUntilReady(token: string) {
+function pluginHostUrl(port: number) {
+  return `http://127.0.0.1:${port}`;
+}
+
+async function waitUntilReady({ port, token }: PluginHostConnection) {
   let lastError: unknown;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      const response = await tauriFetch(`${PLUGIN_HOST_URL}/healthz`, {
+      const response = await tauriFetch(`${pluginHostUrl(port)}/healthz`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) return;
@@ -61,23 +95,29 @@ async function waitUntilReady(token: string) {
 
 export async function requestDesktopPluginHost(
   path:
+    | "/projects/query"
+    | "/projects/prepare"
+    | "/projects/bind"
     | "/plugins/list"
     | "/plugins/install"
     | "/plugins/authorize"
     | "/plugins/uninstall",
   body: PluginHostRequest,
 ): Promise<JsonObject> {
-  const token = await hostToken();
-  await waitUntilReady(token);
-  const response = await tauriFetch(`${PLUGIN_HOST_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const connection = await hostConnection();
+  await waitUntilReady(connection);
+  const response = await tauriFetch(
+    `${pluginHostUrl(connection.port)}${path}`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${connection.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+  );
   const result = parseJsonObject(await response.json());
   if (!response.ok) {
     throw new Error(

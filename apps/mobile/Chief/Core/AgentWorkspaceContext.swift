@@ -24,13 +24,15 @@ struct AgentWorkspaceContext: Sendable {
     )
   }
 
-  var systemPrompt: String {
+  func systemPrompt(for agentID: String) -> String {
     let site = website.map {
       "Primary company website: \($0)\nUse this exact site as the starting point for company research. Never substitute example.com or another placeholder."
     } ?? "Primary company website: not supplied. Ask for it when research requires it; never substitute a placeholder URL."
-    let apps = selectedApps.isEmpty
-      ? "Selected apps: none supplied. Do not infer or recommend a default provider during initial onboarding."
-      : "Selected apps (relevance context only, not proof of access): \(selectedApps.joined(separator: ", ")). Treat every selection as relevant, but never claim it is connected or open sign-in without the user."
+    let apps = agentID == "setup"
+      ? selectedApps.isEmpty
+        ? "Requested connections: none."
+        : "Requested connections: \(selectedApps.joined(separator: ", ")). These are setup requests, not proof of access."
+      : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence."
     return """
       Workspace name: \(name)
       \(site)

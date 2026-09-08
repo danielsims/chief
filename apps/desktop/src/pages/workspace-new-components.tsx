@@ -1,14 +1,26 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OpenCode, Vercel } from "@lobehub/icons";
-import { ArrowLeft, Check, Server } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ArrowLeft, Check } from "lucide-react";
 
+import type {
+  VercelProjectOption,
+  VercelTeamOption,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 
-import type { WorkspaceInferenceProvider } from "./workspace-create-draft";
+import type {
+  EveProjectMode,
+  WorkspaceAgentRuntime,
+  WorkspaceInferenceProvider,
+} from "./workspace-create-draft";
 import { ChiefMark } from "../components/chief-mark";
+import {
+  VercelCredentialField,
+  VercelDestinationFields,
+} from "../components/vercel-connection";
+import { providerCredentialHelp } from "../lib/provider-credential-help";
 import {
   ProviderOption,
   workspaceOnboardingAppLogo,
@@ -20,20 +32,22 @@ export function CreateForm({
   website,
   provider,
   apiKey,
+  vercelAccessToken,
   selectedApps,
   working,
   connected,
-  hosting,
-  relayUrl,
-  relayConnected,
+  agentRuntime,
+  eveDestination,
+  relayRuntimeLabel,
   error,
   step,
   onNameChange,
   onWebsiteChange,
-  onChiefCloud,
-  onSelfHosted,
+  onAgentRuntimeChange,
   onProviderChange,
   onApiKeyChange,
+  onVercelAccessTokenChange,
+  onEveDestinationChange,
   onSelectedAppsChange,
   onStepChange,
   onBackToHome,
@@ -43,24 +57,40 @@ export function CreateForm({
   website: string;
   provider: WorkspaceInferenceProvider;
   apiKey: string;
+  vercelAccessToken: string;
   selectedApps: ReadonlySet<string>;
   working: boolean;
   connected: boolean;
-  hosting: "chief-cloud" | "self-hosted";
-  relayUrl: string;
-  relayConnected: boolean;
+  agentRuntime: WorkspaceAgentRuntime;
+  eveDestination: {
+    loading: boolean;
+    teamId: string;
+    projectMode: EveProjectMode;
+    projectId: string;
+    projectName: string;
+    teams: readonly VercelTeamOption[];
+    projects: readonly VercelProjectOption[];
+    ready: boolean;
+  };
+  relayRuntimeLabel: string;
   error: string | null;
   step: number;
   onNameChange: (value: string) => void;
   onWebsiteChange: (value: string) => void;
-  onChiefCloud: () => void;
-  onSelfHosted: () => void;
+  onAgentRuntimeChange: (value: WorkspaceAgentRuntime) => void;
   onProviderChange: (value: Exclude<WorkspaceInferenceProvider, null>) => void;
   onApiKeyChange: (value: string) => void;
+  onVercelAccessTokenChange: (value: string) => void;
+  onEveDestinationChange: {
+    onTeam: (value: string) => void;
+    onMode: (value: EveProjectMode) => void;
+    onProject: (value: string) => void;
+    onProjectName: (value: string) => void;
+  };
   onSelectedAppsChange: (value: Set<string>) => void;
   onStepChange: (value: number) => void;
   onBackToHome: () => void;
-  onSubmit: (event: React.FormEvent) => void;
+  onSubmit: () => void;
 }) {
   const appListRef = useRef<HTMLDivElement>(null);
   const [canScrollApps, setCanScrollApps] = useState(false);
@@ -73,29 +103,37 @@ export function CreateForm({
       ),
     );
   }, []);
+  const lastStep = 3;
+  const destinationStep = agentRuntime === "vercel-eve" ? 2 : -1;
+  const inferenceStep = agentRuntime === "relay-cell" ? 2 : -1;
+  const appsStep = lastStep;
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== appsStep) return;
     const frame = requestAnimationFrame(updateAppScrollCue);
     window.addEventListener("resize", updateAppScrollCue);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", updateAppScrollCue);
     };
-  }, [step, updateAppScrollCue]);
+  }, [appsStep, step, updateAppScrollCue]);
   const advance = (event: React.FormEvent) => {
     event.preventDefault();
-    if (step < 3) {
+    if (step < lastStep) {
       onStepChange(step + 1);
       return;
     }
-    onSubmit(event);
+    onSubmit();
   };
   const canContinue =
     step === 0
       ? Boolean(name.trim())
-      : step === 2
-        ? provider !== null && Boolean(apiKey.trim())
-        : true;
+      : step === 1
+        ? agentRuntime === "relay-cell" || Boolean(vercelAccessToken.trim())
+        : step === destinationStep
+          ? eveDestination.ready
+          : step === inferenceStep
+            ? provider !== null && Boolean(apiKey.trim())
+            : true;
   const back = () => {
     if (step === 0) onBackToHome();
     else onStepChange(step - 1);
@@ -112,204 +150,189 @@ export function CreateForm({
         <ArrowLeft size={14} />
         Back
       </button>
-      <ArrivingQuestion
-        key={step}
-        step={step}
+      <QuestionHeader
         title={
           step === 0
             ? "What’s the name of this workspace?"
             : step === 1
-              ? "Where should your agents run?"
-              : step === 2
-                ? "What inference provider will your agents use?"
-                : "What apps do you already use?"
+              ? "Where will you deploy your agents?"
+              : step === destinationStep
+                ? "Choose a Vercel project"
+                : step === inferenceStep
+                  ? "Which inference provider should your agents use?"
+                  : "What apps do you already use?"
         }
         detail={
           step === 0
             ? "Add a website if there’s one your agents should understand."
             : step === 1
-              ? "Each agent stays available on Chief Cloud or infrastructure you control."
-              : step === 2
-                ? hosting === "self-hosted"
-                  ? "Inference runs through OpenCode inside your self-hosted relay."
-                  : "Chief Cloud keeps the team available across devices."
-                : "Choose the apps your team already uses."
+              ? "Choose the default runtime for this workspace. You can connect other agent deployments later."
+              : step === destinationStep
+                ? "Chief and its subagents will deploy as one Eve project. The workspace is created when you finish this form."
+                : step === inferenceStep
+                  ? "Choose how this agent deployment accesses its models."
+                  : "Choose the apps your team already uses."
         }
       />
 
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.div
-          key={`control-${step}`}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.24, delay: 0.04, ease: "easeOut" }}
-        >
-          {step === 0 ? (
-            <div className="space-y-4">
-              <Field label="Workspace name" htmlFor="new-workspace-name">
-                <Input
-                  id="new-workspace-name"
-                  autoFocus
-                  value={name}
-                  onChange={(event) => onNameChange(event.target.value)}
-                  placeholder="Acme"
-                  disabled={working}
-                />
-              </Field>
-              <Field label="Website" optional htmlFor="new-workspace-website">
-                <Input
-                  id="new-workspace-website"
-                  value={website}
-                  onChange={(event) => onWebsiteChange(event.target.value)}
-                  placeholder="acme.com"
-                  disabled={working}
-                />
-              </Field>
-            </div>
-          ) : step === 1 ? (
-            <div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <ProviderOption
-                  label="Chief Cloud"
-                  selected={hosting === "chief-cloud"}
-                  onClick={onChiefCloud}
-                  icon={<ChiefMark className="size-7" />}
-                />
-                <ProviderOption
-                  label="Self-hosted"
-                  selected={hosting === "self-hosted"}
-                  onClick={onSelfHosted}
-                  icon={<Server size={27} />}
-                />
-              </div>
-              {hosting === "self-hosted" ? (
-                <div className="border-border/70 mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-medium">
-                      {relayConnected ? "Connected relay" : "Selected relay"}
-                    </span>
-                    <span className="text-muted-foreground block truncate text-xs">
-                      {relayHost(relayUrl)}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onSelfHosted}
-                    className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
-                  >
-                    Change
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : step === 2 ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <ProviderOption
-                  label="Vercel AI Gateway"
-                  detail="One API for hundreds of models, with budgets, usage monitoring, and fallbacks."
-                  selected={provider === "vercelAiGateway"}
-                  onClick={() => onProviderChange("vercelAiGateway")}
-                  icon={<Vercel size={27} />}
-                />
-                <ProviderOption
-                  label="OpenCode"
-                  detail="An open-source coding agent for the terminal, desktop, and IDE."
-                  selected={provider === "opencode"}
-                  onClick={() => onProviderChange("opencode")}
-                  icon={<OpenCode size={27} />}
-                />
-              </div>
-              {provider ? (
-                <div>
-                  <div className="mt-4">
-                    <Field
-                      label={
-                        provider === "vercelAiGateway"
-                          ? "Vercel AI Gateway API key"
-                          : "OpenCode API key"
-                      }
-                      htmlFor="cloud-api-key"
-                    >
-                      <Input
-                        id="cloud-api-key"
-                        type="password"
-                        autoComplete="off"
-                        value={apiKey}
-                        onChange={(event) => onApiKeyChange(event.target.value)}
-                        placeholder="sk-…"
-                        disabled={working}
-                      />
-                      <p className="text-muted-foreground mt-1 text-xs">
-                        Encrypted by this relay and available only to this
-                        workspace’s hosted agents.
-                      </p>
-                      <a
-                        className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
-                        href={
-                          provider === "vercelAiGateway"
-                            ? "https://vercel.com/docs/ai-gateway/authentication"
-                            : "https://opencode.ai/auth"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {provider === "vercelAiGateway"
-                          ? "Get an AI Gateway key"
-                          : "Get an OpenCode API key"}
-                      </a>
-                    </Field>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="relative">
-              <div
-                ref={appListRef}
-                onScroll={updateAppScrollCue}
-                className="grid max-h-[368px] grid-cols-2 gap-2 overflow-y-auto pr-1 pb-16 sm:grid-cols-3"
-              >
-                {workspaceOnboardingApps.map((app) => {
-                  const selected = selectedApps.has(app.domain);
-                  return (
-                    <button
-                      key={app.domain}
-                      type="button"
-                      onClick={() => {
-                        const next = new Set(selectedApps);
-                        if (selected) next.delete(app.domain);
-                        else next.add(app.domain);
-                        onSelectedAppsChange(next);
-                      }}
-                      className={`hover:border-foreground/60 flex items-center gap-2 rounded-xl border p-3 text-left transition-colors ${selected ? "border-foreground bg-muted" : "bg-background"}`}
-                    >
-                      <img
-                        src={workspaceOnboardingAppLogo(app.domain)}
-                        alt=""
-                        loading="eager"
-                        decoding="async"
-                        className="size-6 rounded-md object-contain"
-                      />
-                      <span className="min-w-0 truncate text-sm font-medium">
-                        {app.label}
-                      </span>
-                      {selected ? (
-                        <Check className="ml-auto shrink-0" size={14} />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-              <div
-                aria-hidden
-                className={`to-background pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent transition-opacity duration-200 ${canScrollApps ? "opacity-100" : "opacity-0"}`}
+      <div>
+        {step === 0 ? (
+          <div className="space-y-4">
+            <Field label="Workspace name" htmlFor="new-workspace-name">
+              <Input
+                id="new-workspace-name"
+                autoFocus
+                value={name}
+                onChange={(event) => onNameChange(event.target.value)}
+                placeholder="Acme"
+                disabled={working}
+              />
+            </Field>
+            <Field label="Website" optional htmlFor="new-workspace-website">
+              <Input
+                id="new-workspace-website"
+                value={website}
+                onChange={(event) => onWebsiteChange(event.target.value)}
+                placeholder="acme.com"
+                disabled={working}
+              />
+            </Field>
+          </div>
+        ) : step === 1 ? (
+          <div className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ProviderOption
+                label={relayRuntimeLabel}
+                detail="Run Chief and its subagents in the Cell runtime attached to this relay."
+                selected={agentRuntime === "relay-cell"}
+                onClick={() => onAgentRuntimeChange("relay-cell")}
+                icon={<ChiefMark className="size-7" />}
+              />
+              <ProviderOption
+                label="Vercel Eve"
+                detail="Deploy Chief and its subagents as one Vercel Eve project."
+                selected={agentRuntime === "vercel-eve"}
+                onClick={() => onAgentRuntimeChange("vercel-eve")}
+                icon={<Vercel size={27} />}
               />
             </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
+            {agentRuntime === "vercel-eve" ? (
+              <div className="border-t pt-4">
+                <VercelCredentialField
+                  credentialKind="account-access-token"
+                  value={vercelAccessToken}
+                  disabled={working}
+                  onChange={onVercelAccessTokenChange}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : step === destinationStep ? (
+          <VercelDestinationFields
+            loading={eveDestination.loading}
+            mode={eveDestination.projectMode}
+            projectId={eveDestination.projectId}
+            projectName={eveDestination.projectName}
+            projects={eveDestination.projects}
+            teamId={eveDestination.teamId}
+            teams={eveDestination.teams}
+            onMode={onEveDestinationChange.onMode}
+            onProject={onEveDestinationChange.onProject}
+            onProjectName={onEveDestinationChange.onProjectName}
+            onTeam={onEveDestinationChange.onTeam}
+          />
+        ) : step === inferenceStep ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <ProviderOption
+                label="Vercel AI Gateway"
+                detail="Use models available through Vercel AI Gateway."
+                selected={provider === "vercelAiGateway"}
+                onClick={() => onProviderChange("vercelAiGateway")}
+                icon={<Vercel size={27} />}
+              />
+              <ProviderOption
+                label="OpenCode"
+                detail="Run inference through OpenCode on the relay."
+                selected={provider === "opencode"}
+                onClick={() => onProviderChange("opencode")}
+                icon={<OpenCode size={27} />}
+              />
+            </div>
+            {provider === "vercelAiGateway" ? (
+              <VercelCredentialField
+                credentialKind="ai-gateway-api-key"
+                value={apiKey}
+                disabled={working}
+                onChange={onApiKeyChange}
+              />
+            ) : provider === "opencode" ? (
+              <Field label="OpenCode API key" htmlFor="cloud-api-key">
+                <Input
+                  id="cloud-api-key"
+                  type="password"
+                  autoComplete="off"
+                  value={apiKey}
+                  onChange={(event) => onApiKeyChange(event.target.value)}
+                  placeholder="sk-…"
+                  disabled={working}
+                />
+                <a
+                  className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs transition-colors"
+                  href={providerCredentialHelp["opencode-access-token"].url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {providerCredentialHelp["opencode-access-token"].label}
+                </a>
+              </Field>
+            ) : null}
+          </div>
+        ) : (
+          <div className="relative">
+            <div
+              ref={appListRef}
+              onScroll={updateAppScrollCue}
+              className="grid max-h-[368px] grid-cols-2 gap-2 overflow-y-auto pr-1 pb-16 sm:grid-cols-3"
+            >
+              {workspaceOnboardingApps.map((app) => {
+                const selected = selectedApps.has(app.domain);
+                return (
+                  <button
+                    key={app.domain}
+                    type="button"
+                    onClick={() => {
+                      const next = new Set(selectedApps);
+                      if (selected) next.delete(app.domain);
+                      else next.add(app.domain);
+                      onSelectedAppsChange(next);
+                    }}
+                    className={`hover:border-foreground/60 flex items-center gap-2 rounded-xl border p-3 text-left transition-colors ${selected ? "border-foreground bg-muted" : "bg-background"}`}
+                  >
+                    <img
+                      src={workspaceOnboardingAppLogo(app.domain)}
+                      alt=""
+                      loading="eager"
+                      decoding="async"
+                      className="size-6 rounded-md object-contain"
+                    />
+                    <span className="min-w-0 truncate text-sm font-medium">
+                      {app.label}
+                    </span>
+                    {selected ? (
+                      <Check className="ml-auto shrink-0" size={14} />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div
+              aria-hidden
+              className={`to-background pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent transition-opacity duration-200 ${canScrollApps ? "opacity-100" : "opacity-0"}`}
+            />
+          </div>
+        )}
+      </div>
 
       {error ? (
         <p className="bg-destructive/5 text-destructive rounded-lg px-3 py-2 text-xs leading-5">
@@ -321,78 +344,28 @@ export function CreateForm({
         <Button
           type="submit"
           disabled={!canContinue || working || !connected}
-          loading={working && step === 3}
+          loading={working}
         >
-          {step === 3 ? "Enter workspace" : "Continue"}
+          {working && agentRuntime === "vercel-eve" && step === 1
+            ? "Checking Vercel…"
+            : working && agentRuntime === "vercel-eve" && step === lastStep
+              ? "Creating workspace…"
+              : step === lastStep
+                ? "Create workspace"
+                : "Continue"}
         </Button>
       </div>
     </form>
   );
 }
 
-function relayHost(value: string) {
-  try {
-    return new URL(value).host;
-  } catch {
-    return value;
-  }
-}
-
-function ArrivingQuestion({
-  step,
-  title,
-  detail,
-}: {
-  step: number;
-  title: string;
-  detail: string;
-}) {
-  const reduceMotion = useReducedMotion();
-  const [visibleCharacters, setVisibleCharacters] = useState(
-    reduceMotion ? title.length : 0,
-  );
-
-  useEffect(() => {
-    if (reduceMotion) return;
-    let interval: number | undefined;
-    const startedAt = window.setTimeout(
-      () => {
-        interval = window.setInterval(() => {
-          setVisibleCharacters((current) => {
-            if (current >= title.length) {
-              if (interval !== undefined) window.clearInterval(interval);
-              return current;
-            }
-            return current + 1;
-          });
-        }, 22);
-      },
-      step === 0 ? 70 : 110,
-    );
-    return () => {
-      window.clearTimeout(startedAt);
-      if (interval !== undefined) window.clearInterval(interval);
-    };
-  }, [reduceMotion, step, title]);
-
-  const complete = visibleCharacters >= title.length;
-
+function QuestionHeader({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="mt-1 min-h-[92px]" aria-live="polite">
-      <h1
-        aria-label={title}
-        className="text-[28px] leading-tight font-normal tracking-[-0.035em]"
-      >
-        <span aria-hidden="true">{title.slice(0, visibleCharacters)}</span>
+    <div className="mt-1 min-h-[92px]">
+      <h1 className="text-[28px] leading-tight font-normal tracking-[-0.035em]">
+        {title}
       </h1>
-      <motion.p
-        initial={false}
-        animate={{ opacity: complete ? 1 : 0, y: complete ? 0 : 3 }}
-        transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}
-        className="text-muted-foreground mt-2 text-sm leading-6"
-      >
-        {detail}
-      </motion.p>
+      <p className="text-muted-foreground mt-2 text-sm leading-6">{detail}</p>
     </div>
   );
 }

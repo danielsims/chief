@@ -1,5 +1,11 @@
 import type { Editor } from "@tiptap/react";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { Extension } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -12,11 +18,13 @@ import { z } from "zod";
 
 import { isJsonString } from "@chief/relay-contracts";
 
+import type { MentionAlias } from "./agent-mention-parser";
 import type { ComposerFormat } from "./composer-editing";
 import {
   removeAgentMentionBeforeCaret,
   splitAgentMentions,
 } from "./agent-mention-parser";
+import { useMentionAliases } from "./mention-people-context";
 
 type QueryKind = "emoji" | "emoji-complete" | "mention";
 
@@ -103,75 +111,97 @@ function queryRange(editor: Editor, kind: QueryKind) {
   };
 }
 
-const AgentMentionDecorations = Extension.create({
-  name: "agentMentionDecorations",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("agentMentionDecorations"),
-        props: {
-          decorations(state) {
-            const decorations: Decoration[] = [];
-            state.doc.descendants((node, position) => {
-              if (!node.isText || !node.text) return;
-              let offset = 0;
-              for (const segment of splitAgentMentions(node.text)) {
-                const length =
-                  segment.type === "mention"
-                    ? segment.label.length + 1
-                    : segment.value.length;
-                if (segment.type === "mention") {
-                  decorations.push(
-                    Decoration.inline(
-                      position + offset,
-                      position + offset + length,
-                      {
-                        class:
-                          "rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
-                        "data-composer-agent-mention": segment.agentId,
-                      },
-                    ),
-                  );
+const mentionPeopleKey = new PluginKey<readonly MentionAlias[]>(
+  "agentMentionDecorations",
+);
+const mentionAliasesSchema = z.array(
+  z.object({ id: z.string(), name: z.string() }),
+);
+
+function agentMentionDecorations() {
+  return Extension.create({
+    name: "agentMentionDecorations",
+    addProseMirrorPlugins() {
+      return [
+        new Plugin<readonly MentionAlias[]>({
+          key: mentionPeopleKey,
+          state: {
+            init: () => [],
+            apply(transaction, current) {
+              const parsed = mentionAliasesSchema.safeParse(
+                transaction.getMeta(mentionPeopleKey),
+              );
+              return parsed.success ? parsed.data : current;
+            },
+          },
+          props: {
+            decorations(state) {
+              const decorations: Decoration[] = [];
+              state.doc.descendants((node, position) => {
+                if (!node.isText || !node.text) return;
+                let offset = 0;
+                for (const segment of splitAgentMentions(
+                  node.text,
+                  mentionPeopleKey.getState(state) ?? [],
+                )) {
+                  const length =
+                    segment.type === "mention"
+                      ? segment.token.length
+                      : segment.value.length;
+                  if (segment.type === "mention") {
+                    decorations.push(
+                      Decoration.inline(
+                        position + offset,
+                        position + offset + length,
+                        {
+                          class:
+                            "whitespace-nowrap rounded-[5px] bg-foreground/[0.075] px-1.5 py-px shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]",
+                          "data-composer-agent-mention": segment.agentId,
+                        },
+                      ),
+                    );
+                  }
+                  offset += length;
                 }
-                offset += length;
-              }
-            });
-            return DecorationSet.create(state.doc, decorations);
+              });
+              return DecorationSet.create(state.doc, decorations);
+            },
+            handleKeyDown(view, event) {
+              if (
+                event.key !== "Backspace" ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey
+              )
+                return false;
+              const { empty, $from } = view.state.selection;
+              if (!empty) return false;
+              const paragraphText = $from.parent.textContent;
+              const edit = removeAgentMentionBeforeCaret(
+                paragraphText,
+                $from.parentOffset,
+                $from.parentOffset,
+                mentionPeopleKey.getState(view.state) ?? [],
+              );
+              if (!edit) return false;
+              const removedLength = paragraphText.length - edit.value.length;
+              const parentStart = $from.start();
+              view.dispatch(
+                view.state.tr
+                  .delete(
+                    parentStart + edit.selectionStart,
+                    parentStart + edit.selectionStart + removedLength,
+                  )
+                  .scrollIntoView(),
+              );
+              return true;
+            },
           },
-          handleKeyDown(view, event) {
-            if (
-              event.key !== "Backspace" ||
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey
-            )
-              return false;
-            const { empty, $from } = view.state.selection;
-            if (!empty) return false;
-            const paragraphText = $from.parent.textContent;
-            const edit = removeAgentMentionBeforeCaret(
-              paragraphText,
-              $from.parentOffset,
-              $from.parentOffset,
-            );
-            if (!edit) return false;
-            const removedLength = paragraphText.length - edit.value.length;
-            const parentStart = $from.start();
-            view.dispatch(
-              view.state.tr
-                .delete(
-                  parentStart + edit.selectionStart,
-                  parentStart + edit.selectionStart + removedLength,
-                )
-                .scrollIntoView(),
-            );
-            return true;
-          },
-        },
-      }),
-    ];
-  },
-});
+        }),
+      ];
+    },
+  });
+}
 
 function applyFormat(
   editor: Editor,
@@ -222,6 +252,7 @@ export const ComposerRichText = forwardRef<
   },
   ref,
 ) {
+  const people = useMentionAliases();
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });
@@ -234,13 +265,14 @@ export const ComposerRichText = forwardRef<
     onValueChangeRef.current = onValueChange;
   }, [onKeyDown, onStateChange, onValueChange]);
 
+  const [mentionExtension] = useState(agentMentionDecorations);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, horizontalRule: false }),
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder }),
       Markdown,
-      AgentMentionDecorations,
+      mentionExtension,
     ],
     content: value,
     editorProps: {
@@ -287,6 +319,11 @@ export const ComposerRichText = forwardRef<
     lastValueRef.current = value;
     onStateChangeRef.current(editorState(editor));
   }, [editor, value]);
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed)
+      editor.view.dispatch(editor.state.tr.setMeta(mentionPeopleKey, people));
+  }, [editor, people]);
 
   useImperativeHandle(
     ref,

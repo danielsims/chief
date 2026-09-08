@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronUp,
@@ -6,6 +6,7 @@ import {
   Plus,
   Server,
   Settings as SettingsIcon,
+  Smile,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -29,39 +30,58 @@ import { connectedRelayIdentities } from "../lib/auth/account-directory";
 import { useAuth } from "../lib/auth/auth-context";
 import { chiefAccountConnection } from "../lib/auth/auth-session-flow";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
+import { clearStoredRelaySession } from "../lib/auth/session";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../lib/config";
 import {
+  forgetMissingConnectedRelays,
   knownRelayConnections,
   knownWorkspacesForRelayIdentities,
   resolveRelayConnection,
 } from "../lib/relay-connection";
 import { useRelaySession } from "../lib/relay-session";
+import { userStatusLabel, useUserStatus } from "../lib/user-status";
 import { pendingCreateRelayKey } from "../lib/workspace-entry";
 import { ChiefMark } from "./chief-mark";
 import { OrgLogo } from "./org-logo";
 import { RelayConnectionDialog } from "./relay-connection-control";
+import { SetStatusDialog } from "./set-status-dialog";
 import {
   nextWorkspaceMenuId,
   WorkspaceActionsPopover,
 } from "./workspace-action-menu";
 
 export function SidebarProfileMenu() {
-  const { connectRelay, signOut, user } = useAuth();
+  const { cloudOrganizationId, connectRelay, signOut, user } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [identities, setIdentities] = useState(sortedRelayIdentities);
   const relay = useRelaySession();
+  const userStatus = useUserStatus(cloudOrganizationId, user?.id ?? null);
   const activeWorkspaceId = relay.snapshot?.id ?? null;
-  const identities = connectedRelayIdentities().sort((left, right) => {
-    const cloudOrder =
-      Number(isChiefCloud(right.relayUrl)) -
-      Number(isChiefCloud(left.relayUrl));
-    return cloudOrder || right.lastUsedAt - left.lastUsedAt;
-  });
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void forgetMissingConnectedRelays({
+      identities: connectedRelayIdentities(),
+      chiefCloudRelayUrl: CHIEF_CLOUD_RELAY_URL,
+      forgetSession: clearStoredRelaySession,
+    }).then((removed) => {
+      if (!cancelled && removed.length > 0) {
+        setIdentities(sortedRelayIdentities());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const setProfileMenuOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
+    if (nextOpen) setIdentities(sortedRelayIdentities());
     if (!nextOpen) setWorkspaceMenuId(null);
   };
 
@@ -82,114 +102,153 @@ export function SidebarProfileMenu() {
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setProfileMenuOpen}>
-      <div className="group/profile hover:bg-sidebar-accent/70 flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors">
-        <DropdownMenuTrigger asChild>
+    <>
+      <DropdownMenu open={open} onOpenChange={setProfileMenuOpen}>
+        <div className="group/profile hover:bg-sidebar-accent/70 flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors">
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Relay connections and workspaces"
+              className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold outline-none focus-visible:ring-2"
+            >
+              <ProfileImage user={user} />
+            </button>
+          </DropdownMenuTrigger>
           <button
             type="button"
-            aria-label="Relay connections and workspaces"
-            className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold outline-none focus-visible:ring-2"
+            onClick={() => setProfileMenuOpen(!open)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
           >
-            <ProfileImage user={user} />
-          </button>
-        </DropdownMenuTrigger>
-        <button
-          type="button"
-          onClick={() => setProfileMenuOpen(!open)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] leading-4 font-semibold">
-              {user?.name ?? "Chief"}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] leading-4 font-semibold">
+                {user?.name ?? "Chief"}
+              </span>
+              <span className="text-sidebar-muted block truncate text-[12px] leading-4">
+                {userStatusLabel(
+                  userStatus.status,
+                  user?.email ?? "Set a status",
+                )}
+              </span>
             </span>
-            <span className="text-sidebar-muted block truncate text-[12px] leading-4">
-              {relayLabel(RELAY_URL)}
-            </span>
-          </span>
-          <ChevronUp
-            size={13}
-            className={`text-sidebar-muted shrink-0 opacity-70 transition-transform ${open ? "rotate-180" : ""}`}
-          />
-        </button>
-      </div>
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        className="w-[310px] p-1.5"
-      >
-        <div className="flex min-h-14 items-center gap-3 px-2 py-2">
-          <ProfileImage user={user} className="size-9" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] leading-4 font-semibold">
-              {user?.name ?? "Chief"}
-            </span>
-            <span className="text-muted-foreground mt-0.5 block truncate text-[12px] leading-4">
-              {user?.email ?? ""}
-            </span>
-          </span>
-        </div>
-
-        <div className="max-h-[390px] overflow-y-auto overscroll-contain">
-          {identities.map((identity) => (
-            <RelaySection
-              key={identity.relayUrl}
-              identity={identity}
-              activeWorkspaceId={activeWorkspaceId}
-              switchingTo={switchingTo}
-              workspaceMenuId={workspaceMenuId}
-              setWorkspaceMenuId={setWorkspaceMenuId}
-              onSwitchWorkspace={switchWorkspace}
-              onClose={() => setProfileMenuOpen(false)}
-              onAddWorkspace={async () => {
-                window.sessionStorage.setItem(
-                  pendingCreateRelayKey,
-                  identity.relayUrl,
-                );
-                if (identity.relayUrl !== new URL(RELAY_URL).origin) {
-                  const connection = resolveRelayConnection(
-                    identity.relayUrl,
-                    knownRelayConnections(),
-                    chiefAccountConnection,
-                  );
-                  if (!connection) return;
-                  await connectRelay(connection);
-                  return;
-                }
-                setProfileMenuOpen(false);
-                void navigate("/workspaces/new?intent=add");
-              }}
-              onSignOut={() => {
-                setProfileMenuOpen(false);
-                signOut(identity.relayUrl);
-              }}
+            <ChevronUp
+              size={13}
+              className={`text-sidebar-muted shrink-0 opacity-70 transition-transform ${open ? "rotate-180" : ""}`}
             />
-          ))}
+          </button>
         </div>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[310px] p-1.5"
+        >
+          <div className="px-2 py-2">
+            <div className="flex min-h-11 items-center gap-3">
+              <ProfileImage user={user} className="size-9" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] leading-4 font-semibold">
+                  {user?.name ?? "Chief"}
+                </span>
+                <span className="text-muted-foreground mt-0.5 block truncate text-[12px] leading-4">
+                  {user?.email ?? ""}
+                </span>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setProfileMenuOpen(false);
+                window.requestAnimationFrame(() => setStatusDialogOpen(true));
+              }}
+              className="border-border/60 hover:bg-accent mt-2 flex min-h-9 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[13px] transition-colors"
+            >
+              {userStatus.status?.emoji ? (
+                <span className="w-[15px] shrink-0 text-center leading-none">
+                  {userStatus.status.emoji}
+                </span>
+              ) : (
+                <Smile size={15} className="text-muted-foreground shrink-0" />
+              )}
+              <span
+                className={
+                  userStatus.status ? "truncate" : "text-muted-foreground"
+                }
+              >
+                {userStatus.status?.text ?? "Update your status"}
+              </span>
+            </button>
+          </div>
 
-        <DropdownMenuSeparator />
-        <RelayConnectionDialog>
+          <div className="max-h-[390px] overflow-y-auto overscroll-contain">
+            {identities.map((identity) => (
+              <RelaySection
+                key={identity.relayUrl}
+                identity={identity}
+                activeWorkspaceId={activeWorkspaceId}
+                switchingTo={switchingTo}
+                workspaceMenuId={workspaceMenuId}
+                setWorkspaceMenuId={setWorkspaceMenuId}
+                onSwitchWorkspace={switchWorkspace}
+                onClose={() => setProfileMenuOpen(false)}
+                onAddWorkspace={async () => {
+                  window.sessionStorage.setItem(
+                    pendingCreateRelayKey,
+                    identity.relayUrl,
+                  );
+                  if (identity.relayUrl !== new URL(RELAY_URL).origin) {
+                    const connection = resolveRelayConnection(
+                      identity.relayUrl,
+                      knownRelayConnections(),
+                      chiefAccountConnection,
+                    );
+                    if (!connection) return;
+                    await connectRelay(connection);
+                    return;
+                  }
+                  setProfileMenuOpen(false);
+                  void navigate("/workspaces/new?intent=add");
+                }}
+                onSignOut={() => {
+                  setProfileMenuOpen(false);
+                  signOut(identity.relayUrl);
+                }}
+              />
+            ))}
+          </div>
+
+          <DropdownMenuSeparator />
+          <RelayConnectionDialog>
+            <button
+              type="button"
+              className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
+            >
+              <Plus className="text-muted-foreground size-4 shrink-0" />
+              Connect another relay
+            </button>
+          </RelayConnectionDialog>
           <button
             type="button"
+            onClick={() => {
+              setProfileMenuOpen(false);
+              void navigate("/settings");
+            }}
             className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
           >
-            <Plus className="text-muted-foreground size-4 shrink-0" />
-            Connect another relay
+            <SettingsIcon className="text-muted-foreground size-4 shrink-0" />
+            Settings
           </button>
-        </RelayConnectionDialog>
-        <button
-          type="button"
-          onClick={() => {
-            setProfileMenuOpen(false);
-            void navigate("/settings");
-          }}
-          className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
-        >
-          <SettingsIcon className="text-muted-foreground size-4 shrink-0" />
-          Settings
-        </button>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {statusDialogOpen ? (
+        <SetStatusDialog
+          open
+          onOpenChange={setStatusDialogOpen}
+          status={userStatus.status}
+          onSave={userStatus.setStatus}
+          onClear={userStatus.clearStatus}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -357,6 +416,15 @@ function workspaceMenuKey(location: ConnectedWorkspace): string {
 
 function relayLabel(relayUrl: string): string {
   return isChiefCloud(relayUrl) ? "Chief Cloud" : new URL(relayUrl).host;
+}
+
+function sortedRelayIdentities() {
+  return connectedRelayIdentities().sort((left, right) => {
+    const cloudOrder =
+      Number(isChiefCloud(right.relayUrl)) -
+      Number(isChiefCloud(left.relayUrl));
+    return cloudOrder || right.lastUsedAt - left.lastUsedAt;
+  });
 }
 
 function isChiefCloud(relayUrl: string): boolean {

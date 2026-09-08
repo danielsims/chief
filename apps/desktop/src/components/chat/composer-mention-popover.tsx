@@ -49,7 +49,7 @@ export function ComposerMentionPopover({
         sideOffset={8}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-56 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1 shadow-[0_14px_38px_-12px_color-mix(in_srgb,var(--foreground)_25%,transparent)]"
+        className="max-h-56 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1 shadow-[0_14px_38px_-12px_rgb(0_0_0/0.2)] dark:shadow-[0_14px_38px_-12px_rgb(0_0_0/0.8)]"
       >
         {suggestions.map((candidate, index) => {
           const selected = index === selectedIndex;
@@ -67,7 +67,11 @@ export function ComposerMentionPopover({
                 selected && "bg-accent",
               )}
             >
-              <AgentAvatar label={candidate.name} className="size-7" />
+              <AgentAvatar
+                agentId={candidate.id}
+                label={candidate.name}
+                className="size-7"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm leading-5 font-medium tracking-[-0.01em]">
                   {candidate.name}

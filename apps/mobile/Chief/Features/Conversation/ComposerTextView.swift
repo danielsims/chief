@@ -37,6 +37,11 @@ struct ComposerTextView: UIViewRepresentable {
       right: 11
     )
     view.textContainer.lineFragmentPadding = 0
+    view.textContainer.widthTracksTextView = true
+    view.textContainer.heightTracksTextView = false
+    view.alwaysBounceHorizontal = false
+    view.showsHorizontalScrollIndicator = false
+    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     view.adjustsFontForContentSizeCategory = true
     view.isScrollEnabled = true
     view.accessibilityLabel = "Message"
@@ -48,6 +53,7 @@ struct ComposerTextView: UIViewRepresentable {
     context.coordinator.parent = self
     if context.coordinator.canonicalText != text {
       context.coordinator.render(text, selection: selection, in: view)
+      context.coordinator.updateHeightAfterLayout(for: view)
     } else {
       let renderedSelection = context.coordinator.renderedRange(for: selection)
       if view.selectedRange != renderedSelection {
@@ -256,6 +262,13 @@ struct ComposerTextView: UIViewRepresentable {
       )
       let nextHeight = min(140, max(48, ceil(fitting.height)))
       if abs(parent.height - nextHeight) > 0.5 { parent.height = nextHeight }
+    }
+
+    func updateHeightAfterLayout(for textView: UITextView) {
+      DispatchQueue.main.async { [weak self, weak textView] in
+        guard let self, let textView else { return }
+        self.updateHeight(for: textView)
+      }
     }
 
     private func refreshCanonicalState(from textView: UITextView) {

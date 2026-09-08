@@ -3,11 +3,13 @@ import type {
   AgentConfigResult,
   AgentLease,
   AgentRuntimeDescriptor,
+  AgentSummary,
   AppendMessageCommand,
   AppendMessageResult,
   ChannelMember,
   ChannelMembership,
   ConversationEvent,
+  CreateNativeAgentCommand,
   DirectParticipant,
   DirectStartResult,
   JsonObject,
@@ -17,19 +19,25 @@ import type {
   MachineCreate,
   MachineUpdate,
   MessageComponent,
+  MissionCreate,
+  MissionExperimentInput,
   RegisterAgentKeyResult,
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
   agentConfigResultSchema,
+  agentJobListSchema,
   agentLeaseSchema,
+  agentRemovalResultSchema,
   agentRuntimeDescriptorSchema,
+  agentSummarySchema,
   appendMessageResultSchema,
   channelMembershipsResultSchema,
   channelMembersResultSchema,
   completeAgentJobResultSchema,
   conversationEventPageSchema,
   conversationIdSchema,
+  createNativeAgentResultSchema,
   directStartCommandSchema,
   directStartResultSchema,
   logPageSchema,
@@ -40,22 +48,24 @@ import {
   machinesResultSchema,
   machineUpdateSchema,
   messagePageSchema,
+  missionListSchema,
+  missionSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
   socketTicketSchema,
   upsertAgentActivityResultSchema,
-  workspaceSecretListResultSchema,
-  workspaceSecretResultSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
 import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
 import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
-import { RelayClientBase } from "./relay-client-base";
 import { RelayClientError } from "./relay-client-error";
+import { RelayExternalAgentsClient } from "./relay-external-agents-client";
+import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
+import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
 export type { RelayClientOptions } from "./relay-client-options";
@@ -64,13 +74,70 @@ export { RelayClientError } from "./relay-client-error";
 export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
 
-export class RelayClient extends RelayClientBase {
+export class RelayClient extends RelayVercelProvisioning {
+  readonly externalAgents: RelayExternalAgentsClient;
+  readonly schedules: Pick<
+    RelaySchedulesClient,
+    | "list"
+    | "save"
+    | "act"
+    | "delete"
+    | "runs"
+    | "runAction"
+    | "reportStep"
+    | "webhooks"
+    | "createWebhook"
+    | "webhookAction"
+  >;
+
   constructor(options: RelayClientOptions) {
     super(options);
+    this.externalAgents = new RelayExternalAgentsClient(options);
+    this.schedules = new RelaySchedulesClient(options);
   }
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
+  }
+  async listMissions() {
+    return (
+      await this.fetchJson(this.workspaceUrl("missions"), missionListSchema)
+    ).missions;
+  }
+  async createMission(input: MissionCreate) {
+    return this.fetchJson(this.workspaceUrl("missions"), missionSchema, true, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  }
+  async recordMissionExperiment(id: string, input: MissionExperimentInput) {
+    return this.fetchJson(
+      this.workspaceUrl(`missions/${encodeURIComponent(id)}/experiments`),
+      missionSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+  async updateMissionStatus(
+    id: string,
+    status: "active" | "paused" | "completed",
+    evidence: string,
+  ) {
+    return this.fetchJson(
+      this.workspaceUrl(`missions/${encodeURIComponent(id)}/status`),
+      missionSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status, evidence }),
+      },
+    );
   }
 
   async listMachines(): Promise<Machine[]> {
@@ -109,38 +176,6 @@ export class RelayClient extends RelayClientBase {
     );
   }
 
-  async setWorkspaceSecret(name: string, value: string) {
-    return await this.fetchJson(
-      this.workspaceUrl("secrets"),
-      workspaceSecretResultSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, value }),
-      },
-    );
-  }
-
-  async listWorkspaceSecrets() {
-    return (
-      await this.fetchJson(
-        this.workspaceUrl("secrets"),
-        workspaceSecretListResultSchema,
-        true,
-      )
-    ).secrets;
-  }
-
-  async deleteWorkspaceSecret(name: string) {
-    return await this.fetchJson(
-      this.workspaceUrl(`secrets?name=${encodeURIComponent(name)}`),
-      workspaceSecretResultSchema,
-      true,
-      { method: "DELETE" },
-    );
-  }
-
   async listChannelMembers(conversationId: string): Promise<ChannelMember[]> {
     const conversation = conversationIdSchema.parse(conversationId);
     return (
@@ -161,7 +196,6 @@ export class RelayClient extends RelayClientBase {
       )
     ).memberships;
   }
-
   async startDirectMessage(
     participant: DirectParticipant,
   ): Promise<DirectStartResult> {
@@ -183,21 +217,43 @@ export class RelayClient extends RelayClientBase {
       },
     );
   }
-
   async loadAgentConfig(agentId: string): Promise<AgentConfigResult> {
-    return await this.fetchJson(
-      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
-      agentConfigResultSchema,
+    const url = this.workspaceUrl(
+      `agents/${encodeURIComponent(agentId)}/config`,
+    );
+    return await this.fetchJson(url, agentConfigResultSchema);
+  }
+  async loadOwnAgentProfile(): Promise<AgentSummary> {
+    return this.fetchJson(
+      this.workspaceUrl("agents/self/profile"),
+      agentSummarySchema,
     );
   }
-
   async loadAgentRuntime(agentId: string): Promise<AgentRuntimeDescriptor> {
-    return await this.fetchJson(
-      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`),
-      agentRuntimeDescriptorSchema,
-    );
+    const url = this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`);
+    return await this.fetchJson(url, agentRuntimeDescriptorSchema);
   }
-
+  async removeAgent(agentId: string) {
+    const url = this.workspaceUrl(`agents/${encodeURIComponent(agentId)}`);
+    return await this.fetchJson(url, agentRemovalResultSchema, true, {
+      method: "DELETE",
+    });
+  }
+  async createNativeAgent(
+    input: CreateNativeAgentCommand,
+  ): Promise<AgentSummary> {
+    const result = await this.fetchJson(
+      this.workspaceUrl("agents"),
+      createNativeAgentResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+    return result.agent;
+  }
   async saveAgentConfig(
     agentId: string,
     config: AgentConfig,
@@ -228,6 +284,15 @@ export class RelayClient extends RelayClientBase {
         body: JSON.stringify({ agentId, pubkey }),
       },
     );
+  }
+
+  async listAgentJobs(agentId: string) {
+    const result = await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/jobs`),
+      agentJobListSchema,
+      true,
+    );
+    return result.jobs;
   }
 
   async claimAgentJob(

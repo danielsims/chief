@@ -49,23 +49,46 @@ export function hostedActivityObserver(
       seed: `${job.id}:${seed}`,
       component,
     });
+  const reasoning = new Map<
+    number,
+    { text: string; lastPublishedAt: number }
+  >();
+  const publishReasoning = async (
+    turn: DurableTurn,
+    text: string,
+    status: "working" | "completed",
+  ) => {
+    if (!text.trim()) return;
+    await publish(hostedInferenceActivitySeed(turn), {
+      kind: "thinking",
+      version: 1,
+      payload: {
+        text: text.slice(0, 100_000),
+        status,
+        ...correlation,
+      },
+    });
+  };
 
   return {
-    inferenceCompleted: (turn, result: AgentInferenceResult) => {
-      // Tool calls are the durable source of truth. Intermediate model prose
-      // often describes intended work and must never look like completion.
-      if (result.toolCalls.length > 0) return;
-      const text = result.content?.trim();
-      if (!text) return;
-      return publish(hostedInferenceActivitySeed(turn), {
-        kind: "thinking",
-        version: 1,
-        payload: {
-          text: text.slice(0, 100_000),
-          status: "completed",
-          ...correlation,
-        },
+    inferenceProgress: async (turn, progress) => {
+      const current = reasoning.get(turn.revision);
+      const now = Date.now();
+      reasoning.set(turn.revision, {
+        text: progress.text,
+        lastPublishedAt: current?.lastPublishedAt ?? 0,
       });
+      if (current && now - current.lastPublishedAt < 500) return;
+      await publishReasoning(turn, progress.text, "working");
+      reasoning.set(turn.revision, {
+        text: progress.text,
+        lastPublishedAt: now,
+      });
+    },
+    inferenceCompleted: (turn, result: AgentInferenceResult) => {
+      const text = result.reasoning ?? reasoning.get(turn.revision)?.text;
+      reasoning.delete(turn.revision);
+      return text ? publishReasoning(turn, text, "completed") : undefined;
     },
     toolStarted: (_turn, call) =>
       publish(`tool:${call.id}`, {

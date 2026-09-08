@@ -4,7 +4,7 @@ import { defineRelayCellTool } from "../tool.js";
 
 function pluginTool(
   operationId: string,
-  permission: "workspace.read" | "messages.send" | "integrations.manage",
+  permission: "workspace.read" | "messages.send",
 ) {
   return defineRelayCellTool(
     operationId,
@@ -17,7 +17,4 @@ function pluginTool(
 export const relayCellPluginTools = [
   pluginTool("plugins.list", "workspace.read"),
   pluginTool("plugins.recommend", "messages.send"),
-  pluginTool("plugins.install", "integrations.manage"),
-  pluginTool("plugins.authorize", "integrations.manage"),
-  pluginTool("plugins.uninstall", "integrations.manage"),
 ];

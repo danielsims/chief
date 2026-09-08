@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct ChiefMobileApp: App {
+  @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
   @State private var model = AppModel.live()
 
   var body: some Scene {
@@ -12,6 +13,9 @@ struct ChiefMobileApp: App {
         .task { await model.start() }
         .onOpenURL { url in
           Task { await model.handleIncomingURL(url) }
+        }
+        .task {
+          await model.consumeNotificationDeepLink()
         }
     }
   }
@@ -47,21 +51,26 @@ struct AppRootView: View {
     .tint(ChiefTheme.accent)
     .onChange(of: scenePhase) { _, phase in
       model.setAppActive(phase == .active)
+      if phase == .active { Task { await model.consumeNotificationDeepLink() } }
       AgentBackgroundActivityCoordinator.shared.setApplicationActive(phase == .active)
     }
     .onReceive(
-      NotificationCenter.default.publisher(for: MobileNotifications.didOpenConversation)
+      NotificationCenter.default.publisher(for: PushAppDelegate.didRegisterToken)
     ) { notification in
-      guard
-        let workspaceID = notification.userInfo?["workspaceID"] as? String,
-        let conversationID = notification.userInfo?["conversationID"] as? String
-      else { return }
-      Task {
-        if workspaceID != model.workspace?.id {
-          _ = await model.switchWorkspace(workspaceID: workspaceID)
-        }
-        model.openConversation(conversationID)
-      }
+      guard let token = notification.userInfo?["token"] as? Data else { return }
+      Task { await model.registerPushToken(token) }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: MobileNotifications.didOpenConversation)
+    ) { _ in
+      Task { await model.consumeNotificationDeepLink() }
+    }
+    .onChange(of: model.isSwitchingWorkspace) { _, switching in
+      if !switching { Task { await model.consumeNotificationDeepLink() } }
+    }
+    .onChange(of: model.isWorkspaceReadyForPresentation) { _, ready in
+      guard ready else { return }
+      Task { await model.consumeNotificationDeepLink() }
     }
     .sheet(
       isPresented: Binding(

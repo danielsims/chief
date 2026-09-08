@@ -22,6 +22,7 @@ const workspaceProvision = (runtime: "phone" | "cloud") => ({
     name: "Chief",
     website: "https://heychief.sh",
     runtime,
+    agentRuntime: "relay-cell" as const,
     inferenceProvider: runtime === "phone" ? "onDevice" : "openCodeGo",
     inferenceModel: runtime === "phone" ? "gemma-4-e2b" : "auto",
     selectedApps: [],
@@ -63,6 +64,18 @@ void test("hosted workspaces accept a workspace-scoped Vercel AI Gateway credent
       secrets: { opencode: "wrong-provider-key" },
     }).success,
     false,
+  );
+});
+
+void test("Vercel Eve workspaces do not require relay inference credentials", () => {
+  const input = workspaceProvision("cloud");
+
+  assert.equal(
+    provisionWorkspaceCommandSchema.safeParse({
+      ...input,
+      workspace: { ...input.workspace, agentRuntime: "vercel-eve" },
+    }).success,
+    true,
   );
 });
 
@@ -212,6 +225,24 @@ void test("plugin recommendation components validate portable placement and vers
   );
 });
 
+void test("project recommendation components validate portable placement", () => {
+  const component = {
+    id: "project-card-1",
+    kind: "project.recommendation",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "engineering",
+      agentId: "engineer",
+      title: "Connect a repository",
+      description: "Add the Git repository this workspace should work in.",
+      remoteUrl: "https://github.com/acme/program.git",
+    },
+  } as const;
+
+  assert.deepEqual(messageComponentSchema.parse(component), component);
+});
+
 void test("plugin authorization components reject unsafe callback URLs", () => {
   const component = {
     id: "plugin-auth-1",
@@ -268,7 +299,7 @@ void test("plugin authorization components accept generic OAuth clients", () => 
 
 void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
-    protocol: "chief-relay",
+    protocol: "relay",
     protocolVersion: 1,
     relayId: "relay_test",
     deployment: "cloudflare-byoc",

@@ -45,6 +45,25 @@ const bundledGoogleWorkspace: RemotePluginCatalogEntry = {
   keywords: ["Google Workspace", "Gmail", "Google Drive", "email", "files"],
 };
 
+const bundledGitHub: RemotePluginCatalogEntry = {
+  id: "github",
+  name: "GitHub",
+  description:
+    "Work with repositories, issues, pull requests, and code on GitHub.",
+  category: "Engineering",
+  homepage: "https://github.com/",
+  repository: "https://github.com/github/github-mcp-server",
+  featured: true,
+  popularity: 100_000,
+  source: {
+    type: "bundled",
+    path: fileURLToPath(new URL("../plugins-bundled/github/", import.meta.url)),
+  },
+  catalogId: "chief-bundled",
+  domains: ["github.com"],
+  keywords: ["GitHub", "Git", "repositories", "issues", "pull requests"],
+};
+
 function text(value: JsonValue | undefined) {
   return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
@@ -150,8 +169,8 @@ const sourcePriority: Record<
   RemotePluginCatalogEntry["source"]["type"],
   number
 > = {
-  discovery: 0,
-  bundled: 1,
+  bundled: 0,
+  discovery: 1,
   git: 2,
 };
 
@@ -212,7 +231,7 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
   if (remoteEntries.length === 0 && cached) {
     return { ...cached, warning: warnings.join("; ") };
   }
-  const entries = [bundledGoogleWorkspace, ...remoteEntries];
+  const entries = [bundledGoogleWorkspace, bundledGitHub, ...remoteEntries];
   const next = {
     entries: mergePluginCatalogEntries(entries),
     refreshedAt: Date.now(),

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "github",
+  "version": "1.0.0",
+  "description": "Work with repositories, issues, pull requests, and code on GitHub.",
+  "homepage": "https://github.com/",
+  "repository": "https://github.com/github/github-mcp-server",
+  "keywords": ["github", "git", "repositories", "issues", "pull-requests"]
+}

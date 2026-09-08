@@ -20,6 +20,19 @@ import type {
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
+import { channelMembersDeleteChannelsMembersRemove } from "./queries/channel-members/delete-channels-members-remove";
+import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
+import { channelMembersInsertChannelsCreate } from "./queries/channel-members/insert-channels-create";
+import { channelMembersInsertChannelsMembersAdd } from "./queries/channel-members/insert-channels-members-add";
+import { channelMembersInsertDirectMembers } from "./queries/channel-members/insert-direct-members";
+import { channelsFindChannelsCreate } from "./queries/channels/find-channels-create";
+import { channelsFindDirectBetweenMembers } from "./queries/channels/find-direct-between-members";
+import { channelsInsertChannelsCreate } from "./queries/channels/insert-channels-create";
+import { channelsInsertDirectsStart } from "./queries/channels/insert-directs-start";
+import { channelsListVisibleChannels } from "./queries/channels/list-visible-channels";
+import { channelsUpdateChannelsArchive } from "./queries/channels/update-channels-archive";
+import { channelsUpdateChannelsUpdate } from "./queries/channels/update-channels-update";
+import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import {
   channelRecordFromRow,
   firstRow,
@@ -53,43 +66,43 @@ export class WorkspaceChannelService {
       );
     }
     const now = new Date().toISOString();
-    this.store.storage.transactionSync(() => {
-      const existing = firstRow<ChannelRow>(
-        this.store.storage.sql.exec(
-          "SELECT conversation_id FROM channels WHERE conversation_id = ?",
-          command.payload.conversationId,
-        ),
-      );
-      if (existing) {
-        throw new HttpError(
-          409,
-          "channel_already_exists",
-          "A channel with that id already exists.",
-        );
+    const existing = firstRow<ChannelRow>(
+      channelsFindChannelsCreate(
+        this.store.storage,
+        command.payload.conversationId,
+      ),
+    );
+    if (existing) {
+      const matches =
+        existing.kind === "channel" &&
+        existing.name === command.payload.name &&
+        Number(existing.is_private) === (command.payload.isPrivate ? 1 : 0);
+      if (matches) {
+        return json(this.store.channelDetail(command.payload.conversationId));
       }
-      this.store.storage.sql.exec(
-        `INSERT INTO channels (
-          conversation_id, workspace_id, name, kind, is_private, archived, description,
-          created_by_kind, created_by_id, version, created_at, updated_at
-        ) VALUES (?, ?, ?, 'channel', ?, 0, NULL, ?, ?, 1, ?, ?)`,
-        command.payload.conversationId,
-        context.workspaceId,
-        command.payload.name,
-        command.payload.isPrivate ? 1 : 0,
-        kind,
-        id,
-        now,
-        now,
+      throw new HttpError(
+        409,
+        "channel_already_exists",
+        "A different channel already uses that id.",
       );
-      this.store.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) VALUES (?, ?, ?, 'owner', ?)`,
-        command.payload.conversationId,
-        kind,
-        id,
-        now,
-      );
+    }
+    this.store.storage.transactionSync(() => {
+      channelsInsertChannelsCreate(this.store.storage, {
+        conversationId: command.payload.conversationId,
+        workspaceId: context.workspaceId,
+        name: command.payload.name,
+        isPrivate: command.payload.isPrivate ? 1 : 0,
+        createdByKind: kind,
+        createdById: id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      channelMembersInsertChannelsCreate(this.store.storage, {
+        conversationId: command.payload.conversationId,
+        principalKind: kind,
+        principalId: id,
+        joinedAt: now,
+      });
       this.store.rewriteSnapshot((conversations) => {
         conversations.push({
           id: command.payload.conversationId,
@@ -111,22 +124,9 @@ export class WorkspaceChannelService {
 
   channelsList(context: ReturnType<typeof readTrustedContext>) {
     const { kind, id } = principalKindId(context.principal);
-    const rows = this.store.storage.sql
-      .exec(
-        `SELECT c.conversation_id, c.workspace_id, c.name, c.is_private,
-                c.archived, c.created_at
-         FROM channels c
-         WHERE c.kind = 'channel' AND (c.is_private = 0 OR EXISTS (
-           SELECT 1 FROM channel_members cm
-           WHERE cm.conversation_id = c.conversation_id
-             AND cm.principal_kind = ? AND cm.principal_id = ?
-         ))
-         ORDER BY archived ASC, created_at ASC, conversation_id ASC`,
-        kind,
-        id,
-      )
-      .toArray()
-      .map((row) => channelListRowSchema.parse(row));
+    const rows = channelsListVisibleChannels(this.store.storage, kind, id).map(
+      (row) => channelListRowSchema.parse(row),
+    );
     return json(
       channelListResultSchema.parse({
         channels: rows.map(channelRecordFromRow),
@@ -159,23 +159,20 @@ export class WorkspaceChannelService {
       );
     }
     this.store.requireWorkspaceMember(target.kind, target.principalId);
+    if (target.kind === "agent")
+      requireAgentMessageAccess(
+        this.store,
+        target.principalId,
+        context.principal,
+      );
 
     const existing = firstRow<ChannelRow>(
-      this.store.storage.sql.exec(
-        `SELECT c.* FROM channels c
-         WHERE c.kind = 'direct'
-           AND EXISTS (SELECT 1 FROM channel_members a
-             WHERE a.conversation_id = c.conversation_id
-               AND a.principal_kind = ? AND a.principal_id = ?)
-           AND EXISTS (SELECT 1 FROM channel_members b
-             WHERE b.conversation_id = c.conversation_id
-               AND b.principal_kind = ? AND b.principal_id = ?)
-         ORDER BY c.created_at ASC LIMIT 1`,
-        kind,
-        id,
-        target.kind,
-        target.principalId,
-      ),
+      channelsFindDirectBetweenMembers(this.store.storage, {
+        firstKind: kind,
+        firstId: id,
+        secondKind: target.kind,
+        secondId: target.principalId,
+      }),
     );
     if (existing) {
       return json(
@@ -202,33 +199,25 @@ export class WorkspaceChannelService {
     const name = this.principalDisplayName(target.kind, target.principalId);
     const now = new Date().toISOString();
     this.store.storage.transactionSync(() => {
-      this.store.storage.sql.exec(
-        `INSERT INTO channels (
-          conversation_id, workspace_id, name, kind, is_private, archived,
-          description, created_by_kind, created_by_id, version, created_at,
-          updated_at
-        ) VALUES (?, ?, ?, 'direct', 1, 0, NULL, ?, ?, 1, ?, ?)`,
-        conversationId,
-        context.workspaceId,
-        name,
-        kind,
-        id,
-        now,
-        now,
-      );
-      this.store.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) VALUES (?, ?, ?, 'owner', ?), (?, ?, ?, 'member', ?)`,
-        conversationId,
-        kind,
-        id,
-        now,
-        conversationId,
-        target.kind,
-        target.principalId,
-        now,
-      );
+      channelsInsertDirectsStart(this.store.storage, {
+        conversationId: conversationId,
+        workspaceId: context.workspaceId,
+        name: name,
+        createdByKind: kind,
+        createdById: id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      channelMembersInsertDirectMembers(this.store.storage, {
+        conversationId: conversationId,
+        ownerKind: kind,
+        ownerId: id,
+        ownerJoinedAt: now,
+        memberConversationId: conversationId,
+        memberKind: target.kind,
+        memberId: target.principalId,
+        memberJoinedAt: now,
+      });
       this.store.rewriteSnapshot((conversations) => {
         conversations.push({
           id: conversationId,
@@ -301,14 +290,12 @@ export class WorkspaceChannelService {
       command.payload.isPrivate ?? Number(existing.is_private) === 1;
     const now = new Date().toISOString();
     this.store.storage.transactionSync(() => {
-      this.store.storage.sql.exec(
-        `UPDATE channels SET name = ?, is_private = ?, version = version + 1,
-         updated_at = ? WHERE conversation_id = ?`,
-        name,
-        isPrivate ? 1 : 0,
-        now,
-        conversationId,
-      );
+      channelsUpdateChannelsUpdate(this.store.storage, {
+        name: name,
+        isPrivate: isPrivate ? 1 : 0,
+        updatedAt: now,
+        conversationId: conversationId,
+      });
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -334,13 +321,11 @@ export class WorkspaceChannelService {
     this.store.requireChannelManager(conversationId, context.principal);
     const now = new Date().toISOString();
     this.store.storage.transactionSync(() => {
-      this.store.storage.sql.exec(
-        `UPDATE channels SET archived = ?, version = version + 1,
-         updated_at = ? WHERE conversation_id = ?`,
-        archived ? 1 : 0,
-        now,
-        conversationId,
-      );
+      channelsUpdateChannelsArchive(this.store.storage, {
+        archived: archived ? 1 : 0,
+        updatedAt: now,
+        conversationId: conversationId,
+      });
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -377,16 +362,12 @@ export class WorkspaceChannelService {
       );
     }
     const now = new Date().toISOString();
-    this.store.storage.sql.exec(
-      `INSERT INTO channel_members (
-        conversation_id, principal_kind, principal_id, role, joined_at
-      ) VALUES (?, ?, ?, 'member', ?)
-      ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-      conversationId,
-      kind,
-      id,
-      now,
-    );
+    channelMembersInsertChannelsMembersAdd(this.store.storage, {
+      conversationId: conversationId,
+      principalKind: kind,
+      principalId: id,
+      joinedAt: now,
+    });
     return json(channelActionResultSchema.parse({ ok: true }));
   }
 
@@ -399,13 +380,11 @@ export class WorkspaceChannelService {
     this.store.requireChannel(conversationId);
     const { kind, id } = principalKindId(context.principal);
     const membership = firstRow<ChannelMemberRow>(
-      this.store.storage.sql.exec(
-        `SELECT * FROM channel_members
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        kind,
-        id,
-      ),
+      channelMembersFindChannelsMembersRemove(this.store.storage, {
+        conversationId: conversationId,
+        principalKind: kind,
+        principalId: id,
+      }),
     );
     if (membership?.role === "owner") {
       throw new HttpError(
@@ -414,13 +393,11 @@ export class WorkspaceChannelService {
         "The channel owner cannot leave a channel they own.",
       );
     }
-    this.store.storage.sql.exec(
-      `DELETE FROM channel_members
-       WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-      conversationId,
-      kind,
-      id,
-    );
+    channelMembersDeleteChannelsMembersRemove(this.store.storage, {
+      conversationId: conversationId,
+      principalKind: kind,
+      principalId: id,
+    });
     return json(channelActionResultSchema.parse({ ok: true }));
   }
 }

@@ -28,6 +28,8 @@ import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
+import { useMentionPeople } from "./mention-people-context";
+import { useScheduledRunProgress } from "./use-scheduled-run-progress";
 
 /**
  * Connects a Chief conversation to runtime, authentication, workspace, and
@@ -59,7 +61,9 @@ export function useChiefChatCore({
     anchorBrowserSession,
     browserRuns,
     browserSessions,
+    agents: runtimeAgents,
   } = useRuntime();
+  const workspacePeople = useMentionPeople();
   const { cloudOrganizationId, user } = useAuth();
   const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
@@ -164,25 +168,14 @@ export function useChiefChatCore({
                   id: message.id,
                   role: message.role,
                   createdAt: message.metadata?.createdAt,
+                  agentId: message.metadata?.agentId ?? directAgent?.id,
                   blocks: withoutMarkerLines(messageBlocks(message)),
                 },
               ]
             : [],
         ),
       ),
-    [chat.messages],
-  );
-  const currentActivityTurnId = activityTurns.at(-1)?.id;
-  const previousActivityTurns = useMemo(
-    () =>
-      activityTurns
-        .filter(
-          (turn) =>
-            turn.id !== currentActivityTurnId &&
-            turn.blocks.some((block) => block.type === "tool_use"),
-        )
-        .reverse(),
-    [activityTurns, currentActivityTurnId],
+    [chat.messages, directAgent?.id],
   );
   const activeExecution =
     selectedExecution ?? chat.execution ?? initialExecution;
@@ -196,23 +189,45 @@ export function useChiefChatCore({
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  const mentionCandidates = useMemo(
-    () =>
-      orderMentionCandidatesByMembership(
-        Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([id, identity]) => ({
-          id,
-          ...identity,
-          member:
-            directAgent?.id === id ||
-            addedAgentIds.has(id) ||
-            Boolean(channel?.agentIds.includes(id)),
-        })),
-      ),
-    [addedAgentIds, channel?.agentIds, directAgent?.id],
-  );
+  const mentionCandidates = useMemo(() => {
+    const roster = runtimeAgents.flatMap((agent) => [
+      agent,
+      ...(agent.subagents ?? []),
+    ]);
+    const agents = [
+      ...new Map(roster.map((agent) => [agent.id, agent])).values(),
+    ]
+      .filter((agent) => agent.canMessage !== false)
+      .map(({ id, name, role }) => ({
+        id,
+        name,
+        role,
+        member:
+          directAgent?.id === id ||
+          addedAgentIds.has(id) ||
+          Boolean(channel?.agentIds.includes(id)),
+      }));
+    const people = workspacePeople
+      .filter((person) => person.id !== user?.id)
+      .map((person) => ({ ...person, role: "Workspace member", member: true }));
+    return orderMentionCandidatesByMembership([...people, ...agents]);
+  }, [
+    addedAgentIds,
+    channel?.agentIds,
+    directAgent?.id,
+    user,
+    runtimeAgents,
+    workspacePeople,
+  ]);
   const knownAgentIds = useMemo(
-    () => new Set(mentionCandidates.map((candidate) => candidate.id)),
-    [mentionCandidates],
+    () =>
+      new Set(
+        runtimeAgents.flatMap((agent) => [
+          agent.id,
+          ...(agent.subagents ?? []).map((child) => child.id),
+        ]),
+      ),
+    [runtimeAgents],
   );
   const send = (
     text: string,
@@ -264,7 +279,9 @@ export function useChiefChatCore({
     );
   };
 
+  const scheduleRuns = useScheduledRunProgress(chat.messages);
   return {
+    scheduleRuns,
     ...chat,
     activeCapabilities: resolved.capabilities,
     activeExecution,
@@ -283,7 +300,8 @@ export function useChiefChatCore({
     markThreadRead,
     mentionCandidates,
     pendingInput,
-    previousActivityTurns,
+    activityTurns,
+    activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
     runtimeStatus,
     selectedExecution,
     send,

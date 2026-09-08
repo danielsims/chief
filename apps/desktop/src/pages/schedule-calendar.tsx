@@ -20,18 +20,21 @@ import type { ScheduledDraft, ScheduleKind } from "./schedule-calendar-core";
 import {
   addMonths,
   buildMonthCells,
-  CALENDAR_HEADER_HEIGHT,
   dayKey,
   DraftEventContent,
   eventSurface,
   monthKey,
   monthLabel,
-  MONTHS_AFTER,
-  MONTHS_BEFORE,
   sameMonth,
   WEEKDAYS,
   WorkEventContent,
+  workOccurrences,
 } from "./schedule-calendar-core";
+
+const MONTHS_BEFORE = 12;
+const MONTHS_AFTER = 12;
+const CALENDAR_HEADER_HEIGHT = 40;
+const MONTH_TITLE_HANDOFF_DISTANCE = 64;
 
 function DraftChip({
   draft,
@@ -91,7 +94,7 @@ function RecurringWorkChip({
         onOpen(work);
       }}
       onContextMenu={(event) => {
-        if (!onContextMenu) return;
+        if (!onContextMenu || past) return;
         event.preventDefault();
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
@@ -175,7 +178,11 @@ function DayCell({
             key={work.id}
             work={work}
             onOpen={onWorkOpen}
-            past={date < today}
+            past={
+              !workOccurrences(work).some(
+                (at) => dayKey(new Date(at)) === key && at > now,
+              )
+            }
             onContextMenu={
               onWorkContext
                 ? (item, x, y) => onWorkContext(item, date, x, y)
@@ -270,7 +277,6 @@ export function ScheduleFilters({
 }
 
 export function ContinuousMonthView({
-  currentMonth,
   activeMonth,
   onActiveMonthChange,
   today,
@@ -286,7 +292,6 @@ export function ContinuousMonthView({
   showAgentWork,
   scrollRequest,
 }: {
-  currentMonth: Date;
   activeMonth: Date;
   onActiveMonthChange: (month: Date) => void;
   today: Date;
@@ -310,9 +315,9 @@ export function ContinuousMonthView({
   const months = useMemo(
     () =>
       Array.from({ length: MONTHS_BEFORE + MONTHS_AFTER + 1 }, (_, index) =>
-        addMonths(currentMonth, index - MONTHS_BEFORE),
+        addMonths(scrollRequest.month, index - MONTHS_BEFORE),
       ),
-    [currentMonth],
+    [scrollRequest.month],
   );
   const calendarRef = useRef<HTMLDivElement>(null);
   const monthSections = useRef(new Map<string, HTMLElement>());
@@ -366,7 +371,9 @@ export function ContinuousMonthView({
     const container = calendarRef.current;
     if (!container) return;
     const threshold =
-      container.getBoundingClientRect().top + CALENDAR_HEADER_HEIGHT + 4;
+      container.getBoundingClientRect().top +
+      CALENDAR_HEADER_HEIGHT +
+      MONTH_TITLE_HANDOFF_DISTANCE;
     const firstMonth = months.at(0);
     if (!firstMonth) return;
     let nextMonth = firstMonth;
@@ -401,7 +408,7 @@ export function ContinuousMonthView({
     <div
       ref={calendarRef}
       onScroll={handleScroll}
-      className="relative h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain scroll-smooth"
+      className="relative h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain"
     >
       <div className="bg-card/90 sticky top-0 z-30 grid h-10 grid-cols-7 border-b border-black/[0.055] backdrop-blur-xl dark:border-white/[0.055]">
         {WEEKDAYS.map((weekday) => (
@@ -466,7 +473,7 @@ export function ContinuousMonthView({
                 <div
                   key={`empty-${index}`}
                   aria-hidden="true"
-                  className="bg-muted/[0.025] min-h-28 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
+                  className="calendar-empty-day min-h-28 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
                 />
               ),
             )}

@@ -3,7 +3,6 @@ export const CHIEF_DEEP_LINK_SCHEME = "chief-desktop";
 export const CHIEF_VIEW_ROUTES = {
   overview: "/",
   inbox: "/inbox",
-  analytics: "/analytics",
   artifacts: "/artifacts",
   campaigns: "/campaigns",
   schedule: "/schedule",

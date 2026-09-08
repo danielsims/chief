@@ -2,8 +2,6 @@ import { z } from "zod";
 
 import type {
   ClientMessage,
-  ProjectRecord,
-  ProjectRepositorySnapshot,
   ServerMessage,
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
@@ -11,12 +9,22 @@ import type {
 import type { RelayClient } from "@chief/relay-client";
 import type {
   JsonObject,
-  RelayProject,
   WorkspaceFile,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
+import {
+  relayProjectRecord,
+  relayProjectSnapshot,
+} from "./relay-project-presentation";
+import {
+  connectRelayProject,
+  localProjectSnapshots,
+  queryRelayProject,
+} from "./relay-runtime-project-connect";
+import { routeRelayScheduleCommand } from "./relay-runtime-schedules";
+import { loadRelayWorkspaceActivity } from "./relay-workspace-activity";
 
 const pluginSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bundled"), path: z.string() }),
@@ -134,7 +142,9 @@ function pluginAuthorizationAction(response: JsonObject) {
 interface WorkspaceDataContext {
   relay: Pick<
     RelayClient,
+    | "schedules"
     | "createProject"
+    | "listAgentJobs"
     | "listProjects"
     | "listProspects"
     | "listWorkspaceFiles"
@@ -148,6 +158,18 @@ export async function routeRelayWorkspaceDataCommand(
   message: ClientMessage,
   context: WorkspaceDataContext,
 ) {
+  if (
+    message.type === "saveRecurringWork" ||
+    message.type === "runRecurringWorkNow" ||
+    message.type === "deleteRecurringWork"
+  ) {
+    try {
+      await routeRelayScheduleCommand(message, context.relay);
+    } finally {
+      await listWorkspaceData(context);
+    }
+    return true;
+  }
   switch (message.type) {
     case "listWorkspaceFiles":
       await listWorkspaceFiles(context);
@@ -161,13 +183,27 @@ export async function routeRelayWorkspaceDataCommand(
     case "listProjects":
       await listProjects(context);
       return true;
-    case "cloneProject":
-      await registerClonedProject(context, message);
+    case "browseProject":
+    case "inspectProjectCommit":
+    case "compareProjectBranches":
+      context.emit(await queryRelayProject(context.snapshot.id, message));
       return true;
-    case "attachProject":
-      throw new Error(
-        "Choose a Git remote for this relay-backed project. Local repository paths stay private to this Mac.",
+    case "cloneProject":
+    case "attachProject": {
+      const project = await connectRelayProject(
+        context.relay,
+        context.snapshot.id,
+        message,
       );
+      context.emit({
+        type: "projectSaved",
+        workspaceId: context.snapshot.id,
+        requestId: message.requestId,
+        project: relayProjectRecord(project),
+      });
+      await listProjects(context);
+      return true;
+    }
     case "listPlugins": {
       const response = await requestDesktopPluginHost("/plugins/list", {
         workspaceId: context.snapshot.id,
@@ -297,40 +333,19 @@ async function listProjects(context: WorkspaceDataContext) {
   context.emit({
     type: "projects",
     workspaceId: context.snapshot.id,
-    projects: projects.map(toProjectSnapshot),
+    projects: await localProjectSnapshots(
+      context.snapshot.id,
+      projects.map(relayProjectSnapshot),
+    ),
   });
-}
-
-async function registerClonedProject(
-  context: WorkspaceDataContext,
-  message: Extract<ClientMessage, { type: "cloneProject" }>,
-) {
-  const repository = projectRepositoryDetails(message.remoteUrl);
-  const requestedName = message.name?.trim();
-  const project = await context.relay.createProject({
-    name: requestedName?.length ? requestedName : repository.name,
-    ...(message.description?.trim()
-      ? { description: message.description.trim() }
-      : undefined),
-    repositoryKind: "cloned",
-    providerId: repository.providerId,
-    canonicalRemoteUrl: repository.canonicalRemoteUrl,
-    ...(repository.repositoryWebUrl
-      ? { repositoryWebUrl: repository.repositoryWebUrl }
-      : undefined),
-    defaultBranch: "main",
-  });
-  context.emit({
-    type: "projectSaved",
-    workspaceId: context.snapshot.id,
-    requestId: message.requestId,
-    project: toProjectRecord(project),
-  });
-  await listProjects(context);
 }
 
 async function listWorkspaceData(context: WorkspaceDataContext) {
-  const prospects = await context.relay.listProspects();
+  const [prospects, schedules, activity] = await Promise.all([
+    context.relay.listProspects(),
+    context.relay.schedules.list(),
+    loadRelayWorkspaceActivity(context.relay, context.snapshot),
+  ]);
   context.emit({
     type: "workspaceData",
     workspaceId: context.snapshot.id,
@@ -350,8 +365,8 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     analyticsDatasets: [],
     drafts: [],
     campaigns: [],
-    recurringWork: [],
-    activity: [],
+    recurringWork: schedules,
+    activity,
     actionItems: [],
     waysOfWorking: {
       mode: "mission-control",
@@ -361,75 +376,21 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
   });
 }
 
-function toProjectRecord(project: RelayProject): ProjectRecord {
-  return {
-    ...project,
-    createdAt: Date.parse(project.createdAt),
-    updatedAt: Date.parse(project.updatedAt),
-  };
-}
-
-function toProjectSnapshot(project: RelayProject): ProjectRepositorySnapshot {
-  const record = toProjectRecord(project);
-  return {
-    project: record,
-    portable: Boolean(record.canonicalRemoteUrl),
-    available: false,
-    branches: [record.defaultBranch],
-    commits: [],
-    checkouts: [],
-    error:
-      "This project is registered on the relay. Materialize it in an agent cell to inspect or change its files.",
-  };
-}
-
-function projectRepositoryDetails(raw: string): {
-  name: string;
-  providerId: RelayProject["providerId"];
-  canonicalRemoteUrl: string;
-  repositoryWebUrl?: string;
-} {
-  const value = raw.trim();
-  const scp = /^git@([^:]+):(.+)$/u.exec(value);
-  const normalized = scp ? `ssh://${scp[1]}/${scp[2]}` : value;
-  const url = new URL(normalized);
-  if (
-    !["https:", "ssh:"].includes(url.protocol) ||
-    (url.username && url.protocol === "https:")
-  ) {
-    throw new Error(
-      "Use an HTTPS or SSH Git remote without embedded credentials.",
-    );
-  }
-  const path = url.pathname.replace(/^\//u, "").replace(/\.git$/iu, "");
-  const name = path.split("/").filter(Boolean).at(-1) ?? "Project";
-  const hostname = url.hostname.toLowerCase();
-  const providerId =
-    hostname === "github.com"
-      ? "github"
-      : hostname === "gitlab.com"
-        ? "gitlab"
-        : hostname === "bitbucket.org"
-          ? "bitbucket"
-          : "generic-git";
-  return {
-    name,
-    providerId,
-    canonicalRemoteUrl: scp ? value : url.toString(),
-    ...(["github", "gitlab", "bitbucket"].includes(providerId)
-      ? { repositoryWebUrl: `https://${hostname}/${path}` }
-      : undefined),
-  };
-}
-
 function toWorkspaceFileRecord(file: WorkspaceFile): WorkspaceFileRecord {
   return {
     id: file.id,
     name: file.title,
+    previewContent: file.asset
+      ? undefined
+      : file.mimeType === "text/html"
+        ? file.content
+        : file.content.slice(0, 2400),
     path: file.path,
     mimeType: file.mimeType,
     kind: file.mimeType === "message/rfc822" ? "email" : "document",
-    provider: "local",
+    provider: "relay",
+    ...(file.asset ? { asset: file.asset } : undefined),
+    sourceConversationId: file.conversationId,
     currentVersionId: String(file.version),
     createdBy: "agent",
     sourceAgentId: file.authorAgentId,

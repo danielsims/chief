@@ -120,3 +120,31 @@ void test("prefers a hosted provider connector over a same-id Git package", () =
     "discovery",
   );
 });
+
+void test("prefers a vetted bundled connector over catalog discovery", () => {
+  const discovered = parseIntegrationsCatalog({
+    data: [
+      {
+        kind: "mcp",
+        slug: "github",
+        name: "GitHub",
+        description: "A discovered GitHub endpoint.",
+        domain: "github.com",
+      },
+    ],
+  })[0];
+  assert.ok(discovered);
+  const bundled = {
+    ...discovered,
+    source: { type: "bundled" as const, path: "/plugins/github" },
+    catalogId: "chief-bundled",
+  };
+  assert.equal(
+    mergePluginCatalogEntries([discovered, bundled])[0]?.source.type,
+    "bundled",
+  );
+  assert.equal(
+    mergePluginCatalogEntries([bundled, discovered])[0]?.source.type,
+    "bundled",
+  );
+});

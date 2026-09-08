@@ -7,7 +7,9 @@ import {
   Lock,
   MoreHorizontal,
   UserRound,
+  X,
 } from "lucide-react";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -20,12 +22,13 @@ import { cn } from "@chief/ui/lib/utils";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
+import { useAuth } from "../../lib/auth/auth-context";
+import { useWorkspaceFiles } from "../../lib/runtime";
 import {
   isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
+  workspaceAgentIdentity,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
-import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
 
 interface ConversationHeaderChannel {
@@ -41,7 +44,7 @@ interface ConversationHeaderProps {
   directAgentId: WorkspaceAgentId | null;
   directIdentity: { name: string } | null;
   directPresence: AgentPresence;
-  onContinueArtifact: (artifact: { id: string; title: string }) => void;
+  agents: readonly { id: string; name: string; role: string }[];
   onOpenActivity: () => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
   activeView: "messages" | "canvas";
@@ -54,13 +57,18 @@ export function ConversationHeader({
   directAgentId,
   directIdentity,
   directPresence,
-  onContinueArtifact,
+  agents,
   onOpenActivity,
   onOpenProfile,
   activeView,
   onViewChange,
   user,
 }: ConversationHeaderProps) {
+  const [params, setParams] = useSearchParams();
+  const { cloudOrganizationId } = useAuth();
+  const { files } = useWorkspaceFiles(cloudOrganizationId);
+  const selectedArtifact = params.get("artifact");
+  const artifact = files.find((file) => file.id === selectedArtifact);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -115,12 +123,9 @@ export function ConversationHeader({
         <div className="flex items-center gap-1.5">
           {!directIdentity ? (
             <>
-              <ChannelArtifactsMenu
-                channelId={channel.id}
-                onContinue={onContinueArtifact}
-              />
               <ChannelMembersMenu
                 channel={channel}
+                agents={agents}
                 user={user}
                 onOpenProfile={onOpenProfile}
               />
@@ -190,7 +195,10 @@ export function ConversationHeader({
         </div>
       </div>
       {!directIdentity ? (
-        <nav aria-label="Channel views" className="flex h-10 gap-1 px-5">
+        <nav
+          aria-label="Channel views"
+          className="flex h-10 gap-1 overflow-x-auto px-5"
+        >
           {(
             [
               { id: "messages", label: "Messages" },
@@ -203,15 +211,38 @@ export function ConversationHeader({
               onClick={() => onViewChange(view.id)}
               className={cn(
                 "text-muted-foreground hover:text-foreground relative flex h-full items-center px-2.5 text-[12px] leading-4 font-normal transition-colors",
-                activeView === view.id && "text-foreground",
+                activeView === view.id &&
+                  !selectedArtifact &&
+                  "text-foreground",
               )}
             >
               {view.label}
-              {activeView === view.id ? (
+              {activeView === view.id && !selectedArtifact ? (
                 <span className="bg-foreground absolute right-2.5 bottom-0 left-2.5 h-px" />
               ) : null}
             </button>
           ))}
+          {selectedArtifact && (
+            <div className="border-foreground flex min-w-0 items-center gap-1 border-b px-2 text-sm">
+              <span className="max-w-56 truncate">
+                {artifact?.name ?? "Artifact"}
+              </span>
+              <button
+                type="button"
+                aria-label="Close artifact tab"
+                onClick={() =>
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("artifact");
+                    return next;
+                  })
+                }
+                className="text-muted-foreground hover:text-foreground rounded p-1"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
         </nav>
       ) : null}
     </header>
@@ -220,15 +251,19 @@ export function ConversationHeader({
 
 function ChannelMembersMenu({
   channel,
+  agents,
   user,
   onOpenProfile,
 }: {
   channel: ConversationHeaderChannel;
+  agents: readonly { id: string; name: string; role: string }[];
   user: ConversationHeaderProps["user"];
   onOpenProfile: ConversationHeaderProps["onOpenProfile"];
 }) {
-  const agents = channel.agentIds.flatMap((agentId) =>
-    isWorkspaceAgentId(agentId) ? [agentId] : [],
+  const channelAgents = channel.agentIds.flatMap((agentId) =>
+    isWorkspaceAgentId(agentId) || agents.some((agent) => agent.id === agentId)
+      ? [{ id: agentId, ...workspaceAgentIdentity(agentId, agents) }]
+      : [],
   );
   const [open, setOpen] = useState(false);
   const selectProfile = (selection: ConversationProfileSelection) => {
@@ -253,10 +288,10 @@ function ChannelMembersMenu({
                 className="ring-card size-4 rounded-full object-cover ring-1"
               />
             ) : null}
-            {agents.slice(0, 3).map((agentId) => (
+            {channelAgents.slice(0, 3).map((agent) => (
               <AgentAvatar
-                key={agentId}
-                label={WORKSPACE_AGENT_IDENTITIES[agentId].name}
+                key={agent.id}
+                label={agent.name}
                 className="ring-card size-4 ring-1"
               />
             ))}
@@ -299,27 +334,26 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
-          {agents.map((agentId) => {
-            const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+          {channelAgents.map((agent) => {
             return (
               <button
-                key={agentId}
+                key={agent.id}
                 type="button"
                 onClick={() =>
                   selectProfile({
                     kind: "agent",
-                    agentId,
+                    agentId: agent.id,
                   })
                 }
                 className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
               >
-                <AgentAvatar label={identity.name} className="size-7" />
+                <AgentAvatar label={agent.name} className="size-7" />
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-medium">
-                    {identity.name}
+                    {agent.name}
                   </span>
                   <span className="text-muted-foreground block truncate text-[10px]">
-                    {identity.role}
+                    {agent.role}
                   </span>
                 </span>
               </button>

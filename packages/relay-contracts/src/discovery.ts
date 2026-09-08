@@ -5,6 +5,7 @@ export const relayCapabilitySchema = z.enum([
   "conversations",
   "durable-agents",
   "projects",
+  "git",
   "artifacts",
   "logs",
 ]);
@@ -15,7 +16,7 @@ export const relayAuthenticationMethodSchema = z.enum([
 ]);
 
 export const relayDiscoverySchema = z.object({
-  protocol: z.literal("chief-relay"),
+  protocol: z.literal("relay"),
   protocolVersion: z.literal(1),
   relayId: z.string().min(1),
   deployment: z.enum([

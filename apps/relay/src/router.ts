@@ -11,7 +11,6 @@ import { deleteImageAsset, uploadImageAsset } from "./attachments";
 import { AuthorizationError } from "./auth";
 import { isRelayAuthRequest, routeRelayAuth } from "./auth/routes";
 import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
-import { bindDeviceIdentity } from "./device-identities";
 import {
   attempt,
   failureResponse,
@@ -30,11 +29,17 @@ import {
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
+import { routeIdentityAndPush } from "./router-identity";
+import { routeMissionRequest } from "./router-missions";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
+import { routeScheduleRunRequest } from "./router-schedule-runs";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
+import { routeWorkspaceGit } from "./router-workspace-git";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
+import { routeWorkspaceSettings } from "./router-workspace-settings";
+import { routeWorkspaceVercel } from "./router-workspace-vercel";
 import {
   activeManagedWorkspace,
   authorizeConversation,
@@ -95,11 +100,23 @@ export async function routeRelayRequest(
       routePublicRequest(request, url, env),
     );
     if (publicResponse) return publicResponse;
-    if (url.pathname === "/v1/identity/device" && request.method === "POST") {
-      return yield* attempt("relay.device.bind", () =>
-        bindDeviceIdentity(env, request),
-      );
-    }
+    const identityResponse = yield* attempt("relay.identity", () =>
+      routeIdentityAndPush(env, request),
+    );
+    if (identityResponse) return identityResponse;
+    const scheduleResponse = yield* attempt("relay.schedule_runs", () =>
+      routeScheduleRunRequest(env, request, requestId),
+    );
+    if (scheduleResponse) return scheduleResponse;
+    const missionResponse = yield* attempt("relay.missions", () =>
+      routeMissionRequest(env, request, requestId),
+    );
+    if (missionResponse) return missionResponse;
+
+    const settingsResponse = yield* attempt("relay.workspace_settings", () =>
+      routeWorkspaceSettings(env, request, requestId),
+    );
+    if (settingsResponse) return settingsResponse;
 
     const workspaceResponse = yield* routeWorkspaceRequest(
       env,
@@ -212,6 +229,10 @@ function routeWorkspaceRequest(
     const url = new URL(request.url);
     const onboarding = yield* routeOnboardingTelemetry(env, request, requestId);
     if (onboarding) return onboarding;
+    const git = yield* routeWorkspaceGit(env, request, requestId);
+    if (git) return git;
+    const vercel = yield* routeWorkspaceVercel(env, request, requestId);
+    if (vercel) return vercel;
     if (
       url.pathname === "/v1/me/avatar" &&
       (request.method === "POST" || request.method === "DELETE")

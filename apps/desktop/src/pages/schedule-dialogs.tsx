@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { CalendarPlus, Pencil, Repeat2, ShieldCheck } from "lucide-react";
+import {
+  CalendarPlus,
+  MoreHorizontal,
+  Pencil,
+  Repeat2,
+  ShieldCheck,
+} from "lucide-react";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
@@ -11,6 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@chief/ui/components/dropdown-menu";
 import { Input } from "@chief/ui/components/input";
 
 import type { ScheduledDraft } from "./schedule-calendar-core";
@@ -22,6 +34,7 @@ import {
   friendlyPermission,
   friendlySchedule,
 } from "./schedule-editor";
+import { ScheduleRunHistory } from "./schedule-run-history";
 
 export function RecurringWorkApprovalDialog({
   work,
@@ -120,14 +133,15 @@ export function RecurringWorkApprovalDialog({
                   className="mt-0.5 shrink-0 text-emerald-500"
                 />
                 <p className="text-muted-foreground text-[11px] leading-4.5">
-                  Chief cannot add new permissions without asking you again.
+                  Scheduled work uses this agent's configured workspace
+                  permissions. You can review those in Agents.
                 </p>
               </div>
 
               {permissions.length > 0 ? (
                 <details className="group rounded-xl border border-black/[0.055] px-3 py-2.5 dark:border-white/[0.055]">
                   <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center justify-between text-[11px] transition-colors marker:content-none">
-                    <span>What it can access</span>
+                    <span>Requested connector actions</span>
                     <span className="tabular-nums">
                       {permissions.length}{" "}
                       {permissions.length === 1 ? "action" : "actions"}
@@ -239,14 +253,21 @@ export function ScheduleEventDetailDialog({
   onClose,
   onEditWork,
   onOpenDraft,
+  onOpenWorkChannel,
+  onTogglePause,
+  onRunWork,
 }: {
   work: RecurringWorkRecord | null;
   draft: ScheduledDraft | null;
   onClose: () => void;
   onEditWork: (work: RecurringWorkRecord) => void;
   onOpenDraft: (draft: ScheduledDraft) => void;
+  onOpenWorkChannel: (work: RecurringWorkRecord) => void;
+  onTogglePause: (work: RecurringWorkRecord) => void;
+  onRunWork: (work: RecurringWorkRecord) => void;
 }) {
   const open = Boolean(work ?? draft);
+  const content = (work?.instructions ?? draft?.body ?? "").trim();
   const source = work ? agentName(work.agentId) : draft?.platform;
   const status = work
     ? workStatusLabel(work.status)
@@ -267,65 +288,116 @@ export function ScheduleEventDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-lg overflow-hidden p-0">
+      <DialogContent className="border-border/80 w-[calc(100%-32px)] max-w-[480px] gap-0 overflow-hidden rounded-xl p-0 shadow-[0_16px_64px_-12px_rgb(0_0_0/0.45)]">
         {work || draft ? (
           <>
-            <DialogHeader className="px-6 pt-6 pb-4 text-left">
-              <div className="flex items-start gap-3.5 pr-8">
-                <span className="bg-foreground/[0.06] flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-                  {source?.slice(0, 1).toUpperCase()}
-                </span>
-                <div className="min-w-0 pt-0.5">
-                  <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.02em]">
-                    {work?.title ?? draft?.title}
-                  </DialogTitle>
-                  <DialogDescription className="mt-1 text-xs">
-                    {source} · {timing}
-                  </DialogDescription>
-                </div>
-              </div>
+            <DialogHeader className="space-y-1 px-5 pt-5 pr-12 pb-4 text-left">
+              <DialogTitle className="text-[17px] leading-6 font-medium tracking-tight">
+                {work?.title ?? draft?.title}
+              </DialogTitle>
+              <DialogDescription className="text-xs">
+                {source}
+                {work ? ` · ${work.timezone}` : ""}
+              </DialogDescription>
             </DialogHeader>
-
-            <div className="space-y-4 px-6 pb-6">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
-                  <p className="text-muted-foreground text-[10px]">Status</p>
-                  <p className="mt-0.5 text-xs font-medium">{status}</p>
+            <div className="px-5 pb-5">
+              <p className="text-foreground/85 max-h-56 overflow-y-auto text-[13px] leading-6 whitespace-pre-wrap">
+                {content.length > 0 ? content : "No additional details."}
+              </p>
+              <dl className="border-border/60 mt-5 space-y-3 border-t pt-4 text-xs">
+                <div className="flex items-baseline justify-between gap-6">
+                  <dt className="text-muted-foreground">Schedule</dt>
+                  <dd className="text-right">{timing}</dd>
                 </div>
-                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
-                  <p className="text-muted-foreground text-[10px]">
-                    {work ? "Runs" : "Destination"}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs font-medium">
-                    {work ? friendlySchedule(work) : draft?.platform}
-                  </p>
+                <div className="flex items-center justify-between gap-6">
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd className="flex items-center gap-1.5">
+                    <span
+                      className={`size-1.5 rounded-full ${work?.status === "active" ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
+                    />
+                    {status}
+                  </dd>
                 </div>
-              </div>
-
-              <div>
-                <p className="text-muted-foreground mb-1.5 text-[10px]">
-                  {work ? "Brief" : "Content"}
+              </dl>
+              {work?.collaborators?.length ? (
+                <p className="text-muted-foreground mt-3 text-xs">
+                  Team:{" "}
+                  {[work.agentId, ...work.collaborators]
+                    .map(agentName)
+                    .join(", ")}
                 </p>
-                <div className="bg-foreground/[0.025] max-h-56 overflow-y-auto rounded-xl px-3.5 py-3 text-xs leading-5 whitespace-pre-wrap shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
-                  {work
-                    ? work.instructions.length > 0
-                      ? work.instructions
-                      : "No additional instructions."
-                    : draft && draft.body.length > 0
-                      ? draft.body
-                      : "No draft content yet."}
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="bg-foreground/[0.018] border-t border-black/[0.055] px-6 py-4 dark:border-white/[0.055]">
-              <Button variant="outline" onClick={onClose}>
-                Close
-              </Button>
+              ) : null}
+              {work?.expectedOutcome ? (
+                <p className="mt-3 text-xs leading-5">{work.expectedOutcome}</p>
+              ) : null}
               {work ? (
-                <Button onClick={() => onEditWork(work)}>Edit schedule</Button>
+                <ScheduleRunHistory key={work.id} scheduleId={work.id} />
+              ) : null}
+            </div>
+            <DialogFooter className="border-border/60 items-center border-t px-4 py-3">
+              {work?.conversationId ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground mr-auto rounded-md px-2 text-xs"
+                  onClick={() => onOpenWorkChannel(work)}
+                >
+                  Open channel
+                </Button>
+              ) : (
+                <span className="mr-auto" />
+              )}
+              {work ? (
+                <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="rounded-md"
+                        aria-label="Schedule actions"
+                      >
+                        <MoreHorizontal size={16} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="min-w-36 rounded-lg p-1"
+                    >
+                      <DropdownMenuItem
+                        className="rounded-md text-xs"
+                        onSelect={() => onTogglePause(work)}
+                      >
+                        {work.status === "active"
+                          ? "Pause schedule"
+                          : "Resume schedule"}
+                      </DropdownMenuItem>
+                      {work.status === "active" ? (
+                        <DropdownMenuItem
+                          className="rounded-md text-xs"
+                          onSelect={() => onRunWork(work)}
+                        >
+                          Run now
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    size="sm"
+                    className="rounded-md text-xs"
+                    onClick={() => onEditWork(work)}
+                  >
+                    Edit schedule
+                  </Button>
+                </>
               ) : draft?.fileId ? (
-                <Button onClick={() => onOpenDraft(draft)}>Open draft</Button>
+                <Button
+                  size="sm"
+                  className="rounded-md text-xs"
+                  onClick={() => onOpenDraft(draft)}
+                >
+                  Open draft
+                </Button>
               ) : null}
             </DialogFooter>
           </>

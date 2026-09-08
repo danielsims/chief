@@ -6,8 +6,8 @@ import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
 import type { AgentJobQueue } from "./agent-job-queue";
 import type { TurnFailure } from "./agent-runtime-support";
 import {
-  agentRetryDelay,
   completeAgentJob,
+  hostedAutomaticRetryAt,
   internalFailureMessage,
 } from "./agent-runtime-support";
 import { attempt } from "./effect";
@@ -46,9 +46,10 @@ export const failAgentAdmission = Effect.fn("failAgentAdmission")(
     workspaceName: string;
     error: Error;
   }) {
-    const retryAt = new Date(
-      Date.now() + agentRetryDelay(input.job.attempt),
-    ).toISOString();
+    const retryAt = hostedAutomaticRetryAt(
+      input.job.attempt,
+      input.error.message,
+    );
     yield* Effect.logError("Agent admission failed", {
       workspaceId: input.job.workspaceId,
       workspaceName: input.workspaceName,
@@ -57,10 +58,14 @@ export const failAgentAdmission = Effect.fn("failAgentAdmission")(
       cause: input.error.message,
       retryAt,
     });
-    yield* completeAgentJob(input.queue, input.leaseToken, input.principal, {
-      status: "failed",
-      error: input.error.message.slice(0, 4_000),
-      retryAt,
-    });
+    const error = input.error.message.slice(0, 4_000);
+    yield* completeAgentJob(
+      input.queue,
+      input.leaseToken,
+      input.principal,
+      retryAt
+        ? { status: "failed", error, retryAt }
+        : { status: "failed", error },
+    );
   },
 );

@@ -11,6 +11,7 @@ struct AgentInferenceConfig: Codable, Equatable, Sendable {
 struct AgentConfig: Codable, Equatable, Sendable {
   var enabled: Bool = true
   var deploymentTarget: String = "cloud"
+  var messageAccess: String? = nil
   var inference = AgentInferenceConfig(
     provider: "opencode",
     model: "opencode-go/deepseek-v4-flash",

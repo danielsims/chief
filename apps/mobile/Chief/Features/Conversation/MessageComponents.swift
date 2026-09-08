@@ -19,7 +19,7 @@ struct MessageComponentList: View {
   private var visibleComponents: [MessageComponent] {
     message.components.filter { component in
       switch component.kind {
-      case "action-request", "attachment", "plugin.recommendation", "plugin.authorization": true
+      case "artifact.reference", "action-request", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
       case "tool":
         component.payload["name"] == BrowserReleaseTool.name
           && component.payload["status"] == "completed"
@@ -31,6 +31,8 @@ struct MessageComponentList: View {
   @ViewBuilder
   private func componentView(_ component: MessageComponent) -> some View {
     switch component.kind {
+    case "artifact.reference":
+      ArtifactMessageComponent(message: message, component: component)
     case "action-request":
       ActionRequestMessageComponent(component: component) { option in
         respond(to: component, with: option)
@@ -57,6 +59,8 @@ struct MessageComponentList: View {
       )
     case "plugin.authorization":
       PluginAuthorizationMessageComponent(message: message, component: component)
+    case "project.recommendation":
+      ProjectRecommendationMessageComponent(component: component)
     default:
       EmptyView()
     }
@@ -772,5 +776,71 @@ private struct ActionRequestMessageComponent: View {
 
   private var options: [String] {
     component.payload["options"]?.split(separator: "|").map(String.init) ?? []
+  }
+}
+
+@MainActor
+private struct ProjectRecommendationMessageComponent: View {
+  let component: MessageComponent
+  @Environment(AppModel.self) private var model
+  @State private var showsConnect = false
+
+  private var title: String {
+    component.payload["title"] ?? "Connect a repository"
+  }
+  private var description: String {
+    component.payload["description"] ?? "Add the Git repository this workspace should work in."
+  }
+  private var remoteURL: String? { component.payload["remoteUrl"] }
+  private var alreadyConnected: Bool {
+    guard let remoteURL else { return false }
+    return model.workspace?.projects.contains {
+      $0.canonicalRemoteURL == remoteURL || $0.repositoryWebURL == remoteURL
+    } == true
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "folder.badge.gearshape")
+        .font(.system(size: 18))
+        .frame(width: 40, height: 40)
+        .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.system(size: 14, weight: .medium))
+          .lineLimit(1)
+        Text(hostLabel)
+          .font(.system(size: 12))
+          .foregroundStyle(ChiefTheme.secondary)
+          .lineLimit(1)
+      }
+      Spacer(minLength: 8)
+      if alreadyConnected {
+        Label("Connected", systemImage: "checkmark.circle.fill")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.green)
+          .labelStyle(.titleAndIcon)
+      } else {
+        Button("Connect") { showsConnect = true }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(ChiefTheme.elevated.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
+    .overlay {
+      RoundedRectangle(cornerRadius: 16).stroke(ChiefTheme.line, lineWidth: 0.5)
+    }
+    .sheet(isPresented: $showsConnect) {
+      AddProjectSheet(initialRemoteURL: remoteURL ?? "")
+    }
+  }
+
+  private var hostLabel: String {
+    if let remoteURL, let host = URL(string: remoteURL)?.host {
+      return host.replacingOccurrences(of: "www.", with: "")
+    }
+    return description
   }
 }

@@ -11,8 +11,9 @@ void test("provider setup skills load from concise prompt markers", () => {
   assert.ok(skill);
   assert.equal(skill.id, "setup-github");
   assert.equal(skill.domain, "github.com");
-  assert.match(skill.instructions, /fine-grained 90-day token/u);
-  assert.match(skill.instructions, /captureGeneratedCredential/u);
+  assert.match(skill.instructions, /bundled `github` plugin/u);
+  assert.match(skill.instructions, /Never broaden that selection/u);
+  assert.doesNotMatch(skill.instructions, /personal access token named/u);
 });
 
 void test("unknown setup skill markers are ignored", () => {

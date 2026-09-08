@@ -27,6 +27,7 @@ import {
   channelActionResultSchema,
   channelCreateCommandSchema,
   channelDetailSchema,
+  channelJoinCommandSchema,
   channelListResultSchema,
   channelMemberAddCommandSchema,
   conversationIdSchema,
@@ -53,6 +54,7 @@ import {
   workspaceInviteClaimResultSchema,
   workspaceInviteSchema,
   workspaceListResultSchema,
+  workspaceMediaUploadSchema,
   workspaceMemberListSchema,
   workspaceSnapshotSchema,
   workspaceSwitchResultSchema,
@@ -80,7 +82,7 @@ export class RelayClientBase {
 
   discovery() {
     this.discoveryRequest ??= this.fetchJson(
-      `${this.relayUrl}/.well-known/chief-relay`,
+      `${this.relayUrl}/.well-known/relay`,
       relayDiscoverySchema,
       false,
     );
@@ -115,9 +117,11 @@ export class RelayClientBase {
   }
   async createWorkspace(command: CreateWorkspaceCommand, credential: string) {
     const secrets =
-      command.inferenceProvider === "vercelAiGateway"
-        ? { vercelAiGateway: credential }
-        : { opencode: credential };
+      command.agentRuntime === "vercel-eve"
+        ? {}
+        : command.inferenceProvider === "vercelAiGateway"
+          ? { vercelAiGateway: credential }
+          : { opencode: credential };
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
       workspaceSnapshotSchema,
@@ -298,6 +302,27 @@ export class RelayClientBase {
     );
   }
 
+  async joinChannel(conversationId: string): Promise<void> {
+    const conversation = conversationIdSchema.parse(conversationId);
+    await this.fetchJson(
+      this.workspaceUrl(`channels/${encodeURIComponent(conversation)}/join`),
+      channelActionResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          channelJoinCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: { conversationId: conversation },
+          }),
+        ),
+      },
+    );
+  }
+
   async listWorkspaceMembers(): Promise<WorkspaceMember[]> {
     return (
       await this.fetchJson(
@@ -333,6 +358,42 @@ export class RelayClientBase {
     if (response.status === 204) return null;
     if (!response.ok) throw await RelayClientError.fromResponse(response);
     return brandProfileSchema.parse(await response.json());
+  }
+
+  async loadWorkspaceAsset(
+    asset: { agentId: string; artifactId: string },
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    const response = await this.fetchResponse(
+      this.workspaceUrl(
+        `agents/${encodeURIComponent(asset.agentId)}/artifacts/${encodeURIComponent(asset.artifactId)}`,
+      ),
+      true,
+      { signal },
+    );
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    return response.blob();
+  }
+
+  async publishWorkspaceAsset(
+    agentId: string,
+    input: {
+      name: string;
+      contentType: string;
+      contentBase64: string;
+      conversationId: string;
+    },
+  ): Promise<WorkspaceFile> {
+    return this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/artifacts`),
+      workspaceFileSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(workspaceMediaUploadSchema.parse(input)),
+      },
+    );
   }
 
   async listWorkspaceFiles(): Promise<WorkspaceFile[]> {

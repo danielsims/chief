@@ -5,7 +5,7 @@ export function authorFor(principal: Principal): MessageAuthor {
   if (principal.kind === "agent") {
     return { kind: "agent", id: principal.agentId };
   }
-  return { kind: "system", id: "chief-relay" };
+  return { kind: "system", id: "relay" };
 }
 
 export function reactorPubkey(principal: Principal): string | undefined {

@@ -1,6 +1,5 @@
 import type { DriverType, WorkspaceChannel } from "@chief/agent-runtime/types";
 
-import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
 
 function isDriverType(value: string): value is DriverType {
@@ -16,10 +15,19 @@ export function requestedDriver(value: string | null): DriverType | undefined {
   return value && isDriverType(value) ? value : undefined;
 }
 
+export function channelVisibility(visibility: string | undefined) {
+  return visibility === "private" ? ("private" as const) : ("public" as const);
+}
+
 export function isWorkspaceAgentId(
   value: string | null,
-): value is WorkspaceAgentId {
-  return value !== null && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
+  agents: readonly { id: string }[] = [],
+) {
+  return (
+    value !== null &&
+    (Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value) ||
+      agents.some((agent) => agent.id === value))
+  );
 }
 
 export function isNewConversation(

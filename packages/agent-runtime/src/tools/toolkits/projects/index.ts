@@ -1,3 +1,4 @@
+import { recommendProjectTool } from "../../runtime/projects/recommend-project.js";
 import { commitProjectCheckoutTool } from "./commit-project-checkout.js";
 import { compareProjectBranchesTool } from "./compare-project-branches.js";
 import { createProjectCheckoutTool } from "./create-project-checkout.js";
@@ -13,6 +14,7 @@ import { requestProjectAccessTool } from "./request-project-access.js";
 
 export const projectsToolkit = [
   listProjectsTool,
+  recommendProjectTool,
   inspectProjectTool,
   createProjectCheckoutTool,
   getProjectCheckoutStatusTool,

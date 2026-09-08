@@ -2,6 +2,7 @@ import { agentConfigSchema, defaultAgentConfig } from "@chief/relay-contracts";
 
 const collaborationPermissions = [
   "workspace.read",
+  "workspace.write",
   "channels.read",
   "channels.create",
   "members.read",
@@ -9,6 +10,10 @@ const collaborationPermissions = [
   "messages.read",
   "messages.send",
 ] as const;
+
+const legacyCollaborationPermissions = collaborationPermissions.filter(
+  (permission) => permission !== "workspace.write",
+);
 
 const pluginPermissions = ["integrations.manage"] as const;
 
@@ -19,7 +24,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "channels.update",
         "channels.archive",
         "messages.manage",
@@ -39,7 +43,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "brand-profile-write",
         "browser.use",
       ],
@@ -52,7 +55,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "prospects-write",
         "browser.use",
       ],
@@ -87,7 +89,6 @@ export function defaultAgentConfigFor(agentId: string) {
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "workspace.write",
         "browser.use",
         "projects.read",
         "projects.write",
@@ -120,8 +121,10 @@ export function effectiveAgentConfigFor(
   const legacyIntegrationConfig =
     (agentId === "ads" || agentId === "setup") &&
     config.capabilities.length === 0 &&
-    config.toolPermissions.length === collaborationPermissions.length &&
-    collaborationPermissions.every((permission) => permissions.has(permission));
+    config.toolPermissions.length === legacyCollaborationPermissions.length &&
+    legacyCollaborationPermissions.every((permission) =>
+      permissions.has(permission),
+    );
   if (legacyIntegrationConfig) {
     capabilities = ["advanced"];
     permissions.add("browser.use");

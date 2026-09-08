@@ -22,12 +22,22 @@ import type {
 import { HttpError, json, parseJson } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { channelMembersDeleteChannelsMembersRemove } from "./queries/channel-members/delete-channels-members-remove";
+import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
+import { channelMembersFindChannelsMembershipsList } from "./queries/channel-members/find-channels-memberships-list";
+import { channelMembersFindCurrentPrincipalMembershipsList } from "./queries/channel-members/find-current-principal-memberships-list";
+import { channelMembersInsertChannelsMembersAdd } from "./queries/channel-members/insert-channels-members-add";
+import { channelMembershipBatchesFindChannelsMembersAdd } from "./queries/channel-membership-batches/find-channels-members-add";
+import { channelMembershipBatchesInsertChannelsMembersAdd } from "./queries/channel-membership-batches/insert-channels-members-add";
+import { channelMembershipBatchesUpdatePublishPendingMembershipBatch } from "./queries/channel-membership-batches/update-publish-pending-membership-batch";
+import { channelMembershipEventsDeleteChannelsMembersRemove } from "./queries/channel-membership-events/delete-channels-members-remove";
 import {
   firstRow,
   parseChannelId,
   principalKindId,
 } from "./workspace-channel-store";
-import { defaultWorkspaceAgents } from "./workspace-defaults";
+import { defaultWorkspaceAgentProfiles } from "./workspace-defaults";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
 
 interface ChannelMembershipBatchRow extends Record<string, SqlStorageValue> {
   command_id: string;
@@ -47,7 +57,7 @@ interface PendingChannelMembershipBatchEvent {
 export class WorkspaceChannelMembership {
   constructor(private readonly store: WorkspaceChannelStore) {}
 
-  channelsMembersList(
+  async channelsMembersList(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
   ) {
@@ -55,6 +65,7 @@ export class WorkspaceChannelMembership {
       new URL(request.url).searchParams.get("conversationId"),
     );
     this.store.requireChannelVisible(conversationId, context.principal);
+    await refreshMemberDisplayNames(this.store.storage, this.store.env);
     return json(
       channelMembersResultSchema.parse({
         members: this.store.channelMemberRows(conversationId),
@@ -72,13 +83,9 @@ export class WorkspaceChannelMembership {
         "Only a workspace owner or admin can list all channel memberships.",
       );
     }
-    const rows = this.store.storage.sql
-      .exec<ChannelMemberRow>(
-        `SELECT conversation_id, principal_kind, principal_id, role, joined_at
-         FROM channel_members
-         ORDER BY conversation_id, principal_kind, principal_id`,
-      )
-      .toArray();
+    const rows = channelMembersFindChannelsMembershipsList<ChannelMemberRow>(
+      this.store.storage,
+    );
     return json({
       memberships: rows.map((row) => ({
         conversationId: String(row.conversation_id),
@@ -107,16 +114,12 @@ export class WorkspaceChannelMembership {
         "Only a user or agent has channel memberships.",
       );
     }
-    const rows = this.store.storage.sql
-      .exec<ChannelMemberRow>(
-        `SELECT conversation_id, principal_kind, principal_id, role, joined_at
-         FROM channel_members
-         WHERE principal_kind = ? AND principal_id = ?
-         ORDER BY conversation_id`,
+    const rows =
+      channelMembersFindCurrentPrincipalMembershipsList<ChannelMemberRow>(
+        this.store.storage,
         kind,
         id,
-      )
-      .toArray();
+      );
     return json({
       memberships: rows.map((row) => ({
         conversationId: String(row.conversation_id),
@@ -142,8 +145,8 @@ export class WorkspaceChannelMembership {
       this.store.requireChannelManager(conversationId, context.principal);
     }
     const receipt = firstRow<ChannelMembershipBatchRow>(
-      this.store.storage.sql.exec(
-        "SELECT * FROM channel_membership_batches WHERE command_id = ?",
+      channelMembershipBatchesFindChannelsMembersAdd(
+        this.store.storage,
         command.commandId,
       ),
     );
@@ -191,7 +194,7 @@ export class WorkspaceChannelMembership {
         name:
           target.kind === "user"
             ? "you"
-            : (defaultWorkspaceAgents.find(
+            : (defaultWorkspaceAgentProfiles.find(
                 (agent) => agent.id === target.principalId,
               )?.name ?? humanizeIdentifier(target.principalId)),
       })),
@@ -199,31 +202,24 @@ export class WorkspaceChannelMembership {
     };
     this.store.storage.transactionSync(() => {
       for (const target of additions) {
-        this.store.storage.sql.exec(
-          `INSERT INTO channel_members (
-            conversation_id, principal_kind, principal_id, role, joined_at
-          ) VALUES (?, ?, ?, 'member', ?)
-          ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-          conversationId,
-          target.kind,
-          target.principalId,
-          now,
-        );
+        channelMembersInsertChannelsMembersAdd(this.store.storage, {
+          conversationId: conversationId,
+          principalKind: target.kind,
+          principalId: target.principalId,
+          joinedAt: now,
+        });
       }
-      this.store.storage.sql.exec(
-        `INSERT INTO channel_membership_batches (
-          command_id, conversation_id, event_json, published
-        ) VALUES (?, ?, ?, ?)`,
-        command.commandId,
-        conversationId,
-        JSON.stringify(pendingEvent),
-        additions.length > 0 ? 0 : 1,
-      );
+      channelMembershipBatchesInsertChannelsMembersAdd(this.store.storage, {
+        commandId: command.commandId,
+        conversationId: conversationId,
+        eventJson: JSON.stringify(pendingEvent),
+        published: additions.length > 0 ? 0 : 1,
+      });
       this.store.rewriteSnapshot(() => undefined);
     });
     const pending = firstRow<ChannelMembershipBatchRow>(
-      this.store.storage.sql.exec(
-        "SELECT * FROM channel_membership_batches WHERE command_id = ?",
+      channelMembershipBatchesFindChannelsMembersAdd(
+        this.store.storage,
         command.commandId,
       ),
     );
@@ -239,9 +235,8 @@ export class WorkspaceChannelMembership {
     if (row.published === 1) return;
     const event = parsePendingChannelMembershipBatchEvent(row.event_json);
     await this.publishMemberAddedEvent(workspaceId, row.conversation_id, event);
-    this.store.storage.sql.exec(
-      `UPDATE channel_membership_batches SET published = 1
-       WHERE command_id = ?`,
+    channelMembershipBatchesUpdatePublishPendingMembershipBatch(
+      this.store.storage,
       row.command_id,
     );
   }
@@ -261,8 +256,9 @@ export class WorkspaceChannelMembership {
           : actor.service;
     const actorName =
       actor.kind === "agent"
-        ? (defaultWorkspaceAgents.find((agent) => agent.id === actor.agentId)
-            ?.name ?? humanizeIdentifier(actor.agentId))
+        ? (defaultWorkspaceAgentProfiles.find(
+            (agent) => agent.id === actor.agentId,
+          )?.name ?? humanizeIdentifier(actor.agentId))
         : actor.kind === "user"
           ? "You"
           : "Chief";
@@ -307,7 +303,7 @@ export class WorkspaceChannelMembership {
     });
     const relayPrincipal = {
       kind: "service" as const,
-      service: "chief-relay",
+      service: "relay",
       workspaceId: parsedWorkspaceId,
     };
     const workspace = this.store.requireWorkspace(parsedWorkspaceId);
@@ -353,22 +349,18 @@ export class WorkspaceChannelMembership {
     this.store.requireChannel(conversationId);
     const { kind, id } = principalKindId(context.principal);
     const actorMembership = firstRow<ChannelMemberRow>(
-      this.store.storage.sql.exec(
-        `SELECT * FROM channel_members
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        kind,
-        id,
-      ),
+      channelMembersFindChannelsMembersRemove(this.store.storage, {
+        conversationId: conversationId,
+        principalKind: kind,
+        principalId: id,
+      }),
     );
     const targetMembership = firstRow<ChannelMemberRow>(
-      this.store.storage.sql.exec(
-        `SELECT * FROM channel_members
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        command.payload.kind,
-        command.payload.principalId,
-      ),
+      channelMembersFindChannelsMembersRemove(this.store.storage, {
+        conversationId: conversationId,
+        principalKind: command.payload.kind,
+        principalId: command.payload.principalId,
+      }),
     );
     const isSelf =
       command.payload.kind === kind && command.payload.principalId === id;
@@ -389,20 +381,16 @@ export class WorkspaceChannelMembership {
       );
     }
     this.store.storage.transactionSync(() => {
-      this.store.storage.sql.exec(
-        `DELETE FROM channel_members
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        command.payload.kind,
-        command.payload.principalId,
-      );
-      this.store.storage.sql.exec(
-        `DELETE FROM channel_membership_events
-         WHERE conversation_id = ? AND principal_kind = ? AND principal_id = ?`,
-        conversationId,
-        command.payload.kind,
-        command.payload.principalId,
-      );
+      channelMembersDeleteChannelsMembersRemove(this.store.storage, {
+        conversationId: conversationId,
+        principalKind: command.payload.kind,
+        principalId: command.payload.principalId,
+      });
+      channelMembershipEventsDeleteChannelsMembersRemove(this.store.storage, {
+        conversationId: conversationId,
+        principalKind: command.payload.kind,
+        principalId: command.payload.principalId,
+      });
       this.store.rewriteSnapshot(() => undefined);
     });
     return json(channelActionResultSchema.parse({ ok: true }));

@@ -5,12 +5,26 @@ import os
 let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 
 protocol RelayServing: Sendable {
+  func uploadIdentityImage(workspaceID: String?, data: Data) async throws -> URL
+  func removeProfileImage() async throws
+  func workspaceSettings(workspaceID: String) async throws -> WorkspaceSettingsData
+  func saveWorkspaceSettings(workspaceID: String, settings: WorkspaceSettingsData) async throws
+  func deleteWorkspace(workspaceID: String) async throws
+
   func bindDeviceIdentity(accountToken: String) async throws
+  func registerPushDevice(token: String, environment: String) async throws -> Bool
+  func createProject(
+    workspaceID: String,
+    name: String,
+    remoteURL: String,
+    providerID: String
+  ) async throws -> ProjectSummary
   func loadWorkspace() async throws -> WorkspaceSnapshot
   func createWorkspace(
     from draft: OnboardingDraft,
     inferenceCredential: String?
   ) async throws -> WorkspaceSnapshot
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage
   func messages(
     workspaceID: String,
     conversationID: String,
@@ -18,6 +32,7 @@ protocol RelayServing: Sendable {
     signingIdentity: NostrIdentity?
   ) async throws -> [ConversationMessage]
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
@@ -86,7 +101,7 @@ protocol RelayServing: Sendable {
     signingIdentity: NostrIdentity?
   ) async throws -> ChannelRecord
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws
-  func joinChannel(workspaceID: String, conversationID: String) async throws
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws
   func leaveChannel(workspaceID: String, conversationID: String) async throws
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember]
   func addChannelMember(
@@ -186,6 +201,12 @@ protocol RelayServing: Sendable {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord]
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun]
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue]
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -193,6 +214,19 @@ protocol RelayServing: Sendable {
 }
 
 extension RelayServing {
+  func registerPushDevice(token _: String, environment _: String) async throws -> Bool {
+    false
+  }
+
+  func createProject(
+    workspaceID _: String,
+    name _: String,
+    remoteURL _: String,
+    providerID _: String
+  ) async throws -> ProjectSummary {
+    throw RelayError.unavailable
+  }
+
   func workspaceSecretNames(workspaceID _: String) async throws -> [String] {
     throw RelayError.unavailable
   }
@@ -270,10 +304,26 @@ extension RelayServing {
     signingIdentity: NostrIdentity?
   ) async throws -> [ProspectRecord] { [] }
 
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] { throw RelayError.unavailable }
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue] {
+    throw ToolError.invalidArgument("Scheduling is unavailable for this relay client")
+  }
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
+    throw ToolError.invalidArgument("Artifact publishing is unavailable for this relay client")
+  }
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [WorkspaceFileRecord] { [] }
+
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage {
+    let page = try await messages(workspaceID: workspaceID, conversationID: conversationID, after: nil)
+    guard let message = page.first(where: { $0.id == messageID }) else { throw RelayError.httpStatus(404) }
+    return message
+  }
 
   func messages(
     workspaceID: String,
@@ -355,6 +405,25 @@ extension RelayServing {
   }
 
   /// Convenience overloads for sends without attachments/components.
+  func send(
+    body: String,
+    workspaceID: String,
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    components: [MessageComponent]
+  ) async throws -> ConversationMessage {
+    try await send(
+      messageID: UUID().uuidString,
+      body: body,
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      threadRootID: threadRootID,
+      mentions: mentions,
+      components: components
+    )
+  }
+
   func send(
     body: String,
     workspaceID: String,
@@ -492,6 +561,55 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
+  func registerPushDevice(token: String, environment: String) async throws -> Bool {
+    struct Payload: Encodable {
+      let token: String
+      let environment: String
+    }
+    struct Result: Decodable {
+      let token: String
+      let environment: String
+      let updatedAt: String
+      let apnsConfigured: Bool?
+    }
+    let result: Result = try await request(
+      path: "/v1/push/devices",
+      method: "POST",
+      body: try JSONEncoder().encode(Payload(token: token, environment: environment))
+    )
+    return result.apnsConfigured ?? false
+  }
+
+  func createProject(
+    workspaceID: String,
+    name: String,
+    remoteURL: String,
+    providerID: String
+  ) async throws -> ProjectSummary {
+    struct Payload: Encodable {
+      let name: String
+      let repositoryKind: String
+      let providerId: String
+      let canonicalRemoteUrl: String
+      let repositoryWebUrl: String
+      let defaultBranch: String
+    }
+    return try await request(
+      path: "/v1/workspaces/\(workspaceID)/projects",
+      method: "POST",
+      body: try JSONEncoder().encode(
+        Payload(
+          name: name,
+          repositoryKind: "cloned",
+          providerId: providerID,
+          canonicalRemoteUrl: remoteURL,
+          repositoryWebUrl: remoteURL,
+          defaultBranch: "main"
+        )
+      )
+    )
+  }
+
   func loadWorkspace() async throws -> WorkspaceSnapshot {
     try await request(path: "/v1/me/workspace", method: "GET")
   }
@@ -598,7 +716,7 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
-  func joinChannel(workspaceID: String, conversationID: String) async throws {
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws {
     let payload = ChannelCommandPayload(
       conversationId: conversationID,
       name: nil,
@@ -609,7 +727,8 @@ actor URLSessionRelayClient: RelayServing {
     let _: ActionResult = try await request(
       path: "/v1/workspaces/\(workspaceID)/channels/\(conversationID)/join",
       method: "POST",
-      body: body
+      body: body,
+      signer: signingIdentity
     )
   }
 
@@ -976,6 +1095,14 @@ actor URLSessionRelayClient: RelayServing {
     return try await request(path: "/v1/workspaces", method: "POST", body: body)
   }
 
+  func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage {
+    struct Result: Decodable { let message: ConversationMessage }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages/\(messageID)", method: "GET"
+    )
+    return result.message
+  }
+
   func messages(
     workspaceID: String,
     conversationID: String,
@@ -994,6 +1121,7 @@ actor URLSessionRelayClient: RelayServing {
   }
 
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
@@ -1005,7 +1133,7 @@ actor URLSessionRelayClient: RelayServing {
       commandId: UUID().uuidString,
       occurredAt: ISO8601DateFormatter.chief().string(from: .now),
       payload: .init(
-        messageId: UUID().uuidString,
+        messageId: messageID,
         conversationId: conversationID,
         threadRootId: threadRootID,
         body: body,
@@ -1161,6 +1289,27 @@ actor URLSessionRelayClient: RelayServing {
     return result.prospects
   }
 
+  func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun {
+    func segment(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? value }
+    return try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(segment(scheduleID))/runs/\(segment(runID))/actions", method: "POST", body: JSONEncoder().encode(["action": action, "commandId": commandID]))
+  }
+  func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
+    let encoded = scheduleID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? scheduleID
+    let result: WorkspaceScheduleRunList = try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(encoded)/runs", method: "GET")
+    return result.runs
+  }
+  func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedule-runs/collaborators", method: "POST", body: JSONEncoder().encode(["runId":runID,"agentId":agentID,"assignment":assignment]), signer: signingIdentity)
+  }
+  func reportRunStep(workspaceID: String, runID: String, stepID: String, status: String, evidence: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedule-runs/report", method: "POST", body: JSONEncoder().encode(["runId":runID,"stepId":stepID,"status":status,"evidence":evidence]), signer: signingIdentity)
+  }
+  func proposeSchedule(workspaceID: String, input: [String: JSONValue], signingIdentity: NostrIdentity) async throws -> [String: JSONValue] {
+    try await request(path: "/v1/workspaces/\(workspaceID)/schedules", method: "POST", body: JSONEncoder().encode(input), signer: signingIdentity)
+  }
+  func saveWorkspaceFile(workspaceID: String, input: WorkspaceFileSaveInput, signingIdentity: NostrIdentity) async throws -> WorkspaceFileRecord {
+    try await request(path: "/v1/workspaces/\(workspaceID)/files", method: "POST", body: JSONEncoder().encode(input), signer: signingIdentity)
+  }
   func listWorkspaceFiles(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -1348,7 +1497,7 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
-  private func request<Response: Decodable>(
+  func request<Response: Decodable>(
     path: String,
     method: String,
     body: Data? = nil,
@@ -1490,6 +1639,8 @@ struct AgentJobLease: Codable, Equatable, Sendable {
       let selectedApps: [String]?
       let threadRootId: String?
       let skillId: String?
+      var scheduleRunId: String? = nil
+      var scheduleStepId: String? = nil
 
       init(
         conversationId: String? = nil,

@@ -4,6 +4,7 @@ import UIKit
 struct RelayConnectionSettingsView: View {
   @Environment(AppModel.self) private var model
   @State private var copied = false
+  @State private var canManageProvider = false
   @State private var provider = OnboardingDraft.InferenceProvider.openCodeGo
   @State private var configuredSecrets: Set<String> = []
   @State private var apiKey = ""
@@ -11,109 +12,119 @@ struct RelayConnectionSettingsView: View {
   @State private var inferenceError: String?
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        connectionCard
-        inferenceCard
+    SettingsPage {
+      HStack(spacing: 14) {
+        Image(systemName: isChiefCloud ? "cloud" : "server.rack")
+          .font(.system(size: 24, weight: .light))
+          .frame(width: 54, height: 54)
+          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+        VStack(alignment: .leading, spacing: 5) {
+          Text(isChiefCloud ? "Chief Cloud" : "Self-hosted")
+            .font(.system(size: 22, weight: .regular, design: .rounded))
+          HStack(spacing: 6) {
+            Circle().fill(model.workspaceSyncFailed ? Color.orange : Color.green).frame(
+              width: 5, height: 5)
+            Text(model.workspaceSyncFailed ? "Unavailable" : "Connected")
+              .font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
+          }
+        }
       }
-      .padding(ChiefTheme.pagePadding)
+      SettingsSection(title: "Connection") {
+        SettingsRow {
+          Text("Relay")
+          Spacer(minLength: 12)
+          Button {
+            UIPasteboard.general.string = relayOrigin
+            copied = true
+            Haptics.light()
+          } label: {
+            HStack(spacing: 7) {
+              Text(relayHost).lineLimit(1).truncationMode(.middle)
+              Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 12))
+            }.foregroundStyle(ChiefTheme.secondary)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(copied ? "Relay address copied" : "Copy relay address")
+        }
+        SettingsRow {
+          Text("Security")
+          Spacer()
+          Label("Signed device", systemImage: "checkmark.shield")
+            .font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
+        }
+      }
+      if canManageProvider {
+        SettingsSection(title: "Agent provider") {
+          SettingsRow {
+            Text("Provider")
+            Spacer()
+            Picker("Provider", selection: $provider) {
+              Text("Vercel AI Gateway").tag(OnboardingDraft.InferenceProvider.vercelAiGateway)
+              Text("OpenCode").tag(OnboardingDraft.InferenceProvider.openCodeGo)
+            }
+            .labelsHidden()
+            .tint(ChiefTheme.secondary)
+            .disabled(savingInference)
+            .onChange(of: provider) { _, _ in
+              apiKey = ""
+              inferenceError = nil
+            }
+          }
+          SettingsRow {
+            SecureField("API key", text: $apiKey)
+              .textContentType(.password)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .privacySensitive()
+              .disabled(savingInference)
+          }
+          Text(
+            configuredSecrets.contains(secretName)
+              ? "A key is saved. Enter a new one to replace it."
+              : "Add a key to connect your agents."
+          )
+          .font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
+          .padding(.top, 12)
+          if !apiKey.isEmpty {
+            Button(savingInference ? "Saving…" : "Save key") {
+              Task { await saveInferenceSettings() }
+            }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            .disabled(
+              savingInference || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+            .padding(.top, 16)
+          }
+          if let inferenceError {
+            Text(inferenceError).font(.system(size: 13)).foregroundStyle(.red).padding(.top, 12)
+          }
+        }
+      }
     }
-    .background(ChiefTheme.background)
     .navigationTitle("Connection")
-    .navigationBarTitleDisplayMode(.inline)
-    .task { await loadInferenceSettings() }
-  }
-
-  private var inferenceCard: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Hosted agents")
-          .font(.system(size: 17, weight: .semibold))
-        Text("Choose the inference provider for this workspace’s agents.")
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
-      }
-
-      HStack(spacing: 8) {
-        providerButton(.vercelAiGateway, title: "Vercel AI Gateway")
-        providerButton(.openCodeGo, title: "OpenCode")
-      }
-
-      SecureField("\(providerName) API key", text: $apiKey)
-        .textContentType(.password)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .textFieldStyle(ChiefTextFieldStyle())
-        .privacySensitive()
-
-      HStack {
-        Text(
-          configuredSecrets.contains(secretName)
-            ? "\(providerName) is configured. Its credential cannot be read back."
-            : "Add your \(providerName) API key to use this provider."
-        )
-        .font(.system(size: 13))
-        .foregroundStyle(ChiefTheme.secondary)
-        Spacer(minLength: 12)
-        Button(configuredSecrets.contains(secretName) ? "Replace" : "Save") {
-          Task { await saveInferenceSettings() }
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(.white)
-        .foregroundStyle(.black)
-        .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || savingInference)
-      }
-
-      if let inferenceError {
-        Text(inferenceError)
-          .font(.system(size: 13))
-          .foregroundStyle(Color.red)
-      }
-    }
-    .padding(16)
-    .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: ChiefTheme.cardRadius))
-    .overlay {
-      RoundedRectangle(cornerRadius: ChiefTheme.cardRadius)
-        .stroke(ChiefTheme.line, lineWidth: 1)
-    }
-  }
-
-  private func providerButton(
-    _ value: OnboardingDraft.InferenceProvider,
-    title: String
-  ) -> some View {
-    Button {
-      provider = value
-      apiKey = ""
-      Haptics.selection()
-    } label: {
-      Text(title)
-        .font(.system(size: 13, weight: .medium))
-        .frame(maxWidth: .infinity, minHeight: 42)
-        .background(
-          provider == value ? ChiefTheme.elevated : ChiefTheme.background,
-          in: RoundedRectangle(cornerRadius: 10)
-        )
-        .overlay {
-          RoundedRectangle(cornerRadius: 10)
-            .stroke(provider == value ? Color.primary : ChiefTheme.line, lineWidth: 1)
-        }
-    }
-    .buttonStyle(.plain)
+    .task(id: model.workspace?.id) { await loadInferenceSettings() }
   }
 
   private var secretName: String {
     provider == .vercelAiGateway ? "vercel-ai-gateway" : "opencode"
   }
 
-  private var providerName: String {
-    provider == .vercelAiGateway ? "Vercel AI Gateway" : "OpenCode"
-  }
-
   @MainActor
   private func loadInferenceSettings() async {
-    guard let workspace = model.workspace else { return }
+    canManageProvider = false
+    guard let workspace = model.workspace, let userID = model.session?.user.id else { return }
     do {
+      let members = try await model.relay.workspaceMembers(workspaceID: workspace.id)
+      guard
+        members.contains(where: {
+          $0.kind == "user" && $0.principalId == userID && $0.role == "owner"
+        }),
+        model.workspace?.id == workspace.id
+      else { return }
+      canManageProvider = true
       configuredSecrets = Set(try await model.relay.workspaceSecretNames(workspaceID: workspace.id))
       if let config = try await model.relay.loadAgentConfig(
         workspaceID: workspace.id,
@@ -122,7 +133,7 @@ struct RelayConnectionSettingsView: View {
         provider = .vercelAiGateway
       }
     } catch {
-      inferenceError = error.localizedDescription
+      inferenceError = "Couldn’t load provider settings. Try again."
     }
   }
 
@@ -140,7 +151,8 @@ struct RelayConnectionSettingsView: View {
         name: secretName,
         value: value
       )
-      let inference = provider == .vercelAiGateway
+      let inference =
+        provider == .vercelAiGateway
         ? AgentInferenceConfig(
           provider: "vercel-ai-gateway",
           model: "deepseek/deepseek-v4-flash",
@@ -152,10 +164,12 @@ struct RelayConnectionSettingsView: View {
           secretRef: "opencode"
         )
       for agent in workspace.agents {
-        guard var config = try await model.relay.loadAgentConfig(
-          workspaceID: workspace.id,
-          agentID: agent.id
-        ) else { continue }
+        guard
+          var config = try await model.relay.loadAgentConfig(
+            workspaceID: workspace.id,
+            agentID: agent.id
+          )
+        else { continue }
         config.inference = inference
         try await model.relay.saveAgentConfig(
           workspaceID: workspace.id,
@@ -167,101 +181,8 @@ struct RelayConnectionSettingsView: View {
       apiKey = ""
       Haptics.success()
     } catch {
-      inferenceError = error.localizedDescription
+      inferenceError = "Couldn’t save the key. Try again."
     }
-  }
-
-  private var connectionCard: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .top, spacing: 13) {
-        Group {
-          if isChiefCloud {
-            Image(systemName: "cloud.fill")
-          } else {
-            Image(systemName: "server.rack")
-          }
-        }
-        .font(.system(size: 18, weight: .medium))
-        .frame(width: 42, height: 42)
-        .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
-
-        VStack(alignment: .leading, spacing: 4) {
-          Text(model.workspace?.name ?? "Workspace connection")
-            .font(.system(size: 17, weight: .semibold))
-          Text(
-            isChiefCloud
-              ? "Chief manages this workspace’s relay and updates."
-              : "This workspace runs on infrastructure managed by your team."
-          )
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 4)
-      }
-      .padding(16)
-
-      Divider().overlay(ChiefTheme.line)
-      detailRow("Status") {
-        Label(
-          model.workspaceSyncFailed ? "Unavailable" : "Connected",
-          systemImage: model.workspaceSyncFailed ? "exclamationmark.circle.fill" : "circle.fill"
-        )
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(model.workspaceSyncFailed ? Color.orange : Color.green)
-      }
-      Divider().overlay(ChiefTheme.line)
-      detailRow("Hosting") {
-        Text(isChiefCloud ? "Chief Cloud" : "Self-hosted")
-      }
-      Divider().overlay(ChiefTheme.line)
-      detailRow("Relay address") {
-        Button {
-          UIPasteboard.general.string = relayOrigin
-          copied = true
-          Haptics.light()
-          Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            copied = false
-          }
-        } label: {
-          HStack(spacing: 7) {
-            Text(relayHost)
-              .lineLimit(1)
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-          }
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(copied ? "Relay address copied" : "Copy relay address")
-      }
-      Divider().overlay(ChiefTheme.line)
-      detailRow("Identity") {
-        Label("Signed device", systemImage: "checkmark.shield")
-          .font(.system(size: 13))
-      }
-    }
-    .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: ChiefTheme.cardRadius))
-    .overlay {
-      RoundedRectangle(cornerRadius: ChiefTheme.cardRadius)
-        .stroke(ChiefTheme.line, lineWidth: 1)
-    }
-  }
-
-  private func detailRow<Content: View>(
-    _ label: String,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    HStack(spacing: 16) {
-      Text(label)
-        .font(.system(size: 13))
-        .foregroundStyle(ChiefTheme.secondary)
-      Spacer(minLength: 16)
-      content()
-    }
-    .frame(minHeight: 50)
-    .padding(.horizontal, 16)
   }
 
   private var isChiefCloud: Bool {

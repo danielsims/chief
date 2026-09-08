@@ -15,9 +15,60 @@ import {
   workspaceFileSchema,
   workspaceFilesResultSchema,
   workspaceFileUpdateSchema,
+  workspaceMediaUploadSchema,
 } from "./workspace-data";
 
 export const workspaceDataOpenApiPaths = {
+  "/v1/workspaces/{workspaceId}/agents/{agentId}/artifacts": {
+    post: {
+      operationId: "publishWorkspaceAsset",
+      description:
+        "Publish a file up to 8 MB as this agent. Files inherit their source conversation's access rules.",
+      parameters: [pathParameter("workspaceId"), pathParameter("agentId")],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: jsonSchema(workspaceMediaUploadSchema),
+          },
+        },
+      },
+      responses: {
+        "201": jsonResponse(
+          "The published workspace file.",
+          workspaceFileSchema,
+        ),
+        "400": errorResponse,
+        "401": errorResponse,
+        "403": errorResponse,
+        "413": errorResponse,
+      },
+    },
+  },
+  "/v1/workspaces/{workspaceId}/agents/{agentId}/artifacts/{artifactId}": {
+    get: {
+      operationId: "downloadWorkspaceAsset",
+      parameters: [
+        pathParameter("workspaceId"),
+        pathParameter("agentId"),
+        pathParameter("artifactId"),
+      ],
+      responses: {
+        "200": {
+          description:
+            "The file bytes with their original content type, as an attachment.",
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" },
+            },
+          },
+        },
+        "401": errorResponse,
+        "403": errorResponse,
+        "404": errorResponse,
+      },
+    },
+  },
   "/v1/workspaces/{workspaceId}/files": {
     get: {
       operationId: "listWorkspaceFiles",

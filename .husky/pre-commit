@@ -1,1 +1,2 @@
+# Lint, typecheck and autoformat the proposed commit without staging local WIP.
 pnpm check:staged

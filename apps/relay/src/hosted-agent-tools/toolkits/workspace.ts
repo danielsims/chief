@@ -1,6 +1,9 @@
 import {
   brandProfileSaveSchema,
   prospectSaveSchema,
+  workspaceFileSaveSchema,
+  workspaceFilesResultSchema,
+  workspaceScheduleInputSchema,
 } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input";
@@ -8,6 +11,93 @@ import { defineHostedAgentTool } from "../tool";
 import { deterministicUuid, workspaceOperation } from "./channels";
 
 export const hostedWorkspaceTools = [
+  defineHostedAgentTool(
+    "recurringWork.list",
+    async ({ env, job, principal }) =>
+      await workspaceOperation(env, job, principal, "schedules-list"),
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "recurringWork.propose",
+    async ({ env, job, principal }, input) =>
+      await workspaceOperation(env, job, principal, "schedules-save", {
+        body: workspaceScheduleInputSchema.parse({
+          ...input,
+          id:
+            optionalString(input, "id") ??
+            (await deterministicUuid(
+              `${job.id}:schedule:${requiredString(input, "title")}`,
+            )),
+          conversationId:
+            optionalString(input, "conversationId") ??
+            requiredString(job.payload, "conversationId"),
+          onceAt: input.onceAt,
+        }),
+      }),
+    { effect: "idempotent" },
+  ),
+  defineHostedAgentTool(
+    "files.list",
+    async ({ env, job, principal }) =>
+      workspaceOperation(env, job, principal, "data-files-list"),
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "files.read",
+    async ({ env, job, principal }, input) => {
+      const { files } = workspaceFilesResultSchema.parse(
+        await workspaceOperation(env, job, principal, "data-files-list"),
+      );
+      const file = files.find(
+        (candidate) => candidate.id === requiredString(input, "fileId"),
+      );
+      if (!file) throw new Error("File not found.");
+      return { file };
+    },
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "files.write",
+    async ({ env, job, principal }, input) => {
+      const existing = input.id
+        ? workspaceFilesResultSchema
+            .parse(
+              await workspaceOperation(env, job, principal, "data-files-list"),
+            )
+            .files.find((file) => file.id === input.id)
+        : undefined;
+      return workspaceOperation(env, job, principal, "data-file-save", {
+        body: workspaceFileSaveSchema.parse({
+          id: optionalString(input, "id"),
+          path:
+            optionalString(input, "path") ??
+            existing?.path ??
+            `artifacts/${crypto.randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
+          title: requiredString(input, "name"),
+          content: requiredString(input, "content"),
+          mimeType:
+            input.kind === "email"
+              ? "message/rfc822"
+              : input.format === "html"
+                ? "text/html"
+                : input.format === "csv"
+                  ? "text/csv"
+                  : input.format === "json"
+                    ? "application/json"
+                    : "text/markdown",
+          conversationId:
+            optionalString(input, "conversationId") ??
+            existing?.conversationId ??
+            requiredString(job.payload, "conversationId"),
+          expectedVersion: input.expectedVersionId
+            ? Number(requiredString(input, "expectedVersionId"))
+            : undefined,
+        }),
+      });
+    },
+    { effect: "non_replayable" },
+  ),
+
   defineHostedAgentTool(
     "brandProfile.status",
     async ({ env, job, principal }) =>

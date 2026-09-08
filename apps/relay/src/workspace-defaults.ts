@@ -1,67 +1,56 @@
 import { z } from "zod";
 
 import type { JsonObject, WorkspaceSnapshot } from "@chief/relay-contracts";
+import { authoredAgentDefinitions } from "@chief/agent-runtime/agent-definitions";
 import {
   parseJsonObject,
+  projectProviderIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
+const authoredById = new Map(
+  authoredAgentDefinitions.map((agent) => [agent.id, agent]),
+);
+const chief = authoredById.get("chief");
+if (!chief) throw new Error("Chief's authored agent definition is missing.");
+
 export const defaultWorkspaceAgents = [
   {
-    id: "chief",
-    name: "Chief",
-    role: "Chief of staff",
+    id: chief.id,
+    name: chief.name,
+    role: chief.role,
+    description: chief.description,
+    instructions: chief.instructions,
+    capabilities: chief.capabilities ?? [],
     status: "working",
-  },
-  {
-    id: "brand",
-    name: "Marketer",
-    role: "Marketing",
-    status: "idle",
-  },
-  {
-    id: "content",
-    name: "Content",
-    role: "Content and creative",
-    status: "idle",
-  },
-  {
-    id: "analyst",
-    name: "Analyst",
-    role: "Measurement and reporting",
-    status: "idle",
-  },
-  {
-    id: "ads",
-    name: "Advertising",
-    role: "Paid acquisition",
-    status: "idle",
-  },
-  {
-    id: "prospector",
-    name: "Prospector",
-    role: "Research and outreach",
-    status: "idle",
-  },
-  {
-    id: "engineer",
-    name: "Engineer",
-    role: "Product engineering",
-    status: "idle",
-  },
-  {
-    id: "setup",
-    name: "Setup",
-    role: "Connections and integrations",
-    status: "idle",
+    runtime: { kind: "native-cell" },
+    subagents: (chief.delegates ?? []).flatMap((agentId) => {
+      const subagent = authoredById.get(agentId);
+      return subagent
+        ? [
+            {
+              id: subagent.id,
+              name: subagent.name,
+              role: subagent.role,
+              description: subagent.description,
+              instructions: subagent.instructions,
+              capabilities: subagent.capabilities ?? [],
+            },
+          ]
+        : [];
+    }),
   },
 ] as const satisfies WorkspaceSnapshot["agents"];
 
-/** Normalizes a stored workspace snapshot so older or drifted data can never
- * brick the workspace. The only lenient field today is `runtime`: a stale
- * value outside the current enum falls back to the schema's own nullable
- * default instead of throwing. We log the offending value so the drift is
- * root-caused, then repair it persistently at the next write. */
+export const defaultWorkspaceAgentProfiles = defaultWorkspaceAgents.flatMap(
+  (agent) => [agent, ...agent.subagents],
+);
+
+export function workspaceAgentProfiles(snapshot: WorkspaceSnapshot) {
+  return snapshot.agents.flatMap((agent) => [agent, ...agent.subagents]);
+}
+
+/** Normalizes known stored-data drift before applying the strict wire schema. */
 export function decodeWorkspaceSnapshot(json: string): WorkspaceSnapshot {
   // The stored JSON is trusted to be a JSON object (it was written by the
   // schema); this boundary parser either yields one or leaves no path to
@@ -70,13 +59,26 @@ export function decodeWorkspaceSnapshot(json: string): WorkspaceSnapshot {
   if (!raw) throw new Error("Stored workspace snapshot is not a JSON object.");
   const parsed = workspaceSnapshotSchema.safeParse(raw);
   if (parsed.success) return parsed.data;
+
+  let repaired = raw;
+  let changed = false;
   const staleRuntime = workspaceSnapshotRuntimeSafeParse(raw);
   if (staleRuntime) {
     console.warn("[workspace-snapshot] lenient runtime decode", {
       runtime: staleRuntime,
     });
-    return workspaceSnapshotSchema.parse({ ...raw, runtime: null });
+    repaired = { ...repaired, runtime: null };
+    changed = true;
   }
+  const staleProviders = workspaceSnapshotProjectProviders(raw);
+  if (staleProviders) {
+    console.warn("[workspace-snapshot] lenient project provider decode", {
+      providerIds: staleProviders.providerIds,
+    });
+    repaired = { ...repaired, projects: staleProviders.projects };
+    changed = true;
+  }
+  if (changed) return workspaceSnapshotSchema.parse(repaired);
   throw parsed.error;
 }
 
@@ -92,19 +94,39 @@ function workspaceSnapshotRuntimeSafeParse(raw: JsonObject) {
   return candidate.success ? candidate.data : undefined;
 }
 
+function workspaceSnapshotProjectProviders(raw: JsonObject) {
+  if (!Array.isArray(raw.projects)) return undefined;
+  const providerIds: string[] = [];
+  const projects = raw.projects.map((value) => {
+    const project = parseJsonObject(value);
+    if (!project) return value;
+    const candidate = z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .safeParse(project.providerId);
+    if (
+      !candidate.success ||
+      projectProviderIdSchema.safeParse(candidate.data).success
+    ) {
+      return project;
+    }
+    providerIds.push(candidate.data);
+    return { ...project, providerId: "generic-git" };
+  });
+  return providerIds.length > 0 ? { projects, providerIds } : undefined;
+}
+
 export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
   snapshot: WorkspaceSnapshot;
   changed: boolean;
 } {
-  const existing = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
-  const missing = defaultWorkspaceAgents.filter(
-    (agent) => !existing.has(agent.id),
-  );
   const missionControlWasPrivate = snapshot.conversations.some(
     (conversation) =>
       conversation.id === "mission-control" && conversation.isPrivate,
   );
-  if (missing.length === 0 && !missionControlWasPrivate) {
+  if (!missionControlWasPrivate) {
     return { snapshot, changed: false };
   }
   return {
@@ -115,17 +137,6 @@ export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
           ? { ...conversation, isPrivate: false }
           : conversation,
       ),
-      agents: [
-        ...defaultWorkspaceAgents.map(
-          (agent) => existing.get(agent.id) ?? agent,
-        ),
-        ...snapshot.agents.filter(
-          (agent) =>
-            !defaultWorkspaceAgents.some(
-              (required) => required.id === agent.id,
-            ),
-        ),
-      ],
     },
     changed: true,
   };

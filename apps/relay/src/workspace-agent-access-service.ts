@@ -2,6 +2,8 @@ import type { Principal } from "@chief/relay-contracts";
 import {
   agentConfigSchema,
   agentIdSchema,
+  agentSummarySchema,
+  createNativeAgentCommandSchema,
   isJsonObject,
   parseJsonObject,
 } from "@chief/relay-contracts";
@@ -9,34 +11,105 @@ import {
 import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
+import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
+import { agentConfigsInsertConfigSet } from "./queries/agent-configs/insert-config-set";
+import { agentKeysDeleteRemove } from "./queries/agent-keys/delete-remove";
+import { channelMembersDeleteRemove } from "./queries/channel-members/delete-remove";
+import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
+import { channelMembershipBatchesDeleteRemove } from "./queries/channel-membership-batches/delete-remove";
+import { channelMembershipEventsDeleteRemove } from "./queries/channel-membership-events/delete-remove";
+import { channelsDeleteRemove } from "./queries/channels/delete-remove";
+import { channelsFindAgentDirects } from "./queries/channels/find-agent-directs";
+import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
+import { membersInsertRegister } from "./queries/members/insert-register";
+import { projectsDeleteRemove } from "./queries/projects/delete-remove";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
+import {
+  requireAgentMessageAccess,
+  requirePersonalAgentOwner,
+} from "./workspace-agent-messaging";
+import { requireNativeAgent, workspaceAgent } from "./workspace-agent-runtime";
 import {
   firstRow,
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
-import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import {
+  decodeWorkspaceSnapshot,
+  workspaceAgentProfiles,
+} from "./workspace-defaults";
 import { readMachines } from "./workspace-machine-store";
+import {
+  refreshMemberDisplayNames,
+  workspacePeople,
+} from "./workspace-member-names";
+import { projectIdsOwnedByAgent } from "./workspace-project-store";
 
 export class WorkspaceAgentAccessService {
   private readonly channels: WorkspaceChannelStore;
 
   constructor(
     private readonly storage: DurableObjectStorage,
-    env: Env,
+    private readonly env: Env,
   ) {
     this.channels = new WorkspaceChannelStore(storage, env);
+  }
+
+  async create(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const input = createNativeAgentCommandSchema.parse(
+      await parseJson(request),
+    );
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json) {
+      throw new HttpError(
+        409,
+        "workspace_snapshot_unavailable",
+        "This workspace cannot add agents yet.",
+      );
+    }
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    if (
+      workspaceAgentProfiles(snapshot).some(
+        (agent) => agent.id === input.agentId,
+      )
+    ) {
+      throw new HttpError(409, "agent_exists", "This agent already exists.");
+    }
+    const agent = agentSummarySchema.parse({
+      id: input.agentId,
+      ownerUserId:
+        context.principal.kind === "user"
+          ? context.principal.userId
+          : undefined,
+      name: input.name,
+      role: input.role,
+      description: input.description,
+      instructions: input.instructions,
+      status: "idle",
+      runtime: { kind: "native-cell" },
+    });
+    const now = new Date().toISOString();
+    this.storage.transactionSync(() => {
+      membersInsertRegister(this.storage, agent.id, now);
+      workspaceUpdateVerifyConnection(
+        this.storage,
+        JSON.stringify({ ...snapshot, agents: [...snapshot.agents, agent] }),
+      );
+    });
+    return json({ agent });
   }
 
   configGet(request: Request) {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, false);
     const agentId = requestedAgentId(request);
+    requireNativeAgent(this.storage, agentId);
     const row = firstRow<AgentConfigRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
-        agentId,
-      ),
+      agentConfigsFindConfigGet(this.storage, agentId),
     );
     if (!row) {
       return json({
@@ -59,6 +132,18 @@ export class WorkspaceAgentAccessService {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
     const agentId = requestedAgentId(request);
+    const agent = workspaceAgent(this.storage, agentId);
+    if (agent.runtime.kind === "external-channel") {
+      return json({
+        workspaceId: context.workspaceId,
+        agentId,
+        address: agent.runtime.endpoint,
+        runtime: agent.runtime,
+        status: "ready",
+        deploymentTarget: null,
+        computer: null,
+      });
+    }
     const config = this.channels.agentConfiguration(agentId);
     const address = new URL(
       `/v1/workspaces/${encodeURIComponent(context.workspaceId)}/agents/${encodeURIComponent(agentId)}`,
@@ -89,6 +174,8 @@ export class WorkspaceAgentAccessService {
       throw new HttpError(400, "invalid_request", "Expected a JSON object.");
     }
     const agentId = agentIdSchema.parse(input.agentId);
+    requireNativeAgent(this.storage, agentId);
+    requireAgentMessageAccess(this.channels, agentId, context.principal);
     const configInput = parseJsonObject(input.config);
     if (!configInput) {
       throw new HttpError(
@@ -98,17 +185,101 @@ export class WorkspaceAgentAccessService {
       );
     }
     const parsedConfig = agentConfigSchema.parse(configInput);
+    if (
+      this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud" ||
+      parsedConfig.deploymentTarget !== "cloud"
+    ) {
+      requirePersonalAgentOwner(this.channels, agentId, context.principal);
+    }
     const updatedAt = new Date().toISOString();
-    this.storage.sql.exec(
-      `INSERT INTO agent_configs (agent_id, config_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(agent_id) DO UPDATE SET config_json = excluded.config_json,
-         updated_at = excluded.updated_at`,
-      agentId,
-      JSON.stringify(parsedConfig),
-      updatedAt,
-    );
+    agentConfigsInsertConfigSet(this.storage, {
+      agentId: agentId,
+      configJson: JSON.stringify(parsedConfig),
+      updatedAt: updatedAt,
+    });
     return json({ agentId, config: parsedConfig, updatedAt });
+  }
+
+  remove(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const agentId = requestedAgentId(request);
+    if (this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud")
+      requirePersonalAgentOwner(this.channels, agentId, context.principal);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    const snapshot = workspace.snapshot_json
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json)
+      : null;
+    const rootAgent = snapshot?.agents.find((agent) => agent.id === agentId);
+    const nestedAgent = snapshot?.agents
+      .flatMap((agent) => agent.subagents)
+      .find((agent) => agent.id === agentId);
+    if (nestedAgent) {
+      throw new HttpError(
+        409,
+        "subagent_owned_by_root",
+        "This subagent is managed through its root agent.",
+      );
+    }
+    const existsInSnapshot = rootAgent !== undefined;
+    if (
+      !existsInSnapshot &&
+      this.channels.memberRole("agent", agentId) === null
+    ) {
+      throw new HttpError(404, "agent_not_found", "The agent does not exist.");
+    }
+    const directConversationIds = channelsFindAgentDirects<{
+      conversation_id: string;
+    }>(this.storage, agentId).map((row) => row.conversation_id);
+    const projectIds = projectIdsOwnedByAgent(
+      this.storage,
+      context.workspaceId,
+      agentId,
+    );
+    const removedAgentIds = [
+      agentId,
+      ...(rootAgent?.subagents.map((subagent) => subagent.id) ?? []),
+    ];
+
+    this.storage.transactionSync(() => {
+      for (const conversationId of directConversationIds) {
+        channelMembersDeleteRemove(this.storage, conversationId);
+        channelMembershipEventsDeleteRemove(this.storage, conversationId);
+        channelMembershipBatchesDeleteRemove(this.storage, conversationId);
+        channelsDeleteRemove(this.storage, conversationId);
+      }
+      for (const removedAgentId of removedAgentIds) {
+        channelMembersDeleteRemoveRow(this.storage, removedAgentId);
+        agentKeysDeleteRemove(this.storage, removedAgentId);
+        agentConfigsDeleteRemove(this.storage, removedAgentId);
+        membersDeleteDisconnect(this.storage, removedAgentId);
+      }
+      for (const projectId of projectIds) {
+        projectsDeleteRemove(this.storage, projectId);
+      }
+      if (snapshot) {
+        workspaceUpdateVerifyConnection(
+          this.storage,
+          JSON.stringify({
+            ...snapshot,
+            agents: snapshot.agents.filter((agent) => agent.id !== agentId),
+            conversations: snapshot.conversations.filter(
+              (conversation) =>
+                !directConversationIds.includes(conversation.id),
+            ),
+            projects: snapshot.projects.filter(
+              (project) => !projectIds.includes(project.id),
+            ),
+          }),
+        );
+      }
+    });
+    return json({
+      workspaceId: context.workspaceId,
+      agentId,
+      removed: true,
+      directConversationIds,
+    });
   }
 
   authorizeConversation(request: Request) {
@@ -127,6 +298,21 @@ export class WorkspaceAgentAccessService {
       new URL(request.url).searchParams.get("conversationId"),
     );
     this.channels.requireChannelVisible(conversationId, context.principal);
+    const channel = this.channels.requireChannel(conversationId);
+    if (
+      permission === "messages.send" &&
+      channel.kind === "direct" &&
+      context.principal.kind === "user"
+    ) {
+      for (const member of this.channels.channelMemberRows(conversationId)) {
+        if (member.kind === "agent")
+          requireAgentMessageAccess(
+            this.channels,
+            member.principalId,
+            context.principal,
+          );
+      }
+    }
     return json({ ok: true });
   }
 
@@ -140,6 +326,7 @@ export class WorkspaceAgentAccessService {
         "An agent identity is required for agent runtime access.",
       );
     }
+    requireNativeAgent(this.storage, context.principal.agentId);
     if (!this.channels.agentConfiguration(context.principal.agentId).enabled) {
       throw new HttpError(
         403,
@@ -150,7 +337,16 @@ export class WorkspaceAgentAccessService {
     return json({ ok: true });
   }
 
-  hostingContext(request: Request) {
+  authorizeNativeAgent(request: Request) {
+    const context = readTrustedContext(request);
+    this.channels.requirePrincipalMember(context.principal);
+    const agentId = requestedAgentId(request);
+    requireNativeAgent(this.storage, agentId);
+    requireAgentMessageAccess(this.channels, agentId, context.principal);
+    return json({ ok: true });
+  }
+
+  async hostingContext(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
     if (context.principal.kind !== "agent") {
@@ -161,19 +357,14 @@ export class WorkspaceAgentAccessService {
       );
     }
     const agentId = context.principal.agentId;
+    requireNativeAgent(this.storage, agentId);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
     if (!workspace.snapshot_json) {
       return json({ runtime: null, managed: false });
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
-    if (!agent) {
-      throw new HttpError(
-        404,
-        "agent_not_found",
-        "The hosted agent is not part of this workspace.",
-      );
-    }
+    const agent = workspaceAgent(this.storage, agentId);
+    await refreshMemberDisplayNames(this.storage, this.env);
     return json({
       managed: true,
       runtime: this.channels.agentConfiguration(agentId).deploymentTarget,
@@ -189,6 +380,7 @@ export class WorkspaceAgentAccessService {
         (machine) =>
           machine.status === "online" && machine.agentIds.includes(agentId),
       ),
+      people: workspacePeople(this.storage),
     });
   }
 

@@ -248,6 +248,49 @@ void test("published replies retain the agent that authored them", () => {
   assert.equal(reply.metadata.threadRootId, "brand-assignment");
 });
 
+void test("unmarked reply tags still keep specialist answers out of the main timeline", () => {
+  const projected = projectChannelTimeline(
+    [],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "chief-assignment",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "Marketer, take this in a thread.",
+        parts: [],
+        tags: [],
+        createdAt: 1,
+      },
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "marketer-ack",
+        channelId: "mission-control",
+        pubkey: "marketer",
+        actor: { type: "agent", id: "brand", name: "Marketer" },
+        content: "I’m on it.",
+        parts: [],
+        tags: [["e", "chief-assignment"]],
+        createdAt: 2,
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    projected.map((message) => ({
+      id: message.id,
+      threadRootId: message.metadata?.threadRootId ?? null,
+    })),
+    [
+      { id: "chief-assignment", threadRootId: null },
+      { id: "marketer-ack", threadRootId: "chief-assignment" },
+    ],
+  );
+});
+
 void test("a delayed scheduled publication uses its channel arrival time", () => {
   const [published] = projectChannelTimeline(
     [

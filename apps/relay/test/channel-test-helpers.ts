@@ -4,6 +4,7 @@ import { expect } from "vitest";
 import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   agentIdSchema,
+  appendMessageCommandSchema,
   createWorkspaceCommandSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
@@ -35,7 +36,10 @@ export interface ChannelTestContext {
   };
 }
 
-export async function setupChannelTest(): Promise<ChannelTestContext> {
+export async function setupChannelTest(options?: {
+  agentRuntime?: "relay-cell" | "vercel-eve";
+}): Promise<ChannelTestContext> {
+  const agentRuntime = options?.agentRuntime ?? "relay-cell";
   const relay: Parameters<typeof createManagedWorkspace>[0] = {
     ...env,
     BETTER_AUTH_SECRET: "test-auth-secret",
@@ -56,8 +60,10 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     commandId: crypto.randomUUID(),
     name: "Channel test",
     website: "https://heychief.sh",
-    runtime: "phone" as const,
-    inferenceProvider: "openCodeGo",
+    runtime: agentRuntime === "vercel-eve" ? "cloud" : "phone",
+    agentRuntime,
+    inferenceProvider:
+      agentRuntime === "vercel-eve" ? "vercelAiGateway" : "openCodeGo",
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],
   });
@@ -66,7 +72,8 @@ export async function setupChannelTest(): Promise<ChannelTestContext> {
     identity,
     provisionWorkspaceCommandSchema.parse({
       workspace: command,
-      secrets: { opencode: "test-opencode-key" },
+      secrets:
+        agentRuntime === "vercel-eve" ? {} : { opencode: "test-opencode-key" },
     }),
   );
   const snapshot = workspaceSnapshotSchema.parse(await created.json());
@@ -205,12 +212,60 @@ export async function testConversationMessages(
   expect(response.status).toBe(200);
   const page = (await response.json()) as {
     messages: Array<{
+      id: string;
       author: { kind: string; id: string };
       body: string;
       components: Array<{ kind: string; payload: JsonObject }>;
+      threadRootId?: string;
+      reactions: Array<{ emoji: string; pubkeys: string[] }>;
     }>;
   };
   return page.messages;
+}
+
+export async function appendConversationMessage(
+  ctx: ChannelTestContext,
+  conversationId: string,
+  body: string,
+  messageId = crypto.randomUUID(),
+) {
+  const conversation = ctx.env.CONVERSATIONS.get(
+    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:${conversationId}`),
+  );
+  const response = await conversation.fetch(
+    withTrustedContext(
+      new Request("https://conversation.internal/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          appendMessageCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: {
+              messageId,
+              conversationId,
+              body,
+              mentions: [],
+              components: [],
+            },
+          }),
+        ),
+      }),
+      {
+        principal: ctx.principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+        conversationId,
+      },
+    ),
+  );
+  expect(response.status).toBe(200);
+  return messageId;
+}
+
+export async function appendRootMessage(ctx: ChannelTestContext) {
+  return appendConversationMessage(ctx, "mission-control", "Thread root");
 }
 
 export function channelEnvelope(payload: JsonObject) {

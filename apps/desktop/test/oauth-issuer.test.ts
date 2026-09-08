@@ -11,17 +11,17 @@ void test("accepts the canonical issuer declared by an auth proxy", async () => 
   const fetcher = () =>
     Promise.resolve(
       Response.json({
-        issuer: "https://chief-relay.example/api/auth",
+        issuer: "https://relay.example/api/auth",
       }),
     );
 
   assert.equal(
     await resolveOAuthIssuer("https://heychief.example", fetcher),
-    "https://chief-relay.example/api/auth",
+    "https://relay.example/api/auth",
   );
   assert.equal(
     await oauthIssuerMatches(
-      "https://chief-relay.example/api/auth",
+      "https://relay.example/api/auth",
       "https://heychief.example",
       fetcher,
     ),

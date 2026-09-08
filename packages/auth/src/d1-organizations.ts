@@ -126,3 +126,6 @@ export async function deleteChiefOrganization(
   const db = drizzle(database);
   await db.delete(organization).where(eq(organization.id, organizationId));
 }
+
+export { getOrganizationSettings } from "./queries/get-organization-settings";
+export { updateOrganizationSettings } from "./queries/update-organization-settings";

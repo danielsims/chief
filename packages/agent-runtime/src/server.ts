@@ -77,6 +77,7 @@ import {
   isDeploymentNotFound,
   safeRuntimeError,
 } from "./deployment-failure.js";
+import { initializeEveDeploymentTelemetry } from "./eve-deployment-telemetry-node.js";
 import { captureAndStoreGeneratedCredential } from "./generated-credential-capture.js";
 import { googleAnalyticsBrowserProgress } from "./google-browser-progress.js";
 import { googleOAuthAuthenticatedBrowserPrompt } from "./google-oauth-browser-prompt.js";
@@ -153,6 +154,10 @@ import {
 import { redactExecutorHandoffCredentials } from "./tools/redaction.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
+  listVercelEveDestinations,
+  provisionVercelEveDeployment,
+} from "./vercel-eve-provisioning.js";
+import {
   capabilityWhoamiUrl,
   WorkspaceAuthorization,
 } from "./workspace-authorization.js";
@@ -176,6 +181,7 @@ const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
  * protocol. Designed to run anywhere node runs — laptop, Raspberry Pi.
  */
 export function startServer(port = PORT) {
+  initializeEveDeploymentTelemetry();
   const localToolCapabilities = new AgentSessionCapabilityRegistry();
   const manager = new SessionManager();
   const projects = createProjectServices(manager.store.projectStore());
@@ -3325,6 +3331,61 @@ export function startServer(port = PORT) {
                 type: "inputsStatus",
                 workspaceId: msg.workspaceId,
                 present,
+              });
+              break;
+            }
+            case "listVercelEveDestinations": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const environment = await workspaceSecrets.readEnv(
+                msg.workspaceId,
+                ["VERCEL_TOKEN"],
+              );
+              const token = environment.VERCEL_TOKEN;
+              if (!token) {
+                throw new Error(
+                  "Connect Vercel in Chief before choosing an Eve destination.",
+                );
+              }
+              const catalog = await listVercelEveDestinations({
+                token,
+                ...(msg.teamId ? { teamId: msg.teamId } : undefined),
+              });
+              send({
+                type: "vercelEveDestinations",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                catalog,
+              });
+              break;
+            }
+            case "provisionVercelEveAgent": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const environment = await workspaceSecrets.readEnv(
+                msg.workspaceId,
+                ["VERCEL_TOKEN"],
+              );
+              const token = environment.VERCEL_TOKEN;
+              if (!token) {
+                throw new Error(
+                  "Connect Vercel in Chief before configuring this Eve deployment.",
+                );
+              }
+              const result = await provisionVercelEveDeployment({
+                token,
+                input: msg.input,
+                onProgress: (progress) =>
+                  send({
+                    type: "eveAgentProvisioningProgress",
+                    workspaceId: msg.workspaceId,
+                    requestId: msg.requestId,
+                    progress,
+                  }),
+              });
+              send({
+                type: "eveAgentProvisioned",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                result,
               });
               break;
             }

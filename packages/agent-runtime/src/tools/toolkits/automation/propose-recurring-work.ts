@@ -4,32 +4,10 @@ import { z } from "zod";
 import type { RecurringWorkRecord } from "../../../types.js";
 import { nextRunAt, validateCron } from "../../../recurring-work.js";
 import { readWorkspaceContext } from "../../../workspace-context.js";
-import { boundedText, optionalBoundedText, time } from "../../input.js";
+import { time } from "../../input.js";
 import { jsonResponse } from "../../response.js";
 import { defineLocalTool } from "../../tool.js";
-
-const toolAddressSchema = boundedText(300).refine(
-  (address) => /^tools\.[A-Za-z0-9_.-]+$/u.test(address),
-  "Tool patterns must be exact Executor tool addresses.",
-);
-
-const recurringWorkInputSchema = z.object({
-  id: optionalBoundedText(120),
-  conversationId: optionalBoundedText(160),
-  playbookId: optionalBoundedText(120),
-  agentId: boundedText(120),
-  title: boundedText(200),
-  instructions: boundedText(8_000),
-  cron: boundedText(120),
-  timezone: boundedText(120),
-  onceAt: z.union([z.number(), z.string()]).optional(),
-  approvalSummary: boundedText(2_000),
-  proposedToolPatterns: z
-    .array(toolAddressSchema)
-    .max(30)
-    .transform((addresses) => [...new Set(addresses)]),
-  activate: z.boolean().default(false),
-});
+import { proposeRecurringWorkDefinition } from "./recurring-work-definitions.js";
 
 const automaticScheduleScopeSchema = z.array(
   z.object({
@@ -61,15 +39,7 @@ function schedulingAuthority(workspaceContext: string | undefined) {
 }
 
 export const proposeRecurringWorkTool = defineLocalTool({
-  method: "POST",
-  path: "/local-tools/recurring-work",
-  operation: {
-    operationId: "recurringWork.propose",
-    summary: "Create recurring agent work under workspace policy",
-    description:
-      "Creates a reviewable draft by default. Immediate activation requires explicit workspace authority.",
-  },
-  inputSchema: recurringWorkInputSchema,
+  ...proposeRecurringWorkDefinition,
   async execute({ context, input, manager, workspaceId }) {
     const now = Date.now();
     const id = input.id ?? randomUUID();

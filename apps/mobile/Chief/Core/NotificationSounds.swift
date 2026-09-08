@@ -106,9 +106,9 @@ struct NotificationSettingsView: View {
     ChiefNotificationSound.chime.rawValue
 
   var body: some View {
-    List {
-      Section {
-        ChiefBooleanRow(
+    SettingsPage {
+      VStack(alignment: .leading, spacing: 0) {
+        SettingsToggle(
           title: "Notification sounds",
           detail: "Play a cue for new messages and scheduled outcomes",
           isOn: soundsEnabled
@@ -118,7 +118,7 @@ struct NotificationSettingsView: View {
         }
       }
 
-      Section("Message sound") {
+      SettingsSection(title: "Message sound") {
         ForEach(ChiefNotificationSound.allCases) { sound in
           Button {
             selectedSound = sound.rawValue
@@ -137,6 +137,7 @@ struct NotificationSettingsView: View {
               Spacer()
               ChiefCheckmark(isOn: selectedSound == sound.rawValue)
             }
+            .frame(minHeight: 60)
             .contentShape(Rectangle())
           }
           .buttonStyle(.plain)

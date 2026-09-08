@@ -23,6 +23,7 @@ import {
   conversationWorkflowId,
   parseConversationPageInteger,
 } from "./conversation-request";
+import { deliverConversationSocketEvent } from "./conversation-socket-delivery";
 import { SqlConversationStore } from "./conversation-store";
 import {
   connectConversationWebSocket,
@@ -35,6 +36,7 @@ import {
   requiredTrustedConversationId,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { requireInternalDeletion } from "./internal-deletion";
 import { validatePluginComponentPlacement } from "./plugin-component-policy";
 import { recordProductEvents } from "./product-events";
 
@@ -65,6 +67,7 @@ export class ConversationObject extends DurableObject<Env> {
     const listReplies = this.replies.bind(this);
     const listReactions = this.reactions.bind(this);
     const listMessages = this.listMessages.bind(this);
+    const getMessage = this.getMessage.bind(this);
     const agentHistory = this.agentHistory.bind(this);
     const createSocketTicket = (principal: Principal) =>
       createConversationSocketTicket(this.store, principal);
@@ -96,7 +99,9 @@ export class ConversationObject extends DurableObject<Env> {
     const append = this.append.bind(this);
     const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
-        yield* sync("conversation.identity", () => readTrustedContext(request));
+        yield* sync("conversation.identity", () =>
+          requireInternalDeletion(request),
+        );
         yield* attempt("conversation.delete_all", () =>
           ctx.storage.deleteAll(),
         );
@@ -142,6 +147,12 @@ export class ConversationObject extends DurableObject<Env> {
         if (reactions) {
           return yield* sync("conversation.reactions.list", () =>
             listReactions(reactions[1] ?? ""),
+          );
+        }
+        const message = deleteRoute.exec(pathname);
+        if (message) {
+          return yield* sync("conversation.messages.get", () =>
+            getMessage(message[1] ?? ""),
           );
         }
         return yield* sync("conversation.messages.list", () =>
@@ -269,6 +280,16 @@ export class ConversationObject extends DurableObject<Env> {
       recordProductEvents(this.env, ["message"]);
     }
     return json({ duplicate: result.duplicate, message: result.message });
+  }
+  private getMessage(id: string) {
+    const message = this.store.getMessage(messageIdSchema.parse(id));
+    if (!message)
+      throw new HttpError(
+        404,
+        "message_not_found",
+        "This message is no longer available.",
+      );
+    return json({ message });
   }
   private listMessages(request: Request) {
     const url = new URL(request.url);
@@ -484,14 +505,9 @@ export class ConversationObject extends DurableObject<Env> {
   }
 
   private broadcast(event: JsonObject) {
-    const serialized = JSON.stringify(event);
-    for (const socket of this.ctx.getWebSockets()) {
-      try {
-        socket.send(serialized);
-      } catch {
-        socket.close(1011, "Delivery failed");
-      }
-    }
+    this.ctx.waitUntil(
+      deliverConversationSocketEvent(this.env, this.ctx.getWebSockets(), event),
+    );
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {

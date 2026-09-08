@@ -49,3 +49,13 @@ struct ProspectSaveInput: Codable, Equatable, Sendable {
   let relevance: String
   let status: String
 }
+
+struct WorkspaceFileSaveInput: Encodable, Sendable {
+  let id: String?
+  let path: String
+  let title: String
+  let mimeType: String
+  let content: String
+  let conversationId: String
+  let expectedVersion: Int?
+}

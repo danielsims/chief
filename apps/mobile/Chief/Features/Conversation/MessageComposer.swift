@@ -19,6 +19,7 @@ struct MessageComposer: View {
   let attachments: [ComposerAttachment]
   var availableMentionAgentIDs: [String] = WorkspaceAgentCatalog.agents.map(\.id)
   var preferredMentionAgentIDs: [String] = []
+  var people: [MentionAgent] = []
   let onSend: () -> Void
   let onAddAttachments: ([ComposerAttachment]) -> Void
   let onRemoveAttachment: (ComposerAttachment) -> Void
@@ -102,7 +103,9 @@ struct MessageComposer: View {
             .allowsHitTesting(false)
         }
       }
+      .frame(maxWidth: .infinity)
       .frame(height: editorHeight)
+      .clipped()
       .onChange(of: text) { _, value in
         if value.isEmpty { editorHeight = 48 }
         synchronizeReferences(in: value)
@@ -184,14 +187,14 @@ struct MessageComposer: View {
   }
 
   private var mentionCandidates: [MentionAgent] {
-    let available = Set(availableMentionAgentIDs)
+    let available = Set(availableMentionAgentIDs + people.map(\.id))
     let preferredOrder = Dictionary(
       uniqueKeysWithValues: preferredMentionAgentIDs.enumerated().map { ($0.element, $0.offset) }
     )
     let catalogOrder = Dictionary(
       uniqueKeysWithValues: WorkspaceAgentCatalog.agents.enumerated().map { ($0.element.id, $0.offset) }
     )
-    return WorkspaceAgentCatalog.matching(prefix: mentionQuery)
+    return WorkspaceAgentCatalog.matching(prefix: mentionQuery, people: people).filter { $0.role != "You" }
       .filter { available.contains($0.id) }
       .sorted { left, right in
       let leftPreferred = preferredOrder[left.id]
@@ -275,7 +278,7 @@ struct MessageComposer: View {
   }
 
   private func synchronizeReferences(in value: String) {
-    let mentions = AgentMentionParser.mentions(in: value)
+    let mentions = AgentMentionParser.mentions(in: value, people: people)
     let skills = MessageReferenceParser.skillIDs(in: value)
     if mentionIDs != mentions { mentionIDs = mentions }
     if skillIDs != skills { skillIDs = skills }

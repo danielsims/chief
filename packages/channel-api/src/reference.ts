@@ -91,7 +91,7 @@ export const channelApiOperations: readonly ChannelApiOperation[] = [
     description:
       "Adds the calling member to an active public channel. Private channels require an invitation.",
     permission: "Workspace member",
-    toolPermission: "members.manage",
+    toolPermission: "channels.read",
     reversible: true,
   },
   {
@@ -103,7 +103,7 @@ export const channelApiOperations: readonly ChannelApiOperation[] = [
     description:
       "Removes the calling member from the channel while preserving work and history.",
     permission: "Channel member",
-    toolPermission: "members.manage",
+    toolPermission: "channels.read",
     reversible: true,
   },
   {

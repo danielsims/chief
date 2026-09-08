@@ -14,6 +14,7 @@ void test("retains the relay and auth endpoint that started a PKCE flow", async 
   await storePkceVerifier(state, "v".repeat(43), {
     relayOrigin: "https://relay.example",
     authBaseUrl: "https://accounts.example",
+    redirectUri: "http://localhost:3000/auth/desktop",
   });
 
   const attempt = await getPkceAttempt(state);
@@ -21,6 +22,7 @@ void test("retains the relay and auth endpoint that started a PKCE flow", async 
   assert.equal(attempt.state, state);
   assert.equal(attempt.relayOrigin, "https://relay.example");
   assert.equal(attempt.authBaseUrl, "https://accounts.example");
+  assert.equal(attempt.redirectUri, "http://localhost:3000/auth/desktop");
 });
 
 void test("clears a completed PKCE attempt so a sticky callback is ignored", async () => {
@@ -29,6 +31,7 @@ void test("clears a completed PKCE attempt so a sticky callback is ignored", asy
   await storePkceVerifier(state, "v".repeat(43), {
     relayOrigin: "http://localhost:8080",
     authBaseUrl: "http://localhost:8080",
+    redirectUri: "http://localhost:3000/auth/desktop",
   });
   await clearPkceVerifier(state);
 

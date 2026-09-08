@@ -64,7 +64,7 @@ export async function routeWorkspaceChannel(
     case "channels-leave":
       return await channels.channelsLeave(request, context);
     case "channels-members-list":
-      return membership.channelsMembersList(request, context);
+      return await membership.channelsMembersList(request, context);
     case "channels-memberships-list":
       return membership.channelsMembershipsList(context);
     case "channels-memberships-self":
@@ -97,6 +97,7 @@ function permissionForChannelOperation(operation: string) {
       return "channels.read";
     case "channels-join":
     case "channels-leave":
+      return "channels.read";
     case "channels-members-add":
     case "channels-members-remove":
       return "members.manage";

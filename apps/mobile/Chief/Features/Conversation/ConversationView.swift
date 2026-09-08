@@ -16,6 +16,7 @@ struct ConversationView: View {
   @State private var sentMessageIDs: Set<String> = []
   @State private var showsActivity = false
   @State private var showsMenu = false
+  @State private var showsCanvas = false
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
@@ -42,10 +43,18 @@ struct ConversationView: View {
       }
       participationFooter
     }
+    .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
     .background(ChiefTheme.background)
     .navigationTitle(conversation?.name ?? "Conversation")
     .navigationBarTitleDisplayMode(.inline)
+    .navigationDestination(isPresented: $showsCanvas) { ChannelCanvasView(conversationID: conversationID) }
     .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        if isMember, conversation?.kind == .channel {
+          Button { showsCanvas = true } label: { Image(systemName: "doc.on.doc") }
+            .accessibilityLabel("Open channel Canvas")
+        }
+      }
       ToolbarItem(placement: .topBarTrailing) {
         if isMember {
           Button {
@@ -90,8 +99,6 @@ struct ConversationView: View {
       ConversationTranscriptView(
         conversationID: conversationID,
         messages: messages,
-        browserWorkspaceID: model.workspace?.id,
-        browserAgents: workingAgents,
         seenMessageIDs: $seenMessageIDs,
         sentMessageIDs: $sentMessageIDs,
         allowsActions: canParticipate
@@ -139,8 +146,9 @@ struct ConversationView: View {
         skillIDs: $composerSkillIDs,
         isSending: isSending,
         attachments: attachments,
-        availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
+        availableMentionAgentIDs: model.mentionPeople.filter { $0.role != "You" }.map(\.id),
         preferredMentionAgentIDs: channelAgentIDs,
+        people: model.mentionPeople,
         onSend: send,
         onAddAttachments: addAttachments,
         onRemoveAttachment: removeAttachment
@@ -223,6 +231,7 @@ struct ConversationView: View {
       mentions: mentions,
       threadRootID: nil
     )
+    let messageID = UUID().uuidString
 
     draft = ""
     composerMentionIDs = []
@@ -240,6 +249,7 @@ struct ConversationView: View {
           relay: model.relay
         )
         let message = try await model.relay.send(
+          messageID: messageID,
           body: body,
           workspaceID: workspaceID,
           conversationID: conversationID,
@@ -256,7 +266,17 @@ struct ConversationView: View {
         // The relay queues exactly one idempotent job for the addressed cell.
         // The on-device mailbox loop claims it over the live socket.
       } catch {
-        draft = pendingText
+        if await reconcileDeliveredMessage(
+          messageID: messageID,
+          workspaceID: workspaceID
+        ) {
+          sentMessageIDs.insert(messageID)
+          return
+        }
+        draft = MessageSendRecovery.restoredDraft(
+          pending: pendingText,
+          current: draft
+        )
         composerMentionIDs = pendingMentionIDs
         composerSkillIDs = pendingSkillIDs
         attachments = pendingAttachments
@@ -264,6 +284,33 @@ struct ConversationView: View {
         print("[Chief] send to \(conversationID) failed: \(error)")
       }
     }
+  }
+
+  private func reconcileDeliveredMessage(
+    messageID: String,
+    workspaceID: String
+  ) async -> Bool {
+    for attempt in 0..<4 {
+      if model.conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).contains(where: { $0.id == messageID }) {
+        return true
+      }
+      if attempt == 1,
+        let remote = try? await model.relay.messages(
+          workspaceID: workspaceID,
+          conversationID: conversationID,
+          after: nil
+        ),
+        let delivered = remote.first(where: { $0.id == messageID })
+      {
+        model.conversations.merge(delivered)
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(150))
+    }
+    return false
   }
 
   private func joinChannel() {

@@ -148,6 +148,7 @@ async function setup() {
     name: "Attachment test",
     website: "https://heychief.sh",
     runtime: "phone" as const,
+    agentRuntime: "relay-cell",
     inferenceProvider: "openCodeGo",
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],

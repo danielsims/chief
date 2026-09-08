@@ -43,7 +43,7 @@ struct MessageReferenceMatch {
 }
 
 enum MessageReferenceParser {
-  static func matches(in source: String) -> [MessageReferenceMatch] {
+  static func matches(in source: String, people: [MentionAgent] = []) -> [MessageReferenceMatch] {
     let fullRange = NSRange(source.startIndex..., in: source)
     var matches: [MessageReferenceMatch] = []
 
@@ -56,9 +56,9 @@ enum MessageReferenceParser {
         )
       )
     }
-    for match in mentionPattern.matches(in: source, range: fullRange) {
+    for match in mentionPattern(people: people).matches(in: source, range: fullRange) {
       guard let nameRange = Range(match.range(at: 1), in: source),
-        let agent = WorkspaceAgentCatalog.agent(forID: String(source[nameRange]))
+        let agent = WorkspaceAgentCatalog.named(String(source[nameRange]), people: people)
       else { continue }
       matches.append(MessageReferenceMatch(range: match.range, kind: .mention(agent)))
     }
@@ -78,8 +78,9 @@ enum MessageReferenceParser {
     options: [.caseInsensitive]
   )
 
-  private static let mentionPattern: NSRegularExpression = {
-    let names = WorkspaceAgentCatalog.agents.flatMap { [$0.id, $0.name] }
+  private static func mentionPattern(people: [MentionAgent]) -> NSRegularExpression {
+    let names = (WorkspaceAgentCatalog.agents + people)
+      .flatMap(WorkspaceAgentCatalog.mentionableNames(for:))
       .sorted { $0.count > $1.count }
       .map { NSRegularExpression.escapedPattern(for: $0) }
       .joined(separator: "|")
@@ -87,7 +88,7 @@ enum MessageReferenceParser {
       pattern: #"(?<![\p{L}\p{N}_])@("# + names + #")(?![\p{L}\p{N}_-])"#,
       options: [.caseInsensitive]
     )
-  }()
+  }
 }
 
 /// UIKit's text layout provides true inline attachments, so chips wrap with
@@ -97,6 +98,7 @@ struct InlineReferenceText: UIViewRepresentable {
   let font: UIFont
   var color = UIColor.label
   var channelNames: Set<String> = []
+  var people: [MentionAgent] = []
   var onOpenChannel: (String) -> Void = { _ in }
 
   func makeCoordinator() -> Coordinator {
@@ -193,7 +195,7 @@ struct InlineReferenceText: UIViewRepresentable {
   }
 
   private func replaceReferences(in value: NSMutableAttributedString) {
-    for match in MessageReferenceParser.matches(in: value.string).reversed() {
+    for match in MessageReferenceParser.matches(in: value.string, people: people).reversed() {
       let attachment = NSTextAttachment()
       let image = ReferenceChipRenderer.image(
         symbol: match.symbol,

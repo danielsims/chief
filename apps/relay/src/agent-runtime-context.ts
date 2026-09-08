@@ -5,6 +5,8 @@ import { agentJobSchema, isJsonString } from "@chief/relay-contracts";
 import { firstAgentRow } from "./agent-job-store";
 import { agentWorkflowId } from "./agent-tracing";
 import { telemetryIncludesContent } from "./effect";
+import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
+import { jobsFindRetryAgentJob } from "./queries/jobs/find-retry-agent-job";
 
 export function agentTraceContext(
   env: Env,
@@ -29,7 +31,7 @@ export function agentTraceContext(
 
 export function loadAgentJob(storage: DurableObjectStorage, jobId: string) {
   const row = firstAgentRow<{ job_json: string }>(
-    storage.sql.exec("SELECT job_json FROM jobs WHERE job_id = ?", jobId),
+    jobsFindRetryAgentJob(storage, jobId),
   );
   return row ? agentJobSchema.parse(JSON.parse(row.job_json)) : undefined;
 }
@@ -45,14 +47,7 @@ export async function currentAgentWorkflowId(
   }
   const now = new Date().toISOString();
   const due = firstAgentRow<{ job_json: string }>(
-    storage.sql.exec(
-      `SELECT job_json FROM jobs
-       WHERE (status = 'pending' AND available_at <= ?)
-          OR (status = 'leased' AND lease_expires_at <= ?)
-       ORDER BY available_at ASC, rowid ASC LIMIT 1`,
-      now,
-      now,
-    ),
+    jobsFindCurrentAgentWorkflowId(storage, now, now),
   );
   return due
     ? agentWorkflowId(agentJobSchema.parse(JSON.parse(due.job_json)))

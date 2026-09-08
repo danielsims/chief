@@ -28,14 +28,34 @@ enum WorkspaceAgentCatalog {
   }
 
   /// The display names + ids that a plain `@Name` resolves to, lowercased.
-  static func matching(prefix: String) -> [MentionAgent] {
-    guard !prefix.isEmpty else { return agents }
+  static func matching(prefix: String, people: [MentionAgent] = []) -> [MentionAgent] {
+    var seen = Set<String>()
+    let pool = (people + agents).filter { seen.insert($0.id).inserted }
+    guard !prefix.isEmpty else { return pool }
     let query = prefix.lowercased()
-    return agents.filter {
+    return pool.filter {
       $0.id.lowercased().hasPrefix(query)
         || $0.name.lowercased().hasPrefix(query)
         || $0.name.lowercased().contains(query)
     }
+  }
+
+  static func named(_ id: String, people: [MentionAgent] = []) -> MentionAgent? {
+    let query = id.lowercased()
+    return (agents + people).first { agent in
+      agent.id.lowercased() == query
+        || agent.name.lowercased() == query
+        || Self.mentionableNames(for: agent).contains(query)
+    }
+  }
+
+  static func mentionableNames(for agent: MentionAgent) -> [String] {
+    var names = [agent.id.lowercased(), agent.name.lowercased()]
+    let first = agent.name.split(whereSeparator: \.isWhitespace).first.map(String.init)?.lowercased()
+    if let first, !names.contains(first) {
+      names.append(first)
+    }
+    return names
   }
 }
 
@@ -49,10 +69,10 @@ enum AgentMentionParser {
 
   /// Splits a draft into text + mention segments so the composer can render
   /// `@Chief` as a chip and the sender can record who was addressed.
-  static func split(_ text: String) -> [Segment] {
+  static func split(_ text: String, people: [MentionAgent] = []) -> [Segment] {
     var segments: [Segment] = []
     let nsRange = NSRange(text.startIndex..., in: text)
-    let matches = mentionPattern.matches(in: text, options: [], range: nsRange)
+    let matches = mentionPattern(people: people).matches(in: text, options: [], range: nsRange)
     var cursor = text.startIndex
 
     for match in matches {
@@ -64,7 +84,7 @@ enum AgentMentionParser {
       }
       let token = String(text[range])
       let name = String(token.dropFirst())
-      if let agent = WorkspaceAgentCatalog.agent(forID: name) {
+      if let agent = WorkspaceAgentCatalog.named(name, people: people) {
         segments.append(Segment(kind: .mention, value: token, agentID: agent.id))
       } else {
         segments.append(Segment(kind: .text, value: token, agentID: nil))
@@ -78,16 +98,17 @@ enum AgentMentionParser {
   }
 
   /// The agent ids addressed in a draft (deduplicated, in order).
-  static func mentions(in text: String) -> [String] {
+  static func mentions(in text: String, people: [MentionAgent] = []) -> [String] {
     var seen = Set<String>()
-    return split(text).compactMap { segment in
+    return split(text, people: people).compactMap { segment in
       guard segment.kind == .mention, let id = segment.agentID else { return nil }
       return seen.insert(id).inserted ? id : nil
     }
   }
 
-  private static var mentionPattern: NSRegularExpression {
-    let names = WorkspaceAgentCatalog.agents.flatMap { [$0.id, $0.name] }
+  private static func mentionPattern(people: [MentionAgent]) -> NSRegularExpression {
+    let names = (WorkspaceAgentCatalog.agents + people)
+      .flatMap(WorkspaceAgentCatalog.mentionableNames(for:))
       .sorted { $0.count > $1.count }
     let escaped = names
       .map { NSRegularExpression.escapedPattern(for: $0) }

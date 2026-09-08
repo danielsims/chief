@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -15,37 +14,48 @@ import type {
 import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
-import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
+import {
+  messageBlocks,
+  useChiefChat,
+  useRuntime,
+  useWorkspaceCapability,
+  useWorkspaceData,
+} from "../lib/runtime";
 import { ContinuousMonthView, ScheduleFilters } from "./schedule-calendar";
 import {
   addDays,
   addMonths,
   dayKey,
+  sameMonth,
   startOfDay,
   startOfMonth,
   startOfWeek,
+  workOccurrences,
 } from "./schedule-calendar-core";
+import { ScheduleComposer } from "./schedule-composer";
 import {
   RecurringWorkApprovalDialog,
   ScheduleEventDetailDialog,
 } from "./schedule-dialogs";
-import { RecurringWorkEditDialog } from "./schedule-editor";
-import { MonthJump, ScheduleInbox } from "./schedule-inbox";
+import { MonthJump, ScheduleList } from "./schedule-inbox";
 import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
 } from "./schedule-timeline";
+import { useCalendarHistory } from "./use-calendar-history";
 
 export function SchedulePage() {
   const navigate = useNavigate();
-  const reduceMotion = useReducedMotion();
-  const today = useMemo(() => startOfDay(new Date()), []);
   const [now, setNow] = useState(Date.now);
+  const todayKey = dayKey(new Date(now));
+  const today = useMemo(
+    () => startOfDay(new Date(`${todayKey}T00:00:00`)),
+    [todayKey],
+  );
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
-  const [view, setView] = useState<CalendarView>("week");
+  const [view, setView] = useState<CalendarView>("month");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
-  const [monthDirection, setMonthDirection] = useState<1 | -1>(1);
   const [scrollRequest, setScrollRequest] = useState({
     month: currentMonth,
     token: 0,
@@ -62,10 +72,27 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
+  const { client, status } = useRuntime();
+  const { capability } = useWorkspaceCapability();
+  useEffect(() => {
+    if (!cloudOrganizationId || !capability || status !== "connected") return;
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        client.send({
+          type: "listWorkspaceData",
+          workspaceId: cloudOrganizationId,
+          executorCapability: capability,
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(timer);
+  }, [client, status, cloudOrganizationId, capability]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -99,6 +126,7 @@ export function SchedulePage() {
     }
     return null;
   }, [revisionChat.messages]);
+  const createSchedule = () => setCreating(true);
   const openWorkReview = (work: RecurringWorkRecord) => {
     if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
@@ -113,6 +141,12 @@ export function SchedulePage() {
       id: approvalWork.id,
       agentId: approvalWork.agentId,
       title: approvalWork.title,
+      collaborators: approvalWork.collaborators,
+      missionId: approvalWork.missionId,
+      expectedOutcome: approvalWork.expectedOutcome,
+      constraints: approvalWork.constraints,
+      maxDurationMinutes: approvalWork.maxDurationMinutes,
+      triggerMode: approvalWork.triggerMode,
       cron: approvalWork.cron,
       timezone: approvalWork.timezone,
       onceAt: approvalWork.onceAt,
@@ -122,11 +156,11 @@ export function SchedulePage() {
     };
     void revisionChat.sendMessage({
       text: [
-        "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
+        `@${approvalWork.agentId}, the user is reviewing a draft recurring-work approval and asked for a change before approving.`,
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields from the current draft, including the team, mission, outcome, constraints, trigger mode and time limit, changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -167,10 +201,8 @@ export function SchedulePage() {
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
     for (const draft of workspaceData.drafts) {
-      // Drafts are review work even before a publishing time is chosen. Put
-      // them on the day they were prepared, then move them to the scheduled
-      // date once the user approves a concrete slot.
-      const calendarTime = draft.scheduledFor ?? draft.createdAt;
+      if (draft.scheduledFor === undefined) continue;
+      const calendarTime = draft.scheduledFor;
       const key = dayKey(new Date(calendarTime));
       const items = map.get(key) ?? [];
       items.push(draft);
@@ -182,10 +214,14 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.drafts]);
 
+  const calendarWork = useCalendarHistory(
+    workspaceData.recurringWork,
+    view === "month" ? activeMonth : selected,
+  );
   const recurringByDay = useMemo(() => {
     const map = new Map<string, RecurringWorkRecord[]>();
-    for (const work of workspaceData.recurringWork) {
-      for (const timestamp of work.upcomingRuns ?? []) {
+    for (const work of calendarWork) {
+      for (const timestamp of workOccurrences(work)) {
         const key = dayKey(new Date(timestamp));
         const items = map.get(key) ?? [];
         if (!items.some((item) => item.id === work.id)) items.push(work);
@@ -193,17 +229,14 @@ export function SchedulePage() {
       }
     }
     return map;
-  }, [workspaceData.recurringWork]);
+  }, [calendarWork]);
 
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
-  const pendingApprovals = workspaceData.recurringWork.filter(
-    (work) => work.status === "draft" || work.status === "needs_approval",
-  );
   const requestMonth = (month: Date) => {
-    setMonthDirection(month > activeMonth ? 1 : -1);
     setScrollRequest((current) => ({ month, token: current.token + 1 }));
     setActiveMonth(month);
+    setSelected((current) => (sameMonth(current, month) ? current : month));
   };
 
   const move = (direction: number) => {
@@ -226,54 +259,34 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="shrink-0 px-8 pt-6 pb-5">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-8 pt-6 pb-6">
         <div>
           <PageTitle>Schedule</PageTitle>
-          <p className="text-muted-foreground mt-1 text-[13px]">
-            See what is coming up and approve proposed schedules.
-          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={() => createSchedule()}>
+            <Plus size={14} />
+            New schedule
+          </Button>
         </div>
       </header>
 
       <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
-          <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
+          <div className="relative h-8 min-w-48 flex-1 overflow-hidden">
             {view === "month" ? (
               <MonthJump month={activeMonth} onSelect={requestMonth} />
             ) : (
-              <AnimatePresence
-                initial={false}
-                mode="popLayout"
-                custom={monthDirection}
-              >
-                <motion.p
-                  key={focusedHeading}
-                  initial={
-                    reduceMotion
-                      ? false
-                      : { y: monthDirection * 18, opacity: 0 }
-                  }
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={
-                    reduceMotion
-                      ? { opacity: 0 }
-                      : { y: monthDirection * -18, opacity: 0 }
-                  }
-                  transition={{
-                    type: "spring",
-                    stiffness: 440,
-                    damping: 38,
-                    mass: 0.7,
-                  }}
-                  className="absolute inset-x-0 min-w-0 truncate text-xl font-medium tracking-[-0.025em]"
-                >
-                  {focusedHeading}
-                </motion.p>
-              </AnimatePresence>
+              <p className="truncate text-xl font-medium tracking-tight">
+                {focusedHeading}
+              </p>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <ScheduleList
+              work={workspaceData.recurringWork}
+              onOpen={openWorkReview}
+            />
             <ScheduleFilters
               visibleKinds={visibleKinds}
               onToggle={(kind) => {
@@ -295,10 +308,20 @@ export function SchedulePage() {
             >
               Today
             </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Previous period"
+              onClick={() => move(-1)}
+            >
               <ChevronLeft size={14} />
             </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Next period"
+              onClick={() => move(1)}
+            >
               <ChevronRight size={14} />
             </Button>
             <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
@@ -306,7 +329,11 @@ export function SchedulePage() {
                 <button
                   key={option}
                   type="button"
-                  onClick={() => setView(option)}
+                  onClick={() => {
+                    if (option === "month")
+                      requestMonth(startOfMonth(selected));
+                    setView(option);
+                  }}
                   className={cn(
                     "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
                     view === option &&
@@ -323,12 +350,9 @@ export function SchedulePage() {
         <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
           {view === "month" ? (
             <ContinuousMonthView
-              currentMonth={currentMonth}
               activeMonth={activeMonth}
-              onActiveMonthChange={(month) => {
-                setMonthDirection(month > activeMonth ? 1 : -1);
-                setActiveMonth(month);
-              }}
+              onActiveMonthChange={setActiveMonth}
+              scrollRequest={scrollRequest}
               today={today}
               now={now}
               selected={selected}
@@ -342,7 +366,6 @@ export function SchedulePage() {
               recurringByDay={recurringByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
-              scrollRequest={scrollRequest}
             />
           ) : (
             <FocusedCalendarView
@@ -415,6 +438,21 @@ export function SchedulePage() {
           setDetailWorkId(null);
           setEditWorkId(work.id);
         }}
+        onOpenWorkChannel={(work) => {
+          setDetailWorkId(null);
+          if (!work.conversationId) return;
+          const params = new URLSearchParams({ channel: work.conversationId });
+          if (work.lastMessageId) params.set("thread", work.lastMessageId);
+          void navigate(`/conversations?${params.toString()}`);
+        }}
+        onTogglePause={(work) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            status: work.status === "active" ? "paused" : "active",
+            updatedAt: Date.now(),
+          })
+        }
+        onRunWork={(work) => workspaceData.runRecurringWorkNow(work.id)}
         onOpenDraft={(draft) => {
           setDetailDraftId(null);
           if (draft.fileId) {
@@ -429,18 +467,24 @@ export function SchedulePage() {
         onEdit={(work) => setEditWorkId(work.id)}
         onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
       />
-      <RecurringWorkEditDialog
-        key={editWork?.id ?? "closed"}
-        work={editWork}
-        onClose={() => setEditWorkId(null)}
-        onSave={(work, patch) =>
-          workspaceData.saveRecurringWork({
-            ...work,
-            ...patch,
-            updatedAt: Date.now(),
-          })
-        }
-      />
+      {creating || editWork ? (
+        <ScheduleComposer
+          key={editWork?.id ?? "new"}
+          work={editWork}
+          onClose={() => {
+            setCreating(false);
+            setEditWorkId(null);
+          }}
+          onSaved={() => {
+            if (cloudOrganizationId && capability)
+              client.send({
+                type: "listWorkspaceData",
+                workspaceId: cloudOrganizationId,
+                executorCapability: capability,
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

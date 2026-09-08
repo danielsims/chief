@@ -12,12 +12,15 @@ import { toast } from "sonner";
 
 import type {
   AgentDefinition,
+  AgentPreference,
   BrowserRunRecord,
   IntegrationSetupProgress,
 } from "@chief/agent-runtime/types";
+import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
 
 import type { RuntimeBrowserSession } from "./browser-sessions";
 import type { RuntimeContextValue, RuntimeStatus } from "./runtime-context";
+import { removeAgentFromRoster } from "./agent-roster-state";
 import {
   anchorBrowserRun as anchorRuntimeBrowserRun,
   anchorBrowserSession as anchorRuntimeBrowserSession,
@@ -55,6 +58,20 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  const removeAgent = useCallback(
+    async (agentId: string) => {
+      await client.removeAgent(agentId);
+      setAgents((current) => removeAgentFromRoster(current, agentId));
+    },
+    [client],
+  );
+  const createNativeAgent = useCallback(
+    async (input: CreateNativeAgentCommand, preference?: AgentPreference) => {
+      await client.createNativeAgent(input, preference);
+    },
+    [client],
+  );
   const [browserSessions, setBrowserSessions] = useState<
     Record<string, RuntimeBrowserSession>
   >({});
@@ -246,10 +263,17 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
     const browserOwners = browserOwnersRef.current;
     client.setStatusListener((s) => {
       setStatus(s);
+      if (s === "connecting") {
+        setAgents([]);
+        setAgentsLoaded(false);
+      }
       if (s === "connected") client.send({ type: "listAgents" });
     });
     const unsub = client.subscribe((msg) => {
-      if (msg.type === "agents") setAgents(msg.agents);
+      if (msg.type === "agents") {
+        setAgents(msg.agents);
+        setAgentsLoaded(true);
+      }
       if (
         msg.type === "browserRuns" &&
         msg.workspaceId === cloudOrganizationId
@@ -452,6 +476,9 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
       client,
       status,
       agents,
+      agentsLoaded,
+      removeAgent,
+      createNativeAgent,
       anchorBrowserSession,
       browserRuns,
       browserSessions,
@@ -464,6 +491,7 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       agents,
+      agentsLoaded,
       anchorBrowserSession,
       browserRuns,
       browserSessions,
@@ -471,6 +499,8 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
       closeBrowser,
       integrationSetupProgress,
       openBrowser,
+      removeAgent,
+      createNativeAgent,
       reportBrowserUrl,
       reloadBrowser,
       status,

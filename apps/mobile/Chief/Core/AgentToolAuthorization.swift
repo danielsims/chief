@@ -52,7 +52,7 @@ enum AgentToolPermissionID: String, CaseIterable, Sendable {
   var detail: String {
     switch self {
     case .workspaceRead: "Read files, research, analytics, and saved work"
-    case .workspaceWrite: "Create or update files, research, and content"
+    case .workspaceWrite: "Save research and manage workspace plans"
     case .projectsRead: "Read repository status, branches, and commits"
     case .projectsWrite: "Create isolated checkouts and commit changes"
     case .channelsRead: "Discover channels and read their activity"
@@ -62,7 +62,7 @@ enum AgentToolPermissionID: String, CaseIterable, Sendable {
     case .membersRead: "See people and agents in a channel"
     case .membersManage: "Invite, remove, join, or leave channels"
     case .messagesRead: "Read and search channel conversations"
-    case .messagesSend: "Post replies and add reactions"
+    case .messagesSend: "Post replies, publish channel artifacts, and add reactions"
     case .messagesManage: "Edit or delete messages created by this agent"
     case .schedulesRead: "Inspect schedules, runs, and trigger history"
     case .schedulesManage: "Create, update, pause, or remove schedules"
@@ -92,6 +92,7 @@ struct AgentToolGrant: Sendable {
 enum AgentToolAuthorization {
   private static let permissionByTool: [String: AgentToolPermissionID] = [
     RelayChannelsListTool.name: .channelsRead,
+    RelayChannelJoinTool.name: .channelsRead,
     RelayWorkspaceMembersTool.name: .membersRead,
     RelayChannelCreateTool.name: .channelsCreate,
     RelayChannelMembersAddTool.name: .membersManage,
@@ -113,6 +114,10 @@ enum AgentToolAuthorization {
     ProspectsListTool.name: .workspaceRead,
     ProspectSaveTool.name: .workspaceWrite,
     WorkspaceFilesListTool.name: .workspaceRead,
+    WorkspaceFileWriteTool.name: .messagesSend,
+    WorkspaceScheduleProposeTool.name: .workspaceWrite,
+    ScheduleRunCollaboratorTool.name: .workspaceWrite,
+    ScheduleRunReportTool.name: .workspaceWrite,
     PluginsListTool.name: .integrationsManage,
     PluginsRecommendTool.name: .integrationsManage,
     PluginsInstallTool.name: .integrationsManage,
@@ -123,6 +128,10 @@ enum AgentToolAuthorization {
   /// Until an explicit approval UI exists, `ask` is deliberately fail-closed
   /// for every tool that can mutate local, relay, or external browser state.
   private static let mutatingTools: Set<String> = [
+    WorkspaceFileWriteTool.name,
+    WorkspaceScheduleProposeTool.name,
+    ScheduleRunCollaboratorTool.name,
+    ScheduleRunReportTool.name,
     RelayChannelCreateTool.name,
     RelayChannelMembersAddTool.name,
     RelayMessagePostTool.name,

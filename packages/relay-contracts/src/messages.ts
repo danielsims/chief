@@ -1,8 +1,10 @@
 import { z } from "zod";
 
+import { artifactReferencePayloadSchema } from "./artifacts";
 import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
 import {
   agentIdSchema,
+  channelMentionIdSchema,
   conversationIdSchema,
   hexPubkeySchema,
   isoDateTimeSchema,
@@ -16,7 +18,7 @@ import { jsonObjectSchema } from "./json";
 export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: userIdSchema }),
   z.object({ kind: z.literal("agent"), id: agentIdSchema }),
-  z.object({ kind: z.literal("system"), id: z.literal("chief-relay") }),
+  z.object({ kind: z.literal("system"), id: z.literal("relay") }),
 ]);
 
 export const pluginStatusSchema = z.enum([
@@ -53,6 +55,23 @@ export const pluginRecommendationPayloadSchema = z
     iconUrl: z.url().max(2_048).optional(),
     domain: z.string().trim().min(1).max(253).optional(),
     rationale: z.string().trim().min(1).max(1_000).optional(),
+  })
+  .strict();
+
+export const projectRecommendationPayloadSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
+    agentId: agentIdSchema,
+    title: z.string().trim().min(1).max(120).default("Connect a repository"),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .default("Add the Git repository this workspace should work in."),
+    remoteUrl: z.url().max(2_048).optional(),
   })
   .strict();
 
@@ -114,6 +133,15 @@ export const pluginAuthorizationPayloadSchema = z.union([
     .strict(),
 ]);
 
+export const scheduledRunMessagePayloadSchema = z
+  .object({
+    runId: z.string().min(1).max(256),
+    scheduleId: z.string().min(1).max(256),
+    title: z.string().min(1).max(200),
+    agentIds: z.array(agentIdSchema).max(13),
+  })
+  .strict();
+
 export const messageComponentSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
@@ -124,13 +152,19 @@ export const messageComponentSchema = z
   .strict()
   .superRefine((component, context) => {
     const schema =
-      component.kind === "plugin.recommendation"
-        ? pluginRecommendationPayloadSchema
-        : component.kind === "plugin.authorization"
-          ? pluginAuthorizationPayloadSchema
-          : component.kind === "channel-action"
-            ? channelMemberAddedPayloadSchema
-            : undefined;
+      component.kind === "schedule.run"
+        ? scheduledRunMessagePayloadSchema
+        : component.kind === "artifact.reference"
+          ? artifactReferencePayloadSchema
+          : component.kind === "plugin.recommendation"
+            ? pluginRecommendationPayloadSchema
+            : component.kind === "plugin.authorization"
+              ? pluginAuthorizationPayloadSchema
+              : component.kind === "project.recommendation"
+                ? projectRecommendationPayloadSchema
+                : component.kind === "channel-action"
+                  ? channelMemberAddedPayloadSchema
+                  : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {
@@ -241,7 +275,7 @@ export const conversationMessageSchema = z.object({
   threadRootId: messageIdSchema.optional(),
   author: messageAuthorSchema,
   body: z.string().max(100_000),
-  mentions: z.array(agentIdSchema).max(16).default([]),
+  mentions: z.array(channelMentionIdSchema).max(16).default([]),
   components: z.array(messageComponentSchema).max(32).default([]),
   reactions: z.array(messageReactionSchema).default([]),
   edited: z.boolean().default(false),
@@ -299,7 +333,7 @@ export const appendMessagePayloadSchema = z
     conversationId: conversationIdSchema,
     threadRootId: messageIdSchema.optional(),
     body: z.string().max(100_000),
-    mentions: z.array(agentIdSchema).max(16).default([]),
+    mentions: z.array(channelMentionIdSchema).max(16).default([]),
     components: z.array(messageComponentSchema).max(32).default([]),
   })
   .strict();
@@ -405,6 +439,9 @@ export type MessageAuthor = z.infer<typeof messageAuthorSchema>;
 export type MessageComponent = z.infer<typeof messageComponentSchema>;
 export type PluginRecommendationPayload = z.infer<
   typeof pluginRecommendationPayloadSchema
+>;
+export type ProjectRecommendationPayload = z.infer<
+  typeof projectRecommendationPayloadSchema
 >;
 export type PluginAuthorizationPayload = z.infer<
   typeof pluginAuthorizationPayloadSchema

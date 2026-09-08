@@ -4,6 +4,7 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 
+import { notifyConversationPush } from "./conversation-push";
 import { withTrustedContext } from "./internal-context";
 import { requireInternalResponse } from "./internal-response";
 
@@ -18,30 +19,40 @@ export function publishConversationWorkspaceEvent(
 ) {
   const workspace = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
   context.waitUntil(
-    workspace
-      .fetch(
-        withTrustedContext(
-          new Request("https://workspace.internal/live-events", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-chief-internal-operation": "live-event-publish",
+    Promise.all([
+      workspace
+        .fetch(
+          withTrustedContext(
+            new Request("https://workspace.internal/live-events", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-chief-internal-operation": "live-event-publish",
+              },
+              body: JSON.stringify(event),
+            }),
+            {
+              principal,
+              requestId,
+              workspaceId,
+              conversationId,
             },
-            body: JSON.stringify(event),
-          }),
-          {
-            principal,
-            requestId,
-            workspaceId,
-            conversationId,
-          },
+          ),
+        )
+        .then((response) =>
+          requireInternalResponse(
+            response,
+            "Workspace live event publication failed.",
+          ),
         ),
-      )
-      .then((response) =>
-        requireInternalResponse(
-          response,
-          "Workspace live event publication failed.",
-        ),
-      ),
+      notifyConversationPush(
+        env,
+        event,
+        principal,
+        workspaceId,
+        conversationId,
+        requestId,
+      ).catch(() => undefined),
+    ]),
   );
 }

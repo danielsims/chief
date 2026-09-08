@@ -13,7 +13,7 @@ void test("a hosted cloud agent gets the full persona and the em-dash ban", () =
     deployment: "cloud",
   });
   assert.match(prompt.text, /small, durable code changes/u);
-  assert.match(prompt.text, /Never use an em dash character/u);
+  assert.match(prompt.text, /Never use em dashes/u);
   assert.match(
     prompt.text,
     /Treat an agent's subject channel as its mission cell/u,

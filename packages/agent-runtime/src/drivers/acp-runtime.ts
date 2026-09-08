@@ -9,7 +9,7 @@ export interface AcpRuntimeAdapter {
   configureEnvironment?: (
     options: StartOptions,
     environment: NodeJS.ProcessEnv,
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export interface PendingAcpRpc {

@@ -5,19 +5,36 @@ import {
   agentIdSchema,
   channelMemberAddCommandSchema,
   conversationMessageSchema,
+  externalAgentDeliveryCommandSchema,
 } from "@chief/relay-contracts";
 
+import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
+import { requireWorkspaceAdministrator } from "./workspace-administration";
+import {
+  canMessageAgent,
+  requireAgentMessageAccess,
+} from "./workspace-agent-messaging";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { refreshMemberDisplayNames } from "./workspace-member-names";
+import {
+  readScheduleRun,
+  scheduleRunIsActive,
+} from "./workspace-schedule-runs";
 
 const dispatchMessageSchema = z
   .object({
     message: conversationMessageSchema,
     replyAgentId: agentIdSchema.optional(),
     workflowId: z.string().trim().min(1).max(128).optional(),
+    missionId: z.string().trim().min(1).max(100).optional(),
+    scheduleStepId: z.string().optional(),
+    instruction: z.string().max(100_000).optional(),
+    scheduleRunId: z.string().trim().min(1).max(256).optional(),
   })
   .strict();
 
@@ -39,6 +56,10 @@ export async function dispatchWorkspaceMessage(
     message,
     replyAgentId,
     workflowId = message.id,
+    missionId,
+    scheduleRunId,
+    scheduleStepId,
+    instruction,
   } = dispatchMessageSchema.parse(await parseJson(request));
   const authorMatchesPrincipal =
     (context.principal.kind === "user" &&
@@ -50,7 +71,8 @@ export async function dispatchWorkspaceMessage(
   if (
     message.workspaceId !== context.workspaceId ||
     message.conversationId !== context.conversationId ||
-    !authorMatchesPrincipal
+    (!authorMatchesPrincipal &&
+      !(scheduleRunId && message.author.kind === "system"))
   ) {
     throw new HttpError(
       409,
@@ -59,18 +81,42 @@ export async function dispatchWorkspaceMessage(
     );
   }
 
+  // Scheduled handoffs belong to the run coordinator. Agent prose mentioning a
+  // coworker must not create a second, competing turn outside that sequence.
+  if (context.principal.kind === "agent" && message.threadRootId) {
+    const scheduled = workspaceScheduleRunsFindReceiveExternalAgentMessage(
+      storage,
+      message.threadRootId,
+    )[0];
+    if (scheduled) return json({ agentIds: [] });
+  }
   const store = new WorkspaceChannelStore(storage, env);
+  await refreshMemberDisplayNames(storage, env);
   store.requireWorkspace(context.workspaceId);
   store.requirePrincipalMember(context.principal);
   const channel = store.requireChannelVisible(
     message.conversationId,
     context.principal,
   );
-  const mentions = normalizedChannelMentions({
-    availableAgentIds: store.workspaceAgentIds(),
-    content: message.body,
-    explicitMentions: message.mentions,
-  });
+  const people = store
+    .channelMemberRows(message.conversationId)
+    .flatMap((member) =>
+      member.kind === "user"
+        ? [{ id: member.principalId, name: member.name }]
+        : [],
+    );
+  const mentions = scheduleRunId
+    ? message.mentions
+    : normalizedChannelMentions({
+        availableAgentIds: store.workspaceAgentIds(),
+        people,
+        content: message.body,
+        explicitMentions: message.mentions,
+      }).filter(
+        (id) =>
+          !store.memberRole("agent", id) ||
+          canMessageAgent(store, id, context.principal),
+      );
   await addMentionedAgentsToChannel({
     context,
     conversationId: message.conversationId,
@@ -78,21 +124,73 @@ export async function dispatchWorkspaceMessage(
     messageId: message.id,
     store,
   });
-  const agentIds = eligibleAgentIds(
+  let agentIds = eligibleAgentIds(
     store,
     channel,
     mentions,
     replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
-  );
-  const threadRootId = owningThreadRoot(channel.kind, message, mentions);
+  ).filter((id) => canMessageAgent(store, id, context.principal));
+  if (scheduleRunId) {
+    const run = readScheduleRun(storage, scheduleRunId)?.run;
+    const step = run?.steps.find(
+      (step) => step.id === (scheduleStepId ?? message.id),
+    );
+    requireWorkspaceAdministrator(store, context.principal);
+    if (
+      !run ||
+      !step ||
+      !scheduleRunIsActive(run) ||
+      run.threadRootId !== workflowId ||
+      (scheduleStepId && message.id !== run.threadRootId) ||
+      run.schedule.conversationId !== message.conversationId
+    )
+      throw new HttpError(
+        409,
+        "schedule_run_stopped",
+        "This scheduled step is no longer active.",
+      );
+    requireAgentMessageAccess(store, step.agentId, context.principal);
+    agentIds = [step.agentId];
+  }
+  const threadRootId = scheduleRunId
+    ? workflowId
+    : owningThreadRoot(channel.kind, message, mentions);
   const now = new Date().toISOString();
+  const externalAgents = new ExternalAgentChannelService(storage, env);
 
   await Promise.all(
     agentIds.map(async (agentId) => {
       const id = await deterministicUuid(
-        `${context.workspaceId}:${message.id}:${agentId}:conversation-message`,
+        `${context.workspaceId}:${scheduleStepId ?? message.id}:${agentId}:conversation-message`,
       );
+      const deliveredExternally = await externalAgents.enqueue(
+        context.workspaceId,
+        agentId,
+        externalAgentDeliveryCommandSchema.parse({
+          commandId: id,
+          protocolVersion: 1,
+          occurredAt: now,
+          payload: {
+            deliveryId: id,
+            ...(scheduleStepId ? { scheduleStepId } : undefined),
+            continuation: {
+              capability: "placeholder-capability-replaced-by-workspace",
+            },
+            message: {
+              id: message.id,
+              body: scheduleRunId
+                ? (instruction ?? message.body)
+                : message.body,
+              author: message.author,
+              createdAt: message.createdAt,
+            },
+          },
+        }),
+        message.conversationId,
+        threadRootId,
+      );
+      if (deliveredExternally) return;
       const command = {
         commandId: id,
         protocolVersion: 1,
@@ -100,14 +198,19 @@ export async function dispatchWorkspaceMessage(
         payload: {
           id,
           agentId,
-          kind: "conversation.message",
+          kind: scheduleRunId ? "schedule.step" : "conversation.message",
           payload: {
             conversationId: message.conversationId,
             messageId: message.id,
             workflowId,
+            ...(scheduleRunId ? { scheduleRunId } : undefined),
+            ...(scheduleStepId ? { scheduleStepId } : undefined),
+            ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             mentions,
-            instruction: dispatchedInstruction(message),
+            instruction: scheduleRunId
+              ? (instruction ?? message.body)
+              : dispatchedInstruction(message),
           },
           availableAt: now,
         },
@@ -231,8 +334,7 @@ function eligibleAgentIds(
     ) {
       continue;
     }
-    const config = store.agentConfiguration(parsed.data);
-    if (!config.enabled) continue;
+    if (!store.agentIsLive(parsed.data)) continue;
     ready.push(parsed.data);
   }
   return ready;

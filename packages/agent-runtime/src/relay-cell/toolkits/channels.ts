@@ -4,6 +4,7 @@ import type { RelayClient } from "@chief/relay-client";
 import type { JsonObject } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
+  artifactMessageComponents,
   parseJsonNumber,
 } from "@chief/relay-contracts";
 
@@ -45,6 +46,14 @@ async function searchMessages(client: RelayClient, input: JsonObject) {
 }
 
 export const relayCellChannelTools = [
+  defineRelayCellTool(
+    "channels.join",
+    "channels.read",
+    async ({ client }, input) => {
+      await client.joinChannel(requiredString(input, "channelId"));
+      return { ok: true };
+    },
+  ),
   defineRelayCellTool("channels.list", "channels.read", async ({ client }) => ({
     channels: await client.listChannels(),
   })),
@@ -117,6 +126,11 @@ export const relayCellChannelTools = [
     async ({ client, agentId }, input) => {
       const conversationId = requiredString(input, "channelId");
       const body = requiredString(input, "content");
+      const components = artifactMessageComponents(
+        input.artifactIds,
+        input.artifactIds ? await client.listWorkspaceFiles() : [],
+        conversationId,
+      );
       const threadRootId = optionalString(input, "threadRootId");
       if (optionalString(input, "idempotencyKey")) {
         const existing = (
@@ -126,6 +140,7 @@ export const relayCellChannelTools = [
             message.author.kind === "agent" &&
             message.author.id === agentId &&
             message.body === body &&
+            JSON.stringify(message.components) === JSON.stringify(components) &&
             message.threadRootId === threadRootId,
         );
         if (existing) return { message: existing, duplicate: true };
@@ -142,7 +157,7 @@ export const relayCellChannelTools = [
             threadRootId,
             body,
             mentions: inferredMentions(body),
-            components: [],
+            components,
           },
         }),
       );

@@ -373,7 +373,7 @@ export const workspaceFiles = sqliteTable(
     path: text().notNull(),
     mimeType: text("mime_type").notNull(),
     kind: text({ enum: ["document", "email"] }).notNull(),
-    provider: text({ enum: ["local"] })
+    provider: text({ enum: ["local", "relay"] })
       .notNull()
       .default("local"),
     currentVersionId: text("current_version_id").notNull(),

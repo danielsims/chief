@@ -34,6 +34,10 @@ import {
   readTrustedContext,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { requireInternalDeletion } from "./internal-deletion";
+import { cellRecordsDeleteCellSnapshot } from "./queries/cell-records/delete-cell-snapshot";
+import { cellRecordsFindCellSnapshot } from "./queries/cell-records/find-cell-snapshot";
+import { cellRecordsInsertPutRecord } from "./queries/cell-records/insert-put-record";
 import { initializeSocketTickets } from "./socket-ticket-store";
 
 const enqueuedAgentJobSchema = z.object({ job: agentJobSchema });
@@ -79,7 +83,7 @@ export class AgentObject extends DurableObject<Env> {
     const route = this.route.bind(this);
     const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
-        yield* sync("agent.identity", () => readTrustedContext(request));
+        yield* sync("agent.identity", () => requireInternalDeletion(request));
         yield* attempt("agent.delete_all", () => ctx.storage.deleteAll());
         return new Response(null, { status: 204 });
       }
@@ -175,13 +179,32 @@ export class AgentObject extends DurableObject<Env> {
           queue.renew(request, context),
         );
       }
+      if (request.method === "POST" && path.endsWith("/cancel-workflow"))
+        return yield* attempt("agent.job.cancel_workflow", () =>
+          queue.cancelWorkflow(request, context),
+        );
       if (request.method === "GET" && path.endsWith("/jobs")) {
-        return yield* attempt("agent.job.list", () => queue.list(context));
+        return yield* attempt("agent.job.list", () =>
+          queue.list(
+            context,
+            new URL(request.url).searchParams.get("workflowId") ?? undefined,
+          ),
+        );
       }
       if (request.method === "POST" && path.endsWith("/retry")) {
-        return yield* attempt("agent.job.retry", () =>
+        const response = yield* attempt("agent.job.retry", () =>
           queue.retry(request, context),
         );
+        const result = yield* attempt("agent.job.retry.decode", () =>
+          response.clone().json(),
+        );
+        const job = yield* sync(
+          "agent.job.retry.validate",
+          () => enqueuedAgentJobSchema.parse(result).job,
+        );
+        yield* runtime.resetRetriedTurn(job.id);
+        yield* runtime.scheduleNextAlarm();
+        return response;
       }
       if (request.method === "POST" && path.endsWith("/socket-tickets")) {
         return yield* attempt("agent.socket_ticket.create", () =>
@@ -226,11 +249,10 @@ export class AgentObject extends DurableObject<Env> {
     }
     const cellId = `${context.workspaceId}:${agentId}`;
     if (request.method === "GET") {
-      const rows = this.ctx.storage.sql
-        .exec<{ key: string; value_json: string }>(
-          "SELECT key, value_json FROM cell_records ORDER BY key LIMIT 1000",
-        )
-        .toArray();
+      const rows = cellRecordsFindCellSnapshot<{
+        key: string;
+        value_json: string;
+      }>(this.ctx.storage);
       return json(
         agentCellSnapshotSchema.parse({
           version: 2,
@@ -261,7 +283,7 @@ export class AgentObject extends DurableObject<Env> {
     await importComputerFiles(this.computer, snapshot.files);
     const updatedAt = new Date().toISOString();
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec("DELETE FROM cell_records");
+      cellRecordsDeleteCellSnapshot(this.ctx.storage);
       for (const record of snapshot.records) {
         this.putCellRecord(record.key, record.value, updatedAt);
       }
@@ -274,14 +296,11 @@ export class AgentObject extends DurableObject<Env> {
   }
 
   private putCellRecord(key: string, value: JsonValue, updatedAt: string) {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO cell_records (key, value_json, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
-         updated_at = excluded.updated_at`,
-      key,
-      JSON.stringify(value),
-      updatedAt,
-    );
+    cellRecordsInsertPutRecord(this.ctx.storage, {
+      key: key,
+      valueJson: JSON.stringify(value),
+      updatedAt: updatedAt,
+    });
   }
 
   private broadcast(event: JsonObject) {

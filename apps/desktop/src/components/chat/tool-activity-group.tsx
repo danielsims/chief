@@ -1,43 +1,20 @@
+import { useState } from "react";
 import {
-  Brain,
   Check,
   ChevronDown,
   Circle,
   CircleAlert,
   LoaderCircle,
+  TextQuote,
 } from "lucide-react";
 
 import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { ActivityToolCall } from "./activity-entries";
+import { activityEntries } from "./activity-entries";
 import { formatActivityValue } from "./activity-tool-details";
 import { toolPresentation, toolSummary } from "./message-blocks";
-
-type ToolUseBlock = Extract<ContentBlock, { type: "tool_use" }>;
-type ToolResultBlock = Extract<ContentBlock, { type: "tool_result" }>;
-
-interface ActivityToolCall {
-  tool: ToolUseBlock;
-  result?: ToolResultBlock;
-}
-
-function activityToolCalls(
-  blocks: readonly ContentBlock[],
-): ActivityToolCall[] {
-  const results = new Map<string, ToolResultBlock>();
-  for (const block of blocks) {
-    if (block.type === "tool_result") results.set(block.tool_use_id, block);
-  }
-
-  const seen = new Set<string>();
-  const calls: ActivityToolCall[] = [];
-  for (const block of blocks) {
-    if (block.type !== "tool_use" || seen.has(block.id)) continue;
-    seen.add(block.id);
-    calls.push({ tool: block, result: results.get(block.id) });
-  }
-  return calls;
-}
 
 function ActivityDetail({
   label,
@@ -90,11 +67,13 @@ function ActivityTool({
       : stopped
         ? "Stopped"
         : "Done";
+  const [expanded, setExpanded] = useState(failed || running);
 
   return (
     <details
       className="group/tool border-border/45 border-t first:border-t-0"
-      open={failed || running ? true : undefined}
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary className="hover:bg-foreground/[0.025] flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2 transition-colors [&::-webkit-details-marker]:hidden">
         <span
@@ -165,12 +144,16 @@ function ActivityTool({
   );
 }
 
-function ActivityReasoning({ thoughts }: { thoughts: readonly string[] }) {
-  if (thoughts.length === 0) return null;
+function ActivityReasoning({ thought }: { thought: string }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <details className="group/reasoning border-border/45 border-t" open>
+    <details
+      className="group/reasoning border-border/45 border-t first:border-t-0"
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
       <summary className="hover:bg-foreground/[0.025] flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2 transition-colors [&::-webkit-details-marker]:hidden">
-        <Brain size={14} className="text-muted-foreground shrink-0" />
+        <TextQuote size={14} className="text-muted-foreground shrink-0" />
         <span className="min-w-0 flex-1 text-xs leading-4 font-medium">
           Reasoning
         </span>
@@ -180,11 +163,9 @@ function ActivityReasoning({ thoughts }: { thoughts: readonly string[] }) {
         />
       </summary>
       <div className="border-muted ml-5 border-l-2 pr-3.5 pb-3.5 pl-4">
-        <div className="text-muted-foreground max-h-72 space-y-3 overflow-y-auto text-[12px] leading-[1.55] font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
-          {thoughts.map((thought, index) => (
-            <p key={`${index}:${thought.slice(0, 24)}`}>{thought}</p>
-          ))}
-        </div>
+        <p className="text-muted-foreground max-h-72 overflow-y-auto text-[12px] leading-[1.55] font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
+          {thought}
+        </p>
       </div>
     </details>
   );
@@ -193,17 +174,27 @@ function ActivityReasoning({ thoughts }: { thoughts: readonly string[] }) {
 export function ToolActivityGroup({
   blocks,
   active,
+  flat = false,
 }: {
+  flat?: boolean;
   blocks: ContentBlock[];
   active: boolean;
 }) {
-  const calls = activityToolCalls(blocks);
-  const thoughts = blocks.flatMap((block) => {
-    if (block.type !== "thinking") return [];
-    const thought = block.thinking.trim();
-    return thought ? [thought] : [];
-  });
-  if (calls.length === 0 && thoughts.length === 0) return null;
+  const entries = activityEntries(blocks);
+  const calls = entries.flatMap((entry) =>
+    entry.kind === "tool" ? [entry.call] : [],
+  );
+  const hasReasoning = entries.some((entry) => entry.kind === "reasoning");
+  const [expanded, setExpanded] = useState(true);
+  if (entries.length === 0) return null;
+  const content = entries.map((entry) =>
+    entry.kind === "tool" ? (
+      <ActivityTool key={entry.key} call={entry.call} active={active} />
+    ) : (
+      <ActivityReasoning key={entry.key} thought={entry.thought} />
+    ),
+  );
+  if (flat) return <div className="w-full">{content}</div>;
   const completed = calls.filter((call) => call.result).length;
   const incomplete = calls.length - completed;
   const working = active && incomplete > 0;
@@ -212,7 +203,8 @@ export function ToolActivityGroup({
   return (
     <details
       className="group w-96 max-w-full overflow-hidden rounded-xl bg-black/[0.018] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]"
-      open
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
         <span className="min-w-0 flex-1 truncate font-medium">
@@ -222,7 +214,9 @@ export function ToolActivityGroup({
               ? "Stopped"
               : calls.length > 0
                 ? "Workspace activity"
-                : "Reasoning"}
+                : hasReasoning
+                  ? "Reasoning"
+                  : "Activity"}
         </span>
         <span className="text-muted-foreground text-[12px] leading-4 font-normal">
           {working
@@ -236,12 +230,7 @@ export function ToolActivityGroup({
           className="text-muted-foreground transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="border-border/45 border-t">
-        {calls.map((call) => (
-          <ActivityTool key={call.tool.id} call={call} active={active} />
-        ))}
-        <ActivityReasoning thoughts={thoughts} />
-      </div>
+      <div className="border-border/45 border-t">{content}</div>
     </details>
   );
 }

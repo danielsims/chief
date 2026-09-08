@@ -12,6 +12,14 @@ function commaSeparatedIds(value: string) {
     .filter(Boolean);
 }
 
+export function isChannelMembershipMessage(message: {
+  components: readonly MessageComponent[];
+}) {
+  return message.components.some(
+    (component) => component.kind === "channel-action",
+  );
+}
+
 export function channelActionFromComponent(
   component: MessageComponent,
 ): ChiefMessageMetadata["channelAction"] | undefined {

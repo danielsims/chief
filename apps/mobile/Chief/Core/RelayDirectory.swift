@@ -72,6 +72,18 @@ struct RelayDirectoryStore {
     save(directory)
   }
 
+  func forget(_ relayURL: URL) {
+    var directory = load()
+    directory.connections.removeAll { Self.sameOrigin($0.relayURL, relayURL) }
+    directory.workspaces = directory.workspaces.filter {
+      !Self.sameOrigin($0.value.relayURL, relayURL)
+    }
+    if let active = directory.activeRelayURL, Self.sameOrigin(active, relayURL) {
+      directory.activeRelayURL = directory.connections.last?.relayURL
+    }
+    save(directory)
+  }
+
   func location(for workspaceID: String) -> RelayWorkspaceLocation? {
     load().workspaces[workspaceID]
   }
@@ -113,15 +125,26 @@ enum RelayConnectionValidator {
     -> RelayConnectionRecord
   {
     let relayURL = try normalizedOrigin(value)
-    let discoveryURL = relayURL.appending(path: ".well-known/chief-relay")
+    let discoveryURL = relayURL.appending(path: ".well-known/relay")
     var request = URLRequest(url: discoveryURL)
     request.setValue("application/json", forHTTPHeaderField: "accept")
     let (data, response) = try await session.data(for: request)
-    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+    guard let http = response as? HTTPURLResponse else {
       throw RelayConnectionValidationError.unavailable
     }
-    let discovery = try JSONDecoder().decode(RelayDiscoveryDocument.self, from: data)
-    guard discovery.protocolName == "chief-relay", discovery.protocolVersion == 1,
+    if http.statusCode == 404 || http.statusCode == 410 {
+      throw RelayConnectionValidationError.missing
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      throw RelayConnectionValidationError.unavailable
+    }
+    let discovery: RelayDiscoveryDocument
+    do {
+      discovery = try JSONDecoder().decode(RelayDiscoveryDocument.self, from: data)
+    } catch {
+      throw RelayConnectionValidationError.unsupported
+    }
+    guard discovery.protocolName == "relay", discovery.protocolVersion == 1,
       discovery.authentication.scheme == "NIP-98",
       discovery.authentication.signingAlgorithm == "secp256k1-schnorr"
     else { throw RelayConnectionValidationError.unsupported }
@@ -185,7 +208,7 @@ private struct RelayDiscoveryDocument: Decodable {
 }
 
 enum RelayConnectionValidationError: LocalizedError {
-  case invalidAddress, insecure, unavailable, unsupported
+  case invalidAddress, insecure, unavailable, unsupported, missing
 
   var errorDescription: String? {
     switch self {
@@ -193,6 +216,7 @@ enum RelayConnectionValidationError: LocalizedError {
     case .insecure: "Self-hosted relays must use HTTPS."
     case .unavailable: "Chief couldn’t reach this relay."
     case .unsupported: "This server is not a compatible Chief relay."
+    case .missing: "This relay is no longer available."
     }
   }
 }

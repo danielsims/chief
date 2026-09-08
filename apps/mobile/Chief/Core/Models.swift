@@ -309,11 +309,19 @@ struct ChannelRecord: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+struct WorkspaceRelayGroup: Identifiable, Equatable, Sendable {
+  let relayURL: URL
+  let label: String
+  let workspaces: [WorkspaceSummary]
+  var id: String { relayURL.absoluteString }
+}
+
 /// A workspace-level membership row from the relay (`members` table).
 struct WorkspaceMember: Codable, Equatable, Identifiable, Sendable {
   let kind: String
   let principalId: String
   let role: String
+  let name: String?
   var id: String { "\(kind):\(principalId)" }
 }
 
@@ -409,23 +417,171 @@ enum ModelsDate {
   }
 }
 
+struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
+  let id: String
+  let name: String
+  let role: String
+  var canMessage: Bool? = nil
+  var description: String
+  var instructions: String
+  var capabilities: [String]
+
+  init(
+    id: String,
+    name: String,
+    role: String,
+    description: String = "",
+    instructions: String = "",
+    capabilities: [String] = []
+  ) {
+    self.id = id
+    self.name = name
+    self.role = role
+    self.description = description
+    self.instructions = instructions
+    self.capabilities = capabilities
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    role = try container.decode(String.self, forKey: .role)
+    canMessage = try container.decodeIfPresent(Bool.self, forKey: .canMessage)
+    description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+    instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+    capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+  }
+}
+
+struct AgentCardRef: Equatable, Sendable {
+  let agent: AgentSummary
+  let subagentID: String?
+
+  static func chiefFallback(for agentID: String) -> AgentCardRef {
+    let query = agentID.lowercased()
+    return AgentCardRef(
+      agent: AgentSummary(id: "chief", name: "Chief", role: "Workspace Lead", status: .idle),
+      subagentID: query == "chief" ? nil : agentID
+    )
+  }
+}
+
 struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
   enum Status: String, Codable, Sendable { case idle, working, needsYou, offline }
   let id: String
   let name: String
   let role: String
+  var canMessage: Bool? = nil
+  var canRunOnDevice: Bool? = nil
+  var description: String
+  var instructions: String
+  var capabilities: [String]
+  var subagents: [AgentProfile]
   let status: Status
+
+  init(
+    id: String,
+    name: String,
+    role: String,
+    status: Status,
+    description: String = "",
+    instructions: String = "",
+    capabilities: [String] = [],
+    subagents: [AgentProfile] = []
+  ) {
+    self.id = id
+    self.name = name
+    self.role = role
+    self.status = status
+    self.description = description
+    self.instructions = instructions
+    self.capabilities = capabilities
+    self.subagents = subagents
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    role = try container.decode(String.self, forKey: .role)
+    canMessage = try container.decodeIfPresent(Bool.self, forKey: .canMessage)
+    canRunOnDevice = try container.decodeIfPresent(Bool.self, forKey: .canRunOnDevice)
+    status = try container.decode(Status.self, forKey: .status)
+    description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+    instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+    capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    subagents = try container.decodeIfPresent([AgentProfile].self, forKey: .subagents) ?? []
+  }
+
+  var subagentCountLabel: String? {
+    guard !subagents.isEmpty else { return nil }
+    return "\(subagents.count) subagent\(subagents.count == 1 ? "" : "s")"
+  }
+
+  func with(status: Status) -> AgentSummary {
+    var result = AgentSummary(
+      id: id,
+      name: name,
+      role: role,
+      status: status,
+      description: description,
+      instructions: instructions,
+      capabilities: capabilities,
+      subagents: subagents
+    )
+    result.canMessage = canMessage
+    result.canRunOnDevice = canRunOnDevice
+    return result
+  }
+
+  func profile(id agentID: String) -> AgentProfile? {
+    let query = agentID.lowercased()
+    if id.lowercased() == query {
+      return AgentProfile(
+        id: id,
+        name: name,
+        role: role,
+        description: description,
+        instructions: instructions,
+        capabilities: capabilities
+      )
+    }
+    return subagents.first { $0.id.lowercased() == query }
+  }
+}
+
+extension WorkspaceSnapshot {
+  /// Root agent card for a chat author. Specialists such as Marketer live
+  /// under Chief, so tapping them opens Chief instead of an empty page.
+  func agentCard(for agentID: String) -> AgentCardRef? {
+    let query = agentID.lowercased()
+    if let root = agents.first(where: { $0.id.lowercased() == query }) {
+      return AgentCardRef(agent: root, subagentID: nil)
+    }
+    if let parent = agents.first(where: {
+      $0.subagents.contains { $0.id.lowercased() == query }
+    }) {
+      return AgentCardRef(agent: parent, subagentID: agentID)
+    }
+    if let chief = agents.first(where: { $0.id.lowercased() == "chief" }) {
+      return AgentCardRef(agent: chief, subagentID: agentID)
+    }
+    return agents.first.map { AgentCardRef(agent: $0, subagentID: nil) }
+  }
 }
 
 struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let organizationID: String
+  let agentID: String?
   let name: String
   let description: String?
   let repositoryKind: String
   let providerID: String
   let canonicalRemoteURL: String?
   let repositoryWebURL: String?
+  let repositoryFiles: [ProjectRepositorySourceFile]?
   let defaultBranch: String
   let createdAt: String
   let updatedAt: String
@@ -435,12 +591,48 @@ struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
   var changedFiles: Int { 0 }
 
   enum CodingKeys: String, CodingKey {
-    case id, name, description, repositoryKind, defaultBranch, createdAt, updatedAt
+    case id, name, description, repositoryKind, repositoryFiles, defaultBranch, createdAt, updatedAt
     case organizationID = "organizationId"
+    case agentID = "agentId"
     case providerID = "providerId"
     case canonicalRemoteURL = "canonicalRemoteUrl"
     case repositoryWebURL = "repositoryWebUrl"
   }
+
+  init(
+    id: String,
+    organizationID: String,
+    agentID: String? = nil,
+    name: String,
+    description: String? = nil,
+    repositoryKind: String,
+    providerID: String,
+    canonicalRemoteURL: String? = nil,
+    repositoryWebURL: String? = nil,
+    repositoryFiles: [ProjectRepositorySourceFile]? = nil,
+    defaultBranch: String,
+    createdAt: String,
+    updatedAt: String
+  ) {
+    self.id = id
+    self.organizationID = organizationID
+    self.agentID = agentID
+    self.name = name
+    self.description = description
+    self.repositoryKind = repositoryKind
+    self.providerID = providerID
+    self.canonicalRemoteURL = canonicalRemoteURL
+    self.repositoryWebURL = repositoryWebURL
+    self.repositoryFiles = repositoryFiles
+    self.defaultBranch = defaultBranch
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+}
+
+struct ProjectRepositorySourceFile: Codable, Equatable, Sendable {
+  let path: String
+  let content: String
 }
 
 struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
@@ -481,6 +673,13 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
   }
 
   var isVisibleThreadReply: Bool { !isAgentActivityProjection }
+
+  func mentionsCurrentUser(session: ChiefSession?) -> Bool {
+    guard let user = session?.user else { return false }
+    let people = [MentionAgent(id: user.id, name: user.name, role: "You")]
+    if mentions.contains(user.id) { return true }
+    return AgentMentionParser.mentions(in: body, people: people).contains(user.id)
+  }
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -573,7 +772,7 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     switch author {
     case .system:
       try authorEnc.encode("system", forKey: .kind)
-      try authorEnc.encode("chief-relay", forKey: .id)
+      try authorEnc.encode("relay", forKey: .id)
     case .user(let id, _):
       try authorEnc.encode("user", forKey: .kind)
       try authorEnc.encode(id, forKey: .id)
@@ -607,7 +806,7 @@ extension ConversationMessage.Author {
     // Relay messages carry `kind` + `id` but no display `name`; derive a
     // friendly label so every message (not just the opening) decodes.
     let kind = (try? container.decode(String.self, forKey: .kind)) ?? "system"
-    let id = (try? container.decode(String.self, forKey: .id)) ?? "chief-relay"
+    let id = (try? container.decode(String.self, forKey: .id)) ?? "relay"
     let name =
       (try? container.decodeIfPresent(String.self, forKey: .name))
       ?? Self.displayName(kind: kind, id: id)
@@ -634,6 +833,7 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
   let kind: String
   let version: Int
   let payload: [String: String]
+  var payloadArrays: [String: [String]] = [:]
 
   init(
     id: String,
@@ -662,6 +862,14 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     let rawPayload =
       try values.decodeIfPresent([String: JSONValue].self, forKey: .payload) ?? [:]
     self.payload = rawPayload.mapValues(Self.flatten)
+    self.payloadArrays = rawPayload.reduce(into: [:]) { result, entry in
+      guard case .array(let values) = entry.value else { return }
+      let strings = values.compactMap { value -> String? in
+        if case .string(let text) = value { return text }
+        return nil
+      }
+      if strings.count == values.count { result[entry.key] = strings }
+    }
   }
 
   func encode(to encoder: Encoder) throws {
@@ -670,6 +878,8 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     try values.encode(kind, forKey: .kind)
     try values.encode(version, forKey: .version)
     var rawPayload = payload.mapValues(JSONValue.string)
+    for (key, values) in payloadArrays { rawPayload[key] = .array(values.map(JSONValue.string)) }
+    if kind == "artifact.reference", let version = payload["version"].flatMap(Double.init) { rawPayload["version"] = .number(version) }
     if kind == "plugin.recommendation" {
       for key in ["enabled", "trusted"] {
         if let value = payload[key].flatMap(Bool.init) {

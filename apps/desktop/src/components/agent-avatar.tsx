@@ -1,7 +1,10 @@
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
-import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
+import {
+  WORKSPACE_AGENT_IDENTITIES,
+  workspaceAgentIdentity,
+} from "../lib/workspace-channels";
 import { ChiefMark } from "./chief-mark";
 
 export function AgentAvatar({
@@ -16,7 +19,7 @@ export function AgentAvatar({
   markClassName?: string;
 }) {
   const identity = agentId
-    ? WORKSPACE_AGENT_IDENTITIES[agentId]
+    ? workspaceAgentIdentity(agentId)
     : Object.values(WORKSPACE_AGENT_IDENTITIES).find(
         (candidate) => candidate.name.toLowerCase() === label.toLowerCase(),
       );

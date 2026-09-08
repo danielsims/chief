@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
@@ -24,6 +24,7 @@ import {
   DirectMessageOpening,
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
+import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -47,8 +48,8 @@ import {
   channelIdFromChatId,
   directMessageChatForAgent,
   resolvedChannelChatId,
-  WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
+  workspaceAgentIdentity,
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
@@ -57,11 +58,6 @@ import * as routing from "./conversation-routing";
 const DEFAULT_WORKSPACE_CHANNEL =
   WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
   WORKSPACE_CHANNELS[0];
-
-function conversationChannelVisibility(visibility: string | undefined) {
-  return visibility === "private" ? ("private" as const) : ("public" as const);
-}
-
 export function ConversationsPage() {
   const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
@@ -82,7 +78,11 @@ export function ConversationsPage() {
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
-  const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
+  const { agents: rootAgents, status: runtimeStatus } = useRuntime();
+  const runtimeAgents = useMemo(
+    () => rootAgents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]),
+    [rootAgents],
+  );
   const requestedChatId = params.get("chat");
   const requestedChannelId = channelIdFromChatId(requestedChatId);
   const staticRequestedChannel = workspaceChannel(params.get("channel"));
@@ -108,13 +108,14 @@ export function ConversationsPage() {
         label: resolvedRuntimeChannel.name,
         description: resolvedRuntimeChannel.description,
         agentIds: resolvedRuntimeChannel.agentIds,
-        visibility: conversationChannelVisibility(
+        visibility: routing.channelVisibility(
           resolvedRuntimeChannel.visibility,
         ),
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
   const requestedDirect = useRequestedDirectMessage({
     agentId: params.get("dm"),
+    agents: runtimeAgents,
     chats: localChats.chats,
     loading: localChats.loading,
     runtimeStatus,
@@ -123,7 +124,7 @@ export function ConversationsPage() {
   const requestedDirectMessage = requestedDirect.message;
   const requestedDirectChat = requestedDirect.chat;
   const directIdentity = requestedDirectMessage
-    ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
+    ? workspaceAgentIdentity(requestedDirectMessage.id, runtimeAgents)
     : null;
   const defaultRuntimeChannel = workspaceChannels.channels.find(
     (channel) => channel.slug === "general",
@@ -137,7 +138,7 @@ export function ConversationsPage() {
           label: defaultRuntimeChannel.name,
           description: defaultRuntimeChannel.description,
           agentIds: defaultRuntimeChannel.agentIds,
-          visibility: conversationChannelVisibility(
+          visibility: routing.channelVisibility(
             defaultRuntimeChannel.visibility,
           ),
         }
@@ -189,7 +190,7 @@ export function ConversationsPage() {
   const activeProfileAgentId =
     profileParam === "agent" && requestedDirectMessage
       ? requestedDirectMessage.id
-      : routing.isWorkspaceAgentId(profileParam)
+      : routing.isWorkspaceAgentId(profileParam, runtimeAgents)
         ? profileParam
         : null;
   const activeProfileAgent = activeProfileAgentId
@@ -198,10 +199,12 @@ export function ConversationsPage() {
       null)
     : null;
   const activeProfileIdentity = activeProfileAgentId
-    ? WORKSPACE_AGENT_IDENTITIES[activeProfileAgentId]
+    ? workspaceAgentIdentity(activeProfileAgentId, runtimeAgents)
     : null;
-  const activeProfileDirectMessage =
-    workspaceDirectMessage(activeProfileAgentId);
+  const activeProfileDirectMessage = workspaceDirectMessage(
+    activeProfileAgentId,
+    runtimeAgents,
+  );
   const activeProfileChatId = activeProfileDirectMessage
     ? (directMessageChatForAgent(
         localChats.chats,
@@ -287,6 +290,7 @@ export function ConversationsPage() {
     setParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("activity");
+      next.delete("artifact");
       next.delete("child");
       next.set(
         "profile",
@@ -319,18 +323,11 @@ export function ConversationsPage() {
       { state: navigationState },
     );
   };
-  const continueArtifact = (artifact: { id: string; title: string }) => {
-    startTransition(() =>
-      setParams({
-        channel: activeChannel.id,
-        prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
-      }),
-    );
-  };
   const setConversationView = (view: "messages" | "canvas") => {
     setParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("activity");
+      next.delete("artifact");
       next.delete("child");
       next.delete("profile");
       if (view === "canvas") next.set("view", "canvas");
@@ -356,7 +353,7 @@ export function ConversationsPage() {
       directAgentId={requestedDirectMessage?.id ?? null}
       directIdentity={directIdentity}
       directPresence={directPresence}
-      onContinueArtifact={continueArtifact}
+      agents={runtimeAgents}
       onOpenActivity={() => setActivityPanel(true)}
       onOpenProfile={openProfile}
       activeView={activeView}
@@ -379,8 +376,17 @@ export function ConversationsPage() {
               {conversationHeader}
               <ChannelCanvas
                 channelName={activeChannel.label}
-                onContinueArtifact={continueArtifact}
-              />
+                conversationId={
+                  activeConversationChannel?.relayId ?? activeChannel.id
+                }
+              >
+                <MissionCanvas
+                  key={activeConversationChannel?.relayId ?? activeChannel.id}
+                  conversationId={
+                    activeConversationChannel?.relayId ?? activeChannel.id
+                  }
+                />
+              </ChannelCanvas>
             </>
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>
@@ -469,6 +475,7 @@ export function ConversationsPage() {
           ) : requestedDirectMessage ? (
             <DirectMessageOpening
               agentId={requestedDirectMessage.id}
+              agentName={directIdentity?.name ?? requestedDirectMessage.id}
               error={requestedDirect.error}
               onRetry={requestedDirect.retry}
             />

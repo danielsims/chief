@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  BarChart3,
   CalendarClock,
   FolderGit2,
   FolderOpen,
@@ -39,11 +38,10 @@ import {
 } from "../lib/runtime";
 import {
   directMessageChatForAgent,
-  directMessageIdsForChats,
+  directMessageIdsForAgents,
   isSidebarPinnedItem,
   sidebarPinnedItemKey,
   WORKSPACE_CHANNELS,
-  WORKSPACE_DIRECT_MESSAGES,
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
@@ -58,7 +56,6 @@ const PRIMARY_ITEMS = [
   { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/plugins", label: "Plugins", icon: Plug },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
 
@@ -168,7 +165,10 @@ export function Sidebar({
       (channel.id === params.get("channel") ||
         channel.slug === params.get("channel")),
   );
-  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const requestedDirectMessage = workspaceDirectMessage(
+    params.get("dm"),
+    runtimeAgents,
+  );
   const activeChannelId = location.pathname.startsWith("/conversations")
     ? (requestedRuntimeChannel?.id ?? requestedChannel?.id ?? null)
     : null;
@@ -260,10 +260,7 @@ export function Sidebar({
       !leftIds.includes(channel.id),
   );
   const directMessageIds = useMemo(() => {
-    const available = new Set(runtimeAgents.map((agent) => agent.id));
-    return runtimeAgents.length > 0
-      ? directMessageIdsForChats().filter((agentId) => available.has(agentId))
-      : directMessageIdsForChats();
+    return directMessageIdsForAgents(runtimeAgents);
   }, [runtimeAgents]);
   const directAttentionTargets = useMemo(
     () =>
@@ -283,10 +280,10 @@ export function Sidebar({
     ],
   );
   const unreadDirectMessageCounts = new Map(
-    WORKSPACE_DIRECT_MESSAGES.map((message) => [
-      message.id,
+    directMessageIds.map((agentId) => [
+      agentId,
       unreadChannelCounts.get(
-        directMessageChatForAgent(localChats.chats, message.id)?.id ?? "",
+        directMessageChatForAgent(localChats.chats, agentId)?.id ?? "",
       ) ?? 0,
     ]),
   );
@@ -423,6 +420,7 @@ export function Sidebar({
           channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
+          agents={runtimeAgents}
           onOpen={openChannel}
           onOpenDirectMessage={(agentId: WorkspaceAgentId, target) => {
             chiefNavigation.open({

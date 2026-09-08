@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { safeAuthorizationRedirect } from "./authorization-redirect";
 import { env } from "./env";
 
 const forwardedRequestHeaders = new Set([
@@ -55,6 +56,7 @@ export async function proxyRelayAuth(request: Request) {
         ? undefined
         : await request.arrayBuffer(),
     redirect: "manual",
+    cache: "no-store",
   });
 
   // Better Auth returns its redirect envelope as JSON when the request has
@@ -101,32 +103,6 @@ export async function proxyRelayAuth(request: Request) {
     statusText: response.statusText,
     headers: responseHeaders,
   });
-}
-
-function safeAuthorizationRedirect(value: string, webOrigin: string) {
-  try {
-    const destination = new URL(value);
-    if (destination.protocol === "https:" && destination.origin === webOrigin) {
-      return destination.toString();
-    }
-    if (
-      destination.protocol === "chief-desktop:" &&
-      destination.host === "" &&
-      destination.pathname === "/auth"
-    ) {
-      return destination.toString();
-    }
-    if (
-      destination.protocol === "chief-mobile:" &&
-      destination.hostname === "auth" &&
-      (destination.pathname === "" || destination.pathname === "/")
-    ) {
-      return destination.toString();
-    }
-  } catch {
-    // Better Auth owns error reporting; an invalid redirect is never followed.
-  }
-  return null;
 }
 
 export const handler = {

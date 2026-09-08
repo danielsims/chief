@@ -6,12 +6,25 @@ import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
 import { PluginRuntime } from "./plugins/runtime.js";
+import {
+  parseLocalProjectQuery,
+  queryLocalProject,
+} from "./projects/local-project-query.js";
+import {
+  bindLocalProject,
+  parseLocalProjectBinding,
+  parseLocalProjectPreparation,
+  prepareLocalProject,
+} from "./projects/local-projects.js";
 
 const port = Number(process.env.CHIEF_PLUGIN_HOST_PORT ?? 4318);
 const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
 const plugins = new PluginRuntime(() => undefined);
 
 type PluginHostResponse =
+  | Awaited<ReturnType<typeof queryLocalProject>>
+  | Awaited<ReturnType<typeof prepareLocalProject>>
+  | Awaited<ReturnType<typeof bindLocalProject>>
   | { error: string }
   | { status: "ready" }
   | { snapshot: PluginCatalogSnapshot }
@@ -82,6 +95,30 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
 
       const input = await readJson(request);
       const workspaceId = parseRequiredString(input.workspaceId, "workspaceId");
+      if (url.pathname === "/projects/query") {
+        sendJson(
+          response,
+          200,
+          await queryLocalProject(parseLocalProjectQuery(input)),
+        );
+        return;
+      }
+      if (url.pathname === "/projects/prepare") {
+        sendJson(
+          response,
+          200,
+          await prepareLocalProject(parseLocalProjectPreparation(input)),
+        );
+        return;
+      }
+      if (url.pathname === "/projects/bind") {
+        sendJson(
+          response,
+          200,
+          await bindLocalProject(parseLocalProjectBinding(input)),
+        );
+        return;
+      }
       if (url.pathname === "/plugins/list") {
         sendJson(response, 200, {
           snapshot: await plugins.snapshot(workspaceId, input.refresh === true),

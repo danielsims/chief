@@ -1,11 +1,35 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { parseJsonNumber } from "@chief/relay-contracts";
+import { workspaceScheduleInputSchema } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
 export const relayCellWorkspaceTools = [
+  defineRelayCellTool(
+    "recurringWork.list",
+    "workspace.read",
+    async ({ client }) => ({ schedules: await client.schedules.list() }),
+  ),
+  defineRelayCellTool(
+    "recurringWork.propose",
+    "workspace.write",
+    async ({ client, conversationId }, input) =>
+      await client.schedules.save(
+        workspaceScheduleInputSchema.parse({
+          ...input,
+          id:
+            optionalString(input, "id") ??
+            `schedule-${createHash("sha256")
+              .update(`${conversationId}:${requiredString(input, "title")}`)
+              .digest("hex")
+              .slice(0, 32)}`,
+          conversationId:
+            optionalString(input, "conversationId") ?? conversationId,
+          onceAt: input.onceAt,
+        }),
+      ),
+  ),
   defineRelayCellTool(
     "brandProfile.status",
     "workspace.read",
@@ -37,20 +61,51 @@ export const relayCellWorkspaceTools = [
     files: await client.listWorkspaceFiles(),
   })),
   defineRelayCellTool(
-    "files.write",
-    "workspace.write",
-    async ({ client, conversationId }, input) =>
-      await client.saveWorkspaceFile({
-        id: optionalString(input, "id"),
-        path: optionalString(input, "path") ?? `/documents/${randomUUID()}.md`,
-        title: requiredString(input, "name"),
-        mimeType: input.kind === "email" ? "message/rfc822" : "text/markdown",
-        content: requiredString(input, "content"),
-        conversationId,
-        expectedVersion: parseJsonNumber(input.expectedVersionId),
-      }),
+    "files.read",
+    "workspace.read",
+    async ({ client }, input) => {
+      const file = (await client.listWorkspaceFiles()).find(
+        (candidate) => candidate.id === requiredString(input, "fileId"),
+      );
+      if (!file) throw new Error("File not found.");
+      return { file };
+    },
   ),
-  defineRelayCellTool("projects.list", "projects.read", async ({ client }) => ({
-    projects: await client.listProjects(),
-  })),
+  defineRelayCellTool(
+    "files.write",
+    "messages.send",
+    async ({ client, conversationId }, input) => {
+      const existing = input.id
+        ? (await client.listWorkspaceFiles()).find(
+            (file) => file.id === input.id,
+          )
+        : undefined;
+      return await client.saveWorkspaceFile({
+        id: optionalString(input, "id"),
+        path:
+          optionalString(input, "path") ??
+          existing?.path ??
+          `artifacts/${randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
+        title: requiredString(input, "name"),
+        mimeType:
+          input.kind === "email"
+            ? "message/rfc822"
+            : input.format === "html"
+              ? "text/html"
+              : input.format === "csv"
+                ? "text/csv"
+                : input.format === "json"
+                  ? "application/json"
+                  : "text/markdown",
+        content: requiredString(input, "content"),
+        conversationId:
+          optionalString(input, "conversationId") ??
+          existing?.conversationId ??
+          conversationId,
+        expectedVersion: input.expectedVersionId
+          ? Number(requiredString(input, "expectedVersionId"))
+          : undefined,
+      });
+    },
+  ),
 ];

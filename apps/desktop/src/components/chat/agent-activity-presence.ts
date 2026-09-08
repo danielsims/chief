@@ -1,4 +1,5 @@
 import type { SessionRecord } from "@chief/agent-runtime/types";
+import type { ScheduleRun } from "@chief/relay-contracts";
 
 export interface AgentActivityPresence {
   id: string;
@@ -49,4 +50,25 @@ export function formatAgentActivityStatus(
     return `${labels[0]}, ${labels[1]}, and ${labels[2]} are working…`;
   }
   return `${labels[0]}, ${labels[1]}, and ${labels.length - 2} others are working…`;
+}
+
+export function scheduledAgentActivityPresence(
+  runs: readonly Pick<ScheduleRun, "state" | "threadRootId" | "steps">[],
+  labelFor: (id: string) => string,
+  threadRootId?: string | null,
+) {
+  return mergeAgentActivityPresence(
+    undefined,
+    runs
+      .filter(
+        (run) =>
+          run.state === "running" &&
+          (!threadRootId || run.threadRootId === threadRootId),
+      )
+      .flatMap((run) =>
+        run.steps
+          .filter((step) => step.state === "running")
+          .map((step) => ({ id: step.agentId, label: labelFor(step.agentId) })),
+      ),
+  );
 }

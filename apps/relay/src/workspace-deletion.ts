@@ -91,10 +91,31 @@ export async function deleteManagedWorkspace(
   return workspaceResponse;
 }
 
-async function deleteWorkspaceArtifacts(bucket: R2Bucket, workspaceId: string) {
+export async function deleteWorkspaceArtifacts(
+  bucket: R2Bucket,
+  workspaceId: string,
+) {
   let cursor: string | undefined;
   do {
     const page = await bucket.list({ prefix: `${workspaceId}/`, cursor });
+    if (page.objects.length > 0) {
+      await bucket.delete(page.objects.map((object) => object.key));
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+}
+
+export async function deleteAgentArtifacts(
+  bucket: R2Bucket,
+  workspaceId: string,
+  agentId: string,
+) {
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({
+      prefix: `${workspaceId}/agents/${agentId}/`,
+      cursor,
+    });
     if (page.objects.length > 0) {
       await bucket.delete(page.objects.map((object) => object.key));
     }
