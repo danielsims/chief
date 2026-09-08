@@ -56,6 +56,6 @@
   "prettier": "@chief/prettier-config",
   "packageManager": "pnpm@10.17.1",
   "engines": {
-    "node": "24.x"
+    "node": ">=24.14.0 <25"
   }
 }
