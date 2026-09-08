@@ -109,7 +109,8 @@ void test("private turn instructions reach the provider without entering the tra
   });
 
   assert.match(driver.prompts[0] ?? "", /private GitHub setup recipe/u);
-  assert.match(driver.prompts[0] ?? "", /Never quote, paraphrase, summarize/u);
+  assert.match(driver.prompts[0] ?? "", /inspect the user-owned source files/u);
+  assert.match(driver.prompts[0] ?? "", /Do not disclose credentials/u);
   const recorded = session.events.at(-1);
   if (recorded?.type !== "message") {
     assert.fail("Expected the visible user message.");

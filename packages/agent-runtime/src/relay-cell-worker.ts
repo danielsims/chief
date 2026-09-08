@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 
@@ -18,11 +19,20 @@ import {
 
 import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
-import { composeWorkspaceInstructions } from "./agents.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { ensureCodexSetup } from "./drivers/codex-install.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
+import {
+  localCellExecutionContext,
+  localCellInstructions,
+} from "./prompts/local-cell.js";
+import { relayCellHostInstructions } from "./prompts/relay-cell-tool-binding.js";
+import {
+  activeSkillInstructions,
+  relayCellFinalReply,
+  relayCellWorkspaceContext,
+} from "./prompts/relay-cell-turn.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
@@ -35,12 +45,6 @@ import { AgentSession } from "./session.js";
 
 const mode = process.argv[2] ?? "worker";
 const plugins = new PluginRuntime(() => undefined);
-
-const relayCellHostInstructions = `# Relay cell tool binding
-
-In this relay-hosted cell, the canonical plugin tools are named plugins_list and plugins_recommend. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation, authorization and removal happen through user-operated plugin cards; those operations are not agent tools. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
-
-The canonical browser tools are browser_open, browser_snapshot, browser_click, browser_fill, browser_select, browser_press, and browser_close. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Open the page, snapshot before drawing conclusions, and close it when finished.`;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -63,29 +67,6 @@ function relayClient() {
     getAuthorization: (request) =>
       Promise.resolve(createNip98Authorization(secretKey, request)),
   });
-}
-
-function workspaceContext(job: AgentJob, agentId: string) {
-  const payload = job.payload;
-  const name = parseJsonString(payload.name);
-  const website = parseJsonString(payload.website);
-  const selectedApps = Array.isArray(payload.selectedApps)
-    ? payload.selectedApps.flatMap((value) => {
-        const app = parseJsonString(value);
-        return app === undefined ? [] : [app];
-      })
-    : [];
-  return [
-    name ? `Workspace: ${name}` : undefined,
-    website ? `Website: ${website}` : undefined,
-    agentId === "setup"
-      ? selectedApps.length > 0
-        ? `Requested connections: ${selectedApps.join(", ")}. These are setup requests, not proof of access.`
-        : "Requested connections: none."
-      : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence.",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 function finalAssistantText(events: readonly AgentEvent[]) {
@@ -206,6 +187,13 @@ async function executeJob(
       await client.loadOwnAgentProfile(),
     );
     const project = await localJobProject(client, job, agentId, config);
+    const cellDirectory =
+      project?.directory ?? requiredEnvironment("CHIEF_CELL_ROOT");
+    const executionContext = {
+      workingDirectory: cellDirectory,
+      homeDirectory: homedir(),
+      project,
+    };
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
     const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}:${project?.projectId ?? "workspace"}`;
@@ -219,18 +207,23 @@ async function executeJob(
     const agentSession = new AgentSession(
       {
         ...definition,
-        instructions: composeWorkspaceInstructions(
-          [
+        instructions: localCellInstructions({
+          identity: [
             definition.instructions,
             relayCellHostInstructions,
             activeSkill
-              ? `# Active skill\n\n${activeSkill.instructions}`
+              ? activeSkillInstructions(activeSkill.instructions)
               : undefined,
           ]
             .filter(Boolean)
             .join("\n\n"),
-          workspaceContext(job, agentId),
-        ),
+          permissions: config.toolPermissions,
+          conversationKind: conversationId.startsWith("dm-")
+            ? "direct"
+            : "channel",
+          workspaceContext: relayCellWorkspaceContext(job.payload, agentId),
+          ...executionContext,
+        }),
       },
       conversationId,
       {
@@ -270,8 +263,6 @@ async function executeJob(
         .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
         .catch((error) => console.error("[cell] event persistence:", error));
     });
-    const cellDirectory =
-      project?.directory ?? requiredEnvironment("CHIEF_CELL_ROOT");
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
@@ -280,12 +271,10 @@ async function executeJob(
     await agentSession.sendPrompt(instruction, job.id, false, {
       threadRootId: activityContext.threadRootId,
       privateInstructions: [
-        workspaceContext(job, agentId),
-        project
-          ? `Repository: ${project.name} (${project.projectId}). Your working directory is the isolated agent checkout ${project.directory}. Inspect repository instructions before changes. Keep code changes here, run focused checks, and return the diff and evidence for review. Do not deploy, push, or change the original checkout without the user's authorization.`
-          : "Use projects_list to inspect connected repositories. If more than one is available, clarify the repository and assign its projectId to the mission before editing code. This session's sandbox is the cell directory.",
+        relayCellWorkspaceContext(job.payload, agentId),
+        localCellExecutionContext(executionContext),
         job.kind === "conversation.message" || job.kind === "schedule.step"
-          ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
+          ? relayCellFinalReply(conversationId)
           : undefined,
       ]
         .filter(Boolean)
