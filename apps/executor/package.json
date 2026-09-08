@@ -1,7 +1,7 @@
 {
   "name": "@chief/executor",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --external:ws --outfile=dist/server.mjs",
