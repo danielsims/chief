@@ -10,7 +10,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const KEYCHAIN_SERVICE = "com.danielsims.chief.browser-state";
+const KEYCHAIN_SERVICE = "sh.heychief.desktop.browser-state";
 const KEYCHAIN_ACCOUNT = "default";
 const KEY_PATTERN = /^[a-f0-9]{64}$/i;
 

@@ -43,13 +43,13 @@ void test("recorded channel membership retains its durable UI action", () => {
     workspaceId: "workspace",
   });
   session.recordUserMessage(
-    "Daniel Sims added Analyst to the channel.",
+    "Workspace Owner added Analyst to the channel.",
     "membership-event",
     {
       mentions: ["analyst"],
       channelAction: {
         type: "member-added",
-        actorName: "Daniel Sims",
+        actorName: "Workspace Owner",
         agentIds: ["analyst"],
       },
     },
@@ -62,7 +62,7 @@ void test("recorded channel membership retains its durable UI action", () => {
   assert.equal(event.id, "membership-event");
   assert.deepEqual(event.channelAction, {
     type: "member-added",
-    actorName: "Daniel Sims",
+    actorName: "Workspace Owner",
     agentIds: ["analyst"],
   });
 });

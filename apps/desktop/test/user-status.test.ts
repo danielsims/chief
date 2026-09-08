@@ -11,8 +11,5 @@ void test("formats a custom profile status", () => {
 });
 
 void test("uses profile fallback text when no status is set", () => {
-  assert.equal(
-    userStatusLabel(null, "daniel@example.com"),
-    "daniel@example.com",
-  );
+  assert.equal(userStatusLabel(null, "owner@example.com"), "owner@example.com");
 });

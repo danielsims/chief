@@ -39,7 +39,7 @@ struct ChiefSession: Codable, Equatable, Sendable {
     sessionToken: "fixture-session-token",
     refreshToken: nil,
     accessTokenExpiresAt: nil,
-    user: ChiefUser(id: "daniel", name: "Daniel Sims", imageURL: nil),
+    user: ChiefUser(id: "workspace-owner", name: "Workspace Owner", imageURL: nil),
     workspaceID: "chief-demo"
   )
 }

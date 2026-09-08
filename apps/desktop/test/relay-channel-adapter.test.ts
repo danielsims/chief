@@ -43,7 +43,7 @@ void test("preserves relay membership when adapting a channel for desktop", () =
   const channel = workspaceChannelFromRelay(
     record,
     [
-      { ...current, name: "Daniel" },
+      { ...current, name: "Workspace" },
       channelMemberSchema.parse({
         kind: "agent",
         principalId: "engineer",

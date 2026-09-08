@@ -29,7 +29,7 @@ describe("workspace live membership delivery", () => {
           id: crypto.randomUUID(),
           workspaceId: "workspace-test",
           conversationId: "new-channel",
-          body: "Daniel and Alex were added to the channel.",
+          body: "Workspace and Alex were added to the channel.",
           author: { kind: "system", id: "relay" },
           createdAt: "2026-08-28T00:00:00.000Z",
           sequence: 1,
@@ -44,13 +44,13 @@ describe("workspace live membership delivery", () => {
                 actorId: "owner",
                 actorName: "Owner",
                 actorType: "user",
-                targetId: "user-daniel",
+                targetId: "workspace-owner",
                 targetKind: "user",
-                targetName: "Daniel",
-                targetIds: "user-daniel,user-alex",
-                targetNames: "Daniel,Alex",
+                targetName: "Workspace",
+                targetIds: "workspace-owner,user-alex",
+                targetNames: "Workspace,Alex",
                 agentIds: "",
-                userIds: "user-daniel,user-alex",
+                userIds: "workspace-owner,user-alex",
               },
             },
           ],
@@ -69,9 +69,9 @@ describe("workspace live membership delivery", () => {
         role: "member",
       });
 
-    expect(isMembershipGrantForPrincipal(event, principal("user-daniel"))).toBe(
-      true,
-    );
+    expect(
+      isMembershipGrantForPrincipal(event, principal("workspace-owner")),
+    ).toBe(true);
     expect(isMembershipGrantForPrincipal(event, principal("user-alex"))).toBe(
       true,
     );

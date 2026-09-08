@@ -11,7 +11,7 @@ import {
   SelectTrigger,
 } from "@chief/ui/components/select";
 
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { AddProjectDialog } from "../components/projects/add-project-dialog";
 import { ProjectCard } from "../components/projects/project-card";
 import { ProjectDetail } from "../components/projects/project-detail";
@@ -91,54 +91,52 @@ export function ProjectsPage() {
   return (
     <section className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
       {selected ? null : (
-        <header className="shrink-0 border-b border-black/[0.055] px-6 pt-5 pb-4 dark:border-white/[0.055]">
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">
-              <PageTitle>Projects</PageTitle>
-              <p className="text-muted-foreground mt-1 max-w-2xl text-[13px] leading-5">
-                Git repositories shared across your workspace.
-              </p>
-            </div>
-            <Select
-              value={projectFilter}
-              onValueChange={(value) => {
-                const parsed = projectFilterSchema.safeParse(value);
-                if (parsed.success) setProjectFilter(parsed.data);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[152px] text-xs">
-                <ListFilter className="size-3.5" />
-                <span>
-                  {projectFilter === "agents"
-                    ? "Agent projects"
-                    : projectFilter === "repositories"
-                      ? "Repositories"
-                      : "All projects"}
-                </span>
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="all">All projects</SelectItem>
-                <SelectItem value="repositories">Repositories</SelectItem>
-                <SelectItem value="agents">Agent projects</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={projects.refresh}>
-              <RefreshCw size={13} />
-              Refresh
-            </Button>
-            <Button size="sm" onClick={() => setAdding(true)}>
-              <Plus size={14} />
-              Add project
-            </Button>
-          </div>
-        </header>
+        <PageHeader
+          title="Projects"
+          description="Git repositories shared across your workspace."
+          actions={
+            <>
+              <Select
+                value={projectFilter}
+                onValueChange={(value) => {
+                  const parsed = projectFilterSchema.safeParse(value);
+                  if (parsed.success) setProjectFilter(parsed.data);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[152px] text-xs">
+                  <ListFilter className="size-3.5" />
+                  <span>
+                    {projectFilter === "agents"
+                      ? "Agent projects"
+                      : projectFilter === "repositories"
+                        ? "Repositories"
+                        : "All projects"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="all">All projects</SelectItem>
+                  <SelectItem value="repositories">Repositories</SelectItem>
+                  <SelectItem value="agents">Agent projects</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={projects.refresh}>
+                <RefreshCw size={13} />
+                Refresh
+              </Button>
+              <Button size="sm" onClick={() => setAdding(true)}>
+                <Plus size={14} />
+                Add project
+              </Button>
+            </>
+          }
+        />
       )}
 
       <div
         className={
           selected
             ? "min-h-0 flex-1"
-            : "min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 py-6"
+            : "min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 pb-6"
         }
       >
         {selected ? (
@@ -150,7 +148,7 @@ export function ProjectsPage() {
           />
         ) : access.requests?.length ? (
           <>
-            <div className="border-border/70 mx-auto mb-4 max-w-6xl rounded-2xl border">
+            <div className="border-border/70 mb-4 rounded-2xl border">
               <div className="border-border/70 flex min-h-10 items-center justify-between gap-4 border-b px-4 py-2 text-[13px] font-medium">
                 <span>Agent access requests</span>
                 {access.error ? (
@@ -210,7 +208,7 @@ export function ProjectsPage() {
                 </div>
               ))}
             </div>
-            <div className="mx-auto grid w-full max-w-6xl gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
               {visibleProjects.map((snapshot) => (
                 <ProjectCard
                   key={snapshot.project.id}
@@ -225,7 +223,7 @@ export function ProjectsPage() {
             </div>
           </>
         ) : projects.loading ? (
-          <div className="mx-auto grid w-full max-w-6xl gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
@@ -234,7 +232,7 @@ export function ProjectsPage() {
             ))}
           </div>
         ) : visibleProjects.length === 0 ? (
-          <div className="bg-sidebar mx-auto flex min-h-64 w-full max-w-6xl flex-col items-center justify-center rounded-2xl border border-black/[0.055] px-8 py-14 text-center dark:border-white/[0.055]">
+          <div className="bg-sidebar flex min-h-64 w-full flex-col items-center justify-center rounded-2xl border border-black/[0.055] px-8 py-14 text-center dark:border-white/[0.055]">
             <p className="text-[18px] leading-tight font-medium tracking-[-0.025em]">
               {projects.projects.length === 0
                 ? "No projects yet"
@@ -253,7 +251,7 @@ export function ProjectsPage() {
             ) : null}
           </div>
         ) : (
-          <div className="mx-auto grid w-full max-w-6xl gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
             {visibleProjects.map((snapshot) => (
               <ProjectCard
                 key={snapshot.project.id}

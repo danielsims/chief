@@ -83,25 +83,25 @@ export function DashboardPage() {
     workspaceData,
   } = useDashboardController();
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1120px] flex-col overflow-hidden pt-3 pb-[176px] max-[760px]:h-auto max-[760px]:overflow-visible max-[760px]:pb-[250px]">
-      <div className="flex min-h-0 flex-1 flex-col justify-center pt-6">
-        <header className="mb-6 flex shrink-0 items-start justify-between gap-6 max-[760px]:flex-col">
-          <div>
-            <PageTitle size="overview">
-              {greeting(workspaceData.now)}, {firstName}
-            </PageTitle>
-            <p className="text-muted-foreground mt-2 text-xs">
-              An overview of your channels and agents.
-            </p>
-          </div>
-          <WorkspaceIndicator organization={organization} />
-        </header>
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1120px] flex-col overflow-hidden pt-5">
+      <header className="mb-6 flex shrink-0 items-start justify-between gap-6 max-[760px]:flex-col">
+        <div>
+          <PageTitle size="overview">
+            {greeting(workspaceData.now)}, {firstName}
+          </PageTitle>
+          <p className="text-muted-foreground mt-2 text-xs">
+            An overview of your channels and agents.
+          </p>
+        </div>
+        <WorkspaceIndicator organization={organization} />
+      </header>
 
-        <section className="grid h-[clamp(500px,calc(100vh-250px),560px)] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:h-auto max-[760px]:grid-cols-1">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <section className="grid h-full max-h-[560px] min-h-[320px] w-full grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:h-auto max-[760px]:max-h-none max-[760px]:grid-cols-1">
           <section
             className={cn(
               overviewSurface,
-              "flex min-h-0 min-w-0 flex-col overflow-hidden",
+              "flex min-h-0 min-w-0 flex-col overflow-y-auto max-[760px]:min-h-72",
             )}
             aria-label="Action items"
           >
@@ -471,9 +471,9 @@ export function DashboardPage() {
         </section>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col items-center px-7 pb-5 before:absolute before:-inset-x-7 before:-top-16 before:-bottom-5 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_55%,var(--background))]">
+      <div className="z-40 flex shrink-0 flex-col items-center pt-4">
         <ChatComposer
-          className="pointer-events-auto w-full max-w-3xl"
+          className="w-full max-w-3xl"
           value={ask}
           onValueChange={setAsk}
           onSubmit={submit}

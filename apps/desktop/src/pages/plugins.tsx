@@ -1,20 +1,18 @@
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 
 import type { PluginRuntimeState } from "../lib/runtime-plugins";
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { PluginList } from "../components/plugins/plugin-list";
 import { usePlugins } from "../lib/runtime-plugins";
 
 function PluginsPageContent({ plugins }: { plugins: PluginRuntimeState }) {
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="shrink-0 px-6 pt-5">
-        <PageTitle>Plugins</PageTitle>
-        <p className="text-muted-foreground mt-1 text-[13px]">
-          Connect the tools your team already uses.
-        </p>
-      </header>
-      <main className="mt-5 min-h-0 flex-1 overflow-y-auto px-6">
+      <PageHeader
+        title="Plugins"
+        description="Connect the tools your team already uses."
+      />
+      <main className="min-h-0 flex-1 overflow-y-auto px-6">
         <PluginList plugins={plugins} />
       </main>
     </div>

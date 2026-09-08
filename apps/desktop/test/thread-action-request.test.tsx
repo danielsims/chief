@@ -50,7 +50,10 @@ void test("keeps a resolved decision with its selected answer and attribution", 
   const html = renderToStaticMarkup(
     <MemoryRouter>
       <ActionRequestCard
-        currentUser={{ id: "daniel", image: "https://example.com/daniel.jpg" }}
+        currentUser={{
+          id: "workspace-owner",
+          image: "https://example.com/owner.jpg",
+        }}
         action={{
           id: "action-heartbeat",
           agentId: "chief",
@@ -63,7 +66,7 @@ void test("keeps a resolved decision with its selected answer and attribution", 
               "Which move should Chief greenlight?": "Connect GitHub",
             },
             resolvedAt: 2,
-            resolvedBy: { id: "daniel", name: "Daniel Simms" },
+            resolvedBy: { id: "workspace-owner", name: "Workspace Owner" },
           },
           request: {
             id: "request-heartbeat",
@@ -85,9 +88,9 @@ void test("keeps a resolved decision with its selected answer and attribution", 
     </MemoryRouter>,
   );
 
-  assert.match(html, /Daniel Simms/u);
+  assert.match(html, /Workspace Owner/u);
   assert.match(html, /selected/u);
-  assert.match(html, /src="https:\/\/example.com\/daniel.jpg"/u);
+  assert.match(html, /src="https:\/\/example.com\/owner.jpg"/u);
   assert.match(html, /aria-pressed="true"[^>]*disabled/u);
   assert.doesNotMatch(html, /Requires attention/u);
   assert.doesNotMatch(html, />Continue</u);
@@ -156,7 +159,7 @@ void test("keeps a resolved free-text option and its typed answer", () => {
           resolution: {
             answers: { "Which colour do you like best?": "Purple" },
             resolvedAt: 2,
-            resolvedBy: { id: "daniel", name: "Daniel Simms" },
+            resolvedBy: { id: "workspace-owner", name: "Workspace Owner" },
           },
           request: {
             id: "request-colour",
@@ -178,5 +181,5 @@ void test("keeps a resolved free-text option and its typed answer", () => {
   assert.match(html, /aria-pressed="true"[^>]*disabled/u);
   assert.match(html, /aria-label="Other answer for Which colour/u);
   assert.match(html, />Purple<\/textarea>/u);
-  assert.match(html, /Daniel Simms/u);
+  assert.match(html, /Workspace Owner/u);
 });

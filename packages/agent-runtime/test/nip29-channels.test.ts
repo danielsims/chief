@@ -235,7 +235,7 @@ void test("deleting a channel removes its Nostr history and stays deleted", asyn
     const message = createChannelEvent({
       workspaceId: "workspace-a",
       channelId: channel.id,
-      actor: { type: "user", id: "owner", name: "Daniel" },
+      actor: { type: "user", id: "owner", name: "Workspace" },
       content: "Delete this with the channel.",
     });
     await store.channelStore().appendEvent("workspace-a", message);
@@ -245,7 +245,7 @@ void test("deleting a channel removes its Nostr history and stays deleted", asyn
         workspaceId: "workspace-a",
         channelId: channel.id,
         targetEventId: message.id,
-        actor: { type: "user", id: "owner", name: "Daniel" },
+        actor: { type: "user", id: "owner", name: "Workspace" },
         reaction: "👍",
       }),
     );
@@ -306,7 +306,7 @@ void test("thread replies and explicit recipients use interoperable Nostr tags",
   const event = createChannelEvent({
     workspaceId: "workspace-a",
     channelId: "channel-a",
-    actor: { type: "user", id: "owner", name: "Daniel" },
+    actor: { type: "user", id: "owner", name: "Workspace" },
     content: "@Analyst can you verify this?",
     mentions: ["analyst"],
     threadRootId: "root-event",
@@ -329,8 +329,8 @@ void test("channel membership broadcasts use durable action tags", () => {
   const event = createChannelEvent({
     workspaceId: "workspace-a",
     channelId: "channel-a",
-    actor: { type: "user", id: "owner", name: "Daniel Sims" },
-    content: "Daniel Sims added Analyst to the channel.",
+    actor: { type: "user", id: "owner", name: "Workspace Owner" },
+    content: "Workspace Owner added Analyst to the channel.",
     mentions: ["analyst"],
     channelAction: { type: "member-added", agentIds: ["analyst"] },
     sourceId: "membership-event",
@@ -389,7 +389,7 @@ void test("channel reactions persist as kind-7 events targeting a message", asyn
       workspaceId: "workspace-a",
       channelId: channel.id,
       targetEventId: message.id,
-      actor: { type: "user", id: "workspace-owner", name: "Daniel" },
+      actor: { type: "user", id: "workspace-owner", name: "Workspace" },
       reaction: "👍",
     });
     await store.channelStore().appendEvent("workspace-a", message);

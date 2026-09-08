@@ -71,7 +71,7 @@ describe("external agent channels", () => {
         name: "Chief agent",
         repositoryKind: "cloned",
         providerId: "github",
-        canonicalRemoteUrl: "https://github.com/danielsims/chief-agent.git",
+        canonicalRemoteUrl: "https://github.com/test-workspace/chief-agent.git",
         defaultBranch: "main",
       },
       ctx.principal,
