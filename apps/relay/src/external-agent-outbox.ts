@@ -11,14 +11,13 @@ import {
   requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
+import { EXTERNAL_DELIVERY_LEASE_MS } from "./external-agent-outbox-deadline";
 import { HttpError } from "./http";
 import { acceptDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/accept-delivery";
 import { claimDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/claim-delivery";
 import { dropReconcilingDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/drop-reconciling-delivery";
 import { getDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/get-delivery";
-import { getNextAttemptExternalAgentOutbox } from "./queries/external-agent-outbox/get-next-attempt";
 import { getNextDueDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/get-next-due-delivery";
-import { getOldestLeaseExternalAgentOutbox } from "./queries/external-agent-outbox/get-oldest-lease";
 import { insertDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/insert-delivery";
 import { listReconcilingDeliveriesExternalAgentOutbox } from "./queries/external-agent-outbox/list-reconciling-deliveries";
 import { markDeliveryReconcilingExternalAgentOutbox } from "./queries/external-agent-outbox/mark-delivery-reconciling";
@@ -59,7 +58,6 @@ interface OutboxRow extends Record<string, SqlStorageValue> {
 }
 
 const MAX_DELIVERY_ATTEMPTS = 5;
-const STALE_DELIVERY_MS = 60_000;
 
 export class ExternalAgentOutbox {
   private readonly secrets: WorkspaceSecretStore;
@@ -165,7 +163,7 @@ export class ExternalAgentOutbox {
     retryStaleDeliveriesExternalAgentOutbox(
       this.storage,
       new Date(now).toISOString(),
-      new Date(now - STALE_DELIVERY_MS).toISOString(),
+      new Date(now - EXTERNAL_DELIVERY_LEASE_MS).toISOString(),
     );
     const row = firstRow<OutboxRow>(
       getNextDueDeliveryExternalAgentOutbox(
@@ -195,7 +193,7 @@ export class ExternalAgentOutbox {
     if (!claimed) return this.scheduleNext();
     // A fresh alarm is the crash-recovery lease for this claimed delivery. If
     // the isolate dies during fetch, the row becomes retryable after the lease.
-    await setWorkspaceAlarm(this.storage, now + STALE_DELIVERY_MS);
+    await setWorkspaceAlarm(this.storage, now + EXTERNAL_DELIVERY_LEASE_MS);
     try {
       await this.deliver(workspaceId, row);
     } catch (error) {
@@ -417,21 +415,6 @@ export class ExternalAgentOutbox {
   }
 
   private async scheduleNext() {
-    const pending = firstRow<
-      { next_attempt_at: string } & Record<string, SqlStorageValue>
-    >(getNextAttemptExternalAgentOutbox(this.storage));
-    const delivering = firstRow<
-      { delivering_since: string } & Record<string, SqlStorageValue>
-    >(getOldestLeaseExternalAgentOutbox(this.storage));
-    const deadlines = [
-      pending ? new Date(pending.next_attempt_at).getTime() : undefined,
-      delivering
-        ? new Date(delivering.delivering_since).getTime() + STALE_DELIVERY_MS
-        : undefined,
-    ].filter((value): value is number => value !== undefined);
-    await setWorkspaceAlarm(
-      this.storage,
-      deadlines.length > 0 ? Math.min(...deadlines) : undefined,
-    );
+    await setWorkspaceAlarm(this.storage);
   }
 }

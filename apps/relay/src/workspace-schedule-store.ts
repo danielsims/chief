@@ -10,6 +10,7 @@ import {
 
 import { initializeScheduleRunTables } from "./db/migrations/initialize-schedule-run-tables";
 import { initializeScheduleTables } from "./db/migrations/initialize-schedule-tables";
+import { externalAgentOutboxDeadline } from "./external-agent-outbox-deadline";
 import { workspaceSchedulesFindNextDeadline } from "./queries/workspace-schedules/find-next-deadline";
 import { workspaceSchedulesFindReadWorkspaceSchedule } from "./queries/workspace-schedules/find-read-workspace-schedule";
 import { workspaceSchedulesFindReadWorkspaceSchedules } from "./queries/workspace-schedules/find-read-workspace-schedules";
@@ -118,15 +119,23 @@ export async function setWorkspaceAlarm(
   externalDeadline?: number,
 ) {
   const scheduleAt = scheduleDeadline(storage);
-  const deadlines = [scheduleAt, externalDeadline].filter(
-    (value): value is number => value !== undefined,
-  );
+  const deadlines = [
+    scheduleAt,
+    externalAgentOutboxDeadline(storage),
+    externalDeadline,
+  ].filter((value): value is number => value !== undefined);
   if (deadlines.length)
     await storage.setAlarm(Math.max(Date.now(), Math.min(...deadlines)));
   else await storage.deleteAlarm();
 }
 
 export async function wakeWorkspaceSchedules(storage: DurableObjectStorage) {
-  const alarm = await storage.getAlarm();
-  await setWorkspaceAlarm(storage, alarm ?? undefined);
+  // Derive the next wake-up from both durable queues, never a consumed or stale alarm.
+  await setWorkspaceAlarm(storage);
+}
+
+export async function ensureWorkspaceAlarm(storage: DurableObjectStorage) {
+  // An existing alarm may already be about to fire; leave it untouched on startup.
+  if ((await storage.getAlarm()) === null)
+    await wakeWorkspaceSchedules(storage);
 }
