@@ -34,7 +34,7 @@ describe("workspace Vercel connection", () => {
         }
         expect(url.pathname).toBe("/v2/teams");
         return Response.json({
-          teams: [{ id: "team-1", name: "Daniel", slug: "daniel" }],
+          teams: [{ id: "team-1", name: "Workspace", slug: "workspace-owner" }],
         });
       },
     );
@@ -51,7 +51,7 @@ describe("workspace Vercel connection", () => {
 
     expect(connected.status).toBe(200);
     expect(payload).toEqual({
-      teams: [{ id: "team-1", name: "Daniel", slug: "daniel" }],
+      teams: [{ id: "team-1", name: "Workspace", slug: "workspace-owner" }],
       projects: [],
     });
     expect(JSON.stringify(payload)).not.toContain(token);
@@ -99,7 +99,9 @@ describe("workspace Vercel connection", () => {
         );
         if (url.pathname === "/v2/teams") {
           return Response.json({
-            teams: [{ id: "team-1", name: "Daniel", slug: "daniel" }],
+            teams: [
+              { id: "team-1", name: "Workspace", slug: "workspace-owner" },
+            ],
           });
         }
         expect(url.pathname).toBe("/v9/projects");
@@ -120,7 +122,7 @@ describe("workspace Vercel connection", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      teams: [{ id: "team-1", name: "Daniel", slug: "daniel" }],
+      teams: [{ id: "team-1", name: "Workspace", slug: "workspace-owner" }],
       selectedTeamId: "team-1",
       projects: [{ id: "project-1", name: "researcher" }],
     });

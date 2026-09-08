@@ -31,11 +31,11 @@ final class ConversationDeepLinkTests: XCTestCase {
     let link = try XCTUnwrap(
       ConversationDeepLink(
         userInfo: [
-          "url": "chief-mobile://conversation?workspace=workspace-a&channel=daniel"
+          "url": "chief-mobile://conversation?workspace=workspace-a&channel=workspace-owner"
         ]
       )
     )
-    XCTAssertEqual(link.conversationID, "daniel")
+    XCTAssertEqual(link.conversationID, "workspace-owner")
     XCTAssertNil(link.threadRootID)
   }
 

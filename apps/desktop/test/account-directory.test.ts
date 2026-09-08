@@ -28,14 +28,14 @@ void test("keeps one independent identity for each relay", () => {
   withStorage(() => {
     rememberRelayAccount("https://cloud.example", {
       id: "cloud-user",
-      name: "Daniel Sims",
-      email: "Daniel@example.com",
+      name: "Workspace Owner",
+      email: "Workspace@example.com",
       emailVerified: true,
     });
     rememberRelayAccount("https://relay.example", {
       id: "relay-user",
-      name: "Daniel Sims",
-      email: "daniel@example.com",
+      name: "Workspace Owner",
+      email: "owner@example.com",
       emailVerified: true,
     });
 

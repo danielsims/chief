@@ -8,16 +8,16 @@ import {
 
 void test("splits known people mentions into semantic inline tokens", () => {
   assert.deepEqual(
-    splitAgentMentions("Can @Daniel review this?", [
-      { id: "user-daniel", name: "Daniel" },
+    splitAgentMentions("Can @Workspace review this?", [
+      { id: "workspace-owner", name: "Workspace" },
     ]),
     [
       { type: "text", value: "Can " },
       {
         type: "mention",
-        agentId: "user-daniel",
-        label: "Daniel",
-        token: "@Daniel",
+        agentId: "workspace-owner",
+        label: "Workspace",
+        token: "@Workspace",
       },
       { type: "text", value: " review this?" },
     ],
@@ -25,27 +25,30 @@ void test("splits known people mentions into semantic inline tokens", () => {
 });
 
 void test("chips a spaced person name and its first name", () => {
-  const people = [{ id: "user-daniel", name: "Daniel Sims" }];
+  const people = [{ id: "workspace-owner", name: "Workspace Owner" }];
   assert.deepEqual(
-    splitAgentMentions("Hey @Daniel Sims, first brand profile is done", people),
+    splitAgentMentions(
+      "Hey @Workspace Owner, first brand profile is done",
+      people,
+    ),
     [
       { type: "text", value: "Hey " },
       {
         type: "mention",
-        agentId: "user-daniel",
-        label: "Daniel Sims",
-        token: "@Daniel Sims",
+        agentId: "workspace-owner",
+        label: "Workspace Owner",
+        token: "@Workspace Owner",
       },
       { type: "text", value: ", first brand profile is done" },
     ],
   );
-  assert.deepEqual(splitAgentMentions("Ping @Daniel later", people), [
+  assert.deepEqual(splitAgentMentions("Ping @Workspace later", people), [
     { type: "text", value: "Ping " },
     {
       type: "mention",
-      agentId: "user-daniel",
-      label: "Daniel Sims",
-      token: "@Daniel",
+      agentId: "workspace-owner",
+      label: "Workspace Owner",
+      token: "@Workspace",
     },
     { type: "text", value: " later" },
   ]);

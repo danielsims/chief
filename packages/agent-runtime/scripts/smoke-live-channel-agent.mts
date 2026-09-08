@@ -108,7 +108,7 @@ try {
   const root = createChannelEvent({
     workspaceId,
     channelId: channel.id,
-    actor: { type: "user", id: "workspace-owner", name: "Daniel Sims" },
+    actor: { type: "user", id: "workspace-owner", name: "Workspace Owner" },
     content: "Please verify that the channel agent contract works.",
     mentions: ["engineer"],
     sourceId: "live-smoke-request",
