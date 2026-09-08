@@ -131,6 +131,7 @@ function highlightReferences(
           ),
         )
       : isValidElement<{ children?: ReactNode }>(child) &&
+          child.props.children != null &&
           child.type !== "code" &&
           child.type !== "a"
         ? cloneElement(child, {
