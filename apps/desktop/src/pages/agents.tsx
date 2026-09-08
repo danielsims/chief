@@ -9,7 +9,7 @@ import type { AgentIntegrationOption } from "../components/agents/agent-detail";
 import { relayRuntimeIdentity } from "../components/agents/agent-connection-model";
 import { AgentDetail } from "../components/agents/agent-detail";
 import { ConnectAgentDialog } from "../components/agents/connect-agent-dialog";
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
 import { useAuth } from "../lib/auth/auth-context";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../lib/config";
@@ -104,21 +104,16 @@ export function AgentsPage() {
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
       {!detailMode ? (
-        <header className="shrink-0 px-6 pt-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <PageTitle>Agents</PageTitle>
-              <p className="text-muted-foreground mt-1 text-[13px]">
-                See who is available, what they can access, and where they are
-                working.
-              </p>
-            </div>
+        <PageHeader
+          title="Agents"
+          description="See who is available, what they can access, and where they are working."
+          actions={
             <Button size="sm" onClick={() => setConnectOpen(true)}>
               <Plus size={14} />
               Add agent
             </Button>
-          </div>
-        </header>
+          }
+        />
       ) : null}
 
       <div className="flex min-h-0 flex-1">
@@ -181,8 +176,8 @@ export function AgentsPage() {
               />
             </section>
           ) : (
-            <section className="p-6">
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
+            <section className="px-6 pb-6">
+              <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {agents.map((agent) => (
                   <TeamAgentCard
                     key={agent.id}
