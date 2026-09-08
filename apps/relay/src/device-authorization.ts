@@ -12,7 +12,7 @@ export interface DeviceAuthorizationEnvironment {
   BETTER_AUTH_SECRET: string;
 }
 
-const audience = "chief-relay-device";
+const audience = "relay-device";
 const tokenLifetimeSeconds = 24 * 60 * 60;
 
 export async function issueDeviceAuthorization(

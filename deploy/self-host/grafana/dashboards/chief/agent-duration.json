@@ -64,7 +64,7 @@
             "uid": "tempo"
           },
           "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | quantile_over_time(span:duration, .95) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | quantile_over_time(span:duration, .95) by (resource.chief.relay.id, span.chief.workspace.name)",
           "queryType": "traceql",
           "refId": "A",
           "serviceMapUseNativeHistograms": false
@@ -114,7 +114,7 @@
             "uid": "tempo"
           },
           "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
           "queryType": "traceql",
           "refId": "A",
           "serviceMapUseNativeHistograms": false,
@@ -166,7 +166,7 @@
             "uid": "tempo"
           },
           "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
           "queryType": "traceql",
           "refId": "A",
           "serviceMapUseNativeHistograms": false,
@@ -218,7 +218,7 @@
             "uid": "tempo"
           },
           "metricsQueryType": "range",
-          "query": "{ resource.service.name = \"chief-relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
+          "query": "{ resource.service.name = \"relay\" && resource.chief.relay.id =~ \"${relay:raw}\" && span.gen_ai.operation.name = \"invoke_agent\" && span.chief.workspace.id =~ \"${workspace:raw}\" && span.gen_ai.agent.name =~ \"${agent:regex}\" } | sum_over_time(span:duration) by (resource.chief.relay.id, span.chief.workspace.name)",
           "queryType": "traceql",
           "refId": "A",
           "serviceMapUseNativeHistograms": false,

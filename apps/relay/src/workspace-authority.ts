@@ -27,6 +27,7 @@ import {
 } from "./organization-tenancy";
 import { recordProductEvents } from "./product-events";
 import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
+import { readWorkspaceSettings } from "./workspace-settings";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 export {
@@ -107,20 +108,25 @@ export async function createManagedWorkspace(
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  const onboarding = enqueueOnboarding(
-    env,
-    identity,
-    { ...entry, command },
-    false,
-  );
-  if (context) {
-    context.waitUntil(
-      onboarding.catch((error: unknown) => {
-        console.error("[Workspace] Initial onboarding enqueue failed:", error);
-      }),
+  if (command.agentRuntime === "relay-cell") {
+    const onboarding = enqueueOnboarding(
+      env,
+      identity,
+      { ...entry, command },
+      false,
     );
-  } else {
-    await onboarding;
+    if (context) {
+      context.waitUntil(
+        onboarding.catch((error: unknown) => {
+          console.error(
+            "[Workspace] Initial onboarding enqueue failed:",
+            error,
+          );
+        }),
+      );
+    } else {
+      await onboarding;
+    }
   }
   return response;
 }
@@ -197,19 +203,30 @@ export async function activeManagedWorkspace(
       "The workspace returned an invalid snapshot.",
     );
   }
-  snapshot.runtime = entry.command?.runtime ?? null;
-  if (snapshot.onboardingComplete === false && entry.command) {
-    // Unit-level authority calls retain deterministic repair coverage. Public
-    // GET requests intentionally do not enqueue work: reads must return the
-    // existing snapshot immediately, even when the agent authority is slow or
-    // its Cloudflare allowance has been exhausted.
-    if (!context) {
-      await enqueueOnboarding(
-        env,
-        identity,
-        { ...entry, command: entry.command },
-        true,
+  if (env.ACCOUNT_IDENTITY_MODE === "chief-account") {
+    const settings = await readWorkspaceSettings(env, entry.workspaceId);
+    if (settings) Object.assign(snapshot, settings);
+  }
+  snapshot.runtime =
+    entry.command?.agentRuntime === "relay-cell" ? entry.command.runtime : null;
+  if (
+    snapshot.onboardingComplete === false &&
+    entry.command?.agentRuntime === "relay-cell"
+  ) {
+    const repair = enqueueOnboarding(
+      env,
+      identity,
+      { ...entry, command: entry.command },
+      true,
+    );
+    if (context) {
+      context.waitUntil(
+        repair.catch((error: unknown) => {
+          console.error("[Workspace] Onboarding repair failed:", error);
+        }),
       );
+    } else {
+      await repair;
     }
   }
   // The body changed, so do not reuse the Durable Object response headers.

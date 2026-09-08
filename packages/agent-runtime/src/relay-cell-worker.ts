@@ -5,7 +5,11 @@ import { dirname, join } from "node:path";
 import WebSocket from "ws";
 
 import type { AgentConfig, AgentJob } from "@chief/relay-contracts";
-import { createNip98Authorization, RelayClient } from "@chief/relay-client";
+import {
+  createNip98Authorization,
+  RelayClient,
+  RelayClientError,
+} from "@chief/relay-client";
 import {
   agentConfigSchema,
   parseJsonObject,
@@ -14,11 +18,14 @@ import {
 
 import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
-import { composeWorkspaceInstructions, getAgent } from "./agents.js";
+import { composeWorkspaceInstructions } from "./agents.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
+import { ensureCodexSetup } from "./drivers/codex-install.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
+import { cellAgentDefinition } from "./relay-cell-agent.js";
+import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -31,7 +38,7 @@ const plugins = new PluginRuntime(() => undefined);
 
 const relayCellHostInstructions = `# Relay cell tool binding
 
-In this relay-hosted cell, the canonical plugin tools are named plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation and authorization require explicit user approval from a plugin card. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
+In this relay-hosted cell, the canonical plugin tools are named plugins_list and plugins_recommend. Every agent can discover and recommend plugins. When a user asks to see or choose plugins, call plugins_list if needed and then plugins_recommend in the exact conversation or thread; a prose-only list is not a substitute for the durable cards. Installation, authorization and removal happen through user-operated plugin cards; those operations are not agent tools. Prefer an already connected plugin, then a catalog plugin and its native authorization, then another structured Executor connection. Use the browser only when no structured connection can perform the task or for an unavoidable human sign-in or credential step.
 
 The canonical browser tools are browser_open, browser_snapshot, browser_click, browser_fill, browser_select, browser_press, and browser_close. When the user asks you to open or inspect a public page and these tools are present, use them instead of claiming browser control is unavailable. Open the page, snapshot before drawing conclusions, and close it when finished.`;
 
@@ -58,7 +65,7 @@ function relayClient() {
   });
 }
 
-function workspaceContext(job: AgentJob) {
+function workspaceContext(job: AgentJob, agentId: string) {
   const payload = job.payload;
   const name = parseJsonString(payload.name);
   const website = parseJsonString(payload.website);
@@ -71,9 +78,11 @@ function workspaceContext(job: AgentJob) {
   return [
     name ? `Workspace: ${name}` : undefined,
     website ? `Website: ${website}` : undefined,
-    selectedApps.length > 0
-      ? `Selected apps (relevance only): ${selectedApps.join(", ")}`
-      : undefined,
+    agentId === "setup"
+      ? selectedApps.length > 0
+        ? `Requested connections: ${selectedApps.join(", ")}. These are setup requests, not proof of access.`
+        : "Requested connections: none."
+      : "Requested integrations are omitted because they are setup choices, not product, market, or customer evidence.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -95,6 +104,7 @@ function finalAssistantText(events: readonly AgentEvent[]) {
 function postedFinalToOrigin(
   events: readonly AgentEvent[],
   conversationId: string,
+  threadRootId?: string,
 ) {
   return events.some((event) =>
     event.type === "message" && event.role === "assistant"
@@ -105,8 +115,23 @@ function postedFinalToOrigin(
           ) {
             return false;
           }
+          const posted = events.some(
+            (candidate) =>
+              candidate.type === "message" &&
+              candidate.content.some(
+                (result) =>
+                  result.type === "tool_result" &&
+                  result.tool_use_id === block.id &&
+                  !result.is_error,
+              ),
+          );
+          if (!posted) return false;
           const input = parseJsonObject(block.input);
-          if (input?.channelId !== conversationId) return false;
+          if (
+            input?.channelId !== conversationId ||
+            (parseJsonString(input.threadRootId) ?? undefined) !== threadRootId
+          )
+            return false;
           const key = parseJsonString(input.idempotencyKey) ?? "";
           return key.includes("result") || key.includes("handoff");
         })
@@ -138,17 +163,20 @@ async function executeJob(
     agentId,
     ttlMs: 5 * 60_000,
   });
+  let session: AgentSession | null = null;
   const renew = setInterval(() => {
     void Promise.all([
       cell.leasesManager.renew(cell.id, runId, 5 * 60_000),
       client.renewAgentJob(agentId, lease.leaseToken, 300),
-    ]).catch((error) => console.error("[cell] lease renewal:", error));
+    ]).catch(async (error: unknown) => {
+      console.error("[cell] lease renewal:", error);
+      if (error instanceof RelayClientError && error.code === "stale_lease")
+        await session?.stop();
+    });
   }, 60_000);
   renew.unref();
   let relayMcp: Awaited<ReturnType<typeof startRelayCellMcpHttpServer>> | null =
     null;
-  let activity: RelayActivityPublisher | null = null;
-  let session: AgentSession | null = null;
   const activityContext = {
     relayId: requiredEnvironment("CHIEF_RELAY_URL"),
     workspaceId: job.workspaceId,
@@ -159,18 +187,31 @@ async function executeJob(
     jobId: job.id,
     runId,
   };
+  const activityPublisher = new RelayActivityPublisher(
+    client,
+    conversationId,
+    activityContext.threadRootId,
+    {
+      ...activityContext,
+      providerSessionId: () => session?.sessionId,
+    },
+  );
   console.info(
     "[cell-activity]",
     JSON.stringify({ scope: "cell.run", phase: "started", ...activityContext }),
   );
   try {
-    const definition = getAgent(agentId);
-    if (!definition) throw new Error(`Unknown agent ${agentId}.`);
+    const definition = cellAgentDefinition(
+      agentId,
+      await client.loadOwnAgentProfile(),
+    );
+    const project = await localJobProject(client, job, agentId, config);
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
-    const storedEvents = await cell.readState(`events:${conversationId}`);
+    const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}:${project?.projectId ?? "workspace"}`;
+    const storedEvents = await cell.readState(`events:${sessionKey}`);
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
-    const turnStart = priorEvents.length;
+    const turnEvents: AgentEvent[] = [];
     process.env.CHIEF_CONVERSATION_ID = conversationId;
     process.env.CHIEF_THREAD_ROOT_ID =
       parseJsonString(job.payload.threadRootId) ?? "";
@@ -188,7 +229,7 @@ async function executeJob(
           ]
             .filter(Boolean)
             .join("\n\n"),
-          workspaceContext(job),
+          workspaceContext(job, agentId),
         ),
       },
       conversationId,
@@ -209,42 +250,41 @@ async function executeJob(
       priorEvents,
     );
     session = agentSession;
-    const activityPublisher = new RelayActivityPublisher(
-      client,
-      conversationId,
-      parseJsonString(job.payload.threadRootId),
-      {
-        ...activityContext,
-        providerSessionId: () => agentSession.sessionId,
-      },
-    );
-    activity = activityPublisher;
     agentSession.on("event", (event: AgentEvent) => {
+      turnEvents.push(event);
       activityPublisher.accept(event);
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
-        const allow = relayCellToolNames.some((name) => tool.includes(name));
+        const allow = relayCellToolNames.some(
+          (name) =>
+            tool === name ||
+            tool === `mcp__chief_relay__${name}` ||
+            tool === `mcp.chief_relay.${name}`,
+        );
         agentSession.respondPermission(
           event.requestId,
           allow ? "allow" : "deny",
         );
       }
       void cell
-        .writeState(`events:${conversationId}`, agentSession.events.slice(-500))
+        .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
         .catch((error) => console.error("[cell] event persistence:", error));
     });
-    const cellDirectory = requiredEnvironment("CHIEF_CELL_ROOT");
+    const cellDirectory =
+      project?.directory ?? requiredEnvironment("CHIEF_CELL_ROOT");
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      parseJsonString(
-        await cell.readState(`providerSession:${conversationId}`),
-      ),
+      parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
+      threadRootId: activityContext.threadRootId,
       privateInstructions: [
-        workspaceContext(job),
-        job.kind === "conversation.message"
+        workspaceContext(job, agentId),
+        project
+          ? `Repository: ${project.name} (${project.projectId}). Your working directory is the isolated agent checkout ${project.directory}. Inspect repository instructions before changes. Keep code changes here, run focused checks, and return the diff and evidence for review. Do not deploy, push, or change the original checkout without the user's authorization.`
+          : "Use projects_list to inspect connected repositories. If more than one is available, clarify the repository and assign its projectId to the mission before editing code. This session's sandbox is the cell directory.",
+        job.kind === "conversation.message" || job.kind === "schedule.step"
           ? `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`
           : undefined,
       ]
@@ -254,17 +294,17 @@ async function executeJob(
     await activityPublisher.flush();
     if (agentSession.sessionId) {
       await cell.writeState(
-        `providerSession:${conversationId}`,
+        `providerSession:${sessionKey}`,
         agentSession.sessionId,
       );
     }
     await cell.writeState(
-      `events:${conversationId}`,
+      `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
-    const turnEvents = agentSession.events.slice(turnStart);
     const reply = finalAssistantText(turnEvents) ?? "Work completed.";
     await agentSession.stop();
+    session = null;
     await client.completeAgentJob(agentId, {
       leaseToken: lease.leaseToken,
       outcome: {
@@ -273,13 +313,20 @@ async function executeJob(
           job.kind === "workspace.onboarding"
             ? {
                 openingMessage:
-                  "Hey, welcome to Chief 👋 I'm getting the team together now. We'll have a look around, get to know your brand and market, and start figuring out where the good opportunities are hiding. You can hang out here and watch us work. I'll give you a shout if I need anything.",
+                  "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
               }
-            : postedFinalToOrigin(turnEvents, conversationId)
+            : postedFinalToOrigin(
+                  turnEvents,
+                  conversationId,
+                  activityContext.threadRootId,
+                )
               ? {}
               : {
                   publishedMessage: {
                     conversationId,
+                    ...(activityContext.threadRootId
+                      ? { threadRootId: activityContext.threadRootId }
+                      : undefined),
                     body: reply,
                     components: [],
                   },
@@ -306,9 +353,11 @@ async function executeJob(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    activity?.recordFailure();
-    await activity
-      ?.flush()
+    activityPublisher.recordFailure(
+      error instanceof Error ? error.message : String(error),
+    );
+    await activityPublisher
+      .flush()
       .catch((publishError) =>
         console.error("[cell] activity failure publication:", publishError),
       );
@@ -321,11 +370,14 @@ async function executeJob(
       outcome: {
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
-        retryAt,
+        ...(error instanceof LocalJobBlockedError ? undefined : { retryAt }),
       },
     });
     throw error;
   } finally {
+    await session
+      ?.stop()
+      .catch((error) => console.error("[cell] session stop:", error));
     await relayMcp
       ?.close()
       .catch((error) => console.error("[cell] MCP close:", error));
@@ -363,7 +415,9 @@ async function drainMailbox(
       300,
     );
     if (!lease) return;
-    await executeJob(cell, client, config, lease);
+    await executeJob(cell, client, config, lease).catch((error) => {
+      console.error("[cell] job failed:", error);
+    });
   }
 }
 
@@ -391,6 +445,7 @@ async function listenForJobs() {
   let delay = 1_000;
   while (true) {
     try {
+      if (config.inference.provider === "codex") await ensureCodexSetup();
       const [discovery, ticket] = await Promise.all([
         client.discovery(),
         client.createAgentMailboxTicket(requiredEnvironment("CHIEF_AGENT_ID")),
@@ -414,7 +469,16 @@ async function listenForJobs() {
         socket.on("message", () => {
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        socket.on("close", resolve);
+        const poll = setInterval(() => {
+          void drain().catch((error) =>
+            console.error("[cell] mailbox poll:", error),
+          );
+          if (socket.readyState === WebSocket.OPEN) socket.ping();
+        }, 30_000);
+        socket.on("close", () => {
+          clearInterval(poll);
+          resolve();
+        });
         socket.on("error", (error) => {
           console.error("[cell] mailbox:", error);
           socket.close();

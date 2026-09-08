@@ -12,13 +12,25 @@ import type {
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 import {
+  artifactReferencePayloadSchema,
   isJsonObject,
   isJsonString,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
+  projectRecommendationPayloadSchema,
+  scheduledRunMessagePayloadSchema,
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
+
+function workspaceAgentById(snapshot: WorkspaceSnapshot, agentId: string) {
+  return (
+    snapshot.agents.find((agent) => agent.id === agentId) ??
+    snapshot.agents
+      .flatMap((agent) => agent.subagents)
+      .find((agent) => agent.id === agentId)
+  );
+}
 
 const activityComponentKinds = new Set([
   "agent.activity",
@@ -104,6 +116,15 @@ export function agentRunEvent(message: ConversationMessage) {
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const scheduledRun =
+    message.author.kind === "system"
+      ? message.components.find(
+          (component) => component.kind === "schedule.run",
+        )
+      : undefined;
+  const schedulePayload = scheduledRunMessagePayloadSchema.safeParse(
+    scheduledRun?.payload,
+  );
   const channelAction = message.components
     .map(channelActionFromComponent)
     .find((action) => action !== undefined);
@@ -122,6 +143,9 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         ? { mentions: message.mentions }
         : undefined),
       ...(channelAction ? { channelAction } : undefined),
+      ...(schedulePayload.success
+        ? { scheduledRun: schedulePayload.data }
+        : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -140,8 +164,8 @@ export function toChannelMessageEvent(
           type: "agent" as const,
           id: message.author.id,
           name:
-            snapshot.agents.find((agent) => agent.id === message.author.id)
-              ?.name ?? message.author.id,
+            workspaceAgentById(snapshot, message.author.id)?.name ??
+            message.author.id,
         }
       : {
           type: "user" as const,
@@ -155,7 +179,12 @@ export function toChannelMessageEvent(
     pubkey: actor.id,
     tags: [
       ["h", message.conversationId],
-      ...(message.threadRootId ? [["e", message.threadRootId]] : []),
+      ...(message.threadRootId
+        ? [
+            ["e", message.threadRootId, "", "root"],
+            ["e", message.threadRootId, "", "reply"],
+          ]
+        : []),
       ...message.mentions.map((mention) => ["p", mention]),
     ],
     content: message.deleted ? "" : message.body,
@@ -209,8 +238,12 @@ export function directAgentId(
 
 export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
   const normalized = name.toLowerCase();
+  const profiles = snapshot.agents.flatMap((agent) => [
+    agent,
+    ...agent.subagents,
+  ]);
   return (
-    snapshot.agents.find(
+    profiles.find(
       (agent) =>
         normalized.includes(agent.id.toLowerCase()) ||
         normalized.includes(agent.name.toLowerCase()),
@@ -224,6 +257,8 @@ function messageComponentParts(
   return [
     ...activityParts(message.components),
     ...pluginRecommendationParts(message),
+    ...projectRecommendationParts(message),
+    ...artifactParts(message),
   ];
 }
 
@@ -242,7 +277,7 @@ function pluginRecommendationParts(
     const source: AgentPluginSummary["source"] =
       value.sourceType === "setup"
         ? { type: "setup", domain }
-        : { type: "discovery", registry: "chief-relay", domain };
+        : { type: "discovery", registry: "relay", domain };
     return [
       {
         id: value.pluginId,
@@ -301,7 +336,7 @@ function pluginRecommendationParts(
       trusted: true,
       source: {
         type: "discovery",
-        registry: "chief-relay",
+        registry: "relay",
         domain: authorization.provider,
       },
       domains: [authorization.provider],
@@ -325,6 +360,31 @@ function pluginRecommendationParts(
       },
     },
   ];
+}
+
+function projectRecommendationParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "project.recommendation") return [];
+    const parsed = projectRecommendationPayloadSchema.safeParse(
+      component.payload,
+    );
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-project-recommendation" as const,
+        data: {
+          title: parsed.data.title,
+          description: parsed.data.description,
+          ...(parsed.data.remoteUrl
+            ? { remoteUrl: parsed.data.remoteUrl }
+            : undefined),
+        },
+      },
+    ];
+  });
 }
 
 function pluginHostname(value?: string) {
@@ -432,4 +492,30 @@ function isContentBlock(value: unknown): value is ContentBlock {
     return isJsonString(block.tool_use_id);
   }
   return false;
+}
+
+function artifactParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  return message.components.flatMap((component) => {
+    if (component.kind !== "artifact.reference") return [];
+    const parsed = artifactReferencePayloadSchema.safeParse(component.payload);
+    if (
+      !parsed.success ||
+      parsed.data.conversationId !== message.conversationId
+    )
+      return [];
+    const artifact = parsed.data;
+    return [
+      {
+        type: "data-document" as const,
+        data: {
+          fileId: artifact.fileId,
+          conversationId: artifact.conversationId,
+          title: artifact.title,
+          path: "",
+          kind: "document" as const,
+          versionId: String(artifact.version),
+        },
+      },
+    ];
+  });
 }

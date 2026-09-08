@@ -105,105 +105,61 @@ struct WorkspaceHeader: View {
   }
 }
 
-private struct ChiefTabBar: View {
-  @Binding var selection: WorkspaceTab
-  let unreadCount: Int
-
-  var body: some View {
-    HStack(spacing: 4) {
-      tab(.home, "Home", "house.fill", badge: unreadCount)
-      tab(.plugins, "Plugins", "puzzlepiece.extension.fill")
-      tab(.projects, "Projects", "shippingbox")
-      tab(.agents, "Agents", "person.2.fill")
-    }
-    .padding(4)
-    .frame(maxWidth: .infinity, minHeight: 60)
-    .background(.ultraThinMaterial, in: Capsule())
-    .overlay { Capsule().stroke(Color.white.opacity(0.09), lineWidth: 0.5) }
-    .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
-  }
-
-  private func tab(_ tab: WorkspaceTab, _ label: String, _ icon: String, badge: Int = 0)
-    -> some View
-  {
-    Button {
-      Haptics.selection()
-      selection = tab
-    } label: {
-      VStack(spacing: 3) {
-        ZStack(alignment: .topTrailing) {
-          Image(systemName: icon)
-            .font(.system(size: 16, weight: selection == tab ? .semibold : .regular))
-          if badge > 0 && tab == .home {
-            Text(badge > 99 ? "99+" : "\(badge)")
-              .font(.system(size: 9, weight: .bold))
-              .foregroundStyle(.black)
-              .padding(.horizontal, 4)
-              .frame(minWidth: 16, minHeight: 16)
-              .background(.white, in: Capsule())
-              .offset(x: 12, y: -7)
-          }
-        }
-        Text(label).font(.system(size: 10.5, weight: selection == tab ? .semibold : .medium))
-      }
-      .foregroundStyle(selection == tab ? Color.white : ChiefTheme.secondary)
-      .frame(maxWidth: .infinity, minHeight: 50)
-      .background(
-        selection == tab ? Color.black.opacity(0.24) : .clear,
-        in: Capsule()
-      )
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(label)
-  }
-}
-
 private struct WorkspaceSwitcherSheet: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
   @State private var joinSheet = false
+  @State private var signingOutRelay: URL?
 
   var body: some View {
     NavigationStack {
       List {
-        Section("Workspaces") {
-          ForEach(orderedWorkspaces) { summary in
-            Button {
-              Haptics.medium()
-              if summary.id != model.workspace?.id {
-                Task {
-                  if await model.switchWorkspace(workspaceID: summary.id) {
-                    Haptics.success()
-                    dismiss()
-                  } else {
-                    Haptics.error()
+        ForEach(model.workspaceRelayGroups()) { group in
+          Section(group.label) {
+            ForEach(group.workspaces) { summary in
+              Button {
+                Haptics.medium()
+                if summary.id != model.workspace?.id {
+                  Task {
+                    if await model.switchWorkspace(workspaceID: summary.id) {
+                      Haptics.success()
+                      dismiss()
+                    } else {
+                      Haptics.error()
+                    }
+                  }
+                } else {
+                  dismiss()
+                }
+              } label: {
+                HStack(spacing: 12) {
+                  WorkspaceIdentityAvatar(
+                    name: summary.name,
+                    website: summary.website,
+                    imageURL: summary.imageURL,
+                    size: 38
+                  )
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(summary.name).font(.system(size: 15, weight: .semibold))
+                    Text(group.label)
+                      .font(.system(size: 13))
+                      .foregroundStyle(ChiefTheme.secondary)
+                  }
+                  Spacer()
+                  if summary.id == model.workspace?.id {
+                    Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
                   }
                 }
-              } else {
-                dismiss()
               }
-            } label: {
-              HStack(spacing: 12) {
-                WorkspaceIdentityAvatar(
-                  name: summary.name,
-                  website: summary.website,
-                  imageURL: summary.imageURL,
-                  size: 38
-                )
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(summary.name).font(.system(size: 15, weight: .semibold))
-                  Text(model.relayLabel(forWorkspaceID: summary.id))
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChiefTheme.secondary)
-                }
-                Spacer()
-                if summary.isActive {
-                  Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
-                }
-              }
+              .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            Button(role: .destructive) {
+              Haptics.heavy()
+              signingOutRelay = group.relayURL
+            } label: {
+              Label("Sign out of \(group.label)", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .disabled(signingOutRelay != nil)
           }
         }
         Section {
@@ -232,35 +188,30 @@ private struct WorkspaceSwitcherSheet: View {
       .navigationTitle("Workspaces")
       .navigationBarTitleDisplayMode(.inline)
       .task { await model.refreshWorkspaces() }
+      .alert(
+        "Sign out of this relay?",
+        isPresented: Binding(
+          get: { signingOutRelay != nil },
+          set: { if !$0 { signingOutRelay = nil } }
+        )
+      ) {
+        Button("Cancel", role: .cancel) { signingOutRelay = nil }
+        Button("Sign out", role: .destructive) {
+          guard let relayURL = signingOutRelay else { return }
+          Task {
+            await model.signOut(of: relayURL)
+            Haptics.success()
+            if model.phase != .workspace { dismiss() }
+            signingOutRelay = nil
+          }
+        }
+      } message: {
+        Text("Workspaces on this relay will leave this iPhone. Other relays stay signed in.")
+      }
     }
     .chiefSheet([.height(460), .large])
     .sheet(isPresented: $joinSheet) { JoinWorkspaceSheet() }
   }
-
-  private var orderedWorkspaces: [WorkspaceSummary] {
-    let active = model.workspaceSummaries
-    let current =
-      active.first { $0.id == model.workspace?.id }
-      ?? (model.workspace.map {
-        WorkspaceSummary(
-          id: $0.id,
-          name: $0.name,
-          website: $0.website,
-          imageURL: $0.imageURL,
-          isActive: true,
-          onboardingComplete: $0.onboardingComplete
-        )
-      })
-    var list = active
-    if let current, !list.contains(where: { $0.id == current.id }) {
-      list.append(current)
-    }
-    return list.sorted {
-      $0.id == model.workspace?.id
-        ? true : ($1.id == model.workspace?.id ? false : $0.name < $1.name)
-    }
-  }
-
 }
 
 private struct WorkspaceAvatar: View {
@@ -277,105 +228,56 @@ private struct WorkspaceAvatar: View {
   }
 }
 
-struct UserProfileView: View {
+struct PersonProfileView: View {
   @Environment(AppModel.self) private var model
+  let userID: String
+  let name: String
+
   var body: some View {
     List {
       Section {
         HStack(spacing: 14) {
-          UserAvatar(user: model.session?.user, size: 52)
+          initialsAvatar
           VStack(alignment: .leading, spacing: 3) {
-            Text(model.session?.user.name ?? "Account").font(.system(size: 18, weight: .semibold))
-            Text("Available").font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
+            Text(displayName)
+              .font(.system(size: 18, weight: .semibold))
+            Text("Workspace member")
+              .font(.system(size: 13))
+              .foregroundStyle(ChiefTheme.secondary)
+            Text("Available")
+              .font(.system(size: 13))
+              .foregroundStyle(ChiefTheme.tertiary)
           }
         }
-      }
-      Section {
-        NavigationLink {
-          RelayConnectionSettingsView()
-        } label: {
-          profileRow("Connection", systemImage: "network")
-        }
-
-        NavigationLink {
-          AppSettingsView()
-        } label: {
-          profileRow("Settings", systemImage: "gearshape")
-        }
-
-        NavigationLink {
-          NotificationSettingsView()
-        } label: {
-          profileRow("Notifications", systemImage: "bell")
-        }
-      }
-      Section {
-        Button("Sign out", role: .destructive) {
-          Haptics.heavy()
-          model.signOut()
-        }
+        .padding(.vertical, 4)
       }
     }
     .scrollContentBackground(.hidden)
     .background(ChiefTheme.background)
     .navigationTitle("Profile")
     .navigationBarTitleDisplayMode(.inline)
+    .accessibilityIdentifier("person-profile-\(userID)")
   }
 
-  private func profileRow(_ title: String, systemImage: String) -> some View {
-    HStack {
-      Label(title, systemImage: systemImage)
-      Spacer(minLength: 12)
-    }
-    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-    .contentShape(Rectangle())
+  private var displayName: String {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "Member" : trimmed
   }
-}
 
-private struct AppSettingsView: View {
-  @Environment(AppModel.self) private var model
-
-  var body: some View {
-    List {
-      Section {
-        NavigationLink {
-          NotificationSettingsView()
-        } label: {
-          HStack {
-            Label("Notifications", systemImage: "bell")
-            Spacer(minLength: 12)
-          }
-          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-          .contentShape(Rectangle())
-        }
+  private var initialsAvatar: some View {
+    Circle()
+      .fill(ChiefTheme.elevated)
+      .frame(width: 52, height: 52)
+      .overlay {
+        Text(initials)
+          .font(.system(size: 18, weight: .semibold))
       }
+      .overlay { Circle().stroke(ChiefTheme.line) }
+  }
 
-      if let workspace = model.workspace {
-        Section("Workspace") {
-          HStack(spacing: 12) {
-            WorkspaceIdentityAvatar(
-              name: workspace.name,
-              website: workspace.website,
-              imageURL: workspace.imageURL,
-              size: 36
-            )
-            VStack(alignment: .leading, spacing: 2) {
-              Text(workspace.name)
-              if let website = workspace.website, !website.isEmpty {
-                Text(website)
-                  .font(.system(size: 12))
-                  .foregroundStyle(ChiefTheme.secondary)
-                  .lineLimit(1)
-              }
-            }
-          }
-        }
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
-    .navigationTitle("Settings")
-    .navigationBarTitleDisplayMode(.inline)
+  private var initials: String {
+    let words = displayName.split(separator: " ")
+    return words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
   }
 }
 
@@ -760,9 +662,8 @@ struct AgentsView: View {
     .background(ChiefTheme.background)
     .toolbar(.hidden, for: .navigationBar)
     .navigationDestination(for: String.self) { agentID in
-      if let agent = model.workspace?.agents.first(where: { $0.id == agentID }) {
-        AgentDetailView(agent: agent)
-      }
+      let card = model.workspace?.agentCard(for: agentID) ?? .chiefFallback(for: agentID)
+      AgentDetailView(agent: card.agent, highlightedSubagentID: card.subagentID)
     }
   }
 }
@@ -837,6 +738,13 @@ private struct ProjectsRootView: View {
   var body: some View {
     VStack(spacing: 0) {
       WorkspaceHeader()
+      Text("Projects")
+        .font(.system(size: 26, weight: .regular, design: .rounded))
+        .tracking(-0.6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
       ProjectsView()
     }
     .toolbar(.hidden, for: .navigationBar)

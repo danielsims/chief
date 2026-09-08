@@ -53,19 +53,22 @@ export function ProviderOption({
   label,
   detail,
   selected,
+  disabled = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   detail?: string;
   selected: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`hover:border-foreground/60 flex flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors ${detail ? "min-h-32" : "min-h-24"} ${selected ? "border-foreground bg-muted" : "bg-background"}`}
+      disabled={disabled}
+      className={`flex flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors ${detail ? "min-h-32" : "min-h-24"} ${selected ? "border-foreground bg-muted" : "bg-background"} ${disabled ? "cursor-not-allowed opacity-45" : "hover:border-foreground/60"}`}
     >
       {icon}
       <span className="text-sm font-medium">{label}</span>

@@ -13,7 +13,7 @@ export interface ProjectProviderResolution {
  * couple project storage to one vendor.
  */
 export interface ProjectProviderAdapter {
-  id: Exclude<ProjectProviderId, "local" | "generic-git">;
+  id: Exclude<ProjectProviderId, "local" | "generic-git" | "chief-git">;
   label: string;
   hosts: readonly string[];
   repositoryWebUrl(remote: ParsedRemote): string | undefined;
@@ -105,6 +105,7 @@ export function resolveProjectProvider(
 export function projectProviderLabel(providerId: ProjectProviderId) {
   if (providerId === "local") return "Local Git";
   if (providerId === "generic-git") return "Git remote";
+  if (providerId === "chief-git") return "Chief Git";
   return (
     projectProviderAdapters.find((adapter) => adapter.id === providerId)
       ?.label ?? "Git remote"

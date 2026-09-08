@@ -33,6 +33,8 @@ pub struct DesktopOAuthAttempt {
     verifier: String,
     relay_origin: String,
     auth_base_url: String,
+    #[serde(default)]
+    redirect_uri: Option<String>,
     created_at: u64,
 }
 
@@ -52,6 +54,9 @@ impl DesktopOAuthAttempt {
         }
         scoped_origin(&self.relay_origin)?;
         scoped_origin(&self.auth_base_url)?;
+        if let Some(redirect_uri) = &self.redirect_uri {
+            scoped_redirect_uri(redirect_uri)?;
+        }
         Ok(())
     }
 
@@ -86,6 +91,25 @@ fn scoped_origin(relay_origin: &str) -> Result<(), String> {
             || relay_origin.starts_with("http://127.0.0.1"))
     {
         return Err("Chief received an invalid relay session scope.".to_string());
+    }
+    Ok(())
+}
+
+fn scoped_redirect_uri(redirect_uri: &str) -> Result<(), String> {
+    let invalid = || "Chief received an invalid OAuth redirect.".to_string();
+    if redirect_uri.len() > 2_048 {
+        return Err(invalid());
+    }
+    let parsed = url::Url::parse(redirect_uri).map_err(|_| invalid())?;
+    let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+        || !(parsed.scheme() == "https"
+            || (parsed.scheme() == "http" && loopback)
+            || redirect_uri == "chief-desktop:///auth")
+    {
+        return Err(invalid());
     }
     Ok(())
 }
@@ -359,12 +383,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_redirects_that_only_look_like_loopback_addresses() {
+        for redirect in [
+            "http://localhost.evil.example/auth/desktop",
+            "http://127.0.0.1.evil.example/auth/desktop",
+            "http://localhost@evil.example/auth/desktop",
+            "http://127.0.0.1/auth/desktop#fragment",
+            "chief-desktop://unrelated",
+        ] {
+            assert!(super::scoped_redirect_uri(redirect).is_err(), "{redirect}");
+        }
+    }
+
+    #[test]
     fn validates_relay_scoped_pkce_attempts() {
         let attempt = DesktopOAuthAttempt {
             state: "a1b2c3d4e5f60708a1b2c3d4e5f60708".to_string(),
             verifier: "v".repeat(43),
             relay_origin: "https://relay.example".to_string(),
             auth_base_url: "https://accounts.example".to_string(),
+            redirect_uri: Some(crate::oauth_loopback::oauth_loopback_redirect(49_152)),
             created_at: 1_800_000_000_000,
         };
         assert!(attempt.validate().is_ok());

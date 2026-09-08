@@ -36,7 +36,10 @@ struct ConversationActivityView: View {
     .background(ChiefTheme.background)
     .navigationTitle("Activity")
     .navigationBarTitleDisplayMode(.inline)
-    .task { await model.refreshAgentJobs() }
+    .task {
+      await model.refreshAgentJobs()
+      model.acknowledgeActivityErrors(conversationID: conversationID)
+    }
   }
 
   private var workingAgents: [AgentActivityPresence] {
@@ -260,7 +263,10 @@ struct AgentActivityDetailView: View {
     .background(ChiefTheme.background)
     .navigationTitle("\(agentName) activity")
     .navigationBarTitleDisplayMode(.inline)
-    .task { await model.refreshAgentJobs() }
+    .task {
+      await model.refreshAgentJobs()
+      model.acknowledgeActivityErrors(conversationID: conversationID)
+    }
   }
 
   private var agentName: String {

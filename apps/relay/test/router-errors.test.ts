@@ -5,6 +5,26 @@ import worker from "../src/index";
 import { relayTestEnv } from "./helpers";
 
 describe("router error boundary", () => {
+  it("recognizes the workspace Vercel connection route", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://relay.test/v1/workspaces/workspace-vercel-route/vercel/connect",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: "vercel-token" }),
+        },
+      ),
+      relayTestEnv(),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: { code: "unauthenticated" },
+    });
+  });
+
   it("returns a relay error when device binding authentication is malformed", async () => {
     const response = await worker.fetch(
       new Request("https://relay.test/v1/identity/device", {

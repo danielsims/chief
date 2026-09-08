@@ -85,6 +85,21 @@ describe("workspace channels", () => {
       members: [{ kind: "user", principalId: ownerId, role: "owner" }],
     });
 
+    const replay = await rpc(
+      ctx,
+      owner,
+      "channels-create",
+      envelope({
+        conversationId: "team",
+        name: "team",
+        isPrivate: true,
+      }),
+    );
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({
+      channel: { id: "team", name: "team", isPrivate: true },
+    });
+
     const duplicate = await rpc(
       ctx,
       owner,
@@ -426,7 +441,7 @@ describe("workspace channels", () => {
     );
     expect(membershipEvents).toHaveLength(1);
     expect(membershipEvents[0]).toMatchObject({
-      author: { kind: "system", id: "chief-relay" },
+      author: { kind: "system", id: "relay" },
       body: "Coordinator added you to the channel.",
       components: [
         expect.objectContaining({

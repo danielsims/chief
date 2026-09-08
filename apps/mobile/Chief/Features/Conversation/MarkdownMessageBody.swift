@@ -10,6 +10,22 @@ enum MarkdownMessageBlock: Equatable {
 }
 
 enum MarkdownMessageParser {
+  static func plainText(_ source: String) -> String {
+    blocks(source).map { block in
+      let text: String
+      switch block {
+      case .code(let code): return code
+      case .paragraph(let value), .heading(_, let value), .quote(let value): text = value
+      case .unordered(let items), .ordered(let items): text = items.joined(separator: " ")
+      }
+      let attributed = try? AttributedString(
+        markdown: text,
+        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+      )
+      return attributed.map { String($0.characters) } ?? text
+    }.joined(separator: " ").split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+  }
+
   static func blocks(_ source: String) -> [MarkdownMessageBlock] {
     let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     var blocks: [MarkdownMessageBlock] = []
@@ -186,7 +202,8 @@ struct MarkdownMessageBody: View {
       font: .systemFont(ofSize: size, weight: weight),
       color: color,
       channelNames: channelNames,
-      onOpenChannel: model.openConversation
+      people: model.mentionPeople,
+      onOpenChannel: { model.openConversation($0) }
     )
     .fixedSize(horizontal: false, vertical: true)
   }

@@ -10,11 +10,11 @@ import {
 import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
-import { TooltipProvider } from "@chief/ui/components/tooltip";
 
+import { MentionPeopleProvider } from "./components/chat/mention-people-context";
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
-import { EntryState } from "./components/entry-state";
+import { EntryState, WorkspaceEntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
 import { RelayConnectionDialog } from "./components/relay-connection-control";
@@ -27,12 +27,11 @@ import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
 import {
-  isExplicitWorkspaceEntry,
   pendingCreateRelayKey,
   shouldResumeWorkspaceCreate,
+  shouldStayOnWorkspaceCreate,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
-import { AnalyticsPage } from "./pages/analytics";
 import { ArtifactsPage } from "./pages/artifacts";
 import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
@@ -50,6 +49,7 @@ import { SettingsLayout } from "./pages/settings/layout";
 import { MissionsSettings } from "./pages/settings/missions";
 import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
+import { WebhooksSettings } from "./pages/settings/webhooks";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
 import { TrendingPage } from "./pages/trending";
@@ -105,8 +105,16 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     RELAY_URL,
   );
 
-  if (relay.loading) {
-    return <EntryState />;
+  const staysOnWorkspaceCreate = shouldStayOnWorkspaceCreate(
+    location.search,
+    window.sessionStorage,
+  );
+
+  if (
+    relay.loading &&
+    !(location.pathname === "/workspaces/new" && staysOnWorkspaceCreate)
+  ) {
+    return <WorkspaceEntryState />;
   }
 
   if (!relay.snapshot && relay.error) {
@@ -114,11 +122,11 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   }
 
   if (resumesWorkspaceCreate && location.pathname !== "/workspaces/new") {
-    return <Navigate to="/workspaces/new?intent=add" replace />;
+    return <Navigate to="/workspaces/new?intent=create" replace />;
   }
 
   if (location.pathname === "/workspaces/new") {
-    if (relay.snapshot && !isExplicitWorkspaceEntry(location.search)) {
+    if (relay.snapshot && !staysOnWorkspaceCreate) {
       return <Navigate to="/" replace />;
     }
     return children;
@@ -139,39 +147,44 @@ function RelayUnavailableState() {
   const relay = useRelaySession();
   const { signOut } = useAuth();
   return (
-    <TooltipProvider delayDuration={250}>
-      <div className="bg-background text-foreground flex h-dvh overflow-hidden">
-        <main className="bg-background flex min-w-0 flex-1 items-center justify-center px-6">
-          <section className="bg-card w-full max-w-md rounded-xl border p-8">
-            <PageTitle>Workspace unavailable</PageTitle>
-            <p className="text-muted-foreground mt-3 text-sm leading-6">
-              {relay.error}
-            </p>
-            <p className="text-muted-foreground mt-3 text-xs leading-5">
-              Connect to another relay or go back. Workspaces remain stored on
-              the relay where you created them.
-            </p>
-            <div className="mt-6 flex gap-2">
-              <RelayConnectionDialog>
-                <Button>Change relay</Button>
-              </RelayConnectionDialog>
+    <Layout workspaceNavigationAvailable={false}>
+      <main className="flex min-h-full items-center justify-center px-6 py-12">
+        <section className="w-full max-w-md">
+          <PageTitle>Workspace unavailable</PageTitle>
+          <p className="text-muted-foreground mt-3 text-sm leading-6">
+            {relay.error}
+          </p>
+          <p className="text-muted-foreground mt-3 text-sm leading-6">
+            Choose another relay or try this one again. Your work remains on the
+            relay where it was created.
+          </p>
+          <div className="mt-6 flex gap-2">
+            <RelayConnectionDialog>
+              <Button>Change relay</Button>
+            </RelayConnectionDialog>
+            <Button
+              variant="outline"
+              onClick={() => void relay.refresh()}
+              disabled={relay.loading}
+            >
+              {relay.loading ? "Connecting…" : "Try again"}
+            </Button>
+            {relay.recoveryWorkspace ? (
               <Button
                 variant="ghost"
-                onClick={() => {
-                  if (relay.recoveryWorkspace) {
-                    void relay.returnToPreviousWorkspace();
-                    return;
-                  }
-                  signOut();
-                }}
+                onClick={() => void relay.returnToPreviousWorkspace()}
               >
-                {relay.recoveryWorkspace ? "Back" : "Disconnect"}
+                Back
               </Button>
-            </div>
-          </section>
-        </main>
-      </div>
-    </TooltipProvider>
+            ) : (
+              <Button variant="ghost" onClick={() => signOut()}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+        </section>
+      </main>
+    </Layout>
   );
 }
 
@@ -299,102 +312,112 @@ function AuthenticatedApp() {
         <BrowserRouter>
           <ChiefNavigationProvider>
             <WorkspaceChannelsProvider>
-              <ChannelReadStateProvider>
-                <OnboardingGate>
-                  <Routes>
-                    <Route
-                      path="workspaces/new"
-                      element={<CreateWorkspacePage />}
-                    />
-                    <Route path="onboarding" element={<OnboardingPage />} />
-                    <Route element={<Layout />}>
-                      <Route index element={<DashboardPage />} />
-                      <Route path="inbox" element={<InboxPage />} />
-                      <Route path="analytics" element={<AnalyticsPage />} />
-                      <Route path="artifacts" element={<ArtifactsPage />} />
-                      <Route path="campaigns" element={<CampaignsPage />} />
-                      <Route path="schedule" element={<SchedulePage />} />
-                      <Route path="prospects" element={<ProspectsPage />} />
-                      <Route path="trending" element={<TrendingPage />} />
+              <MentionPeopleProvider>
+                <ChannelReadStateProvider>
+                  <OnboardingGate>
+                    <Routes>
                       <Route
-                        path="conversations"
-                        element={<ConversationsPage />}
+                        path="workspaces/new"
+                        element={<CreateWorkspacePage />}
                       />
-                      <Route path="agents" element={<AgentsPage />} />
-                      <Route
-                        path="machines"
-                        element={<Navigate to="/settings/machines" replace />}
-                      />
-                      <Route
-                        path="projects/:projectId?"
-                        element={
-                          <Suspense fallback={null}>
-                            <ProjectsPage />
-                          </Suspense>
-                        }
-                      />
-                      <Route
-                        path="plugins"
-                        element={
-                          <Suspense fallback={null}>
-                            <PluginsPage />
-                          </Suspense>
-                        }
-                      />
-                      <Route path="files" element={<WorkspaceFilesPage />} />
-                      <Route
-                        path="files/:fileId"
-                        element={<WorkspaceFilePage />}
-                      />
-                      <Route path="settings" element={<SettingsLayout />}>
+                      <Route path="onboarding" element={<OnboardingPage />} />
+                      <Route element={<Layout />}>
+                        <Route index element={<DashboardPage />} />
+                        <Route path="inbox" element={<InboxPage />} />
+                        <Route path="artifacts" element={<ArtifactsPage />} />
+                        <Route path="campaigns" element={<CampaignsPage />} />
+                        <Route path="schedule" element={<SchedulePage />} />
+                        <Route path="prospects" element={<ProspectsPage />} />
+                        <Route path="trending" element={<TrendingPage />} />
                         <Route
-                          index
-                          element={<Navigate to="/settings/profile" replace />}
+                          path="conversations"
+                          element={<ConversationsPage />}
                         />
-                        <Route path="profile" element={<ProfileSettings />} />
-                        <Route
-                          path="workspace"
-                          element={<WorkspaceSettings />}
-                        />
-                        <Route
-                          path="connection"
-                          element={<ConnectionSettings />}
-                        />
-                        <Route path="missions" element={<MissionsSettings />} />
-                        <Route
-                          path="appearance"
-                          element={<AppearanceSettings />}
-                        />
-                        <Route
-                          path="notifications"
-                          element={<NotificationsSettings />}
-                        />
-                        <Route path="agents" element={<AgentsSettings />} />
-                        <Route
-                          path="diagnostics"
-                          element={<DiagnosticsSettings />}
-                        />
-                        <Route
-                          path="environment"
-                          element={<EnvironmentSettings />}
-                        />
+                        <Route path="agents" element={<AgentsPage />} />
                         <Route
                           path="machines"
+                          element={<Navigate to="/settings/machines" replace />}
+                        />
+                        <Route
+                          path="projects/:projectId?"
                           element={
                             <Suspense fallback={null}>
-                              <MachinesPage />
+                              <ProjectsPage />
                             </Suspense>
                           }
                         />
                         <Route
-                          path="integrations/*"
-                          element={<Navigate to="/plugins" replace />}
+                          path="plugins"
+                          element={
+                            <Suspense fallback={null}>
+                              <PluginsPage />
+                            </Suspense>
+                          }
                         />
+                        <Route path="files" element={<WorkspaceFilesPage />} />
+                        <Route
+                          path="files/:fileId"
+                          element={<WorkspaceFilePage />}
+                        />
+                        <Route path="settings" element={<SettingsLayout />}>
+                          <Route
+                            index
+                            element={
+                              <Navigate to="/settings/profile" replace />
+                            }
+                          />
+                          <Route path="profile" element={<ProfileSettings />} />
+                          <Route
+                            path="workspace"
+                            element={<WorkspaceSettings />}
+                          />
+                          <Route
+                            path="connection"
+                            element={<ConnectionSettings />}
+                          />
+                          <Route
+                            path="missions"
+                            element={<MissionsSettings />}
+                          />
+                          <Route
+                            path="webhooks"
+                            element={<WebhooksSettings />}
+                          />
+                          <Route
+                            path="appearance"
+                            element={<AppearanceSettings />}
+                          />
+                          <Route
+                            path="notifications"
+                            element={<NotificationsSettings />}
+                          />
+                          <Route path="agents" element={<AgentsSettings />} />
+                          <Route
+                            path="diagnostics"
+                            element={<DiagnosticsSettings />}
+                          />
+                          <Route
+                            path="environment"
+                            element={<EnvironmentSettings />}
+                          />
+                          <Route
+                            path="machines"
+                            element={
+                              <Suspense fallback={null}>
+                                <MachinesPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
+                            path="integrations/*"
+                            element={<Navigate to="/plugins" replace />}
+                          />
+                        </Route>
                       </Route>
-                    </Route>
-                  </Routes>
-                </OnboardingGate>
-              </ChannelReadStateProvider>
+                    </Routes>
+                  </OnboardingGate>
+                </ChannelReadStateProvider>
+              </MentionPeopleProvider>
             </WorkspaceChannelsProvider>
           </ChiefNavigationProvider>
         </BrowserRouter>

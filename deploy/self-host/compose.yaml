@@ -23,7 +23,7 @@ x-relay-environment: &relay-environment
   MINIFLARE_CACHE_DIR: /run/chief/miniflare
   # This label is query metadata, not a data-isolation boundary. The bundled
   # collector remains local to this Compose stack.
-  RELAY_DEPLOYMENT: ${RELAY_DEPLOYMENT:-local-development}
+  RELAY_DEPLOYMENT: ${RELAY_DEPLOYMENT:-local}
   RELAY_OTLP_ENDPOINT: ${RELAY_OTLP_ENDPOINT:-}
   RELAY_TELEMETRY_INCLUDE_CONTENT: ${RELAY_TELEMETRY_INCLUDE_CONTENT:-false}
   RELAY_TELEMETRY_MODE: ${RELAY_TELEMETRY_MODE:-errors}
@@ -78,7 +78,7 @@ services:
       COMPUTER_BROWSER_STREAM_SECRET_FILE: /run/secrets/computer_browser_stream_secret
       COMPUTER_PUBLIC_URL: ${CHIEF_COMPUTER_PUBLIC_URL:-http://localhost:8788}
       EXECUTOR_AUTH_AUDIENCE: chief-computer
-      EXECUTOR_AUTH_ISSUER: https://chief-relay.internal
+      EXECUTOR_AUTH_ISSUER: https://relay.internal
       XDG_CACHE_HOME: /computers/.cache
     ports:
       - "127.0.0.1:${CHIEF_COMPUTER_PORT:-8788}:8080"
@@ -114,7 +114,7 @@ services:
     build:
       context: ../..
       dockerfile: apps/relay/Dockerfile
-    image: ${CHIEF_RELAY_IMAGE:-chief-relay:local}
+    image: ${CHIEF_RELAY_IMAGE:-relay:local}
     command: ["migrate"]
     environment: *relay-environment
     secrets: *relay-secrets
@@ -134,7 +134,7 @@ services:
     build:
       context: ../..
       dockerfile: apps/relay/Dockerfile
-    image: ${CHIEF_RELAY_IMAGE:-chief-relay:local}
+    image: ${CHIEF_RELAY_IMAGE:-relay:local}
     command: ["serve"]
     environment: *relay-environment
     secrets: *relay-secrets

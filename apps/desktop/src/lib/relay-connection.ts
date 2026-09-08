@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 import type { WorkspaceSummary } from "@chief/relay-contracts";
 import {
   isJsonObject,
@@ -182,6 +184,61 @@ export function knownRelayConnections() {
   return readDirectory().connections;
 }
 
+export function forgetRelayConnection(relayUrl: string) {
+  const normalized = normalizedRelayOrigin(relayUrl);
+  const directory = readDirectory();
+  writeDirectory({
+    ...directory,
+    activeRelayUrl:
+      directory.activeRelayUrl === normalized ? null : directory.activeRelayUrl,
+    connections: directory.connections.filter(
+      (connection) => connection.relayUrl !== normalized,
+    ),
+  });
+}
+
+export function isMissingRelayError(error: unknown) {
+  if (error instanceof SyntaxError || error instanceof ZodError) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /HTTP 404\b|HTTP 410\b|unsupported account issuer/u.test(message);
+}
+
+export async function probeRelayReachability(
+  relayUrl: string,
+  fetcher: typeof fetch,
+): Promise<"ok" | "missing" | "unreachable"> {
+  try {
+    await validateRelayConnection(relayUrl, fetcher);
+    return "ok";
+  } catch (error) {
+    return isMissingRelayError(error) ? "missing" : "unreachable";
+  }
+}
+
+export async function forgetMissingConnectedRelays(input: {
+  identities: readonly { relayUrl: string; user: { id: string } }[];
+  chiefCloudRelayUrl: string;
+  fetcher?: typeof fetch;
+  forgetSession: (relayUrl: string) => Promise<void>;
+}): Promise<string[]> {
+  const cloud = new URL(input.chiefCloudRelayUrl).origin;
+  const fetcher = input.fetcher ?? fetch;
+  const removed: string[] = [];
+  for (const identity of input.identities) {
+    if (identity.relayUrl === cloud) continue;
+    const reachability = await probeRelayReachability(
+      identity.relayUrl,
+      fetcher,
+    );
+    if (reachability !== "missing") continue;
+    await input.forgetSession(identity.relayUrl);
+    forgetRelayWorkspaces(identity.relayUrl, identity.user.id);
+    forgetRelayConnection(identity.relayUrl);
+    removed.push(identity.relayUrl);
+  }
+  return removed;
+}
+
 export function resolveRelayConnection(
   relayUrl: string,
   connections: readonly StoredRelayConnection[],
@@ -312,12 +369,9 @@ export async function validateRelayConnection(
   fetcher: typeof fetch,
 ): Promise<StoredRelayConnection> {
   const relayUrl = normalizedRelayOrigin(value);
-  const response = await fetcher(
-    new URL("/.well-known/chief-relay", relayUrl),
-    {
-      headers: { accept: "application/json" },
-    },
-  );
+  const response = await fetcher(new URL("/.well-known/relay", relayUrl), {
+    headers: { accept: "application/json" },
+  });
   if (!response.ok) {
     throw new Error(`This relay returned HTTP ${response.status}.`);
   }

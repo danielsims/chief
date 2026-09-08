@@ -92,25 +92,38 @@ function MarkdownImage({
   );
 }
 
+function flattenAdjacentText(children: ReactNode): ReactNode[] {
+  const flattened: ReactNode[] = [];
+  for (const child of Children.toArray(children)) {
+    const previous = flattened.at(-1);
+    if (isJsonString(child) && isJsonString(previous)) {
+      flattened[flattened.length - 1] = `${previous}${child}`;
+    } else {
+      flattened.push(child);
+    }
+  }
+  return flattened;
+}
+
 function highlightReferences(
   children: ReactNode,
   channels: readonly ChannelReferenceTarget[],
   onOpenChannel?: (channelId: string) => void,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
 ): ReactNode {
-  return Children.map(children, (child) =>
+  return flattenAdjacentText(children).map((child, childIndex) =>
     isJsonString(child)
       ? splitSkillReferences(child).map((segment, index) =>
           segment.type === "skill" ? (
             <MessageSkillChip
               id={segment.id}
-              key={`${index}:${segment.id}`}
+              key={`${childIndex}:${index}:${segment.id}`}
               label={segment.label}
             />
           ) : (
             <ChannelReferenceText
               channels={channels}
-              key={`${index}:${segment.value}`}
+              key={`${childIndex}:${index}:${segment.value}`}
               onOpenChannel={onOpenChannel}
               text={segment.value}
               onOpenMention={onOpenMention}

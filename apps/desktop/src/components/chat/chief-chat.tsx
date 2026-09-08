@@ -25,6 +25,7 @@ import {
 import { withActionTimelineEntries } from "./conversation-timeline-entries";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
+import { ScheduledRunMessage } from "./scheduled-run-message";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
 import { useChiefChatCore } from "./use-chief-chat-core";
 import { useChiefChatPresentation } from "./use-chief-chat-presentation";
@@ -184,6 +185,7 @@ export function ChiefChat({
       running: controls.status === "running",
       statusLabel,
       tasks: activeMainChildSessions,
+      scheduleRuns: core.scheduleRuns,
     });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
@@ -293,6 +295,20 @@ export function ChiefChat({
                     }
                     if (entry.type === "specialist") return null;
                     const { message } = entry;
+                    if (message.metadata?.scheduledRun)
+                      return (
+                        <div className="mx-auto w-full max-w-3xl py-2 pl-11">
+                          <ScheduledRunMessage
+                            run={message.metadata.scheduledRun}
+                            progress={core.scheduleRuns.find(
+                              (run) =>
+                                run.id ===
+                                message.metadata?.scheduledRun?.runId,
+                            )}
+                            onOpen={() => setThreadRootId(message.id)}
+                          />
+                        </div>
+                      );
                     if (message.metadata?.channelAction) {
                       return (
                         <ChannelMembershipMessage

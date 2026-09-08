@@ -43,10 +43,7 @@ export function relayAgentPreference(
   result: AgentConfigResult,
 ): AgentPreference {
   const config = result.config;
-  const driver =
-    config.deploymentTarget === "cloud"
-      ? "remote"
-      : desktopDriver(config.inference.provider);
+  const driver = desktopDriver(config.inference.provider);
   return {
     agentId: result.agentId,
     enabled: config.enabled,
@@ -66,15 +63,30 @@ export function relayAgentConfig(
   preference: AgentPreference,
 ): AgentConfig {
   const assignedDriver = preference.driver;
+  const deploymentTarget =
+    preference.deploymentTarget ?? current.deploymentTarget;
+  const selectedModel = preference.model ?? current.inference.model;
   return agentConfigSchema.parse({
     ...current,
     enabled: preference.enabled,
-    deploymentTarget: preference.deploymentTarget ?? current.deploymentTarget,
+    deploymentTarget,
     inference: assignedDriver
-      ? {
-          provider: "opencode",
-          model: "opencode-go/deepseek-v4-flash",
-        }
+      ? assignedDriver === "remote"
+        ? {
+            provider: "vercel-ai-gateway",
+            model: selectedModel,
+            secretRef: "vercel-ai-gateway",
+          }
+        : assignedDriver === "claude" || assignedDriver === "codex"
+          ? {
+              provider: assignedDriver,
+              model: preference.model ?? "auto",
+            }
+          : {
+              provider: "opencode",
+              model: selectedModel,
+              secretRef: "opencode",
+            }
       : current.inference,
     approvals: preference.approvals ?? current.approvals,
     capabilities: preference.capabilities ?? current.capabilities,
@@ -84,6 +96,7 @@ export function relayAgentConfig(
 }
 
 function desktopDriver(value: string): DriverType | undefined {
+  if (value === "vercel-ai-gateway") return "remote";
   if (value === "openCodeGo") return "opencode";
   if (
     value === "claude" ||

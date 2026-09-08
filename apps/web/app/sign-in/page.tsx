@@ -57,7 +57,7 @@ function SignInContent() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/.well-known/chief-relay", {
+    void fetch("/.well-known/relay", {
       headers: { accept: "application/json" },
     })
       .then(async (response) => {

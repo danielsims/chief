@@ -25,7 +25,11 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../lib/auth/auth-context";
 import { channelEventSourceId } from "../lib/channel-read-state";
-import { useChannelEvents, useWorkspaceChannels } from "../lib/runtime";
+import {
+  useChannelEvents,
+  useRuntime,
+  useWorkspaceChannels,
+} from "../lib/runtime";
 import {
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
@@ -109,6 +113,7 @@ export function openWorkspaceSearch(scope?: ChannelSearchScope) {
 
 export function WorkspaceSearch() {
   const workspaceChannels = useWorkspaceChannels();
+  const { agents: runtimeAgents, agentsLoaded } = useRuntime();
   const { user } = useAuth();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -160,15 +165,19 @@ export function WorkspaceSearch() {
           },
         ]
       : [];
-    const agents: SearchItem[] = Object.entries(WORKSPACE_AGENT_IDENTITIES).map(
-      ([id, identity]) => ({
-        id,
-        label: identity.name,
-        hint: identity.role,
-        to: `/conversations?dm=${id}`,
-        kind: "Agent",
-      }),
-    );
+    const agentRoster = agentsLoaded
+      ? runtimeAgents
+      : Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([id, identity]) => ({
+          id,
+          ...identity,
+        }));
+    const agents: SearchItem[] = agentRoster.map((agent) => ({
+      id: agent.id,
+      label: agent.name,
+      hint: agent.role,
+      to: `/conversations?dm=${encodeURIComponent(agent.id)}`,
+      kind: "Agent",
+    }));
     const needle = query.trim().toLocaleLowerCase();
     if (channelScope) {
       if (!needle) return [];
@@ -205,7 +214,15 @@ export function WorkspaceSearch() {
         `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
       )
       .slice(0, 18);
-  }, [channelEvents, channelScope, query, user, workspaceChannels.channels]);
+  }, [
+    channelEvents,
+    channelScope,
+    query,
+    agentsLoaded,
+    runtimeAgents,
+    user,
+    workspaceChannels.channels,
+  ]);
 
   const groupedItems = useMemo(
     () =>

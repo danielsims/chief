@@ -98,6 +98,18 @@ final class ConversationPresentationTests: XCTestCase {
     )
   }
 
+  func testMessageBodyChipsSpacedPersonNames() {
+    let people = [MentionAgent(id: "daniel", name: "Daniel Sims", role: "You")]
+    let segments = MessageBodyParser.split(
+      "Hey @Daniel Sims, first brand profile is done",
+      channelNames: [],
+      people: people
+    )
+    XCTAssertTrue(
+      segments.contains(.mention(agentID: "daniel", label: "@Daniel Sims"))
+    )
+  }
+
   func testMessageBodyOnlyPromotesKnownChannels() {
     let segments = MessageBodyParser.split(
       "Use #mission-control, not #missing.",
@@ -160,6 +172,37 @@ final class ConversationPresentationTests: XCTestCase {
     )
   }
 
+  @MainActor
+  func testProvisionalChannelNameTitleCasesSlugsAndHidesHashes() {
+    XCTAssertEqual(AppModel.provisionalChannelName("marketing"), "Marketing")
+    XCTAssertEqual(AppModel.provisionalChannelName("mission-control"), "Mission Control")
+    XCTAssertEqual(
+      AppModel.provisionalChannelName("channel-aaaaaaaaaaaaaaaaaaaa"),
+      "New channel"
+    )
+  }
+
+  func testScrollFollowKeyChangesWhenTheLatestMessageGrows() {
+    let first = message(id: "latest", author: .agent(id: "chief", name: "Chief"), minute: 0)
+    let grown = ConversationMessage(
+      id: first.id,
+      workspaceID: first.workspaceID,
+      conversationID: first.conversationID,
+      threadRootID: first.threadRootID,
+      author: first.author,
+      body: "Hello from Chief, now with more detail.",
+      components: first.components,
+      createdAt: first.createdAt,
+      sequence: first.sequence
+    )
+
+    XCTAssertNotEqual(
+      ConversationScrollAnchor.followKey(for: [first]),
+      ConversationScrollAnchor.followKey(for: [grown])
+    )
+    XCTAssertTrue(ConversationScrollAnchor.followKey(for: [first]).contains(first.id))
+  }
+
   func testMessageReferencesSerializeAgentAndSkillBeforeBody() {
     XCTAssertEqual(
       MessageReferenceSerializer.body(
@@ -208,9 +251,10 @@ final class ConversationPresentationTests: XCTestCase {
       selectedApps: []
     )
 
-    XCTAssertTrue(context.systemPrompt.contains("always write a known workspace channel"))
-    XCTAssertTrue(context.systemPrompt.contains("#channel-slug"))
-    XCTAssertTrue(context.systemPrompt.contains("private channels such as #setup"))
+    let prompt = context.systemPrompt(for: "chief")
+    XCTAssertTrue(prompt.contains("always write a known workspace channel"))
+    XCTAssertTrue(prompt.contains("#channel-slug"))
+    XCTAssertTrue(prompt.contains("private channels such as #setup"))
   }
 
   private func message(

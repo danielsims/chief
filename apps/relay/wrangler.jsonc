@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "chief-relay",
+  "name": "relay",
   "main": "src/index.ts",
+  "workers_dev": true,
   "compatibility_date": "2026-08-17",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
@@ -84,27 +85,19 @@
   "vars": {
     "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",
     "RELAY_DEPLOYMENT": "chief-cloud",
-    // Full OTLP exporters use interval fibers and outbound I/O. Keep them out
-    // of production Durable Objects so idle objects can hibernate after 10s.
-    // The self-host observability profile enables full telemetry explicitly.
-    "RELAY_TELEMETRY_MODE": "errors",
+    // Production telemetry is disabled so observability cannot keep Durable
+    // Objects active. The self-host observability profile remains opt-in.
+    "RELAY_TELEMETRY_MODE": "off",
     "RELAY_TELEMETRY_INCLUDE_CONTENT": "false",
     "HOSTED_CELL_ENABLED": "true",
     "HOSTED_AGENT_COMPACTION_RATIO": "0.75",
     "ACCOUNT_IDENTITY_MODE": "chief-account",
-    "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
+    "AUTH_BASE_URL": "https://relay.heychief.sh",
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
+    "APNS_TEAM_ID": "XMMXB25823",
+    "APNS_BUNDLE_ID": "sh.heychief.mobile",
   },
-  "observability": {
-    "enabled": true,
-    "logs": {
-      "enabled": true,
-      "invocation_logs": false,
-    },
-    "traces": {
-      "enabled": true,
-      "head_sampling_rate": 0.1,
-    },
-  },
+  "routes": [{ "pattern": "relay.heychief.sh", "custom_domain": true }],
+  "observability": { "enabled": false },
 }

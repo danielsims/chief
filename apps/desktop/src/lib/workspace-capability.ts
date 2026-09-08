@@ -24,7 +24,7 @@ export function useWorkspaceCapability() {
     () => ({
       cloudOrganizationId,
       capability: cloudOrganizationId
-        ? { apiBaseUrl: "chief-relay://nip98", token: "transport-owned" }
+        ? { apiBaseUrl: "relay://nip98", token: "transport-owned" }
         : null,
       error: null,
     }),

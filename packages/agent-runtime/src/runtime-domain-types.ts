@@ -1,5 +1,5 @@
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
-import type { JsonObject } from "@chief/relay-contracts";
+import type { JsonObject, WorkspaceAgentRuntime } from "@chief/relay-contracts";
 
 import type {
   AgentEvent,
@@ -78,6 +78,12 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
+  missionId?: string;
+  collaborators?: string[];
+  expectedOutcome?: string;
+  constraints?: string;
+  maxDurationMinutes?: number;
+  triggerMode?: "cron" | "webhook";
   /** Channel conversation where each occurrence posts its root message. */
   conversationId?: string;
   /** Agent woken by the scheduled channel message. */
@@ -104,12 +110,15 @@ export interface RecurringWorkRecord {
   proposedToolPatterns: string[];
   grant?: AutomationGrant;
   nextAt?: number;
+  lastMessageId?: string;
+  lastDispatchedAt?: number;
   lastCompletedAt?: number;
   lastSummary?: string;
   createdAt: number;
   updatedAt: number;
   /** Computed by the runtime for calendar rendering, never persisted. */
   upcomingRuns?: number[];
+  recordedRuns?: number[];
 }
 
 export interface OnboardingWorkJob {
@@ -322,12 +331,15 @@ export interface ExecutorCapability {
   token: string;
 }
 
+export type * from "./eve-provisioning-types.js";
+
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
  * state, resolved when the runtime opens a chat, never part of the
  * definition.
  */
-export interface AgentDefinition {
+export interface AgentProfile {
+  canMessage?: boolean;
   id: string;
   name: string;
   role: string;
@@ -339,8 +351,15 @@ export interface AgentDefinition {
   baseInstructions?: string;
   /** Optional, composable tool + UI behaviors available to this agent. */
   capabilities?: AgentCapabilityId[];
+}
+
+export interface AgentDefinition extends AgentProfile {
   /** Chief can delegate to these agent ids. */
   delegates?: string[];
+  /** Authored specialists packaged inside this root agent's deployment. */
+  subagents?: AgentProfile[];
+  /** Where this agent executes. Native cells remain the default. */
+  runtime?: WorkspaceAgentRuntime;
 }
 
 export interface StartOptions {

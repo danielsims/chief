@@ -17,6 +17,10 @@ import {
 
 const HIDDEN_RUNTIME_ERRORS = new Set(["turn interrupted", "turn cancelled"]);
 
+export function isExpectedRuntimeStop(error: string) {
+  return HIDDEN_RUNTIME_ERRORS.has(error.trim().toLocaleLowerCase());
+}
+
 /**
  * Infrastructure failures that belong in logs, not in a shared chat: a driver
  * process that exited, a service that failed to start, an agent runtime that
@@ -37,7 +41,7 @@ const INTERNAL_VALIDATION_ERROR_PATTERNS = [
 export function visibleRuntimeError(error?: string) {
   if (!error) return undefined;
   const trimmed = error.trim();
-  if (HIDDEN_RUNTIME_ERRORS.has(trimmed.toLocaleLowerCase())) return undefined;
+  if (isExpectedRuntimeStop(trimmed)) return undefined;
   if (HIDDEN_RUNTIME_ERROR_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     return undefined;
   }
@@ -81,7 +85,7 @@ function isPluginSummary(value: unknown): value is AgentPluginSummary {
 
 function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
   if (event.kind !== 9 || !Array.isArray(event.parts)) return [];
-  return event.parts.flatMap((part) => {
+  return event.parts.flatMap((part): ChiefUIMessage["parts"] => {
     if (!part || !isJsonObject(part) || Array.isArray(part)) return [];
     const candidate = part;
     const data = candidate.data;
@@ -91,6 +95,26 @@ function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
       !isJsonObject(data) ||
       !Array.isArray(data.plugins)
     ) {
+      if (
+        candidate.type === "data-project-recommendation" &&
+        data &&
+        isJsonObject(data) &&
+        isJsonString(data.title) &&
+        isJsonString(data.description)
+      ) {
+        return [
+          {
+            type: "data-project-recommendation",
+            data: {
+              title: data.title,
+              description: data.description,
+              ...(isJsonString(data.remoteUrl)
+                ? { remoteUrl: data.remoteUrl }
+                : undefined),
+            },
+          } as const,
+        ];
+      }
       return [];
     }
     const plugins: AgentPluginSummary[] = [];

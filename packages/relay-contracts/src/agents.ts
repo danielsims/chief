@@ -17,15 +17,27 @@ export const agentInferenceSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("opencode"),
-      model: z.literal("opencode-go/deepseek-v4-flash"),
+      model: z.string().trim().min(1).max(128),
       secretRef: secretNameSchema.optional(),
     })
     .strict(),
   z
     .object({
       provider: z.literal("vercel-ai-gateway"),
-      model: z.literal("deepseek/deepseek-v4-flash"),
+      model: z.string().trim().min(1).max(128),
       secretRef: secretNameSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("claude"),
+      model: z.string().trim().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("codex"),
+      model: z.string().trim().min(1).max(128),
     })
     .strict(),
 ]);
@@ -38,6 +50,7 @@ export const agentConfigSchema = z
     deploymentTarget: z.enum(["phone", "desktop", "cloud"]).default("cloud"),
     inference: agentInferenceSchema,
     approvals: z.enum(["auto", "ask"]),
+    messageAccess: z.enum(["owner", "workspace"]).optional(),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
     toolPermissions: z
@@ -103,6 +116,14 @@ export const defaultAgentConfig = agentConfigSchema.parse({
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+export const agentRemovalResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+    removed: z.literal(true),
+  })
+  .strict();
 
 export const agentRuntimeDescriptorSchema = z
   .object({
@@ -246,7 +267,7 @@ export const agentPublishedMessageSchema = z
   .object({
     conversationId: conversationIdSchema,
     threadRootId: messageIdSchema.optional(),
-    body: z.string().trim().min(1).max(4_000),
+    body: z.string().trim().min(1).max(100_000),
     components: z
       .array(
         z.object({

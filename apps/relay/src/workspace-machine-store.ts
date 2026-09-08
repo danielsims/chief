@@ -8,7 +8,13 @@ import {
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { initializeWorkspaceMachines as initializeWorkspaceMachineTable } from "./db/migrations/initialize-workspace-machines";
 import { HttpError, json, parseJson } from "./http";
+import { machinesDeleteDeleteMachine } from "./queries/machines/delete-delete-machine";
+import { machinesFindReadMachines } from "./queries/machines/find-read-machines";
+import { machinesInsertCreateMachine } from "./queries/machines/insert-create-machine";
+import { machinesInsertInitializeWorkspaceMachines } from "./queries/machines/insert-initialize-workspace-machines";
+import { machinesUpdateUpdateMachine } from "./queries/machines/update-update-machine";
 
 interface MachineRow extends Record<string, SqlStorageValue> {
   machine_id: string;
@@ -24,35 +30,17 @@ interface MachineRow extends Record<string, SqlStorageValue> {
 }
 
 export function initializeWorkspaceMachines(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS machines (
-      machine_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      endpoint TEXT,
-      capabilities_json TEXT NOT NULL,
-      agent_ids_json TEXT NOT NULL,
-      last_seen_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS machines_updated_idx ON machines (updated_at DESC);
-  `);
+  initializeWorkspaceMachineTable(storage);
   const now = new Date().toISOString();
-  storage.sql.exec(
-    `INSERT OR IGNORE INTO machines (
-      machine_id, name, kind, status, endpoint, capabilities_json,
-      agent_ids_json, last_seen_at, created_at, updated_at
-    ) VALUES (?, ?, 'cloudflare', 'online', NULL, ?, ?, ?, ?, ?)`,
-    "00000000-0000-4000-8000-000000000001",
-    "Cloudflare Computer",
-    JSON.stringify(["browser", "screen"]),
-    JSON.stringify(["brand", "prospector", "setup"]),
-    now,
-    now,
-    now,
-  );
+  machinesInsertInitializeWorkspaceMachines(storage, {
+    machineId: "00000000-0000-4000-8000-000000000001",
+    name: "Cloudflare Computer",
+    capabilitiesJson: JSON.stringify(["browser", "screen"]),
+    agentIdsJson: JSON.stringify(["brand", "prospector", "setup"]),
+    lastSeenAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 export async function routeWorkspaceMachines(
@@ -90,21 +78,17 @@ async function createMachine(
   const input = machineCreateSchema.parse(await parseJson(request));
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  storage.sql.exec(
-    `INSERT INTO machines (
-      machine_id, name, kind, status, endpoint, capabilities_json,
-      agent_ids_json, last_seen_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-    id,
-    input.name,
-    input.kind,
-    input.kind === "cloudflare" ? "online" : "pairing",
-    input.endpoint ?? null,
-    JSON.stringify(input.capabilities),
-    "[]",
-    now,
-    now,
-  );
+  machinesInsertCreateMachine(storage, {
+    machineId: id,
+    name: input.name,
+    kind: input.kind,
+    status: input.kind === "cloudflare" ? "online" : "pairing",
+    endpoint: input.endpoint ?? null,
+    capabilitiesJson: JSON.stringify(input.capabilities),
+    agentIdsJson: "[]",
+    createdAt: now,
+    updatedAt: now,
+  });
   return json(requireMachine(storage, workspaceId, id), { status: 201 });
 }
 
@@ -117,24 +101,19 @@ async function updateMachine(
   requireMachine(storage, workspaceId, id);
   const input = machineUpdateSchema.parse(await parseJson(request));
   const now = new Date().toISOString();
-  storage.sql.exec(
-    `UPDATE machines SET name = ?, capabilities_json = ?, agent_ids_json = ?,
-      updated_at = ? WHERE machine_id = ?`,
-    input.name,
-    JSON.stringify(input.capabilities),
-    JSON.stringify(input.agentIds),
-    now,
-    id,
-  );
+  machinesUpdateUpdateMachine(storage, {
+    name: input.name,
+    capabilitiesJson: JSON.stringify(input.capabilities),
+    agentIdsJson: JSON.stringify(input.agentIds),
+    updatedAt: now,
+    machineId: id,
+  });
   return json(requireMachine(storage, workspaceId, id));
 }
 
 function deleteMachine(storage: DurableObjectStorage, request: Request) {
   const id = machineId(request);
-  const result = storage.sql.exec(
-    "DELETE FROM machines WHERE machine_id = ?",
-    id,
-  );
+  const result = machinesDeleteDeleteMachine(storage, id);
   if (result.rowsWritten === 0) {
     throw new HttpError(404, "machine_not_found", "Machine not found.");
   }
@@ -146,11 +125,7 @@ export function readMachines(
   workspaceId: string,
 ) {
   const organizationId = workspaceIdSchema.parse(workspaceId);
-  return [
-    ...storage.sql.exec<MachineRow>(
-      "SELECT * FROM machines ORDER BY updated_at DESC",
-    ),
-  ].map((row) =>
+  return [...machinesFindReadMachines<MachineRow>(storage)].map((row) =>
     machineSchema.parse({
       id: row.machine_id,
       workspaceId: organizationId,

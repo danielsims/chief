@@ -35,7 +35,7 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     {
       id: "workspace.write",
       label: "Save workspace data",
-      description: "Create or update files, research and content.",
+      description: "Save research and manage workspace plans.",
       group: "Workspace",
     },
     {
@@ -95,7 +95,7 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     {
       id: "members.manage",
       label: "Manage members",
-      description: "Invite, remove, join or leave channels.",
+      description: "Invite or remove other channel members.",
       group: "Channels",
     },
     {
@@ -107,7 +107,7 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     {
       id: "messages.send",
       label: "Send messages",
-      description: "Post replies and add reactions.",
+      description: "Post replies, publish channel artifacts and add reactions.",
       group: "Messages",
     },
     {
@@ -373,12 +373,12 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/recurring-work",
   ].map((path) => [`GET ${path}`, "workspace.read"] as const),
   ["POST /local-tools/files/read", "workspace.read"],
+  ["POST /local-tools/files/write", "messages.send"],
   ...[
     "/local-tools/prospects",
     "/local-tools/trends",
     "/local-tools/analytics/datasets",
     "/local-tools/content",
-    "/local-tools/files/write",
     "/local-tools/campaigns",
     "/local-tools/brand-profile",
     "/local-tools/recurring-work",

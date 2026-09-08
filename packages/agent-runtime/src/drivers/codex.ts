@@ -1,32 +1,16 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonObject } from "@chief/relay-contracts";
 
 import type { StartOptions } from "../types.js";
 import { AcpDriver } from "./acp.js";
+import { ensureCodexSetup } from "./codex-install.js";
 
 export { codexMcpResultText } from "./codex-item-mapper.js";
-
-const moduleDirectory = dirname(fileURLToPath(import.meta.url));
-
-function findCodexAcp() {
-  const executable =
-    process.platform === "win32" ? "codex-acp.cmd" : "codex-acp";
-  const candidates = [
-    process.env.CHIEF_CODEX_ACP_BINARY,
-    join(moduleDirectory, "..", "node_modules", ".bin", executable),
-    join(moduleDirectory, "..", "..", "node_modules", ".bin", executable),
-    join(homedir(), ".local", "bin", executable),
-    "/opt/homebrew/bin/codex-acp",
-    "/usr/local/bin/codex-acp",
-  ].filter((value): value is string => Boolean(value));
-  return candidates.find(existsSync) ?? executable;
-}
 
 function record(value: unknown): JsonObject {
   return value && isJsonObject(value) && !Array.isArray(value) ? value : {};
@@ -84,11 +68,20 @@ export function prepareCodexEnvironment(
  */
 export class CodexDriver extends AcpDriver {
   constructor() {
+    const args: string[] = [];
+    let command = process.execPath;
     super({
       name: "codex",
-      command: findCodexAcp,
-      args: [],
-      configureEnvironment: prepareCodexEnvironment,
+      command: () => command,
+      args,
+      configureEnvironment: async (options, environment) => {
+        const setup = await ensureCodexSetup();
+        environment.CHIEF_CODEX_BINARY = setup.binary;
+        const override = process.env.CHIEF_CODEX_ACP_BINARY;
+        command = override ?? process.execPath;
+        args.splice(0, args.length, ...(override ? [] : [setup.adapter]));
+        prepareCodexEnvironment(options, environment);
+      },
     });
   }
 }

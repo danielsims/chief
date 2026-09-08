@@ -14,6 +14,7 @@ export interface ObservedChannelMessage {
   sourceId: string | null;
   threadSourceId: string | null;
   content: string;
+  mentionIds: readonly string[];
   actor: ChannelEvent["actor"];
 }
 
@@ -43,7 +44,15 @@ export function tagValue(
 }
 
 export function channelEventThreadRootId(event: ChannelEvent) {
-  return tagValue(event, "e", "root");
+  return tagValue(event, "e", "root") ?? unmarkedKind9ThreadRootId(event);
+}
+
+/** Relay channel events historically stored a bare `e` tag without the NIP-29
+ * root marker. Kind 9 messages still belong to that thread. */
+function unmarkedKind9ThreadRootId(event: ChannelEvent) {
+  if (event.kind !== 9) return null;
+  const tag = event.tags.find((entry) => entry[0] === "e" && !entry[3]);
+  return tag?.[1] ?? null;
 }
 
 export function channelEventSourceId(event: ChannelEvent) {
@@ -55,6 +64,21 @@ export function isOwnChannelEvent(event: ChannelEvent) {
     event.actor.type === "user" &&
     (event.actor.id === "workspace-owner" || event.actor.name === "You")
   );
+}
+
+export function channelEventMentionIds(event: Pick<ChannelEvent, "tags">) {
+  return event.tags.flatMap((tag) =>
+    tag[0] === "p" && tag[1] ? [tag[1]] : [],
+  );
+}
+
+export function shouldDeliverChannelNotification(input: {
+  mentioned: boolean;
+  isVisibleTopLevel: boolean;
+  isVisibleThread: boolean;
+}) {
+  if (input.mentioned) return true;
+  return !input.isVisibleTopLevel && !input.isVisibleThread;
 }
 
 export function observedChannelMessage(
@@ -75,6 +99,7 @@ export function observedChannelMessage(
     sourceId,
     threadSourceId: null,
     content: event.content,
+    mentionIds: channelEventMentionIds(event),
     actor: event.actor,
   };
 }

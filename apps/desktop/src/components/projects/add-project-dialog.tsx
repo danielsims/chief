@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderGit2 } from "lucide-react";
@@ -19,30 +19,34 @@ import { useProjects } from "../../lib/runtime-projects";
 
 type ProjectSource = "attach" | "clone";
 
-export function AddProjectDialog({
-  open: visible,
-  onOpenChange,
-}: {
+interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
-  const projects = useProjects();
-  const { clearError } = projects;
-  const [source, setSource] = useState<ProjectSource>("attach");
-  const [path, setPath] = useState("");
-  const [remoteUrl, setRemoteUrl] = useState("");
+  initialRemoteUrl?: string;
+}
 
-  useEffect(() => {
-    if (!visible) return;
-    clearError();
-  }, [clearError, visible]);
+export function AddProjectDialog(props: AddProjectDialogProps) {
+  return props.open ? <AddProjectDialogForm {...props} /> : null;
+}
+
+function AddProjectDialogForm({
+  open: visible,
+  onOpenChange,
+  initialRemoteUrl,
+}: AddProjectDialogProps) {
+  const projects = useProjects();
+  const [source, setSource] = useState<ProjectSource>(
+    initialRemoteUrl ? "clone" : "attach",
+  );
+  const [path, setPath] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState(initialRemoteUrl ?? "");
 
   const chooseFolder = async () => {
     if (!isTauri()) return;
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Choose a Git repository",
+      title: "Choose a repository folder",
     });
     if (isJsonString(selected)) setPath(selected);
   };
@@ -60,21 +64,28 @@ export function AddProjectDialog({
   };
 
   return (
-    <Dialog open={visible} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[440px] gap-0 overflow-hidden p-0">
+    <Dialog
+      open={visible}
+      onOpenChange={(next) => {
+        if (!projects.busy) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="border-border/70 max-w-[460px] gap-0 overflow-hidden rounded-xl p-0">
         <DialogHeader className="px-5 pt-5 pb-4">
-          <DialogTitle>Add a project</DialogTitle>
+          <DialogTitle className="text-[17px] font-medium tracking-tight">
+            Connect a repository
+          </DialogTitle>
           <DialogDescription>
-            Add a Git repository to this workspace.
+            Choose a local checkout or clone a repository to this Mac.
           </DialogDescription>
         </DialogHeader>
 
         <div className="px-5 pb-5">
-          <div className="bg-muted grid grid-cols-2 rounded-lg p-0.5">
+          <div className="border-border/60 flex gap-5 border-b">
             {(
               [
-                ["attach", "On this Mac"],
-                ["clone", "Git URL"],
+                ["attach", "Local folder"],
+                ["clone", "Repository URL"],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -85,9 +96,8 @@ export function AddProjectDialog({
                   projects.clearError();
                 }}
                 className={cn(
-                  "text-muted-foreground flex h-8 items-center justify-center rounded-md text-[12px] transition-[background-color,box-shadow,color]",
-                  source === value &&
-                    "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.08),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]",
+                  "text-muted-foreground -mb-px flex h-9 items-center border-b-2 border-transparent text-sm transition-colors",
+                  source === value && "border-foreground text-foreground",
                 )}
               >
                 {label}
@@ -101,7 +111,7 @@ export function AddProjectDialog({
                 <button
                   type="button"
                   onClick={() => void chooseFolder()}
-                  className="border-border bg-muted/60 hover:bg-muted flex h-11 w-full items-center gap-3 rounded-lg border px-3 text-left transition-colors"
+                  className="border-border/70 hover:bg-muted/40 flex h-11 w-full items-center gap-3 rounded-md border bg-transparent px-3 text-left transition-colors"
                 >
                   <FolderGit2
                     size={15}
@@ -110,15 +120,13 @@ export function AddProjectDialog({
                   />
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate text-[12px]",
+                      "min-w-0 flex-1 truncate text-sm",
                       path ? "font-mono" : "text-muted-foreground",
                     )}
                   >
-                    {path || "Choose a Git repository"}
+                    {path || "Choose a repository folder"}
                   </span>
-                  <span className="text-muted-foreground text-[11px]">
-                    Browse
-                  </span>
+                  <span className="text-muted-foreground text-sm">Browse</span>
                 </button>
               ) : (
                 <input
@@ -126,7 +134,7 @@ export function AddProjectDialog({
                   onChange={(event) => setPath(event.target.value)}
                   placeholder="/path/to/repository"
                   aria-label="Repository path"
-                  className="bg-muted border-border focus:border-foreground/25 h-11 w-full rounded-lg border px-3 font-mono text-[12px] outline-none"
+                  className="border-border/70 focus:border-foreground/25 h-10 w-full rounded-md border bg-transparent px-3 text-sm outline-none"
                 />
               )
             ) : (
@@ -136,20 +144,42 @@ export function AddProjectDialog({
                 onChange={(event) => setRemoteUrl(event.target.value)}
                 placeholder="https://github.com/you/project.git"
                 aria-label="Git URL"
-                className="bg-muted border-border focus:border-foreground/25 h-11 w-full rounded-lg border px-3 font-mono text-[12px] outline-none"
+                className="border-border/70 focus:border-foreground/25 h-10 w-full rounded-md border bg-transparent px-3 text-sm outline-none"
               />
             )}
           </div>
 
+          <p className="text-muted-foreground mt-3 text-sm leading-5">
+            Agents work in their own checkout, keeping your working copy
+            separate.
+          </p>
+          {source === "clone" ? (
+            <details className="text-muted-foreground mt-3 text-sm leading-5">
+              <summary className="cursor-pointer">
+                Private repository access
+              </summary>
+              <p className="mt-2">
+                Chief uses your Mac’s existing Git credentials. HTTPS and SSH
+                URLs both work. For GitHub, sign in with{" "}
+                <code>gh auth login</code>, then run{" "}
+                <code>gh auth setup-git</code>.
+              </p>
+            </details>
+          ) : null}
+
           {projects.error ? (
-            <div className="border-destructive/20 bg-destructive/[0.06] text-destructive mt-3 rounded-lg border px-3 py-2 text-[11px] leading-4">
+            <div className="border-destructive/20 bg-destructive/[0.06] text-destructive mt-3 rounded-lg border px-3 py-2 text-sm leading-5">
               {projects.error}
             </div>
           ) : null}
         </div>
 
-        <DialogFooter className="border-border/70 border-t px-5 py-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="border-border/70 border-t px-5 py-3">
+          <Button
+            variant="ghost"
+            disabled={projects.busy}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
@@ -157,7 +187,7 @@ export function AddProjectDialog({
             disabled={source === "attach" ? !path.trim() : !remoteUrl.trim()}
             onClick={() => void submit()}
           >
-            Add project
+            {source === "attach" ? "Connect folder" : "Clone and connect"}
           </Button>
         </DialogFooter>
       </DialogContent>

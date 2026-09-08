@@ -24,7 +24,14 @@ export const projects = sqliteTable(
       enum: ["attached", "cloned"],
     }).notNull(),
     providerId: text("provider_id", {
-      enum: ["local", "generic-git", "github", "gitlab", "bitbucket"],
+      enum: [
+        "local",
+        "generic-git",
+        "github",
+        "chief-git",
+        "gitlab",
+        "bitbucket",
+      ],
     }).notNull(),
     canonicalRemoteUrl: text("canonical_remote_url"),
     repositoryWebUrl: text("repository_web_url"),

@@ -41,6 +41,14 @@ struct AgentActivityRecord: Identifiable, Equatable, Sendable {
 final class AppModel {
   private(set) var phase: AppPhase = .launching
   private(set) var session: ChiefSession?
+  var mentionPeople: [MentionAgent] {
+    guard let user = session?.user else { return [] }
+    let agents = (workspace?.agents ?? []).flatMap { agent -> [MentionAgent] in
+      let root = agent.canMessage == false ? [] : [MentionAgent(id: agent.id, name: agent.name, role: agent.role)]
+      return root + agent.subagents.filter { $0.canMessage != false }.map { MentionAgent(id: $0.id, name: $0.name, role: $0.role) }
+    }
+    return [MentionAgent(id: user.id, name: user.name, role: "You")] + agents
+  }
   private(set) var workspace: WorkspaceSnapshot?
   private(set) var workspaceSummaries: [WorkspaceSummary] = []
   private(set) var pendingWorkspaceInvite: WorkspaceInviteLink?
@@ -56,6 +64,10 @@ final class AppModel {
   private(set) var joinedConversationIDs: Set<String>?
   private var membershipWorkspaceID: String?
   var selectedConversationID: String?
+  var selectedThread: SelectedThread?
+  private var pendingConversationDeepLink: ConversationDeepLink?
+  private var isApplyingConversationDeepLink = false
+  var activityErrorAcknowledgements = ActivityErrorAcknowledgements()
   var selectedTab: WorkspaceTab = .home
   var onboarding = OnboardingDraft()
   var inferenceCredential = ""
@@ -76,6 +88,7 @@ final class AppModel {
   private var readStateWorkspaceID: String?
   private var hydratedReadConversations: Set<ConversationKey> = []
   private var notifiedMessageIDs: Set<String> = []
+  private var pendingPushToken: Data?
   private let launchedAt = Date.now
   private(set) var isAppActive = true
   private(set) var visibleConversationID: String?
@@ -272,6 +285,31 @@ final class AppModel {
     await applyPendingOrganizationInvite()
     await applyPendingWorkspaceSwitch()
     await hydrateWorkspace()
+    await consumeNotificationDeepLink()
+  }
+
+  func registerPushToken(_ token: Data) async {
+    pendingPushToken = token
+    await sendPendingPushToken()
+  }
+
+  private func sendPendingPushToken() async {
+    guard let token = pendingPushToken, session != nil else { return }
+    let hex = token.map { String(format: "%02x", $0) }.joined()
+    #if DEBUG
+      let environment = "sandbox"
+    #else
+      let environment = "production"
+    #endif
+    do {
+      let configured = try await relay.registerPushDevice(
+        token: hex,
+        environment: environment
+      )
+      MobileNotifications.remotePushRegistered = configured
+    } catch {
+      print("[Chief] APNs token registration failed: \(error)")
+    }
   }
 
   /// Boots the on-phone cell runtime (V8 + one isolated cell per agent) so the agent
@@ -447,6 +485,13 @@ final class AppModel {
     !workingAgentNames(workspaceID: workspaceID, conversationID: conversationID).isEmpty
   }
 
+  func isAgentWorking(agentID: String) -> Bool {
+    guard let workspaceID = workspace?.id else { return false }
+    return workingAgents.contains { entry in
+      entry.key.workspaceID == workspaceID && entry.value.contains(agentID)
+    }
+  }
+
   func workingAgentNames(workspaceID: String?, conversationID: String) -> [String] {
     workingAgentPresences(
       workspaceID: workspaceID,
@@ -497,25 +542,6 @@ final class AppModel {
     }.sorted { $0.updatedAt > $1.updatedAt }
   }
 
-  func activityErrorCount(workspaceID: String?, conversationID: String) -> Int {
-    let latestByAgent = Dictionary(
-      grouping: activityRecords(workspaceID: workspaceID, conversationID: conversationID),
-      by: \.agentID
-    ).compactMap { $0.value.first }
-    var agentIDs = Set(
-      latestByAgent.compactMap { record in
-        record.components.contains { $0.kind == "error" } ? record.agentID : nil
-      }
-    )
-    agentIDs.formUnion(
-      failedAgentJobs(
-        workspaceID: workspaceID,
-        conversationID: conversationID
-      ).map(\.agentId)
-    )
-    return agentIDs.count
-  }
-
   func failedAgentJobs(
     workspaceID: String?,
     conversationID: String,
@@ -558,7 +584,7 @@ final class AppModel {
       of: (String, [AgentJobRecord])?.self,
       returning: [String: [AgentJobRecord]].self
     ) { group in
-      for agent in snapshot.agents {
+      for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
         group.addTask {
           do {
             return (
@@ -739,6 +765,22 @@ final class AppModel {
     return false
   }
 
+  func saveProfileImage(_ data: Data?) async throws {
+    guard let current = session else { throw RelayError.unauthorized }
+    let relayURL = appConfiguration.relayURL
+    let imageURL: URL?
+    if let data { imageURL = try await relay.uploadIdentityImage(workspaceID: nil, data: data) }
+    else { try await relay.removeProfileImage(); imageURL = nil }
+    guard let latest = session, latest.user.id == current.user.id,
+      appConfiguration.relayURL == relayURL else { return }
+    let updated = ChiefSession(accessToken: latest.accessToken, sessionToken: latest.sessionToken,
+      refreshToken: latest.refreshToken, accessTokenExpiresAt: latest.accessTokenExpiresAt,
+      user: ChiefUser(id: current.user.id, name: latest.user.name, imageURL: imageURL),
+      workspaceID: latest.workspaceID)
+    try sessions.save(updated)
+    session = updated
+  }
+
   func completeSignIn(_ signedIn: ChiefSession) {
     do {
       try sessions.save(signedIn)
@@ -859,12 +901,14 @@ final class AppModel {
       await refreshAgentJobs(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
+      await sendPendingPushToken()
       if loaded.onboardingComplete {
         startAgentLoopIfNeeded()
       } else if hasRecoverableInferenceCredential(for: loaded.id) {
         Task { [weak self] in await self?.completeOnboarding() }
       }
       if pendingWorkspaceInvite != nil { await preparePendingWorkspaceInvite() }
+      await applyPendingConversationDeepLinkIfReady()
     } catch RelayError.unauthorized {
       // A relay token can be temporarily rejected while a fresh device session
       // is propagating. Keep the Better Auth session intact so the client can
@@ -921,7 +965,7 @@ final class AppModel {
   }
 
   private func refreshAgentConfigCache(for snapshot: WorkspaceSnapshot) async {
-    for agent in snapshot.agents {
+    for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
       do {
         let config =
           try await relay.loadAgentConfig(
@@ -957,7 +1001,7 @@ final class AppModel {
       of: (String, AgentConfig).self,
       returning: [(String, AgentConfig)].self
     ) { group in
-      for agent in snapshot.agents {
+      for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
         group.addTask {
           var config =
             try await relay.loadAgentConfig(
@@ -1033,8 +1077,13 @@ final class AppModel {
           )
         }
       } catch {
-        print(
-          "[Chief] known relay refresh failed for \(connection.relayURL.host ?? "relay"): \(error)")
+        if await shouldForgetMissingRelay(connection.relayURL) {
+          await discardRelay(connection.relayURL, signingOutActive: false)
+        } else {
+          print(
+            "[Chief] known relay refresh failed for \(connection.relayURL.host ?? "relay"): \(error)"
+          )
+        }
       }
     }
     workspaceSummaries = relayDirectory.workspaceSummaries(activeWorkspaceID: workspace?.id)
@@ -1053,6 +1102,47 @@ final class AppModel {
       appConfiguration.relayURL,
       AppConfiguration.chiefCloud().relayURL
     )
+  }
+
+  func workspaceRelayGroups() -> [WorkspaceRelayGroup] {
+    var summaries = workspaceSummaries
+    if let workspace, !summaries.contains(where: { $0.id == workspace.id }) {
+      summaries.append(
+        WorkspaceSummary(
+          id: workspace.id,
+          name: workspace.name,
+          website: workspace.website,
+          imageURL: workspace.imageURL,
+          isActive: true,
+          onboardingComplete: workspace.onboardingComplete
+        )
+      )
+    }
+    let cloud = AppConfiguration.chiefCloud().relayURL
+    let grouped = Dictionary(grouping: summaries) { summary in
+      (relayDirectory.location(for: summary.id)?.relayURL ?? appConfiguration.relayURL)
+        .absoluteString
+    }
+    return grouped.keys.sorted { left, right in
+      let leftURL = URL(string: left)!
+      let rightURL = URL(string: right)!
+      let leftCloud = RelayDirectoryStore.sameOrigin(leftURL, cloud)
+      let rightCloud = RelayDirectoryStore.sameOrigin(rightURL, cloud)
+      if leftCloud != rightCloud { return leftCloud }
+      return relayLabel(for: leftURL) < relayLabel(for: rightURL)
+    }.compactMap { origin in
+      guard let relayURL = URL(string: origin), let workspaces = grouped[origin] else {
+        return nil
+      }
+      return WorkspaceRelayGroup(
+        relayURL: relayURL,
+        label: relayLabel(for: relayURL),
+        workspaces: workspaces.sorted {
+          $0.id == workspace?.id
+            ? true : ($1.id == workspace?.id ? false : $0.name < $1.name)
+        }
+      )
+    }
   }
 
   private func relayLabel(for relayURL: URL) -> String {
@@ -1173,6 +1263,10 @@ final class AppModel {
   }
 
   func handleIncomingURL(_ url: URL) async {
+    if let destination = ConversationDeepLink(url: url) {
+      await handleConversationDeepLink(destination)
+      return
+    }
     if let organization = OrganizationInviteLink(url: url) {
       pendingOrganizationInvite = organization
       workspaceInviteError = nil
@@ -1453,7 +1547,10 @@ final class AppModel {
       // completes before a cell claims work, but independent agent keys are
       // enrolled concurrently instead of making the first visible arrival wait
       // on one round-trip per roster member.
-      Task { await MobileNotifications.shared.requestAuthorizationIfNeeded() }
+      Task {
+        await MobileNotifications.shared.requestAuthorizationIfNeeded()
+        await self.sendPendingPushToken()
+      }
       setAgentWorking(
         agentID: "chief",
         workspaceID: pending.id,
@@ -1660,9 +1757,54 @@ final class AppModel {
     }
   }
 
-  func openConversation(_ id: String) {
-    selectedConversationID = id
+  func openConversation(_ id: String, threadRootID: String? = nil) {
+    let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
+    selectedConversationID = id
+    if let threadRootID, !threadRootID.isEmpty {
+      selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
+    } else {
+      selectedThread = nil
+    }
+  }
+
+  func clearSelectedThread() {
+    selectedThread = nil
+  }
+
+  func consumeNotificationDeepLink() async {
+    await applyPendingConversationDeepLinkIfReady()
+  }
+
+  func handleConversationDeepLink(_ link: ConversationDeepLink) async {
+    pendingConversationDeepLink = link
+    MobileNotifications.pendingOpen = link
+    await applyPendingConversationDeepLinkIfReady()
+  }
+
+  func applyPendingConversationDeepLinkIfReady() async {
+    if let notification = MobileNotifications.pendingOpen {
+      pendingConversationDeepLink = notification
+    }
+    guard !isApplyingConversationDeepLink else { return }
+    guard phase == .workspace, isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
+    isApplyingConversationDeepLink = true
+    defer { isApplyingConversationDeepLink = false }
+    while let link = pendingConversationDeepLink {
+      if link.workspaceID != workspace?.id {
+        let switched = await switchWorkspace(workspaceID: link.workspaceID)
+        // A newer tap takes precedence, including while hydration awaits I/O.
+        if let notification = MobileNotifications.pendingOpen {
+          pendingConversationDeepLink = notification
+        }
+        guard pendingConversationDeepLink == link else { continue }
+        guard switched, workspace?.id == link.workspaceID else { return }
+      }
+      guard isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
+      pendingConversationDeepLink = nil
+      openConversation(link.conversationID, threadRootID: link.threadRootID)
+      if MobileNotifications.pendingOpen == link { MobileNotifications.pendingOpen = nil }
+    }
   }
 
   // MARK: - Read state and workspace-wide live delivery
@@ -1757,6 +1899,14 @@ final class AppModel {
     workspaceLiveConversationIDs = []
     if let client = workspaceLiveClient { Task { await client.disconnect() } }
     workspaceLiveClient = nil
+    // A disconnected stream cannot vouch for remote work still being active.
+    // Keep turns owned by this phone; their local completion clears them.
+    workingAgents = workingAgents.reduce(into: [:]) { result, entry in
+      let local = entry.value.filter { agentID in
+        activeAgentActivityIDs["\(entry.key.workspaceID):\(entry.key.conversationID):\(agentID)"] != nil
+      }
+      if !local.isEmpty { result[entry.key] = Set(local) }
+    }
   }
 
   private func configureReadState(for workspaceID: String) {
@@ -1783,13 +1933,6 @@ final class AppModel {
   ) {
     guard workspace?.id == workspaceID else { return }
     messages.forEach(conversations.merge)
-    for message in messages.sorted(by: { $0.createdAt < $1.createdAt }) {
-      if message.isAgentActivityProjection {
-        updateRelayActivityPresence(message)
-      } else {
-        clearRelayActivityPresence(for: message)
-      }
-    }
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     if hydratedReadConversations.insert(key).inserted {
       let context = ConversationReadState.channelKey(conversationID)
@@ -1892,12 +2035,12 @@ final class AppModel {
         conversationID: message.conversationID,
         isWorking: false
       )
-    } else if running {
+    } else {
       setRelayAgentWorking(
         agentID: agentID,
         workspaceID: message.workspaceID,
         conversationID: message.conversationID,
-        isWorking: true
+        isWorking: running
       )
     }
   }
@@ -1937,17 +2080,47 @@ final class AppModel {
       notifiedMessageIDs.remove(oldest)
     }
 
+    let mentioned = message.mentionsCurrentUser(session: session)
+    let conversation = workspace?.conversations.first { $0.id == message.conversationID }
+    let channelName = conversation?.name ?? "channel"
+    let title: String
+    if mentioned {
+      title =
+        conversation?.kind == .direct
+        ? "\(message.author.displayName) mentioned you"
+        : "\(message.author.displayName) mentioned you in #\(channelName)"
+    } else {
+      title =
+        conversation?.kind == .direct
+        ? message.author.displayName
+        : "\(message.author.displayName) in #\(channelName)"
+    }
+
+    if mentioned {
+      if isAppActive { Haptics.medium() }
+      if isAppActive || !MobileNotifications.remotePushRegistered {
+        guard let workspace else { return }
+        Task {
+          await MobileNotifications.shared.deliver(
+            title: title,
+            body: message.body,
+            workspaceID: workspace.id,
+            conversationID: message.conversationID,
+            threadRootID: message.threadRootID,
+            mentioned: true
+          )
+        }
+      }
+      return
+    }
+
     if isAppActive {
       Haptics.medium()
       NotificationSoundPlayer.shared.playConfigured()
       return
     }
+    guard !MobileNotifications.remotePushRegistered else { return }
     guard let workspace else { return }
-    let conversation = workspace.conversations.first { $0.id == message.conversationID }
-    let title =
-      conversation?.kind == .direct
-      ? message.author.displayName
-      : "\(message.author.displayName) in #\(conversation?.name ?? "channel")"
     Task {
       await MobileNotifications.shared.deliver(
         title: title,
@@ -1979,7 +2152,7 @@ final class AppModel {
       guard targetsCurrentUser else { continue }
       switch component.payload["type"] {
       case "member-added":
-        setConversationJoined(message.conversationID, joined: true)
+        revealGrantedChannel(conversationID: message.conversationID, lastMessage: message.body)
         grantedConversation = true
       case "member-removed":
         setConversationJoined(message.conversationID, joined: false)
@@ -1988,6 +2161,39 @@ final class AppModel {
       }
     }
     return grantedConversation
+  }
+
+  /// Membership grants arrive before the next workspace snapshot. Insert the
+  /// channel immediately so Home re-renders instead of waiting on the refresh.
+  private func revealGrantedChannel(conversationID: String, lastMessage: String?) {
+    if workspace?.conversations.contains(where: { $0.id == conversationID }) != true {
+      upsertConversation(
+        ConversationSummary(
+          id: conversationID,
+          name: Self.provisionalChannelName(conversationID),
+          kind: .channel,
+          isPrivate: false,
+          unreadCount: 0,
+          requiresAttention: false,
+          lastMessage: lastMessage,
+          archived: false
+        )
+      )
+    }
+    setConversationJoined(conversationID, joined: true)
+  }
+
+  static func provisionalChannelName(_ conversationID: String) -> String {
+    let slug = conversationID.hasPrefix("channel-")
+      ? String(conversationID.dropFirst("channel-".count))
+      : conversationID
+    if slug.count >= 16, slug.allSatisfy(\.isHexDigit) {
+      return "New channel"
+    }
+    return conversationID
+      .split(whereSeparator: { $0 == "-" || $0 == "_" })
+      .map { $0.localizedCapitalized }
+      .joined(separator: " ")
   }
 
   private func scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: String) {
@@ -2327,7 +2533,8 @@ final class AppModel {
     do {
       try await relay.joinChannel(
         workspaceID: workspaceID,
-        conversationID: conversationID
+        conversationID: conversationID,
+        signingIdentity: nil
       )
       setConversationJoined(conversationID, joined: true)
       return true
@@ -2447,10 +2654,7 @@ final class AppModel {
       let index = current.agents.firstIndex(where: { $0.id == agentID })
     {
       var agents = current.agents
-      agents[index] = AgentSummary(
-        id: agents[index].id,
-        name: agents[index].name,
-        role: agents[index].role,
+      agents[index] = agents[index].with(
         status: config.enabled ? agents[index].status : .offline
       )
       workspace = WorkspaceSnapshot(
@@ -2547,9 +2751,9 @@ final class AppModel {
   private func startAgentLoopIfNeeded() {
     guard phase == .workspace, let workspace else { return }
     guard agentLoopTask == nil else { return }
-    let roster = workspace.agents.compactMap { agent in
-      let config = configStore.load(workspaceID: workspace.id, agentID: agent.id)
-      return config?.deploymentTarget == "phone" ? agent.id : nil
+    let roster = workspace.agents.filter { $0.canRunOnDevice != false }.flatMap { [$0.id] + $0.subagents.map(\.id) }.compactMap { agentID in
+      let config = configStore.load(workspaceID: workspace.id, agentID: agentID)
+      return config?.deploymentTarget == "phone" ? agentID : nil
     }
     guard !roster.isEmpty else { return }
     let loop = WorkspaceAgentLoop(
@@ -2675,12 +2879,81 @@ final class AppModel {
   }
 
   func signOut() {
+    let relayURL = appConfiguration.relayURL
+    try? KeychainSessionStore(scope: relayURL).clear()
+    try? FileWorkspaceStore(scope: relayURL).clear()
+    relayDirectory.forget(relayURL)
+    Task { await DeviceAuthorizationVault.shared.clear(for: relayURL) }
+    applySignedOutState()
+  }
+
+  func signOut(of relayURL: URL) async {
+    let signingOutActive = RelayDirectoryStore.sameOrigin(
+      relayURL,
+      appConfiguration.relayURL
+    )
+    await discardRelay(relayURL, signingOutActive: signingOutActive)
+    workspaceSummaries = relayDirectory.workspaceSummaries(
+      activeWorkspaceID: signingOutActive ? nil : workspace?.id
+    )
+    guard signingOutActive else { return }
+    if let next = nextSignedInRelay() {
+      let cloud = AppConfiguration.chiefCloud()
+      await activateRelay(
+        next,
+        persistAsCustom: !RelayDirectoryStore.sameOrigin(next.relayURL, cloud.relayURL)
+      )
+      return
+    }
+    applySignedOutState()
+  }
+
+  private func discardRelay(_ relayURL: URL, signingOutActive: Bool) async {
+    try? KeychainSessionStore(scope: relayURL).clear()
+    try? FileWorkspaceStore(scope: relayURL).clear()
+    await DeviceAuthorizationVault.shared.clear(for: relayURL)
+    relayDirectory.forget(relayURL)
+    if signingOutActive {
+      stopAgentLoop()
+      stopWorkspaceLiveStreams()
+      pendingNewWorkspace = false
+      session = nil
+      workspace = nil
+      isWorkspaceReadyForPresentation = false
+      membershipWorkspaceID = nil
+      joinedConversationIDs = nil
+      conversations.clearAll()
+    }
+  }
+
+  private func nextSignedInRelay() -> RelayConnectionRecord? {
+    let cloud = AppConfiguration.chiefCloud()
+    var known = relayDirectory.connections()
+    known.append(RelayConnectionRecord(relayURL: cloud.relayURL, accountURL: cloud.accountURL))
+    return known.first { connection in
+      (try? KeychainSessionStore(scope: connection.relayURL).load()) != nil
+    }
+  }
+
+  private func shouldForgetMissingRelay(_ relayURL: URL) async -> Bool {
+    if RelayDirectoryStore.sameOrigin(relayURL, AppConfiguration.chiefCloud().relayURL) {
+      return false
+    }
+    do {
+      _ = try await RelayConnectionValidator.validate(relayURL.absoluteString)
+      return false
+    } catch RelayConnectionValidationError.missing, RelayConnectionValidationError.unsupported {
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private func applySignedOutState() {
     stopAgentLoop()
     stopWorkspaceLiveStreams()
     pendingNewWorkspace = false
     try? sessions.clear()
-    let relayURL = appConfiguration.relayURL
-    Task { await DeviceAuthorizationVault.shared.clear(for: relayURL) }
     session = nil
     workspace = nil
     isWorkspaceReadyForPresentation = false

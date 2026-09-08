@@ -18,6 +18,18 @@ export interface ContextPolicy {
   compactionRatio: number;
 }
 
+export function recentCompleteMessages(
+  messages: readonly DurableTurn["messages"][number][],
+) {
+  let start = Math.max(0, messages.length - RECENT_MESSAGE_COUNT);
+  while (start > 0 && messages[start]?.role === "tool") start -= 1;
+  if (messages[start]?.role === "assistant") {
+    return messages.slice(start);
+  }
+  while (messages[start]?.role === "tool") start += 1;
+  return messages.slice(start);
+}
+
 export function validateCompactionRatio(value: number) {
   if (!Number.isFinite(value) || value < 0.5 || value > 0.95) {
     throw new Error("The compaction ratio must be between 0.5 and 0.95.");
@@ -34,16 +46,14 @@ export function inferenceMessages(turn: DurableTurn) {
       ...(plan ? [plan] : []),
     ] satisfies AgentInferenceMessage[];
   }
-  const tail = turn.messages
-    .slice(-RECENT_MESSAGE_COUNT)
-    .filter(
-      (message, index) =>
-        !(
-          index === 0 &&
-          message.role === "user" &&
-          message.content === turn.instruction
-        ),
-    );
+  const tail = recentCompleteMessages(turn.messages).filter(
+    (message, index) =>
+      !(
+        index === 0 &&
+        message.role === "user" &&
+        message.content === turn.instruction
+      ),
+  );
   return [
     { role: "system", content: turn.systemPrompt },
     { role: "user", content: turn.instruction },

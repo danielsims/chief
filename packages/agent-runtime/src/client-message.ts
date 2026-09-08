@@ -10,6 +10,7 @@ import type {
   CampaignRecord,
   ChatExecutionSelection,
   DriverType,
+  EveAgentProvisioningInput,
   ExecutorCapability,
   InputRequest,
   MessageAttachment,
@@ -71,6 +72,7 @@ export type ClientMessage =
     }
   | {
       type: "listWorkspaceFiles";
+      requestId?: string;
       workspaceId: string;
       executorCapability: ExecutorCapability;
     }
@@ -289,6 +291,20 @@ export type ClientMessage =
       workspaceId: string;
       request: InputRequest;
       values: Record<string, string>;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "listVercelEveDestinations";
+      workspaceId: string;
+      requestId: string;
+      teamId?: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "provisionVercelEveAgent";
+      workspaceId: string;
+      requestId: string;
+      input: EveAgentProvisioningInput;
       executorCapability: ExecutorCapability;
     }
   | {

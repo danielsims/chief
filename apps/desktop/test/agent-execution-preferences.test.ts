@@ -23,9 +23,23 @@ const agents: AgentDefinition[] = [
     description: "Owns brand work.",
     instructions: "",
   },
+  {
+    id: "researcher",
+    name: "Researcher",
+    role: "External agent",
+    description: "Runs in Vercel Eve.",
+    instructions: "",
+    runtime: {
+      kind: "external-channel",
+      provider: "eve",
+      endpoint: "https://researcher.vercel.app/channels/chief/messages",
+      connectionStatus: "connected",
+      deployment: { status: "unattested" },
+    },
+  },
 ];
 
-void test("team assignment preserves each agent's existing policy", () => {
+void test("team assignment preserves native policy and skips Eve agents", () => {
   const current: AgentPreference[] = [
     {
       agentId: "chief",

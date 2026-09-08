@@ -1,18 +1,31 @@
+import { z } from "zod";
+
 import {
-  agentIdSchema,
+  agentRemovalResultSchema,
+  agentSummarySchema,
+  externalAgentDeliveryCommandSchema,
   invokeAgentSchema,
   jobIdSchema,
   updateWorkspaceMemberRoleResultSchema,
-  workspaceIdSchema,
 } from "@chief/relay-contracts";
 
 import { getAgentArtifact } from "./agent-artifacts";
 import { routeAgentJobAdministration } from "./agent-job-administration-router";
+import { requireAgentPrincipal } from "./agent-job-store";
 import { AuthorizationError } from "./auth";
-import { relayError } from "./http";
+import { json, relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { updateWorkspaceOrganizationMemberRole } from "./organization-tenancy";
+import {
+  authorizeNativeAgent,
+  deterministicUuid,
+  parseAgentId,
+  parseWorkspaceId,
+  routeOwnAgentProfile,
+} from "./router-agent-route-support";
 import { authenticateRelayRequest } from "./router-auth";
+import { routeExternalAgentRequest } from "./router-external-agent-routes";
 import {
   registerAgentKey,
   routeAgentJob,
@@ -20,6 +33,15 @@ import {
 } from "./workspace-agent-authority";
 import { authorizeWorkspace } from "./workspace-authority";
 import { authorizeConversation } from "./workspace-authorization";
+import { deleteAgentArtifacts } from "./workspace-deletion";
+import {
+  parseWorkspaceMediaUpload,
+  saveWorkspaceMedia,
+} from "./workspace-media";
+
+const internalAgentRemovalResultSchema = agentRemovalResultSchema.extend({
+  directConversationIds: z.array(z.string()),
+});
 
 const agentJobsRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete|renew)$/u;
@@ -32,8 +54,11 @@ const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
 const agentResourceRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)$/u;
+const agentCollectionRoute = /^\/v1\/workspaces\/([^/]+)\/agents$/u;
 const agentCellSnapshotRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/cell-snapshot$/u;
+const agentArtifactUploadRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/artifacts$/u;
 const agentArtifactRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/artifacts\/([0-9a-f-]+)$/u;
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
@@ -46,6 +71,41 @@ export async function routeAgentRequest(
   requestId: string,
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
+  const external = await routeExternalAgentRequest(env, request, requestId);
+  if (external) return external;
+  const profile = await routeOwnAgentProfile(env, request, requestId);
+  if (profile) return profile;
+  const agentCollection = agentCollectionRoute.exec(url.pathname);
+  if (agentCollection && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(agentCollection[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    const workspace = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(workspaceId),
+    );
+    const response = await workspace.fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal/agent", {
+          method: "POST",
+          headers: {
+            "content-type": request.headers.get("content-type") ?? "",
+            "x-chief-internal-operation": "agent-create",
+          },
+          body: await authenticated.request.text(),
+        }),
+        { principal, requestId, workspaceId },
+      ),
+    );
+    if (!response.ok) return response;
+    const body = z
+      .object({ agent: agentSummarySchema })
+      .parse(await response.json());
+    return Response.json(body);
+  }
   const memberRole = workspaceMemberRoleRoute.exec(url.pathname);
   if (memberRole && request.method === "PATCH") {
     const workspaceId = parseWorkspaceId(memberRole[1] ?? "");
@@ -116,17 +176,49 @@ export async function routeAgentRequest(
     });
   }
 
+  const artifactUpload = agentArtifactUploadRoute.exec(url.pathname);
+  if (artifactUpload && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(artifactUpload[1]);
+    const agentId = parseAgentId(artifactUpload[2]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    requireAgentPrincipal(principal);
+    if (principal.agentId !== agentId)
+      throw new AuthorizationError("An agent can only publish its own files.");
+    const input = await parseWorkspaceMediaUpload(authenticated.request);
+    await authorizeConversation(env, {
+      principal,
+      requestId,
+      workspaceId,
+      conversationId: input.conversationId,
+      permission: "messages.send",
+    });
+    return json(await saveWorkspaceMedia(env, principal, input), {
+      status: 201,
+    });
+  }
+
   const artifact = agentArtifactRoute.exec(url.pathname);
   if (artifact && request.method === "GET") {
     const workspaceId = parseWorkspaceId(artifact[1]);
     const agentId = parseAgentId(artifact[2]);
     const authenticated = await authenticateRelayRequest(request, env);
-    await authorizeWorkspace(env, {
+    const principal = await authorizeWorkspace(env, {
       identity: authenticated.identity,
       requestId,
       workspaceId,
     });
-    return getAgentArtifact(env, workspaceId, agentId, artifact[3] ?? "");
+    return getAgentArtifact(
+      env,
+      principal,
+      workspaceId,
+      agentId,
+      artifact[3] ?? "",
+    );
   }
 
   const agentConfig = agentConfigRoute.exec(url.pathname);
@@ -136,7 +228,8 @@ export async function routeAgentRequest(
     if (
       (agentResource &&
         request.method !== "GET" &&
-        request.method !== "POST") ||
+        request.method !== "POST" &&
+        request.method !== "DELETE") ||
       (agentConfig && request.method !== "GET" && request.method !== "POST")
     ) {
       return relayError(
@@ -154,6 +247,54 @@ export async function routeAgentRequest(
       requestId,
       workspaceId,
     });
+    if (agentResource && request.method === "DELETE") {
+      const workspace = env.WORKSPACES.get(
+        env.WORKSPACES.idFromName(workspaceId),
+      );
+      const target = new URL("https://workspace.internal/agent");
+      target.searchParams.set("agentId", agentId);
+      const response = await workspace.fetch(
+        withTrustedContext(
+          new Request(target, {
+            method: "POST",
+            headers: { "x-chief-internal-operation": "agent-remove" },
+          }),
+          { principal, requestId, workspaceId },
+        ),
+      );
+      if (!response.ok) return response;
+      const result = internalAgentRemovalResultSchema.parse(
+        await response.json(),
+      );
+      const trustedDelete = (url: string, conversationId?: string) =>
+        withTrustedContext(
+          new Request(url, {
+            method: "POST",
+            headers: { "x-chief-internal-operation": "delete-all" },
+          }),
+          { principal, requestId, workspaceId, conversationId },
+        );
+      await Promise.all([
+        env.AGENTS.get(
+          env.AGENTS.idFromName(`${workspaceId}:${agentId}`),
+        ).fetch(trustedDelete("https://agent.internal")),
+        ...result.directConversationIds.map((conversationId) =>
+          env.CONVERSATIONS.get(
+            env.CONVERSATIONS.idFromName(`${workspaceId}:${conversationId}`),
+          ).fetch(
+            trustedDelete("https://conversation.internal", conversationId),
+          ),
+        ),
+        deleteAgentArtifacts(env.ARTIFACTS, workspaceId, agentId),
+      ]);
+      return Response.json(
+        agentRemovalResultSchema.parse({
+          workspaceId: result.workspaceId,
+          agentId: result.agentId,
+          removed: result.removed,
+        }),
+      );
+    }
     if (agentResource && request.method === "POST") {
       const input = invokeAgentSchema.parse(await authenticated.request.json());
       const conversationId = input.conversationId ?? agentId;
@@ -168,6 +309,62 @@ export async function routeAgentRequest(
       const commandId = await deterministicUuid(
         `${workspaceId}:${agentId}:${input.idempotencyKey}`,
       );
+      const native = await authorizeNativeAgent(env, {
+        principal,
+        requestId,
+        workspaceId,
+        agentId,
+      });
+      if (!native.ok) {
+        if (native.status !== 409) return native;
+        await releaseInternalResponse(native);
+        return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
+          withTrustedContext(
+            new Request("https://workspace.internal/external-agent/invoke", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-chief-internal-operation": "external-agent-enqueue",
+              },
+              body: JSON.stringify({
+                workspaceId,
+                agentId,
+                conversationId,
+                ...(input.threadRootId
+                  ? { threadRootId: input.threadRootId }
+                  : undefined),
+                command: externalAgentDeliveryCommandSchema.parse({
+                  commandId,
+                  protocolVersion: 1,
+                  occurredAt,
+                  payload: {
+                    deliveryId: commandId,
+                    continuation: {
+                      capability:
+                        "placeholder-capability-replaced-by-workspace",
+                    },
+                    message: {
+                      id: commandId,
+                      body: input.instruction,
+                      author: {
+                        kind: "user",
+                        id:
+                          principal.kind === "user"
+                            ? principal.userId
+                            : principal.kind === "agent"
+                              ? principal.agentId
+                              : principal.service,
+                      },
+                      createdAt: occurredAt,
+                    },
+                  },
+                }),
+              }),
+            }),
+            { principal, requestId, workspaceId },
+          ),
+        );
+      }
       const response = await env.AGENTS.get(
         env.AGENTS.idFromName(`${workspaceId}:${agentId}`),
       ).fetch(
@@ -364,22 +561,4 @@ export async function routeAgentRequest(
     });
   }
   return undefined;
-}
-
-function parseWorkspaceId(value: string | undefined) {
-  return workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
-}
-
-function parseAgentId(value: string | undefined) {
-  return agentIdSchema.parse(decodeURIComponent(value ?? ""));
-}
-
-async function deterministicUuid(value: string) {
-  const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
-  ).slice(0, 16);
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }

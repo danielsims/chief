@@ -168,7 +168,7 @@ struct DMsGroup: View {
       }
     } label: {
       HStack(spacing: 9) {
-        AgentMark(name: agent.name, size: 24, working: agent.status == .working)
+        AgentMark(name: agent.name, size: 24, working: model.isAgentWorking(agentID: agent.id))
         Text(agent.name)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ChiefTheme.secondary)
@@ -190,18 +190,14 @@ struct DMsGroup: View {
 /// The agent roster, used on the Agents tab.
 struct AgentsGroup: View {
   @Environment(AppModel.self) private var model
-  @State private var expanded = true
 
   var body: some View {
-    CollapsibleGroup(
-      title: "Agents",
-      count: model.workspace?.agents.count ?? 0,
-      isExpanded: $expanded
-    ) {
+    VStack(spacing: 8) {
       ForEach(model.workspace?.agents ?? []) { agent in
-        AgentRow(agent: agent)
+        AgentTreeRow(agent: agent)
       }
     }
+    .padding(.horizontal, ChiefTheme.pagePadding)
   }
 }
 
@@ -241,35 +237,6 @@ private struct CollapsibleGroup<Content: View>: View {
           .transition(.opacity)
       }
     }
-  }
-}
-
-private struct AgentRow: View {
-  let agent: AgentSummary
-
-  var body: some View {
-    NavigationLink(value: agent.id) {
-      HStack(spacing: 12) {
-        AgentMark(name: agent.name, size: 34, working: agent.status == .working)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(agent.name).font(.system(size: 15, weight: .medium))
-          Text(agent.status == .working ? "Working now" : agent.role)
-            .font(.system(size: 13))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
-        Spacer()
-        if agent.status == .needsYou {
-          Circle().fill(ChiefTheme.accent).frame(width: 7, height: 7)
-        }
-        Image(systemName: "chevron.right")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(ChiefTheme.tertiary)
-      }
-      .padding(.vertical, 5)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
   }
 }
 

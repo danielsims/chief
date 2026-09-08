@@ -94,7 +94,6 @@ export function createChiefAuth(
         validAudiences: [options.baseURL],
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
-        cachedTrustedClients: new Set(["chief-desktop", "chief-mobile"]),
         silenceWarnings: {
           oauthAuthServerConfig: true,
           openidConfig: true,

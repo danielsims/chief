@@ -70,6 +70,22 @@ enum ChatTimelineBuilder {
   }
 }
 
+enum ConversationScrollAnchor {
+  static func isNearLatest(_ geometry: ScrollGeometry, threshold: CGFloat = 96) -> Bool {
+    geometry.contentSize.height <= geometry.containerSize.height + 1
+      || geometry.visibleRect.maxY >= geometry.contentSize.height - threshold
+  }
+
+  static func followKey(for messages: [ConversationMessage]) -> String {
+    let visible = messages.filter { !$0.isAgentActivityProjection }
+    guard let last = visible.last else { return "empty" }
+    let components = last.components
+      .map { "\($0.id):\($0.kind):\($0.payload.count)" }
+      .joined(separator: ",")
+    return "\(visible.count):\(last.id):\(last.body.count):\(components)"
+  }
+}
+
 // MARK: - Day separator
 
 /// A quiet "TODAY / YESTERDAY / Monday, August 17, 2026" label between hairlines.
@@ -114,9 +130,14 @@ enum MessageBodySegment: Equatable {
 /// chips when the name matches an actual workspace channel (unknown `#foo` is
 /// left as plain text, matching the desktop `channel-reference-parser`).
 enum MessageBodyParser {
-  static func split(_ text: String, channelNames: Set<String>) -> [MessageBodySegment] {
+  static func split(
+    _ text: String,
+    channelNames: Set<String>,
+    people: [MentionAgent] = []
+  ) -> [MessageBodySegment] {
     guard !text.isEmpty else { return [.text("")] }
-    let names = WorkspaceAgentCatalog.agents.flatMap { [$0.id, $0.name] }
+    let names = (WorkspaceAgentCatalog.agents + people)
+      .flatMap(WorkspaceAgentCatalog.mentionableNames(for:))
       .sorted { $0.count > $1.count }
     let escapedNames =
       names
@@ -139,7 +160,7 @@ enum MessageBodyParser {
       let token = String(text[range])
       if token.hasPrefix("@") {
         let name = String(token.dropFirst())
-        if let agent = WorkspaceAgentCatalog.agent(forID: name) {
+        if let agent = WorkspaceAgentCatalog.named(name, people: people) {
           segments.append(.mention(agentID: agent.id, label: token))
         } else {
           segments.append(.text(token))

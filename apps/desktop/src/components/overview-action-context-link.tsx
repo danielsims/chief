@@ -2,7 +2,7 @@ import { Hash } from "lucide-react";
 
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
-import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
+import { workspaceAgentIdentity } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
 
 export function OverviewActionContextLink({
@@ -21,7 +21,7 @@ export function OverviewActionContextLink({
   const label = channel
     ? (channelLabel ?? channel.channelId)
     : directAgentId
-      ? WORKSPACE_AGENT_IDENTITIES[directAgentId].name
+      ? workspaceAgentIdentity(directAgentId).name
       : "";
 
   return (

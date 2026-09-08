@@ -6,6 +6,7 @@ import type {
 import {
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
+  projectRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -21,12 +22,20 @@ export function validatePluginComponentPlacement(
   threadRootId?: string,
 ) {
   for (const component of components) {
+    if (component.kind === "schedule.run" && principal.kind !== "service")
+      throw new HttpError(
+        403,
+        "schedule_component_author",
+        "Only the relay can announce scheduled runs.",
+      );
     const parsed =
       component.kind === "plugin.recommendation"
         ? pluginRecommendationPayloadSchema.parse(component.payload)
         : component.kind === "plugin.authorization"
           ? pluginAuthorizationPayloadSchema.parse(component.payload)
-          : undefined;
+          : component.kind === "project.recommendation"
+            ? projectRecommendationPayloadSchema.parse(component.payload)
+            : undefined;
     if (!parsed) continue;
     if (
       parsed.workspaceId !== workspaceId ||
@@ -41,7 +50,8 @@ export function validatePluginComponentPlacement(
     }
     if (
       (component.kind === "plugin.recommendation" ||
-        component.kind === "plugin.authorization") &&
+        component.kind === "plugin.authorization" ||
+        component.kind === "project.recommendation") &&
       (principal.kind !== "agent" ||
         !("agentId" in parsed) ||
         parsed.agentId !== principal.agentId)

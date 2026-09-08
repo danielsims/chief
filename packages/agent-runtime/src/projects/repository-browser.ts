@@ -327,7 +327,6 @@ async function embedReadmeImages(
 async function readmeSnapshot(
   repositoryPath: string,
   ref: string,
-  path: string,
   entries: ProjectTreeEntry[],
 ): Promise<ProjectReadmeSnapshot | undefined> {
   const readme = entries.find(
@@ -417,7 +416,7 @@ export async function browseRepository(
       ? { lastCommit: pathCommits.get(entry.path) }
       : undefined),
   }));
-  const readme = await readmeSnapshot(repositoryPath, ref, path, entries);
+  const readme = await readmeSnapshot(repositoryPath, ref, entries);
   return {
     projectId,
     ref,

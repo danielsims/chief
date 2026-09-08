@@ -103,7 +103,7 @@ export function tracedInference(
   return {
     model: inference.model,
     estimateTokens: inference.estimateTokens?.bind(inference),
-    complete: (request) =>
+    complete: (request, onProgress) =>
       tracer.run(
         `chat ${inference.model?.id ?? "unknown"}`,
         {
@@ -132,7 +132,7 @@ export function tracedInference(
             : undefined),
         },
         async (span) => {
-          const result = await inference.complete(request);
+          const result = await inference.complete(request, onProgress);
           if (context.includeContent) {
             span.annotate("gen_ai.output.messages", traceText(result));
           }

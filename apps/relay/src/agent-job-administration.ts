@@ -1,4 +1,4 @@
-import type { Principal } from "@chief/relay-contracts";
+import type { AgentJob, Principal } from "@chief/relay-contracts";
 import {
   agentJobListSchema,
   agentJobSchema,
@@ -7,16 +7,23 @@ import {
 
 import { firstAgentRow } from "./agent-job-store";
 import { HttpError } from "./http";
+import { jobsFindCancelAgentWorkflow } from "./queries/jobs/find-cancel-agent-workflow";
+import { jobsFindListAgentJobs } from "./queries/jobs/find-list-agent-jobs";
+import { jobsFindRetryAgentJob } from "./queries/jobs/find-retry-agent-job";
+import { jobsUpdateMarkJobFailed } from "./queries/jobs/update-mark-job-failed";
+import { jobsUpdateRetryAgentJob } from "./queries/jobs/update-retry-agent-job";
 
 export function listAgentJobs(
   storage: DurableObjectStorage,
   principal: Principal,
+  workflowId?: string,
 ) {
   requireJobAdministrator(principal);
   const jobs = Array.from(
-    storage.sql.exec<{ job_json: string }>(
-      `SELECT job_json FROM jobs
-       ORDER BY updated_at DESC, rowid DESC LIMIT 200`,
+    jobsFindListAgentJobs<{ job_json: string }>(
+      storage,
+      workflowId ?? null,
+      workflowId ?? null,
     ),
     (row) => agentJobSchema.parse(JSON.parse(row.job_json)),
   );
@@ -31,7 +38,7 @@ export function retryAgentJob(
   requireJobAdministrator(principal);
   const jobId = jobIdSchema.parse(decodeURIComponent(rawJobId));
   const row = firstAgentRow<{ job_json: string }>(
-    storage.sql.exec("SELECT job_json FROM jobs WHERE job_id = ?", jobId),
+    jobsFindRetryAgentJob(storage, jobId),
   );
   if (!row) {
     throw new HttpError(
@@ -52,20 +59,59 @@ export function retryAgentJob(
   const job = agentJobSchema.parse({
     ...previous,
     status: "pending",
+    attempt: 0,
     lastError: null,
     availableAt: now,
     leaseExpiresAt: null,
     updatedAt: now,
   });
-  storage.sql.exec(
-    `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
-     lease_token = NULL, lease_expires_at = NULL, updated_at = ?
-     WHERE job_id = ?`,
-    JSON.stringify(job),
-    now,
-    now,
-    job.id,
-  );
+  jobsUpdateRetryAgentJob(storage, {
+    jobJson: JSON.stringify(job),
+    availableAt: now,
+    updatedAt: now,
+    jobId: job.id,
+  });
+  return job;
+}
+
+export function cancelAgentWorkflow(
+  storage: DurableObjectStorage,
+  principal: Principal,
+  workflowId: string,
+) {
+  requireJobAdministrator(principal);
+  const now = new Date().toISOString();
+  for (const row of jobsFindCancelAgentWorkflow<{ job_json: string }>(
+    storage,
+    workflowId,
+  )) {
+    const job = agentJobSchema.parse(JSON.parse(row.job_json));
+    markJobFailed(
+      storage,
+      { ...job, lastError: "This scheduled run was stopped." },
+      now,
+    );
+  }
+}
+
+export function markJobFailed(
+  storage: DurableObjectStorage,
+  previous: AgentJob,
+  now: string,
+) {
+  const job = agentJobSchema.parse({
+    ...previous,
+    status: "failed",
+    lastError:
+      previous.lastError ?? "Stopped after too many automatic retries.",
+    leaseExpiresAt: null,
+    updatedAt: now,
+  });
+  jobsUpdateMarkJobFailed(storage, {
+    jobJson: JSON.stringify(job),
+    updatedAt: now,
+    jobId: job.id,
+  });
   return job;
 }
 

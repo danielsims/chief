@@ -405,13 +405,13 @@ private struct InferenceStep: View {
 
   private var providerKeyLabel: String {
     draft.inferenceProvider == .vercelAiGateway
-      ? "Get an AI Gateway key" : "Get an OpenCode API key"
+      ? "Get a Vercel AI Gateway key" : "Get an OpenCode access token"
   }
 
   private var providerKeyURL: URL {
     URL(
       string: draft.inferenceProvider == .vercelAiGateway
-        ? "https://vercel.com/docs/ai-gateway/authentication"
+        ? "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keysin"
         : "https://opencode.ai/auth"
     )!
   }

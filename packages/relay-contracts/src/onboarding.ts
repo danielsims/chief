@@ -5,7 +5,7 @@ import { commandIdSchema, workspaceIdSchema } from "./identifiers";
 export const onboardingStageSchema = z.enum([
   "workspace-home",
   "workspace-profile",
-  "agent-hosting",
+  "agent-runtime",
   "inference-provider",
   "apps",
   "workspace-create",
@@ -24,7 +24,7 @@ export const onboardingTelemetryEventSchema = z
     sessionId: commandIdSchema,
     stage: onboardingStageSchema,
     event: onboardingEventNameSchema,
-    hosting: z.enum(["chief-cloud", "self-hosted"]).optional(),
+    agentRuntime: z.enum(["relay-cell", "vercel-eve"]).optional(),
     provider: z.string().trim().min(1).max(64).optional(),
     selectedAppCount: z.int().min(0).max(100).optional(),
     workspaceId: workspaceIdSchema.optional(),
@@ -34,6 +34,13 @@ export const onboardingTelemetryEventSchema = z
 
 export type OnboardingTelemetryEvent = z.infer<
   typeof onboardingTelemetryEventSchema
+>;
+
+export const eveWorkspaceKickoffResultSchema = z
+  .object({ started: z.boolean() })
+  .strict();
+export type EveWorkspaceKickoffResult = z.infer<
+  typeof eveWorkspaceKickoffResultSchema
 >;
 
 export const onboardingTelemetryReceiptSchema = z

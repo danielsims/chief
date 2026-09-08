@@ -35,6 +35,7 @@ struct ThreadView: View {
         )
         ConversationActivityFooter(
           agents: workingAgents,
+          scheduledThreadRootID: root.id,
           errorCount: model.activityErrorCount(
             workspaceID: workspaceID,
             conversationID: conversationID
@@ -49,8 +50,9 @@ struct ThreadView: View {
           skillIDs: $composerSkillIDs,
           isSending: isSending,
           attachments: attachments,
-          availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
+          availableMentionAgentIDs: model.mentionPeople.filter { $0.role != "You" }.map(\.id),
           preferredMentionAgentIDs: channelAgentIDs,
+          people: model.mentionPeople,
           onSend: send,
           onAddAttachments: addAttachments,
           onRemoveAttachment: removeAttachment
@@ -69,6 +71,7 @@ struct ThreadView: View {
         ChannelAccessLoadingBar()
       }
     }
+    .modifier(ScheduledRunTracking(messages: [root], conversationID: conversationID))
     .background(ChiefTheme.background)
     .navigationTitle("Thread")
     .navigationBarTitleDisplayMode(.inline)
@@ -143,13 +146,6 @@ struct ThreadView: View {
             }
           }
 
-          AgentBrowserWorkView(
-            workspaceID: workspaceID,
-            conversationIDs: [conversationID],
-            agents: workingAgents,
-            placement: .inline
-          )
-
           Color.clear
             .frame(height: 1)
             .id(latestAnchorID)
@@ -160,15 +156,22 @@ struct ThreadView: View {
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .onScrollGeometryChange(for: Bool.self) { geometry in
-        Self.isNearLatest(geometry)
+        ConversationScrollAnchor.isNearLatest(geometry)
       } action: { _, nearLatest in
         isNearLatest = nearLatest
       }
-      .onChange(of: replies.map(\.id)) { _, replyIDs in
-        let currentIDs = Set(replyIDs)
+      .onScrollGeometryChange(for: CGFloat.self) { geometry in
+        geometry.contentSize.height
+      } action: { oldHeight, newHeight in
+        followLatestIfNeeded(
+          contentGrew: hasPositionedInitially && newHeight > oldHeight,
+          using: proxy
+        )
+      }
+      .onChange(of: ConversationScrollAnchor.followKey(for: replies)) { _, _ in
         let shouldFollowLatest =
-          isNearLatest || replyIDs.last.map(sentReplyIDs.contains) == true
-        sentReplyIDs.formIntersection(currentIDs)
+          isNearLatest || replies.last.map { sentReplyIDs.contains($0.id) } == true
+        sentReplyIDs.formIntersection(Set(replies.map(\.id)))
         if shouldFollowLatest {
           scrollToLatest(using: proxy, animated: true)
         }
@@ -191,6 +194,11 @@ struct ThreadView: View {
     }
   }
 
+  private func followLatestIfNeeded(contentGrew: Bool, using proxy: ScrollViewProxy) {
+    guard contentGrew, isNearLatest else { return }
+    scrollToLatest(using: proxy, animated: true)
+  }
+
   private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
     isNearLatest = true
     let scroll = {
@@ -201,11 +209,6 @@ struct ThreadView: View {
     } else {
       scroll()
     }
-  }
-
-  private static func isNearLatest(_ geometry: ScrollGeometry) -> Bool {
-    geometry.contentSize.height <= geometry.containerSize.height
-      || geometry.visibleRect.maxY >= geometry.contentSize.height - 80
   }
 
   private var replies: [ConversationMessage] {
@@ -271,6 +274,7 @@ struct ThreadView: View {
     let mentions = orderedUnique(
       composerMentionIDs + AgentMentionParser.mentions(in: draft)
     )
+    let messageID = UUID().uuidString
     draft = ""
     composerMentionIDs = []
     composerSkillIDs = []
@@ -287,6 +291,7 @@ struct ThreadView: View {
           relay: model.relay
         )
         let message = try await model.relay.send(
+          messageID: messageID,
           body: body,
           workspaceID: workspaceID,
           conversationID: conversationID,
@@ -298,7 +303,14 @@ struct ThreadView: View {
         model.conversations.merge(message)
         // The relay queues the addressed cell once; the live mailbox owns it.
       } catch {
-        draft = pendingText
+        if await reconcileDeliveredReply(messageID: messageID) {
+          sentReplyIDs.insert(messageID)
+          return
+        }
+        draft = MessageSendRecovery.restoredDraft(
+          pending: pendingText,
+          current: draft
+        )
         composerMentionIDs = pendingMentionIDs
         composerSkillIDs = pendingSkillIDs
         attachments = pendingAttachments
@@ -306,6 +318,31 @@ struct ThreadView: View {
         print("[Chief] thread send failed: \(error)")
       }
     }
+  }
+
+  private func reconcileDeliveredReply(messageID: String) async -> Bool {
+    for attempt in 0..<4 {
+      if model.conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).contains(where: { $0.id == messageID }) {
+        return true
+      }
+      if attempt == 1,
+        let remote = try? await model.relay.replies(
+          workspaceID: workspaceID,
+          conversationID: conversationID,
+          rootMessageID: root.id,
+          after: nil
+        ),
+        let delivered = remote.first(where: { $0.id == messageID })
+      {
+        model.conversations.merge(delivered)
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(150))
+    }
+    return false
   }
 
   private func loadChannelAgents() async {

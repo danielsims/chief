@@ -6,14 +6,64 @@ import {
   splitAgentMentions,
 } from "../src/components/chat/agent-mention-parser.js";
 
+void test("splits known people mentions into semantic inline tokens", () => {
+  assert.deepEqual(
+    splitAgentMentions("Can @Daniel review this?", [
+      { id: "user-daniel", name: "Daniel" },
+    ]),
+    [
+      { type: "text", value: "Can " },
+      {
+        type: "mention",
+        agentId: "user-daniel",
+        label: "Daniel",
+        token: "@Daniel",
+      },
+      { type: "text", value: " review this?" },
+    ],
+  );
+});
+
+void test("chips a spaced person name and its first name", () => {
+  const people = [{ id: "user-daniel", name: "Daniel Sims" }];
+  assert.deepEqual(
+    splitAgentMentions("Hey @Daniel Sims, first brand profile is done", people),
+    [
+      { type: "text", value: "Hey " },
+      {
+        type: "mention",
+        agentId: "user-daniel",
+        label: "Daniel Sims",
+        token: "@Daniel Sims",
+      },
+      { type: "text", value: ", first brand profile is done" },
+    ],
+  );
+  assert.deepEqual(splitAgentMentions("Ping @Daniel later", people), [
+    { type: "text", value: "Ping " },
+    {
+      type: "mention",
+      agentId: "user-daniel",
+      label: "Daniel Sims",
+      token: "@Daniel",
+    },
+    { type: "text", value: " later" },
+  ]);
+});
+
 void test("splits known Chief agent mentions into semantic inline tokens", () => {
   assert.deepEqual(
     splitAgentMentions("Can @Analyst review this with @Brand?"),
     [
       { type: "text", value: "Can " },
-      { type: "mention", agentId: "analyst", label: "Analyst" },
+      {
+        type: "mention",
+        agentId: "analyst",
+        label: "Analyst",
+        token: "@Analyst",
+      },
       { type: "text", value: " review this with " },
-      { type: "mention", agentId: "brand", label: "Marketer" },
+      { type: "mention", agentId: "brand", label: "Marketer", token: "@Brand" },
       { type: "text", value: "?" },
     ],
   );
@@ -21,10 +71,57 @@ void test("splits known Chief agent mentions into semantic inline tokens", () =>
 
 void test("normalizes lowercase agent ids to display names", () => {
   assert.deepEqual(splitAgentMentions("@brand and @prospector"), [
-    { type: "mention", agentId: "brand", label: "Marketer" },
+    { type: "mention", agentId: "brand", label: "Marketer", token: "@brand" },
     { type: "text", value: " and " },
-    { type: "mention", agentId: "prospector", label: "Prospector" },
+    {
+      type: "mention",
+      agentId: "prospector",
+      label: "Prospector",
+      token: "@prospector",
+    },
   ]);
+});
+
+void test("keeps live multiword agent names whole for rendering and deletion", () => {
+  const agents = [
+    { id: "content", name: "Content Writer" },
+    { id: "device-123", name: "On Device" },
+  ];
+  assert.deepEqual(
+    splitAgentMentions("@Content Writer and @On Device", agents),
+    [
+      {
+        type: "mention",
+        agentId: "content",
+        label: "Content Writer",
+        token: "@Content Writer",
+      },
+      { type: "text", value: " and " },
+      {
+        type: "mention",
+        agentId: "device-123",
+        label: "On Device",
+        token: "@On Device",
+      },
+    ],
+  );
+  assert.deepEqual(splitAgentMentions("@content", agents), [
+    {
+      type: "mention",
+      agentId: "content",
+      label: "Content Writer",
+      token: "@content",
+    },
+  ]);
+  const text = "Ask @Content Writer ";
+  assert.deepEqual(
+    removeAgentMentionBeforeCaret(text, text.length, text.length, agents),
+    {
+      value: "Ask ",
+      selectionStart: 4,
+      selectionEnd: 4,
+    },
+  );
 });
 
 void test("does not style email addresses or partial agent names", () => {

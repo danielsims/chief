@@ -119,12 +119,15 @@ export interface AnalyticsDataset {
 }
 
 export interface WorkspaceFileRecord {
+  previewContent?: string;
   id: string;
   name: string;
   path: string;
   mimeType: string;
   kind: "document" | "email";
-  provider: "local";
+  provider: "local" | "relay";
+  asset?: { artifactId: string; agentId: string; bytes: number };
+  sourceConversationId?: string;
   currentVersionId: string;
   createdBy: "agent" | "user";
   sourceAgentId?: string;
@@ -151,6 +154,7 @@ export interface WorkspaceFileWrite {
 }
 
 export interface GenerativeDocumentData {
+  conversationId?: string;
   fileId: string;
   title: string;
   path: string;
@@ -166,6 +170,12 @@ export interface GenerativePluginRecommendationsData {
   threadRootId?: string;
   agentId?: string;
   recommendationId?: string;
+}
+
+export interface GenerativeProjectRecommendationData {
+  title: string;
+  description: string;
+  remoteUrl?: string;
 }
 
 /**
@@ -195,6 +205,12 @@ export type ChiefMessageEventMetadata =
     };
 
 export interface ChiefMessageMetadata {
+  scheduledRun?: {
+    runId: string;
+    scheduleId: string;
+    title: string;
+    agentIds: string[];
+  };
   createdAt: number;
   event?: ChiefMessageEventMetadata;
   /** Agent that authored a shared-channel message. */
@@ -225,6 +241,7 @@ export type ChiefUIMessage = UIMessage<
     table: GenerativeTableData;
     document: GenerativeDocumentData;
     "plugin-recommendations": GenerativePluginRecommendationsData;
+    "project-recommendation": GenerativeProjectRecommendationData;
   }
 >;
 
@@ -248,6 +265,11 @@ export type GenerativePluginRecommendationsBlock = Extract<
   { type: "data-plugin-recommendations" }
 >;
 
+export type GenerativeProjectRecommendationBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-project-recommendation" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -262,6 +284,7 @@ export type ContentBlock =
   | GenerativeTableBlock
   | GenerativeDocumentBlock
   | GenerativePluginRecommendationsBlock
+  | GenerativeProjectRecommendationBlock
   | {
       type: "tool_use";
       id: string;

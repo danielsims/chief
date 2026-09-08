@@ -10,10 +10,6 @@ type CalendarView = "month" | "week" | "day";
 type ScheduleKind = "post" | "agent-work";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTHS_BEFORE = 12;
-const MONTHS_AFTER = 24;
-const WEEKDAY_HEADER_HEIGHT = 36;
-const CALENDAR_HEADER_HEIGHT = WEEKDAY_HEADER_HEIGHT;
 const TIMELINE_START_HOUR = 7;
 const TIMELINE_END_HOUR = 20;
 const TIMELINE_ROW_HEIGHT = 52;
@@ -83,7 +79,7 @@ function buildMonthCells(month: Date): (Date | null)[] {
 
 function eventSurface(past = false) {
   if (past) {
-    return "bg-muted/35 hover:bg-muted/50 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]";
+    return "opacity-65 bg-muted/70 hover:bg-muted shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]";
   }
   return "bg-muted/70 hover:bg-muted shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.035)]";
 }
@@ -155,13 +151,13 @@ function CalendarEventContent({
           className={cn(
             "size-1.5 shrink-0 rounded-full",
             accent,
-            muted && "opacity-35",
+            muted && "opacity-75",
           )}
         />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-medium tracking-[-0.01em]",
-            muted ? "text-muted-foreground/75" : "text-foreground",
+            "text-foreground",
           )}
         >
           {title}
@@ -170,7 +166,7 @@ function CalendarEventContent({
       <span
         className={cn(
           "mt-0.5 block truncate pl-3 text-[9px] leading-[13px] font-normal tracking-[-0.005em]",
-          muted ? "text-muted-foreground/55" : "text-muted-foreground",
+          "text-muted-foreground",
         )}
       >
         {time ? <span className="tabular-nums">{time}</span> : null}
@@ -187,13 +183,10 @@ export {
   agentName,
   agentWorkAccent,
   buildMonthCells,
-  CALENDAR_HEADER_HEIGHT,
   CalendarEventContent,
   dayKey,
   draftAccent,
   eventSurface,
-  MONTHS_AFTER,
-  MONTHS_BEFORE,
   monthKey,
   monthLabel,
   sameMonth,
@@ -204,7 +197,6 @@ export {
   TIMELINE_ROW_HEIGHT,
   TIMELINE_START_HOUR,
   WEEKDAYS,
-  WEEKDAY_HEADER_HEIGHT,
   workStatusLabel,
 };
 export type { CalendarView, ScheduledDraft, ScheduleKind };
@@ -247,4 +239,10 @@ function DraftEventContent({
       muted={muted}
     />
   );
+}
+
+export function workOccurrences(work: RecurringWorkRecord) {
+  return [
+    ...new Set([...(work.recordedRuns ?? []), ...(work.upcomingRuns ?? [])]),
+  ].sort((a, b) => a - b);
 }

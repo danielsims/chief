@@ -31,7 +31,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.business
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+          UIApplicationSupportsMultipleScenes: false
         UIApplicationSupportsIndirectInputEvents: true
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
@@ -39,6 +39,7 @@ targets:
           - "$(PRODUCT_BUNDLE_IDENTIFIER).agent.*"
         UIBackgroundModes:
           - processing
+          - remote-notification
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         CFBundleURLTypes:
@@ -86,6 +87,9 @@ targets:
           - "$(SRCROOT)/Chief/Vendored/lib"
         OTHER_LDFLAGS:
           - "$(inherited)"
+          - "-lc++"
+        "OTHER_LDFLAGS[sdk=iphoneos*]":
+          - "$(inherited)"
           - "-lworker_core"
           - "-lc++"
         ENABLE_BITCODE: NO
@@ -95,6 +99,14 @@ targets:
         OTHER_SWIFT_FLAGS:
           - "-DCELL_RUNTIME"
         TARGETED_DEVICE_FAMILY: 1
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Chief/Chief.Debug.entitlements
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Development
+          PROVISIONING_PROFILE_SPECIFIER: Chief iOS Development
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Chief/Chief.Release.entitlements
     scheme:
       testTargets:
         - ChiefTests

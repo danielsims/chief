@@ -1,14 +1,16 @@
 import {
   commandIdSchema,
+  isJsonBoolean,
   isJsonNumber,
   isJsonObject,
   isJsonString,
 } from "@chief/relay-contracts";
 
 export type WorkspaceInferenceProvider = "opencode" | "vercelAiGateway" | null;
-export type WorkspaceHosting = "chief-cloud" | "self-hosted";
+export type WorkspaceAgentRuntime = "relay-cell" | "vercel-eve";
+export type EveProjectMode = "" | "new" | "existing";
 
-const createDraftVersion = 5;
+const createDraftVersion = 12;
 
 export interface CreateWorkspaceDraft {
   version: typeof createDraftVersion;
@@ -17,9 +19,15 @@ export interface CreateWorkspaceDraft {
   name: string;
   website: string;
   provider: WorkspaceInferenceProvider;
+  agentRuntime: WorkspaceAgentRuntime;
+  eveWorkspaceId: string | null;
+  eveAutoDeploy: boolean;
+  eveTeamId: string;
+  eveProjectMode: EveProjectMode;
+  eveProjectId: string;
+  eveProjectName: string;
+  page: "create" | "eve";
   selectedApps: string[];
-  hosting: WorkspaceHosting;
-  relayUrl: string;
 }
 
 export function createWorkspaceDraftKey(relayUrl: string, userId?: string) {
@@ -45,13 +53,27 @@ export function parseCreateWorkspaceDraft(
       !isJsonNumber(step) ||
       !Number.isInteger(step) ||
       step < 0 ||
-      step > 3 ||
+      step > 4 ||
       !isJsonString(value.name) ||
       !isJsonString(value.website) ||
+      (value.agentRuntime !== "relay-cell" &&
+        value.agentRuntime !== "vercel-eve") ||
+      (value.eveWorkspaceId !== null && !isJsonString(value.eveWorkspaceId)) ||
+      (value.eveAutoDeploy !== undefined &&
+        !isJsonBoolean(value.eveAutoDeploy)) ||
+      (value.eveTeamId !== undefined && !isJsonString(value.eveTeamId)) ||
+      (value.eveProjectMode !== undefined &&
+        value.eveProjectMode !== "" &&
+        value.eveProjectMode !== "new" &&
+        value.eveProjectMode !== "existing") ||
+      (value.eveProjectId !== undefined && !isJsonString(value.eveProjectId)) ||
+      (value.eveProjectName !== undefined &&
+        !isJsonString(value.eveProjectName)) ||
+      (value.page !== undefined &&
+        value.page !== "create" &&
+        value.page !== "eve") ||
       !Array.isArray(value.selectedApps) ||
       !value.selectedApps.every((app) => isJsonString(app)) ||
-      (value.hosting !== "chief-cloud" && value.hosting !== "self-hosted") ||
-      !isJsonString(value.relayUrl) ||
       (value.provider !== undefined &&
         value.provider !== null &&
         value.provider !== "opencode" &&
@@ -65,29 +87,43 @@ export function parseCreateWorkspaceDraft(
       step,
       name: value.name,
       website: value.website,
+      agentRuntime: value.agentRuntime,
+      eveWorkspaceId: value.eveWorkspaceId,
+      eveAutoDeploy: value.eveAutoDeploy === true,
+      eveTeamId: isJsonString(value.eveTeamId) ? value.eveTeamId : "",
+      eveProjectMode:
+        value.eveProjectMode === "new" || value.eveProjectMode === "existing"
+          ? value.eveProjectMode
+          : "",
+      eveProjectId: isJsonString(value.eveProjectId) ? value.eveProjectId : "",
+      eveProjectName: isJsonString(value.eveProjectName)
+        ? value.eveProjectName
+        : "",
+      page: value.page === "eve" ? "eve" : "create",
       provider:
         value.provider === "opencode" || value.provider === "vercelAiGateway"
           ? value.provider
           : null,
       selectedApps: value.selectedApps,
-      hosting: value.hosting,
-      relayUrl: normalizedRelayUrl(value.relayUrl),
     };
   } catch {
     return null;
   }
 }
 
-function normalizedRelayUrl(value: string) {
-  const url = new URL(value);
-  url.pathname = "/";
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/u, "");
-}
-
 export function workspaceDraft(
   draft: Omit<CreateWorkspaceDraft, "version">,
 ): CreateWorkspaceDraft {
   return { version: createDraftVersion, ...draft };
+}
+
+export function eveDestinationIsReady(draft: {
+  eveTeamId: string;
+  eveProjectMode: EveProjectMode;
+  eveProjectId: string;
+  eveProjectName: string;
+}) {
+  if (!draft.eveTeamId || !draft.eveProjectMode) return false;
+  if (draft.eveProjectMode === "existing") return Boolean(draft.eveProjectId);
+  return Boolean(draft.eveProjectName.trim());
 }

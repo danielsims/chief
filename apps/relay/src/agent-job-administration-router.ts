@@ -22,6 +22,24 @@ export async function routeAgentJobAdministration(
       "Only a workspace owner or admin can inspect and retry agent runs.",
     );
   }
+  const target = new URL("https://workspace.internal/agents/native");
+  target.searchParams.set("agentId", input.agentId);
+  const authorized = await env.WORKSPACES.get(
+    env.WORKSPACES.idFromName(input.workspaceId),
+  ).fetch(
+    withTrustedContext(
+      new Request(target, {
+        method: "POST",
+        headers: { "x-chief-internal-operation": "authorize-native-agent" },
+      }),
+      {
+        principal: input.principal,
+        requestId: input.requestId,
+        workspaceId: input.workspaceId,
+      },
+    ),
+  );
+  if (!authorized.ok) return authorized;
   const stub = env.AGENTS.get(
     env.AGENTS.idFromName(`${input.workspaceId}:${input.agentId}`),
   );

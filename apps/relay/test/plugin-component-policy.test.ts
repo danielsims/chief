@@ -91,4 +91,27 @@ describe("plugin component policy", () => {
       ),
     ).toThrowError(/owning agent/u);
   });
+
+  it("allows the owning agent to publish a project connect card", () => {
+    expect(() =>
+      validatePluginComponentPlacement(
+        [
+          {
+            kind: "project.recommendation",
+            payload: {
+              workspaceId,
+              conversationId,
+              agentId,
+              title: "Connect a repository",
+              description:
+                "Add the Git repository this workspace should work in.",
+            },
+          },
+        ],
+        agent,
+        workspaceId,
+        conversationId,
+      ),
+    ).not.toThrow();
+  });
 });

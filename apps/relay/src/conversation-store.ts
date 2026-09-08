@@ -32,6 +32,20 @@ import {
 } from "./conversation-rows";
 import { initializeConversationStorage } from "./conversation-schema";
 import { HttpError } from "./http";
+import { countersUpdateUpsertAgentActivity } from "./queries/counters/update-upsert-agent-activity";
+import { eventsFindListEvents } from "./queries/events/find-list-events";
+import { eventsInsertUpsertAgentActivity } from "./queries/events/insert-upsert-agent-activity";
+import { messagesFindRecent } from "./queries/messages/find-recent";
+import { messagesFindReplies } from "./queries/messages/find-replies";
+import { messagesFindUpsertAgentActivity } from "./queries/messages/find-upsert-agent-activity";
+import { messagesInsertAppend } from "./queries/messages/insert-append";
+import { listMessageHistory } from "./queries/messages/list-message-history";
+import { listMessagePage } from "./queries/messages/list-message-page";
+import { messagesUpdateDelete } from "./queries/messages/update-delete";
+import { messagesUpdateEdit } from "./queries/messages/update-edit";
+import { messagesUpdateReact } from "./queries/messages/update-react";
+import { receiptsFindAppend } from "./queries/receipts/find-append";
+import { receiptsInsertAppend } from "./queries/receipts/insert-append";
 import { consumeSocketTicket, createSocketTicket } from "./socket-ticket-store";
 
 const storedAppendSchema = appendMessageResultSchema.extend({
@@ -57,10 +71,7 @@ export class SqlConversationStore implements ConversationStore {
   append(input: AppendInput): StoredAppend {
     return this.storage.transactionSync(() => {
       const prior = firstRow<{ result_json: string }>(
-        this.storage.sql.exec(
-          "SELECT result_json FROM receipts WHERE command_id = ?",
-          input.command.commandId,
-        ),
+        receiptsFindAppend(this.storage, input.command.commandId),
       );
       if (prior) {
         const stored = storedAppendSchema.parse(JSON.parse(prior.result_json));
@@ -68,9 +79,7 @@ export class SqlConversationStore implements ConversationStore {
       }
 
       const counter = firstRow<{ value: number }>(
-        this.storage.sql.exec(
-          "UPDATE counters SET value = value + 1 WHERE name = 'sequence' RETURNING value",
-        ),
+        countersUpdateUpsertAgentActivity(this.storage),
       );
       if (!counter) throw new Error("Conversation sequence is unavailable.");
 
@@ -109,33 +118,27 @@ export class SqlConversationStore implements ConversationStore {
       });
       const stored = { ...result, event };
 
-      this.storage.sql.exec(
-        `INSERT INTO messages (
-          message_id, command_id, sequence, workspace_id, conversation_id,
-          thread_root_id, author_kind, author_id, body, mentions_json,
-          components_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        message.id,
-        input.command.commandId,
-        message.sequence,
-        message.workspaceId,
-        message.conversationId,
-        message.threadRootId ?? null,
-        message.author.kind,
-        message.author.id,
-        message.body,
-        JSON.stringify(message.mentions),
-        JSON.stringify(message.components),
-        message.createdAt,
-      );
-      this.storage.sql.exec(
-        "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
-        counter.value,
-        event.eventId,
-        JSON.stringify(event),
-      );
-      this.storage.sql.exec(
-        "INSERT INTO receipts (command_id, result_json) VALUES (?, ?)",
+      messagesInsertAppend(this.storage, {
+        messageId: message.id,
+        commandId: input.command.commandId,
+        sequence: message.sequence,
+        workspaceId: message.workspaceId,
+        conversationId: message.conversationId,
+        threadRootId: message.threadRootId ?? null,
+        authorKind: message.author.kind,
+        authorId: message.author.id,
+        body: message.body,
+        mentionsJson: JSON.stringify(message.mentions),
+        componentsJson: JSON.stringify(message.components),
+        createdAt: message.createdAt,
+      });
+      eventsInsertUpsertAgentActivity(this.storage, {
+        sequence: counter.value,
+        eventId: event.eventId,
+        eventJson: JSON.stringify(event),
+      });
+      receiptsInsertAppend(
+        this.storage,
         input.command.commandId,
         JSON.stringify(stored),
       );
@@ -145,29 +148,18 @@ export class SqlConversationStore implements ConversationStore {
 
   getMessage(messageId: string): ConversationMessage | null {
     const row = firstRow<MessageRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM messages WHERE message_id = ?",
-        messageId,
-      ),
+      messagesFindUpsertAgentActivity(this.storage, messageId),
     );
     return row ? toMessage(row) : null;
   }
 
   list(after: number, limit: number, query?: string) {
     const normalizedQuery = query?.trim() ?? "";
-    const rows = [
-      ...this.storage.sql.exec<MessageRow>(
-        normalizedQuery
-          ? `SELECT * FROM messages
-             WHERE sequence > ? AND body LIKE ? ESCAPE '\\' COLLATE NOCASE
-             ORDER BY sequence ASC LIMIT ?`
-          : `SELECT * FROM messages
-             WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`,
-        ...(normalizedQuery
-          ? [after, `%${escapeLike(normalizedQuery)}%`, limit + 1]
-          : [after, limit + 1]),
-      ),
-    ];
+    const rows = listMessagePage<MessageRow>(this.storage, {
+      after: after,
+      limit: limit + 1,
+      pattern: normalizedQuery ? `%${escapeLike(normalizedQuery)}%` : undefined,
+    });
     const hasMore = rows.length > limit;
     const messages = rows.slice(0, limit).map(toMessage);
     return messagePageSchema.parse({
@@ -177,12 +169,7 @@ export class SqlConversationStore implements ConversationStore {
   }
 
   recent(limit: number) {
-    const rows = [
-      ...this.storage.sql.exec<MessageRow>(
-        "SELECT * FROM messages ORDER BY sequence DESC LIMIT ?",
-        limit,
-      ),
-    ];
+    const rows = [...messagesFindRecent<MessageRow>(this.storage, limit)];
     return messagePageSchema.parse({
       messages: rows.reverse().map(toMessage),
       nextSequence: null,
@@ -191,15 +178,11 @@ export class SqlConversationStore implements ConversationStore {
 
   replies(rootId: string, after: number, limit: number) {
     const rows = [
-      ...this.storage.sql.exec<MessageRow>(
-        `SELECT * FROM messages
-         WHERE thread_root_id = ?
-           AND sequence > ?
-         ORDER BY sequence ASC LIMIT ?`,
-        rootId,
-        after,
-        limit + 1,
-      ),
+      ...messagesFindReplies<MessageRow>(this.storage, {
+        threadRootId: rootId,
+        sequence: after,
+        limit: limit + 1,
+      }),
     ];
     const hasMore = rows.length > limit;
     const messages = rows.slice(0, limit).map(toMessage);
@@ -210,32 +193,18 @@ export class SqlConversationStore implements ConversationStore {
   }
 
   history(threadRootId: string | undefined, limit: number) {
-    const rows = [
-      ...this.storage.sql.exec<MessageRow>(
-        threadRootId
-          ? `SELECT * FROM messages
-             WHERE deleted = 0
-               AND trim(body) <> ''
-               AND (message_id = ? OR thread_root_id = ?)
-             ORDER BY sequence DESC LIMIT ?`
-          : `SELECT * FROM messages
-             WHERE deleted = 0
-               AND trim(body) <> ''
-               AND thread_root_id IS NULL
-             ORDER BY sequence DESC LIMIT ?`,
-        ...(threadRootId ? [threadRootId, threadRootId, limit] : [limit]),
-      ),
-    ];
+    const rows = listMessageHistory<MessageRow>(
+      this.storage,
+      threadRootId,
+      limit,
+    );
     return rows.reverse().map(toMessage);
   }
 
   react(input: ReactInput) {
     return this.storage.transactionSync(() => {
       const row = firstRow<MessageRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM messages WHERE message_id = ?",
-          input.messageId,
-        ),
+        messagesFindUpsertAgentActivity(this.storage, input.messageId),
       );
       if (!row) throw new Error("Unknown message.");
       const reactions = parseReactions(row.reactions_json);
@@ -267,8 +236,8 @@ export class SqlConversationStore implements ConversationStore {
         const nextReactions = reactions
           .filter((reaction) => reaction.pubkeys.length > 0)
           .slice(0, 128);
-        this.storage.sql.exec(
-          "UPDATE messages SET reactions_json = ? WHERE message_id = ?",
+        messagesUpdateReact(
+          this.storage,
           JSON.stringify(nextReactions),
           input.messageId,
         );
@@ -297,12 +266,11 @@ export class SqlConversationStore implements ConversationStore {
           occurredAt: new Date().toISOString(),
           payload: { message: updated },
         });
-        this.storage.sql.exec(
-          "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
-          this.nextEventSequence(),
-          event.eventId,
-          JSON.stringify(event),
-        );
+        eventsInsertUpsertAgentActivity(this.storage, {
+          sequence: this.nextEventSequence(),
+          eventId: event.eventId,
+          eventJson: JSON.stringify(event),
+        });
       }
       return { changed, result, event };
     });
@@ -311,10 +279,7 @@ export class SqlConversationStore implements ConversationStore {
   edit(input: EditInput) {
     return this.storage.transactionSync(() => {
       const row = firstRow<MessageRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM messages WHERE message_id = ?",
-          input.messageId,
-        ),
+        messagesFindUpsertAgentActivity(this.storage, input.messageId),
       );
       if (!row) {
         throw new HttpError(
@@ -333,11 +298,7 @@ export class SqlConversationStore implements ConversationStore {
         edited: true,
         deleted: false,
       });
-      this.storage.sql.exec(
-        "UPDATE messages SET body = ?, edited = 1, deleted = 0 WHERE message_id = ?",
-        updated.body,
-        input.messageId,
-      );
+      messagesUpdateEdit(this.storage, updated.body, input.messageId);
       const event = conversationEventSchema.parse({
         eventId: crypto.randomUUID(),
         sequence: this.nextEventSequence(),
@@ -351,12 +312,11 @@ export class SqlConversationStore implements ConversationStore {
         occurredAt: new Date().toISOString(),
         payload: { message: updated },
       });
-      this.storage.sql.exec(
-        "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
-        event.sequence,
-        event.eventId,
-        JSON.stringify(event),
-      );
+      eventsInsertUpsertAgentActivity(this.storage, {
+        sequence: event.sequence,
+        eventId: event.eventId,
+        eventJson: JSON.stringify(event),
+      });
       return { message: updated, event };
     });
   }
@@ -370,10 +330,7 @@ export class SqlConversationStore implements ConversationStore {
   delete(input: DeleteInput) {
     return this.storage.transactionSync(() => {
       const row = firstRow<MessageRow>(
-        this.storage.sql.exec(
-          "SELECT * FROM messages WHERE message_id = ?",
-          input.messageId,
-        ),
+        messagesFindUpsertAgentActivity(this.storage, input.messageId),
       );
       if (!row) {
         throw new HttpError(
@@ -390,11 +347,7 @@ export class SqlConversationStore implements ConversationStore {
         edited: false,
         deleted: true,
       });
-      this.storage.sql.exec(
-        "UPDATE messages SET body = ?, edited = 0, deleted = 1 WHERE message_id = ?",
-        updated.body,
-        input.messageId,
-      );
+      messagesUpdateDelete(this.storage, updated.body, input.messageId);
       const event = conversationEventSchema.parse({
         eventId: crypto.randomUUID(),
         sequence: this.nextEventSequence(),
@@ -408,21 +361,18 @@ export class SqlConversationStore implements ConversationStore {
         occurredAt: new Date().toISOString(),
         payload: { message: updated },
       });
-      this.storage.sql.exec(
-        "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
-        event.sequence,
-        event.eventId,
-        JSON.stringify(event),
-      );
+      eventsInsertUpsertAgentActivity(this.storage, {
+        sequence: event.sequence,
+        eventId: event.eventId,
+        eventJson: JSON.stringify(event),
+      });
       return { message: updated, event };
     });
   }
 
   private nextEventSequence() {
     const counter = firstRow<{ value: number }>(
-      this.storage.sql.exec(
-        "UPDATE counters SET value = value + 1 WHERE name = 'sequence' RETURNING value",
-      ),
+      countersUpdateUpsertAgentActivity(this.storage),
     );
     if (!counter) throw new Error("Conversation sequence is unavailable.");
     return counter.value;
@@ -430,12 +380,7 @@ export class SqlConversationStore implements ConversationStore {
 
   listEvents(after: number, limit: number) {
     const rows = [
-      ...this.storage.sql.exec<EventRow>(
-        `SELECT sequence, event_json FROM events
-         WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`,
-        after,
-        limit + 1,
-      ),
+      ...eventsFindListEvents<EventRow>(this.storage, after, limit + 1),
     ];
     const hasMore = rows.length > limit;
     const events = rows

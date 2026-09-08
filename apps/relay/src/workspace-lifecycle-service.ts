@@ -14,13 +14,30 @@ import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { agentConfigsInsertCreateManaged } from "./queries/agent-configs/insert-create-managed";
+import { agentKeysFindDeletionPlan } from "./queries/agent-keys/find-deletion-plan";
+import { agentKeysFindRegisterAgentKey } from "./queries/agent-keys/find-register-agent-key";
+import { channelMembersFindValidateOnboardingDelegation } from "./queries/channel-members/find-validate-onboarding-delegation";
+import { channelMembersInsertRegisterAgentKey } from "./queries/channel-members/insert-register-agent-key";
+import { channelsFindDeletionPlan } from "./queries/channels/find-deletion-plan";
+import { membersInsertClaimRow } from "./queries/members/insert-claim-row";
+import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
+import { workspaceInsertClaim } from "./queries/workspace/insert-claim";
+import { workspaceInsertCreateManaged } from "./queries/workspace/insert-create-managed";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { defaultAgentConfigFor } from "./workspace-agent-config";
+import { canMessageAgent } from "./workspace-agent-messaging";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   decodeWorkspaceSnapshot,
   defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
+  workspaceAgentProfiles,
 } from "./workspace-defaults";
+import {
+  externalAgentSnapshotRows,
+  reconcileExternalAgentSnapshot,
+} from "./workspace-external-agent-snapshot";
 import {
   delegationIncomplete,
   initialConversation,
@@ -75,25 +92,16 @@ export class WorkspaceLifecycleService {
     const createdAt = new Date().toISOString();
     const inserted = this.storage.transactionSync(() => {
       const existing = firstRow<WorkspaceRow>(
-        this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+        workspaceFindAuthorize(this.storage),
       );
       if (existing) return false;
-      this.storage.sql.exec(
-        `INSERT INTO workspace (
-          singleton, workspace_id, name, created_at, created_by_user_id
-        ) VALUES (1, ?, ?, ?, ?)`,
-        command.workspaceId,
-        command.name,
-        createdAt,
-        ownerIdentity.userId,
-      );
-      this.storage.sql.exec(
-        `INSERT INTO members (
-          principal_kind, principal_id, role, created_at
-        ) VALUES ('user', ?, 'owner', ?)`,
-        ownerIdentity.userId,
-        createdAt,
-      );
+      workspaceInsertClaim(this.storage, {
+        workspaceId: command.workspaceId,
+        name: command.name,
+        createdAt: createdAt,
+        createdByUserId: ownerIdentity.userId,
+      });
+      membersInsertClaimRow(this.storage, ownerIdentity.userId, createdAt);
       return true;
     });
     if (!inserted) {
@@ -155,7 +163,7 @@ export class WorkspaceLifecycleService {
       name: input.name,
       website: input.website,
       selectedApps: input.selectedApps,
-      runtime: input.runtime,
+      runtime: input.agentRuntime === "relay-cell" ? input.runtime : null,
       imageURL: null,
       onboardingComplete: false,
       conversations: [
@@ -169,39 +177,30 @@ export class WorkspaceLifecycleService {
     });
     this.storage.transactionSync(() => {
       const existing = firstRow<WorkspaceRow>(
-        this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+        workspaceFindAuthorize(this.storage),
       );
       if (existing) {
         if (preparedSecret) secretStore.writePrepared(preparedSecret);
         return;
       }
-      this.storage.sql.exec(
-        `INSERT INTO workspace (
-          singleton, workspace_id, name, created_at, created_by_user_id,
-          snapshot_json
-        ) VALUES (1, ?, ?, ?, ?, ?)`,
-        context.workspaceId,
-        input.name,
-        createdAt,
-        ownerIdentity.userId,
-        JSON.stringify(snapshot),
-      );
-      this.storage.sql.exec(
-        `INSERT INTO members (
-          principal_kind, principal_id, role, created_at
-        ) VALUES ('user', ?, 'owner', ?)`,
-        ownerIdentity.userId,
-        createdAt,
-      );
+      workspaceInsertCreateManaged(this.storage, {
+        workspaceId: context.workspaceId,
+        name: input.name,
+        createdAt: createdAt,
+        createdByUserId: ownerIdentity.userId,
+        snapshotJson: JSON.stringify(snapshot),
+      });
+      membersInsertClaimRow(this.storage, ownerIdentity.userId, createdAt);
       this.channels.seedSnapshotChannels(
         snapshot,
         ownerIdentity.userId,
         createdAt,
       );
       this.channels.seedSnapshotAgents(snapshot, createdAt);
-      for (const agent of snapshot.agents) {
+      for (const agent of workspaceAgentProfiles(snapshot)) {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
+          enabled: input.agentRuntime === "relay-cell",
           deploymentTarget: input.runtime,
           inference: preparedSecret
             ? {
@@ -214,13 +213,11 @@ export class WorkspaceLifecycleService {
                 model: inference.model,
               },
         });
-        this.storage.sql.exec(
-          `INSERT INTO agent_configs (agent_id, config_json, updated_at)
-           VALUES (?, ?, ?)`,
-          agent.id,
-          JSON.stringify(config),
-          createdAt,
-        );
+        agentConfigsInsertCreateManaged(this.storage, {
+          agentId: agent.id,
+          configJson: JSON.stringify(config),
+          updatedAt: createdAt,
+        });
       }
       if (preparedSecret) secretStore.writePrepared(preparedSecret);
     });
@@ -237,33 +234,52 @@ export class WorkspaceLifecycleService {
         "This workspace does not expose a managed snapshot.",
       );
     }
-    const reconciled = reconcileWorkspaceAgents(
+    const external = reconcileExternalAgentSnapshot(
       decodeWorkspaceSnapshot(workspace.snapshot_json),
+      externalAgentSnapshotRows(this.storage),
     );
-    if (reconciled.changed) {
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
-        JSON.stringify(reconciled.snapshot),
-      );
+    const reconciled = reconcileWorkspaceAgents(external.snapshot);
+    const nextSnapshot = JSON.stringify(reconciled.snapshot);
+    if (
+      external.changed ||
+      reconciled.changed ||
+      nextSnapshot !== workspace.snapshot_json
+    ) {
+      workspaceUpdateVerifyConnection(this.storage, nextSnapshot);
     }
-    return json(reconciled.snapshot);
+    if (context.identity.kind !== "user") return json(reconciled.snapshot);
+    const principal: UserPrincipal = {
+      role: "member",
+      kind: "user",
+      userId: context.identity.userId,
+      pubkey: context.identity.pubkey,
+      workspaceId: context.workspaceId,
+    };
+    return json({
+      ...reconciled.snapshot,
+      agents: reconciled.snapshot.agents.map((agent) => ({
+        ...agent,
+        canRunOnDevice:
+          (agent.ownerUserId ?? workspace.created_by_user_id) ===
+          principal.userId,
+        canMessage: canMessageAgent(this.channels, agent.id, principal),
+        subagents: agent.subagents.map((child) => ({
+          ...child,
+          canMessage: canMessageAgent(this.channels, child.id, principal),
+        })),
+      })),
+    });
   }
 
   deletionPlan(context: ReturnType<typeof readTrustedIdentity>) {
     this.requireOwner(context);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
-    const conversationIds = this.storage.sql
-      .exec<{ conversation_id: string }>(
-        "SELECT conversation_id FROM channels ORDER BY conversation_id",
-      )
-      .toArray()
-      .map((row) => String(row.conversation_id));
-    const registeredAgentIds = this.storage.sql
-      .exec<{ agent_id: string }>(
-        "SELECT agent_id FROM agent_keys ORDER BY agent_id",
-      )
-      .toArray()
-      .map((row) => String(row.agent_id));
+    const conversationIds = channelsFindDeletionPlan<{
+      conversation_id: string;
+    }>(this.storage).map((row) => String(row.conversation_id));
+    const registeredAgentIds = agentKeysFindDeletionPlan<{ agent_id: string }>(
+      this.storage,
+    ).map((row) => String(row.agent_id));
     const snapshotAgentIds = workspace.snapshot_json
       ? decodeWorkspaceSnapshot(workspace.snapshot_json).agents.map(
           (agent) => agent.id,
@@ -296,10 +312,7 @@ export class WorkspaceLifecycleService {
     }
     this.channels.requirePrincipalMember(context.principal);
     const key = firstRow<AgentKeyRow>(
-      this.storage.sql.exec(
-        "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE agent_id = ?",
-        context.principal.agentId,
-      ),
+      agentKeysFindRegisterAgentKey(this.storage, context.principal.agentId),
     );
     // The relay's own hosted cell executes Chief inside a trusted Durable Object
     // boundary and presents the all-zero relay pubkey. It does not hold a
@@ -355,23 +368,13 @@ export class WorkspaceLifecycleService {
     });
     const now = new Date().toISOString();
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
-        JSON.stringify(snapshot),
-      );
+      workspaceUpdateVerifyConnection(this.storage, JSON.stringify(snapshot));
       this.channels.seedSnapshotChannels(
         snapshot,
         workspace.created_by_user_id,
         now,
       );
-      this.storage.sql.exec(
-        `INSERT INTO channel_members (
-          conversation_id, principal_kind, principal_id, role, joined_at
-        ) VALUES ('mission-control', 'agent', 'chief', 'owner', ?)
-        ON CONFLICT(conversation_id, principal_kind, principal_id) DO UPDATE
-        SET role = 'owner'`,
-        now,
-      );
+      channelMembersInsertRegisterAgentKey(this.storage, now);
     });
     return json(snapshot);
   }
@@ -381,13 +384,9 @@ export class WorkspaceLifecycleService {
     openingMessage: string,
   ) {
     const requiredAgents = ["brand", "prospector", "engineer"];
-    const rows = this.storage.sql
-      .exec<{ principal_id: string }>(
-        `SELECT principal_id FROM channel_members
-         WHERE conversation_id = 'mission-control'
-           AND principal_kind = 'agent'`,
-      )
-      .toArray();
+    const rows = channelMembersFindValidateOnboardingDelegation<{
+      principal_id: string;
+    }>(this.storage);
     const members = new Set(rows.map((row) => String(row.principal_id)));
     if (!requiredAgents.every((agentId) => members.has(agentId))) {
       throw delegationIncomplete(

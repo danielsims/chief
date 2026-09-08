@@ -5,18 +5,21 @@ import type {
 } from "@chief/relay-contracts";
 import { OnboardingMessagePacer } from "@chief/agent-runtime/onboarding-message-pacing";
 import {
+  artifactMessageComponents,
   channelCreateCommandSchema,
+  channelJoinCommandSchema,
   channelMemberAddCommandSchema,
   messagePageSchema,
   parseJsonObject,
+  workspaceFilesResultSchema,
 } from "@chief/relay-contracts";
 
 import { publishAgentMessage } from "../../agent-message-publisher";
 import { HttpError } from "../../http";
 import { withTrustedContext } from "../../internal-context";
 import {
-  agentIds,
   memberReferences,
+  mentionIds,
   optionalString,
   requiredString,
 } from "../input";
@@ -178,6 +181,22 @@ export function inheritedThreadRootId(job: AgentJob, input: JsonObject) {
 
 export const hostedChannelTools = [
   defineHostedAgentTool(
+    "channels.join",
+    async ({ env, job, principal }, input) => {
+      const conversationId = requiredString(input, "channelId");
+      return workspaceOperation(env, job, principal, "channels-join", {
+        conversationId,
+        body: channelJoinCommandSchema.parse({
+          commandId: crypto.randomUUID(),
+          protocolVersion: 1,
+          occurredAt: new Date().toISOString(),
+          payload: { conversationId },
+        }),
+      });
+    },
+    { effect: "idempotent" },
+  ),
+  defineHostedAgentTool(
     "channels.list",
     async ({ env, job, principal }) =>
       await workspaceOperation(env, job, principal, "channels-list"),
@@ -199,11 +218,11 @@ export const hostedChannelTools = [
   ),
   defineHostedAgentTool(
     "channels.messages.post",
-    async ({ env, job }, input) => {
+    async ({ env, job, principal }, input) => {
       const conversationId = requiredString(input, "channelId");
       const idempotencyKey =
         optionalString(input, "idempotencyKey") ??
-        `${job.id}:${conversationId}`;
+        `${job.id}:${conversationId}:${await deterministicUuid(JSON.stringify({ content: input.content, artifactIds: input.artifactIds, threadRootId: input.threadRootId }))}`;
       const threadRootId = inheritedThreadRootId(job, input);
       const content = requiredString(input, "content");
       await onboardingMessagePacer.beforePost(job.workspaceId, {
@@ -216,7 +235,21 @@ export const hostedChannelTools = [
         {
           conversationId,
           body: content,
-          mentions: agentIds(input, "mentions"),
+          mentions: mentionIds(input, "mentions"),
+          components: artifactMessageComponents(
+            input.artifactIds,
+            input.artifactIds
+              ? workspaceFilesResultSchema.parse(
+                  await workspaceOperation(
+                    env,
+                    job,
+                    principal,
+                    "data-files-list",
+                  ),
+                ).files
+              : [],
+            conversationId,
+          ),
           ...(threadRootId ? { threadRootId } : undefined),
         },
         await deterministicUuid(

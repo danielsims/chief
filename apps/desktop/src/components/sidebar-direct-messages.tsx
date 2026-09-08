@@ -17,8 +17,7 @@ import type {
 } from "../lib/workspace-channels";
 import {
   sidebarPinnedItemKey,
-  WORKSPACE_AGENT_IDENTITIES,
-  WORKSPACE_DIRECT_MESSAGES,
+  workspaceAgentIdentity,
 } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
 import { AttentionPill } from "./attention-pill";
@@ -29,23 +28,32 @@ export function DirectMessageRow({
   compactAttention,
   dragKind,
   needsUser,
+  name,
   onOpen,
   onPinChange,
   pinned,
   unreadCount,
+  expanded,
+  onExpand,
 }: {
+  expanded?: boolean;
+  onExpand?: () => void;
   active: boolean;
   agentId: WorkspaceAgentId;
   compactAttention: boolean;
   dragKind: "source" | "sortable";
   needsUser: boolean;
+  name?: string;
   onOpen: () => void;
   onPinChange: (pinned: boolean) => void;
   pinned: boolean;
   unreadCount: number;
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
-  const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+  const identity = workspaceAgentIdentity(
+    agentId,
+    name ? [{ id: agentId, name, role: "Agent" }] : [],
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const source = useDraggable({
     id: `source:${sidebarPinnedItemKey(item)}`,
@@ -120,6 +128,7 @@ export function DirectMessageRow({
         )}
       >
         <AgentAvatar
+          agentId={agentId}
           label={identity.name}
           className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
         />
@@ -138,6 +147,17 @@ export function DirectMessageRow({
           </span>
         ) : null}
       </button>
+      {onExpand ? (
+        <button
+          type="button"
+          aria-label={`${expanded ? "Hide" : "Show"} ${identity.name} agents`}
+          aria-expanded={expanded}
+          onClick={onExpand}
+          className="text-sidebar-muted hover:text-sidebar-foreground absolute top-1 right-8 flex size-6 items-center justify-center rounded-md"
+        >
+          <ChevronDown size={14} className={cn(!expanded && "-rotate-90")} />
+        </button>
+      ) : null}
       {pinned ? (
         <button
           type="button"
@@ -190,6 +210,7 @@ export function SidebarDirectMessages({
   onPinChange,
   pinnedAgentIds,
   unreadCounts,
+  agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
   attentionTargets: ReadonlyMap<
@@ -205,10 +226,39 @@ export function SidebarDirectMessages({
   onPinChange: (agentId: WorkspaceAgentId, pinned: boolean) => void;
   pinnedAgentIds: WorkspaceAgentId[];
   unreadCounts: ReadonlyMap<WorkspaceAgentId, number>;
+  agents: readonly {
+    id: string;
+    name: string;
+    role: string;
+    canMessage?: boolean;
+    subagents?: readonly {
+      id: string;
+      name: string;
+      role: string;
+      canMessage?: boolean;
+    }[];
+  }[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [collapsedTeams, setCollapsedTeams] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const allAgents = agents.flatMap((agent) => [
+    agent,
+    ...(agent.subagents ?? []).map((child) => ({
+      ...child,
+      subagents: undefined,
+    })),
+  ]);
   const visibleIds = directMessageIds.filter(
-    (agentId) => !pinnedAgentIds.includes(agentId),
+    (agentId) =>
+      !pinnedAgentIds.includes(agentId) &&
+      (agents.some((agent) => agent.id === agentId) ||
+        agents.some(
+          (agent) =>
+            pinnedAgentIds.includes(agent.id) &&
+            agent.subagents?.some((child) => child.id === agentId),
+        )),
   );
   if (visibleIds.length === 0) return null;
 
@@ -231,24 +281,60 @@ export function SidebarDirectMessages({
       </button>
       {!collapsed ? (
         <div className="space-y-0.5">
-          {WORKSPACE_DIRECT_MESSAGES.filter((message) =>
-            visibleIds.includes(message.id),
-          ).map((message) => (
-            <DirectMessageRow
-              key={message.id}
-              active={activeAgentId === message.id}
-              agentId={message.id}
-              compactAttention={compactAttention}
-              dragKind="source"
-              needsUser={attentionTargets.has(message.id)}
-              onOpen={() =>
-                onOpen(message.id, attentionTargets.get(message.id))
-              }
-              onPinChange={(pinned) => onPinChange(message.id, pinned)}
-              pinned={false}
-              unreadCount={unreadCounts.get(message.id) ?? 0}
-            />
-          ))}
+          {visibleIds
+            .filter(
+              (id) =>
+                allAgents.find((agent) => agent.id === id)?.canMessage !==
+                false,
+            )
+            .map((agentId) => {
+              const agent = allAgents.find(
+                (candidate) => candidate.id === agentId,
+              );
+              const children = (agent?.subagents ?? []).filter(
+                (child) =>
+                  child.canMessage !== false &&
+                  !pinnedAgentIds.includes(child.id),
+              );
+              const expanded = !collapsedTeams.has(agentId);
+              const row = (id: string, name?: string) => (
+                <DirectMessageRow
+                  key={id}
+                  active={activeAgentId === id}
+                  agentId={id}
+                  name={name}
+                  compactAttention={compactAttention}
+                  dragKind="source"
+                  needsUser={attentionTargets.has(id)}
+                  onOpen={() => onOpen(id, attentionTargets.get(id))}
+                  onPinChange={(pinned) => onPinChange(id, pinned)}
+                  pinned={false}
+                  unreadCount={unreadCounts.get(id) ?? 0}
+                  expanded={expanded}
+                  onExpand={
+                    id === agentId && children.length > 0
+                      ? () =>
+                          setCollapsedTeams((current) => {
+                            const next = new Set(current);
+                            if (next.has(id)) next.delete(id);
+                            else next.add(id);
+                            return next;
+                          })
+                      : undefined
+                  }
+                />
+              );
+              return (
+                <div key={agentId}>
+                  {row(agentId, agent?.name)}
+                  {expanded && children.length > 0 ? (
+                    <div className="before:bg-border relative mt-0.5 space-y-0.5 pl-[17px] before:absolute before:inset-y-0 before:left-4 before:w-px before:-translate-x-1/2">
+                      {children.map((child) => row(child.id, child.name))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
         </div>
       ) : null}
     </section>

@@ -31,6 +31,8 @@ import type {
   ContentDraftRecord,
   DiagnosticEventRecord,
   DriverType,
+  EveAgentProvisioningProgress,
+  EveAgentProvisioningResult,
   LocalIntegrationStatus,
   ProspectRecord,
   ProviderModelOption,
@@ -38,6 +40,7 @@ import type {
   SessionRecord,
   SlackChannelState,
   TrendRecord,
+  VercelEveDestinationCatalog,
   WorkspaceEnvironmentVariable,
   WorkspaceWaysOfWorking,
 } from "./runtime-domain-types.js";
@@ -374,6 +377,24 @@ export type ServerMessage =
     }
   /** Secret env keys currently present for the authenticated workspace. */
   | { type: "inputsStatus"; workspaceId: string; present: string[] }
+  | {
+      type: "vercelEveDestinations";
+      workspaceId: string;
+      requestId: string;
+      catalog: VercelEveDestinationCatalog;
+    }
+  | {
+      type: "eveAgentProvisioningProgress";
+      workspaceId: string;
+      requestId: string;
+      progress: EveAgentProvisioningProgress;
+    }
+  | {
+      type: "eveAgentProvisioned";
+      workspaceId: string;
+      requestId: string;
+      result: EveAgentProvisioningResult;
+    }
   | {
       type: "workspaceEnvironmentVariables";
       workspaceId: string;

@@ -253,6 +253,7 @@ async function assignProvider(
     config: {
       enabled: true,
       deploymentTarget: "phone",
+      messageAccess: "workspace",
       inference: {
         provider: "opencode",
         model: "opencode-go/deepseek-v4-flash",

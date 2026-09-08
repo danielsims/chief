@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRuntimeDescriptorSchema,
+  appendMessageCommandSchema,
   createWorkspaceCommandSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
@@ -26,6 +27,55 @@ const owner = {
 };
 
 describe("channel HTTP surface", () => {
+  it("does not forward caller-supplied internal operations or identities", async () => {
+    const workspaceId = await setupWorkspace();
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/conversations/general/messages`;
+    const messageId = crypto.randomUUID();
+    const command = appendMessageCommandSchema.parse({
+      protocolVersion: 1,
+      occurredAt: new Date().toISOString(),
+      commandId: crypto.randomUUID(),
+      payload: {
+        messageId,
+        conversationId: "general",
+        body: "Keep this message.",
+      },
+    });
+    const posted = await worker.fetch(
+      signedRequest(url, "POST", JSON.stringify(command)),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(posted.status).toBe(200);
+    const malicious = signedRequest(url, "GET");
+    malicious.headers.set("x-chief-internal-operation", "delete-all");
+    malicious.headers.set(
+      "x-chief-trusted-identity",
+      JSON.stringify({ kind: "service", serviceId: "attacker" }),
+    );
+    malicious.headers.set("x-chief-conversation-id", "other-private-channel");
+    const response = await worker.fetch(
+      malicious,
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: messageId }),
+      ]),
+    });
+    const after = await worker.fetch(
+      signedRequest(url, "GET"),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(await after.json()).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: messageId }),
+      ]),
+    });
+  });
   it("exposes each agent at its workspace-scoped URL", async () => {
     const workspaceId = await setupWorkspace();
     const url = `https://relay.test/v1/workspaces/${workspaceId}/agents/chief`;
@@ -143,6 +193,7 @@ async function setupWorkspace() {
     name: "Router channel test",
     website: "https://heychief.sh",
     runtime: "phone",
+    agentRuntime: "relay-cell",
     inferenceProvider: "openCodeGo",
     inferenceModel: "deepseek-v4-flash",
     selectedApps: [],

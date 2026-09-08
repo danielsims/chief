@@ -13,6 +13,7 @@ import type {
 import {
   compactTurn,
   inferenceMessages,
+  recentCompleteMessages,
   shouldCompact,
   validateCompactionRatio,
 } from "./context.js";
@@ -36,7 +37,6 @@ import { durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
 const MAX_OUTPUT_TOKENS = 2_000;
-const FINALIZATION_OUTPUT_TOKENS = 600;
 const CLAIM_TTL_MS = 60_000;
 
 export class DurableTurnRunner {
@@ -246,12 +246,14 @@ export class DurableTurnRunner {
         : messages,
       tools: definitions,
       maxTokens: turn.finalization
-        ? FINALIZATION_OUTPUT_TOKENS
+        ? finalizationOutputTokens(inference)
         : MAX_OUTPUT_TOKENS,
       temperature: 0.3,
     };
     await notify(() => observer?.inferenceStarted?.(turn, request));
-    const response = await inference.complete(request);
+    const response = await inference.complete(request, (progress) =>
+      notify(() => observer?.inferenceProgress?.(turn, progress)),
+    );
     await notify(() => observer?.inferenceCompleted?.(turn, response));
     if (!(await this.isCurrent(turn.jobId))) return { kind: "idle" };
     const next = commitTurnInference(turn, response, tools);
@@ -358,7 +360,7 @@ export class DurableTurnRunner {
     });
     const compacted = updatedTurn(turn, {
       checkpoint,
-      messages: turn.messages.slice(-10),
+      messages: recentCompleteMessages(turn.messages),
       tools: retainedToolReceipts(turn),
       inferenceSteps: turn.inferenceSteps + 1,
       phase: { kind: "runnable", next: { kind: "infer" } },
@@ -409,4 +411,8 @@ export class DurableTurnRunner {
   private async save(turn: DurableTurn) {
     await persistTurn(this.persistence, this.cellId, turn);
   }
+}
+
+function finalizationOutputTokens(inference: AgentInference) {
+  return inference.model?.maxOutputTokens;
 }

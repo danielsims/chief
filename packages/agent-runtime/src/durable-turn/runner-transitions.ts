@@ -74,6 +74,21 @@ export function commitTurnInference(
 
   const result = response.content?.trim();
   if (!result || isBareSpeakerLabel(result)) {
+    if (turn.finalization && !hasEmptyFinalizationResponse(turn)) {
+      return updatedTurn(turn, {
+        messages: [
+          ...messages,
+          {
+            role: "system",
+            content:
+              "Your previous finalization contained no user-facing answer. Return the concise final update now. Do not reason further and do not call a tool.",
+          },
+        ],
+        inferenceSteps,
+        phase: { kind: "runnable", next: { kind: "infer" } },
+        claim: null,
+      });
+    }
     throw new Error("The agent returned an empty response.");
   }
   if (turn.finalization) {
@@ -116,6 +131,15 @@ export function commitTurnInference(
   });
 }
 
+function hasEmptyFinalizationResponse(turn: DurableTurn) {
+  return turn.messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      !message.content?.trim() &&
+      (message.toolCalls?.length ?? 0) === 0,
+  );
+}
+
 export function commitTurnTool(
   turn: DurableTurn,
   call: AgentInferenceToolCall,
@@ -153,12 +177,14 @@ export function commitTurnTool(
   }
   return updatedTurn(turn, {
     tools,
-    messages: toolFeedbackMessages(
-      messages,
-      call.name,
-      repeated,
-      toolResultFailed(durableResult),
-    ),
+    messages: next
+      ? messages
+      : toolFeedbackMessages(
+          messages,
+          call.name,
+          repeated,
+          toolResultFailed(durableResult),
+        ),
     phase: {
       kind: "runnable",
       next: next ? { kind: "tool", callId: next.call.id } : { kind: "infer" },

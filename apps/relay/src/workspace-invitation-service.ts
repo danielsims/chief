@@ -9,6 +9,18 @@ import {
 
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
+import { channelMembersInsertClaim } from "./queries/channel-members/insert-claim";
+import { channelMembersInsertJoinOrganizationMember } from "./queries/channel-members/insert-join-organization-member";
+import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
+import { channelsFindJoinOrganizationMember } from "./queries/channels/find-join-organization-member";
+import { membersInsertClaim } from "./queries/members/insert-claim";
+import { workspaceInviteClaimsFindClaim } from "./queries/workspace-invite-claims/find-claim";
+import { workspaceInviteClaimsInsertClaim } from "./queries/workspace-invite-claims/insert-claim";
+import { workspaceInvitesFindCreate } from "./queries/workspace-invites/find-create";
+import { workspaceInvitesFindLookupInvite } from "./queries/workspace-invites/find-lookup-invite";
+import { workspaceInvitesInsertCreate } from "./queries/workspace-invites/insert-create";
+import { workspaceInvitesUpdateClaim } from "./queries/workspace-invites/update-claim";
+import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
@@ -78,10 +90,7 @@ export class WorkspaceInvitationService {
     }
     const secretHash = await hashInviteSecret(command.secret);
     const existing = firstRow<InviteRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM workspace_invites WHERE invite_id = ?",
-        command.commandId,
-      ),
+      workspaceInvitesFindCreate(this.storage, command.commandId),
     );
     if (existing) {
       if (
@@ -98,18 +107,14 @@ export class WorkspaceInvitationService {
       return json(this.describeInvite(existing));
     }
     try {
-      this.storage.sql.exec(
-        `INSERT INTO workspace_invites (
-          invite_id, secret_hash, conversation_id, created_by_user_id,
-          expires_at, use_count, revoked_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, 0, NULL, ?)`,
-        command.commandId,
-        secretHash,
-        command.conversationId,
-        principal.userId,
-        command.expiresAt,
-        new Date(now).toISOString(),
-      );
+      workspaceInvitesInsertCreate(this.storage, {
+        inviteId: command.commandId,
+        secretHash: secretHash,
+        conversationId: command.conversationId,
+        createdByUserId: principal.userId,
+        expiresAt: command.expiresAt,
+        createdAt: new Date(now).toISOString(),
+      });
     } catch {
       throw new HttpError(
         409,
@@ -142,9 +147,8 @@ export class WorkspaceInvitationService {
     );
     const invite = await this.lookupInvite(command.secret);
     const existingClaim = firstRow<InviteClaimRow>(
-      this.storage.sql.exec(
-        `SELECT * FROM workspace_invite_claims
-         WHERE invite_id = ? AND user_id = ?`,
+      workspaceInviteClaimsFindClaim(
+        this.storage,
         invite.invite_id,
         identity.userId,
       ),
@@ -155,42 +159,24 @@ export class WorkspaceInvitationService {
       this.requireInviteAvailable(invite);
       const now = new Date().toISOString();
       this.storage.transactionSync(() => {
-        this.storage.sql.exec(
-          `INSERT INTO members (principal_kind, principal_id, role, created_at)
-           VALUES ('user', ?, 'member', ?)
-           ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
-          identity.userId,
-          now,
-        );
+        membersInsertClaim(this.storage, identity.userId, now);
         const conversationId = invite.conversation_id ?? "general";
         const channel = firstRow<{ conversation_id: string }>(
-          this.storage.sql.exec(
-            "SELECT conversation_id FROM channels WHERE conversation_id = ?",
-            conversationId,
-          ),
+          channelsFindCreateChannel(this.storage, conversationId),
         );
         if (channel) {
-          this.storage.sql.exec(
-            `INSERT INTO channel_members (
-              conversation_id, principal_kind, principal_id, role, joined_at
-            ) VALUES (?, 'user', ?, 'member', ?)
-            ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
-            conversationId,
-            identity.userId,
-            now,
-          );
+          channelMembersInsertClaim(this.storage, {
+            conversationId: conversationId,
+            principalId: identity.userId,
+            joinedAt: now,
+          });
         }
-        this.storage.sql.exec(
-          `INSERT INTO workspace_invite_claims (invite_id, user_id, claimed_at)
-           VALUES (?, ?, ?)`,
-          invite.invite_id,
-          identity.userId,
-          now,
-        );
-        this.storage.sql.exec(
-          "UPDATE workspace_invites SET use_count = use_count + 1 WHERE invite_id = ?",
-          invite.invite_id,
-        );
+        workspaceInviteClaimsInsertClaim(this.storage, {
+          inviteId: invite.invite_id,
+          userId: identity.userId,
+          claimedAt: now,
+        });
+        workspaceInvitesUpdateClaim(this.storage, invite.invite_id);
       });
     }
     return json(
@@ -211,24 +197,13 @@ export class WorkspaceInvitationService {
     }
     const now = new Date().toISOString();
     this.storage.transactionSync(() => {
-      this.storage.sql.exec(
-        `INSERT INTO members (principal_kind, principal_id, role, created_at)
-         VALUES ('user', ?, 'member', ?)
-         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
-        identity.userId,
-        now,
-      );
+      membersInsertClaim(this.storage, identity.userId, now);
       const general = firstRow<{ conversation_id: string }>(
-        this.storage.sql.exec(
-          "SELECT conversation_id FROM channels WHERE conversation_id = 'general'",
-        ),
+        channelsFindJoinOrganizationMember(this.storage),
       );
       if (general) {
-        this.storage.sql.exec(
-          `INSERT INTO channel_members (
-            conversation_id, principal_kind, principal_id, role, joined_at
-          ) VALUES ('general', 'user', ?, 'member', ?)
-          ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
+        channelMembersInsertJoinOrganizationMember(
+          this.storage,
           identity.userId,
           now,
         );
@@ -251,10 +226,7 @@ export class WorkspaceInvitationService {
   private async lookupInvite(secret: string) {
     const secretHash = await hashInviteSecret(secret);
     const invite = firstRow<InviteRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM workspace_invites WHERE secret_hash = ?",
-        secretHash,
-      ),
+      workspaceInvitesFindLookupInvite(this.storage, secretHash),
     );
     if (!invite) {
       throw new HttpError(
@@ -292,10 +264,7 @@ export class WorkspaceInvitationService {
 
   private requireInvite(inviteId: string) {
     const invite = firstRow<InviteRow>(
-      this.storage.sql.exec(
-        "SELECT * FROM workspace_invites WHERE invite_id = ?",
-        inviteId,
-      ),
+      workspaceInvitesFindCreate(this.storage, inviteId),
     );
     if (!invite) throw new Error("The invite was not persisted.");
     return invite;
@@ -318,7 +287,7 @@ export class WorkspaceInvitationService {
 
   private workspaceSnapshot() {
     const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+      workspaceFindAuthorize(this.storage),
     );
     if (!workspace?.snapshot_json) {
       throw new HttpError(

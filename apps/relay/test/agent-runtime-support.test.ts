@@ -5,7 +5,10 @@ import { expect, test, vi } from "vitest";
 import { agentJobSchema, agentPrincipalSchema } from "@chief/relay-contracts";
 
 import {
+  HOSTED_JOB_MAX_ATTEMPTS,
+  hostedAutomaticRetryAt,
   isHostedInferenceTimeoutFailure,
+  isPermanentHostedFailure,
   resolveInferenceApiKey,
   shouldRetryHostedTurnFailure,
 } from "../src/agent-runtime-support";
@@ -206,6 +209,44 @@ test("continues to retry transient provider failures", () => {
       ),
     ).toBe(false);
   }
+});
+
+test("does not retry a missing hosted inference credential", () => {
+  expect(
+    shouldRetryHostedTurnFailure({
+      message:
+        "No inference credential is configured for this workspace's hosted agents.",
+    }),
+  ).toBe(false);
+  expect(
+    isPermanentHostedFailure(
+      "No inference credential is configured for this workspace's hosted agents.",
+    ),
+  ).toBe(true);
+  expect(
+    shouldRetryHostedTurnFailure({
+      message: "The specialist kickoff is missing its relay targets.",
+      status: 409,
+    }),
+  ).toBe(false);
+});
+
+test("stops automatic retries after a small number of claims", () => {
+  expect(hostedAutomaticRetryAt(1, "Transient executor disconnect.")).toEqual(
+    expect.any(String),
+  );
+  expect(
+    hostedAutomaticRetryAt(
+      HOSTED_JOB_MAX_ATTEMPTS,
+      "Transient executor disconnect.",
+    ),
+  ).toBeUndefined();
+  expect(
+    hostedAutomaticRetryAt(
+      1,
+      "No inference credential is configured for this workspace's hosted agents.",
+    ),
+  ).toBeUndefined();
 });
 
 test("recognizes the hosted inference timeout reported by AI SDK", () => {

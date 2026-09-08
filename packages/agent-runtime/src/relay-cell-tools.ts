@@ -45,7 +45,7 @@ function buildRelayCellMcpServer() {
     visibleTools.map((tool) => [localAgentToolName(tool.definition), tool]),
   );
   const server = new Server(
-    { name: "chief-relay", version: "0.1.0" },
+    { name: "relay", version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, () => {

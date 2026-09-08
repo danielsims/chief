@@ -1,8 +1,23 @@
 import Foundation
 
 actor FixtureRelayClient: RelayServing {
-    private var fixtureMessages = DemoWorkspace.messages
+    private var fixtureMessages = DemoWorkspace.messages + (ScheduledRunDemo.enabled ? [ScheduledRunDemo.message, ScheduledRunDemo.reply] : [])
     private var provisioningCredential: String?
+
+    func workspaceSettings(workspaceID: String) async throws -> WorkspaceSettingsData {
+        WorkspaceSettingsData(
+            name: DemoWorkspace.snapshot.name,
+            website: "https://heychief.sh",
+            imageURL: nil
+        )
+    }
+
+    func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
+      ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id && scheduleID == "demo-schedule" ? [ScheduledRunDemo.run] : []
+    }
+    func listWorkspaceFiles(workspaceID: String, signingIdentity: NostrIdentity?) async throws -> [WorkspaceFileRecord] {
+      ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id ? [ScheduledRunDemo.file] : []
+    }
 
     func bindDeviceIdentity(accountToken: String) async throws {}
 
@@ -42,6 +57,7 @@ actor FixtureRelayClient: RelayServing {
     }
 
     func send(
+        messageID: String = UUID().uuidString,
         body: String,
         workspaceID: String,
         conversationID: String,
@@ -50,7 +66,7 @@ actor FixtureRelayClient: RelayServing {
         components: [MessageComponent] = []
     ) async throws -> ConversationMessage {
         let message = ConversationMessage(
-            id: UUID().uuidString,
+            id: messageID,
             workspaceID: workspaceID,
             conversationID: conversationID,
             threadRootID: threadRootID,
@@ -221,7 +237,7 @@ actor FixtureRelayClient: RelayServing {
 
     func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {}
 
-    func joinChannel(workspaceID: String, conversationID: String) async throws {}
+    func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws {}
 
     func leaveChannel(workspaceID: String, conversationID: String) async throws {}
 
@@ -286,9 +302,9 @@ actor FixtureRelayClient: RelayServing {
         signingIdentity: NostrIdentity?
     ) async throws -> [WorkspaceMember] {
         [
-            .init(kind: "user", principalId: "daniel", role: "owner"),
-            .init(kind: "agent", principalId: "chief", role: "member"),
-            .init(kind: "agent", principalId: "engineer", role: "member"),
+            .init(kind: "user", principalId: "daniel", role: "owner", name: "Daniel"),
+            .init(kind: "agent", principalId: "chief", role: "member", name: "Chief"),
+            .init(kind: "agent", principalId: "engineer", role: "member", name: "Engineer"),
         ]
     }
 
@@ -495,7 +511,12 @@ enum DemoWorkspace {
             )
         ],
         agents: [
-            .init(id: "chief", name: "Chief", role: "Chief of staff", status: .working),
+            .init(
+                id: "chief", name: "Chief", role: "Chief of staff", status: .working,
+                subagents: WorkspaceAgentCatalog.agents.filter { $0.id != "chief" }.map {
+                    AgentProfile(id: $0.id, name: $0.name, role: $0.role)
+                }
+            ),
             .init(id: "engineer", name: "Engineer", role: "Product engineering", status: .idle),
             .init(id: "marketer", name: "Marketer", role: "Marketing", status: .needsYou)
         ],
@@ -509,6 +530,20 @@ enum DemoWorkspace {
                 providerID: "github",
                 canonicalRemoteURL: "https://github.com/danielsims/chief.git",
                 repositoryWebURL: "https://github.com/danielsims/chief",
+                repositoryFiles: [
+                    .init(
+                        path: "README.md",
+                        content: "# Chief\n\nA workspace where people and agents get work done together."
+                    ),
+                    .init(
+                        path: "apps/mobile/ChiefApp.swift",
+                        content: "import SwiftUI\n\n@main\nstruct ChiefApp: App {\n  var body: some Scene { WindowGroup { RootView() } }\n}"
+                    ),
+                    .init(
+                        path: "packages/relay-client/package.json",
+                        content: "{\n  \"name\": \"@chief/relay-client\"\n}"
+                    )
+                ],
                 defaultBranch: "main",
                 createdAt: "2026-08-22T00:00:00.000Z",
                 updatedAt: "2026-08-22T00:00:00.000Z"

@@ -1,7 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-import { isJsonNumber } from "@chief/relay-contracts";
-
 import type { StoredRelayConnection } from "../relay-connection";
 import type { StoredSession } from "./session";
 import {
@@ -11,13 +9,26 @@ import {
 } from "../config";
 import { validateStoredSession } from "./better-auth-client";
 import { refreshOAuthSession } from "./client";
-import { shouldInvalidateOAuthSession } from "./oauth-token-error";
+import { desktopAuthorizationRedirectUri } from "./desktop-redirect";
+import {
+  adoptRefreshedSession,
+  createOAuthRefreshGate,
+  resolveStoredOAuthSession,
+} from "./oauth-session-refresh";
 import {
   generateCodeChallenge,
   generateCodeVerifier,
   generateState,
   storePkceVerifier,
 } from "./pkce";
+import { getStoredSession, setStoredSession } from "./session";
+
+export {
+  ACCESS_TOKEN_REFRESH_LEAD_MS,
+  asError,
+  nextAccessTokenRefreshDelay,
+  sessionNeedsAccessTokenRefresh,
+} from "./oauth-session-refresh";
 
 export const chiefAccountConnection: StoredRelayConnection = {
   version: 1,
@@ -32,14 +43,16 @@ export async function openRelayAuthorization(
   const state = generateState();
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
+  const redirectUri = desktopAuthorizationRedirectUri(connection.authUiUrl);
   await storePkceVerifier(state, codeVerifier, {
     relayOrigin: connection.relayUrl,
     authBaseUrl: connection.authBaseUrl,
+    redirectUri,
   });
 
   const signInUrl = new URL("/api/auth/oauth2/authorize", connection.authUiUrl);
   signInUrl.searchParams.set("client_id", "chief-desktop");
-  signInUrl.searchParams.set("redirect_uri", "chief-desktop:///auth");
+  signInUrl.searchParams.set("redirect_uri", redirectUri);
   signInUrl.searchParams.set("response_type", "code");
   signInUrl.searchParams.set("scope", "openid profile email offline_access");
   signInUrl.searchParams.set("code_challenge", codeChallenge);
@@ -49,44 +62,16 @@ export async function openRelayAuthorization(
   await openUrl(signInUrl.toString());
 }
 
-export async function validateOrRefreshSession(session: StoredSession) {
-  const shouldRefresh =
-    Boolean(session.refreshToken) &&
-    isJsonNumber(session.expiresAt) &&
-    session.expiresAt <= Date.now() + 60_000;
-  if (shouldRefresh) {
-    try {
-      return await refreshOAuthSession(session);
-    } catch (error) {
-      return shouldInvalidateOAuthSession(
-        asError(error instanceof Error ? error : String(error)),
-      )
-        ? null
-        : session;
-    }
-  }
-  const validation = await validateStoredSession(session.token);
-  if (validation.status === "valid") {
-    return {
-      ...session,
-      user: validation.user,
-      organizationId: validation.organizationId ?? session.organizationId,
-      lastValidated: Date.now(),
-    };
-  }
-  if (validation.status === "unknown") return session;
-  if (!session.refreshToken) return null;
-  try {
-    return await refreshOAuthSession(session);
-  } catch (error) {
-    return shouldInvalidateOAuthSession(
-      asError(error instanceof Error ? error : String(error)),
-    )
-      ? null
-      : session;
-  }
-}
+const refreshOAuthSessionOnce = createOAuthRefreshGate(async (session) => {
+  const refreshed = await refreshOAuthSession(session);
+  const adopted = adoptRefreshedSession(getStoredSession(), session, refreshed);
+  if (adopted === refreshed) setStoredSession(refreshed);
+  return adopted;
+});
 
-export function asError(value: Error | string): Error {
-  return value instanceof Error ? value : new Error(String(value));
+export async function validateOrRefreshSession(session: StoredSession) {
+  return resolveStoredOAuthSession(session, {
+    refresh: refreshOAuthSessionOnce,
+    validate: validateStoredSession,
+  });
 }

@@ -39,7 +39,7 @@ Desktop development can target the printed URL without changing source:
 
 ```bash
 VITE_CHIEF_RELAY_URL=https://example.trycloudflare.com \
-VITE_AUTH_BASE_URL=https://chief-relay.danielsims-browser-ui.workers.dev \
+VITE_AUTH_BASE_URL=https://relay.heychief.sh \
 pnpm --filter @chief/desktop dev
 ```
 

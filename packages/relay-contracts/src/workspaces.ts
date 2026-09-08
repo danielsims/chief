@@ -94,6 +94,7 @@ export const workspaceMemberSchema = z
     kind: workspaceMemberKindSchema,
     principalId: z.string().trim().min(1).max(256),
     role: workspaceRoleSchema,
+    name: z.string().trim().min(1).max(120).optional(),
   })
   .strict();
 
@@ -162,6 +163,7 @@ export const createWorkspaceCommandSchema = z
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
     runtime: z.enum(["phone", "desktop", "cloud"]),
+    agentRuntime: z.enum(["relay-cell", "vercel-eve"]),
     inferenceProvider: z.enum([
       "openCodeGo",
       "opencode",
@@ -186,6 +188,7 @@ export const provisionWorkspaceCommandSchema = z
   })
   .strict()
   .superRefine((provision, context) => {
+    if (provision.workspace.agentRuntime === "vercel-eve") return;
     if (provision.workspace.runtime === "phone") return;
     const provider = provision.workspace.inferenceProvider;
     if (
@@ -218,12 +221,115 @@ export const conversationSummarySchema = z.object({
   lastMessage: z.string().max(4_000).nullable(),
 });
 
-const agentSummarySchema = z.object({
-  id: z.string().min(1).max(128),
-  name: z.string().min(1).max(120),
-  role: z.string().min(1).max(120),
+export const agentDefinitionSourceSchema = z
+  .object({
+    kind: z.literal("repository"),
+    projectId: z.string().trim().min(1).max(128),
+    repositoryId: z.string().trim().min(1).max(128),
+    repository: z.discriminatedUnion("provider", [
+      z
+        .object({
+          provider: z.literal("github"),
+          owner: z.string().trim().min(1).max(100),
+          name: z.string().trim().min(1).max(100),
+        })
+        .strict(),
+      z
+        .object({
+          provider: z.literal("chief-git"),
+          repositoryId: z.string().trim().min(1).max(128),
+        })
+        .strict(),
+    ]),
+    path: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_024)
+      .refine(
+        (path) =>
+          !path.startsWith("/") &&
+          !path.includes("\\") &&
+          path
+            .split("/")
+            .every((segment) => segment !== ".." && segment !== ""),
+        "Expected a repository-relative path without traversal.",
+      ),
+    requestedRef: z.string().trim().min(1).max(512),
+    verification: z.discriminatedUnion("status", [
+      z
+        .object({
+          status: z.literal("unresolved"),
+          reason: z.string().trim().min(1).max(500),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("verified"),
+          resolvedCommitSha: z.string().regex(/^[a-f\d]{40}$/iu),
+          contentDigest: z.string().regex(/^sha256:[a-f\d]{64}$/iu),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+
+export const workspaceAgentRuntimeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("native-cell") }).strict(),
+  z
+    .object({
+      kind: z.literal("external-channel"),
+      provider: z.literal("eve"),
+      endpoint: z.url().max(2_048),
+      connectionStatus: z.enum(["pending_setup", "connected", "degraded"]),
+      definition: agentDefinitionSourceSchema.optional(),
+      deployment: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("unattested") }).strict(),
+        z
+          .object({
+            status: z.literal("attested"),
+            resolvedCommitSha: z.string().regex(/^[a-f\d]{40}$/iu),
+            attestedAt: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+]);
+
+export const agentProfileSchema = z
+  .object({
+    ownerUserId: z.string().optional(),
+    canMessage: z.boolean().optional(),
+    canRunOnDevice: z.boolean().optional(),
+    id: z.string().min(1).max(128),
+    name: z.string().min(1).max(120),
+    role: z.string().min(1).max(120),
+    description: z.string().trim().max(1_000).default(""),
+    instructions: z.string().trim().max(40_000).default(""),
+    capabilities: z.array(z.string().trim().min(1).max(128)).default([]),
+  })
+  .strict();
+
+export const agentSummarySchema = agentProfileSchema.extend({
   status: z.enum(["idle", "working", "needsYou", "offline"]),
+  runtime: workspaceAgentRuntimeSchema.default({ kind: "native-cell" }),
+  subagents: z.array(agentProfileSchema).default([]),
 });
+
+export const createNativeAgentCommandSchema = z
+  .object({
+    agentId: z.string().trim().min(1).max(128),
+    name: z.string().trim().min(1).max(120),
+    role: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(1_000),
+    instructions: z.string().trim().min(1).max(40_000),
+  })
+  .strict();
+
+export const createNativeAgentResultSchema = z
+  .object({ agent: agentSummarySchema })
+  .strict();
 
 export const workspaceSnapshotSchema = z
   .object({
@@ -253,6 +359,13 @@ export type ProvisionWorkspaceCommand = z.infer<
   typeof provisionWorkspaceCommandSchema
 >;
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
+export type AgentDefinitionSource = z.infer<typeof agentDefinitionSourceSchema>;
+export type WorkspaceAgentRuntime = z.infer<typeof workspaceAgentRuntimeSchema>;
+export type AgentProfile = z.infer<typeof agentProfileSchema>;
+export type AgentSummary = z.infer<typeof agentSummarySchema>;
+export type CreateNativeAgentCommand = z.infer<
+  typeof createNativeAgentCommandSchema
+>;
 export type SwitchWorkspaceCommand = z.infer<
   typeof switchWorkspaceCommandSchema
 >;

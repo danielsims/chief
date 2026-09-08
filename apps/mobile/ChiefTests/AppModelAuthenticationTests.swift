@@ -4,7 +4,29 @@ import XCTest
 
 @MainActor
 final class AppModelAuthenticationTests: XCTestCase {
-  func testSignedInUserStaysInOnboardingWhenRelayIsUnavailable() async {
+  func testNotificationWaitsForHydrationAndNewestTapWins() async {
+    MobileNotifications.pendingOpen = nil
+    defer { MobileNotifications.pendingOpen = nil }
+    let model = AppModel(
+      sessions: TestSessionStore(), workspaces: TestWorkspaceStore(),
+      inferenceCredentials: TestInferenceCredentialStore(), relay: FixtureRelayClient(),
+      conversations: ConversationCache(), authentication: UnusedAuthentication())
+    let first = ConversationDeepLink(workspaceID: DemoWorkspace.snapshot.id, conversationID: "general", threadRootID: "old-root")
+    let newest = ConversationDeepLink(workspaceID: DemoWorkspace.snapshot.id, conversationID: "marketing", threadRootID: "scheduled-root")
+    await model.handleConversationDeepLink(first)
+    await model.handleConversationDeepLink(newest)
+    XCTAssertNil(model.selectedConversationID)
+    XCTAssertEqual(MobileNotifications.pendingOpen, newest)
+    model.completeSignIn(.fixture)
+    await model.hydrateWorkspace()
+    XCTAssertEqual(model.selectedConversationID, "marketing")
+    XCTAssertEqual(model.selectedThread?.rootMessageID, "scheduled-root")
+    XCTAssertNil(MobileNotifications.pendingOpen)
+    model.openConversation("general")
+    XCTAssertNil(model.selectedThread)
+  }
+
+  func testSignedInUserStaysInWorkspaceSetupWhenRelayIsUnavailable() async {
     let sessions = TestSessionStore()
     let model = AppModel(
       sessions: sessions,
@@ -18,7 +40,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     await model.hydrateWorkspace()
 
     XCTAssertEqual(model.session?.accessToken, ChiefSession.fixture.accessToken)
-    XCTAssertEqual(model.phase, .onboarding)
+    XCTAssertEqual(model.phase, .workspaceSetup)
     XCTAssertEqual(
       try? sessions.load()?.accessToken,
       ChiefSession.fixture.accessToken
@@ -38,7 +60,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     await model.start()
 
     XCTAssertEqual(model.session?.accessToken, ChiefSession.fixture.accessToken)
-    XCTAssertEqual(model.phase, .onboarding)
+    XCTAssertEqual(model.phase, .workspaceSetup)
     XCTAssertEqual(
       try sessions.load()?.accessToken,
       ChiefSession.fixture.accessToken
@@ -257,6 +279,7 @@ private struct FailingRelay: RelayServing {
     -> [ConversationMessage]
   { throw error }
   func send(
+    messageID: String,
     body: String,
     workspaceID: String,
     conversationID: String,
@@ -301,7 +324,7 @@ private struct FailingRelay: RelayServing {
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {
     throw error
   }
-  func joinChannel(workspaceID: String, conversationID: String) async throws { throw error }
+  func joinChannel(workspaceID: String, conversationID: String, signingIdentity: NostrIdentity?) async throws { throw error }
   func leaveChannel(workspaceID: String, conversationID: String) async throws { throw error }
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
     throw error

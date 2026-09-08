@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentQuestion } from "@chief/agent-runtime/types";
 
-import { visibleRuntimeError } from "./runtime-messages";
+import { isExpectedRuntimeStop, visibleRuntimeError } from "./runtime-messages";
 
 export interface PendingApproval {
   requestId: string;
@@ -42,6 +42,18 @@ export const emptyChatControls: ChatControlState = {
   questions: [],
   toolProgress: {},
 };
+
+/** Prevents process state from one conversation appearing on another while
+ * React is switching the active chat and its subscription. */
+export function controlsForConversation(
+  controls: ChatControlState,
+  controlsChatKey: string | null,
+  activeChatKey: string | null,
+): ChatControlState {
+  return activeChatKey && controlsChatKey === activeChatKey
+    ? controls
+    : emptyChatControls;
+}
 
 /** Runtime events carry process state and interactions; durable content lives
  * exclusively in the AI SDK message array. */
@@ -105,6 +117,9 @@ export function reduceChatControls(
           event.status === "running" ? undefined : controls.errorAcknowledged,
       };
     case "error":
+      if (isExpectedRuntimeStop(event.message)) {
+        return { ...controls, status: "idle", approvals: [], questions: [] };
+      }
       return withError(controls, {
         message: visibleRuntimeError(event.message) ?? "The agent stopped.",
         ...(event.title ? { title: event.title } : undefined),

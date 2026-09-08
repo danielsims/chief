@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { ChevronRight, Hash, Settings2 } from "lucide-react";
+import { Hash, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 
 import type { AgentDefinition } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -36,8 +35,6 @@ const CAPABILITY_LABELS: Record<string, string> = {
   "schedule-manager": "Scheduled work",
   "trend-memory": "Market signals",
 };
-
-const AGENT_BY_ID = new Map(defaultAgents.map((agent) => [agent.id, agent]));
 
 function sentenceCaseId(value: string) {
   const words = value.replaceAll("-", " ");
@@ -176,39 +173,28 @@ export function AgentProfilePanel({
               </section>
             ) : null}
 
-            {agent.delegates?.length ? (
+            {agent.subagents?.length ? (
               <section>
                 <h3 className="text-sm font-semibold tracking-[-0.01em]">
                   Works with
                 </h3>
                 <div className="bg-muted/30 mt-3 overflow-hidden rounded-2xl">
-                  {agent.delegates.map((delegateId) => {
-                    const delegate = AGENT_BY_ID.get(delegateId);
-                    const delegateName =
-                      delegate?.name ?? sentenceCaseId(delegateId);
-
-                    return (
-                      <Link
-                        key={delegateId}
-                        to={`/conversations?dm=${encodeURIComponent(delegateId)}`}
-                        className="border-border/55 hover:bg-muted/55 flex items-center gap-3 border-b px-3.5 py-3 transition-colors last:border-b-0"
-                      >
-                        <AgentAvatar label={delegateName} />
-                        <span className="min-w-0 flex-1 text-left">
-                          <span className="block truncate text-[13px] font-medium">
-                            {delegateName}
-                          </span>
-                          <span className="text-muted-foreground mt-0.5 block truncate text-[11px]">
-                            {delegate?.role ?? "Agent"}
-                          </span>
+                  {agent.subagents.map((subagent) => (
+                    <div
+                      key={subagent.id}
+                      className="border-border/55 flex items-center gap-3 border-b px-3.5 py-3 last:border-b-0"
+                    >
+                      <AgentAvatar label={subagent.name} />
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block truncate text-[13px] font-medium">
+                          {subagent.name}
                         </span>
-                        <ChevronRight
-                          aria-hidden
-                          className="text-muted-foreground/65 size-4 shrink-0"
-                        />
-                      </Link>
-                    );
-                  })}
+                        <span className="text-muted-foreground mt-0.5 block truncate text-[11px]">
+                          {subagent.role}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </section>
             ) : null}

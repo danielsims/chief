@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { AgentActivityComponent } from "@chief/relay-contracts";
+import { agentActivityComponentSchema } from "@chief/relay-contracts";
 
 import { RelayActivityPublisher } from "../src/relay-activity-publisher.js";
 
@@ -116,4 +117,35 @@ void test("activity publisher surfaces relay write failures", async () => {
     publisher.flush(),
     /durable activity updates could not be published/i,
   );
+});
+
+void test("activity publisher collapses queued thinking snapshots", async () => {
+  const published: AgentActivityComponent[] = [];
+  let releaseFirst: (() => void) | undefined;
+  const firstWrite = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const publisher = new RelayActivityPublisher(
+    {
+      upsertAgentActivity: async (_conversationId, input) => {
+        published.push(agentActivityComponentSchema.parse(input.component));
+        if (published.length === 1) await firstWrite;
+      },
+    },
+    "direct-researcher",
+  );
+
+  publisher.accept({ type: "thinkingStream", text: "First. " });
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  publisher.accept({ type: "thinkingStream", text: "Second. " });
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  publisher.accept({ type: "thinkingStream", text: "Third." });
+  releaseFirst?.();
+  await publisher.flush();
+
+  assert.equal(published.length, 2);
+  const final = published.at(-1);
+  assert.equal(final?.kind, "thinking");
+  assert.equal(final.payload.status, "completed");
+  assert.equal(final.payload.text, "First. Second. Third.");
 });

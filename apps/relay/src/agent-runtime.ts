@@ -63,6 +63,8 @@ import {
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
 import { hostedDurableTools } from "./hosted-agent-tools";
+import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
+import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export class AgentRuntime {
   private readonly turns: DurableTurnRunner;
@@ -94,6 +96,15 @@ export class AgentRuntime {
 
   async currentWorkflowId() {
     return await currentAgentWorkflowId(this.storage, this.turns);
+  }
+
+  resetRetriedTurn(jobId: string) {
+    const { turns } = this;
+    return Effect.gen(function* () {
+      const active = yield* attempt("agent.turn.active", () => turns.active());
+      if (active?.jobId !== jobId) return;
+      yield* attempt("agent.turn.cancel", () => turns.cancelActive());
+    }).pipe(Effect.withSpan("agent.turn.retry_reset"));
   }
 
   async supersedeConversation(
@@ -133,14 +144,7 @@ export class AgentRuntime {
       const now = new Date().toISOString();
       const due = yield* sync("agent.job.find_due", () =>
         firstAgentRow<{ job_json: string }>(
-          storage.sql.exec(
-            `SELECT job_json FROM jobs
-             WHERE (status = 'pending' AND available_at <= ?)
-                OR (status = 'leased' AND lease_expires_at <= ?)
-             ORDER BY available_at ASC, rowid ASC LIMIT 1`,
-            now,
-            now,
-          ),
+          jobsFindCurrentAgentWorkflowId(storage, now, now),
         ),
       );
       if (!due) {
@@ -184,6 +188,15 @@ export class AgentRuntime {
       const lease = yield* attempt("agent.job.lease.decode", () =>
         parseHostedLease(response),
       );
+      if (lease.job.kind === "workspace.onboarding") {
+        yield* completeAgentJob(queue, lease.leaseToken, principal, {
+          status: "completed",
+          result: {
+            openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE,
+          },
+        });
+        return yield* scheduleNextAlarm();
+      }
       const admission = Effect.gen(function* () {
         const prepared = yield* attempt("agent.turn.prepare", () =>
           prepareHostedAgentTurn(env, lease.job, principal, hosting, storage),

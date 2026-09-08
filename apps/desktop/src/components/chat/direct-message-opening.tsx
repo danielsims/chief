@@ -5,7 +5,6 @@ import { Button } from "@chief/ui/components/button";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import {
   directMessageChatForAgent,
-  WORKSPACE_AGENT_IDENTITIES,
   workspaceDirectMessage,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
@@ -20,15 +19,17 @@ export function useRequestedDirectMessage({
   chats,
   loading,
   runtimeStatus,
+  agents,
   start,
 }: {
   agentId: string | null;
   chats: readonly DirectChat[];
   loading: boolean;
   runtimeStatus: string;
+  agents: readonly { id: string }[];
   start: (agentId: string) => Promise<string>;
 }) {
-  const message = workspaceDirectMessage(agentId);
+  const message = workspaceDirectMessage(agentId, agents);
   const chat = message ? directMessageChatForAgent(chats, message.id) : null;
   const [created, setCreated] = useState<{
     agentId: WorkspaceAgentId;
@@ -79,19 +80,20 @@ export function useRequestedDirectMessage({
 
 export function DirectMessageOpening({
   agentId,
+  agentName,
   error,
   onRetry,
 }: {
   agentId: WorkspaceAgentId;
+  agentName: string;
   error: string | null;
   onRetry: () => void;
 }) {
-  const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
         <AgentAvatar agentId={agentId} className="size-7" />
-        <span className="text-sm font-semibold">{identity.name}</span>
+        <span className="text-sm font-semibold">{agentName}</span>
       </header>
       <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
         <p>{error ?? "Opening conversation…"}</p>

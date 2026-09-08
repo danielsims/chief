@@ -170,3 +170,50 @@ void test("Codex ACP prompts and completes through one stable session", async ()
   await driver.sendPromptOnce("Start onboarding");
   assert.ok(events.some((event) => event.type === "result" && event.ok));
 });
+
+void test("Codex MCP approval preserves the adapter's server-qualified identity", () => {
+  const driver = new TestCodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+  driver.setAccess("guarded");
+  driver.receive({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "exec-relay-list",
+        kind: "execute",
+        title: "mcp.chief_relay.channels_list",
+        status: "in_progress",
+        rawInput: {
+          server: "chief_relay",
+          tool: "channels_list",
+          arguments: {},
+        },
+      },
+    },
+  });
+  driver.receive({
+    id: 8,
+    method: "session/request_permission",
+    params: {
+      toolCall: {
+        toolCallId: "exec-relay-list",
+        kind: "execute",
+        status: "pending",
+      },
+      _meta: { is_mcp_tool_approval: true },
+      options: [
+        { optionId: "allow_once", kind: "allow_once" },
+        { optionId: "decline", kind: "reject_once" },
+      ],
+    },
+  });
+  const permission = events.find((event) => event.type === "permission");
+  assert.equal(permission?.toolName, "mcp.chief_relay.channels_list");
+  assert.ok(permission);
+  driver.respondPermission(permission.requestId, "allow");
+  assert.deepEqual(driver.responses[0]?.result, {
+    outcome: { outcome: "selected", optionId: "allow_once" },
+  });
+});

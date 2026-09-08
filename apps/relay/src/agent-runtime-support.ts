@@ -30,8 +30,11 @@ const hostedLeaseSchema = z.object({
   leaseToken: z.string(),
 });
 const secretValueSchema = z.object({ value: z.string().optional() });
+export const HOSTED_JOB_MAX_ATTEMPTS = 3;
 const providerQuotaFailure =
   /\b(?:available balance|credit balance|insufficient[_ -]?quota|quota exceeded|usage limit reached)\b/iu;
+const permanentHostedFailure =
+  /\b(?:no inference credential|not configured for hosted agents|hosted agent configuration is unavailable|incorrect or expired|invalid api key|unauthorized|forbidden|kickoff is missing|work channel was not created|channel must be public|must continue in a private)\b/iu;
 
 export function hostedClaimRequest() {
   return new Request("https://agent.internal/claim", {
@@ -62,6 +65,18 @@ export function agentRetryDelay(attempt: number) {
   return Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempt, 5));
 }
 
+export function isPermanentHostedFailure(error: string) {
+  return providerQuotaFailure.test(error) || permanentHostedFailure.test(error);
+}
+
+/** Automatic retries stop after a few claims so a broken run cannot keep
+ * spending inference. Owners can still resume a failed job by hand. */
+export function hostedAutomaticRetryAt(attempt: number, error?: string) {
+  if (attempt >= HOSTED_JOB_MAX_ATTEMPTS) return undefined;
+  if (error && isPermanentHostedFailure(error)) return undefined;
+  return new Date(Date.now() + agentRetryDelay(attempt)).toISOString();
+}
+
 export function hostedErrorMessage(error: string) {
   return `Chief could not complete this step: ${error.slice(0, 600)}. Chief will retry automatically.`;
 }
@@ -75,7 +90,7 @@ export function shouldRetryHostedTurnFailure(
   priorInterruptions = 0,
 ) {
   if (priorInterruptions >= 2) return false;
-  if (providerQuotaFailure.test(internalFailureMessage(failure))) return false;
+  if (isPermanentHostedFailure(internalFailureMessage(failure))) return false;
   if (APICallError.isInstance(failure.cause)) {
     return failure.cause.isRetryable;
   }
@@ -116,7 +131,8 @@ export function resolveInferenceApiKey(
         );
       });
     }
-    const secretRef = config.inference.secretRef;
+    const secretRef =
+      "secretRef" in config.inference ? config.inference.secretRef : undefined;
     if (secretRef) {
       const target = new URL("https://workspace.internal/secrets");
       target.searchParams.set("name", secretRef);

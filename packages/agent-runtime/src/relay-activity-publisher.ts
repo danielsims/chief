@@ -17,6 +17,13 @@ interface ActivityRelayClient {
   ): Promise<ActivityPublishResult>;
 }
 
+interface PendingActivityPublish {
+  messageId: string;
+  component: AgentActivityComponent;
+}
+
+const THINKING_PUBLISH_INTERVAL_MS = 500;
+
 function textPayload(value: unknown) {
   if (isJsonString(value)) return value;
   try {
@@ -33,7 +40,8 @@ export class RelayActivityPublisher {
     string,
     { messageId: string; name: string; input: string }
   >();
-  private queue = Promise.resolve();
+  private readonly pendingPublishes: PendingActivityPublish[] = [];
+  private drainPromise: Promise<void> | undefined;
   private readonly failures: unknown[] = [];
   private thinkingTimer: NodeJS.Timeout | undefined;
 
@@ -120,7 +128,7 @@ export class RelayActivityPublisher {
 
   async flush() {
     this.finishThinking();
-    await this.queue;
+    while (this.drainPromise) await this.drainPromise;
     if (this.failures.length > 0) {
       throw new AggregateError(
         this.failures,
@@ -150,7 +158,7 @@ export class RelayActivityPublisher {
     this.thinkingTimer = setTimeout(() => {
       this.thinkingTimer = undefined;
       this.publishThinking("working");
-    }, 160);
+    }, THINKING_PUBLISH_INTERVAL_MS);
   }
 
   private finishThinking() {
@@ -163,12 +171,16 @@ export class RelayActivityPublisher {
   private publishThinking(status: "working" | "completed") {
     const thinking = this.activeThinking;
     if (!thinking?.text.trim()) return;
-    this.publish(thinking.messageId, {
-      id: thinking.componentId,
-      kind: "thinking",
-      version: 1,
-      payload: { text: thinking.text, status, ...this.correlation() },
-    });
+    this.publish(
+      thinking.messageId,
+      {
+        id: thinking.componentId,
+        kind: "thinking",
+        version: 1,
+        payload: { text: thinking.text, status, ...this.correlation() },
+      },
+      true,
+    );
   }
 
   private correlation() {
@@ -212,22 +224,47 @@ export class RelayActivityPublisher {
     else console.info("[cell-activity]", serialized);
   }
 
-  private publish(messageId: string, component: AgentActivityComponent) {
+  private publish(
+    messageId: string,
+    component: AgentActivityComponent,
+    replacePending = false,
+  ) {
     this.diagnostic("queued", messageId, component);
-    this.queue = this.queue
-      .then(() =>
-        this.client.upsertAgentActivity(this.conversationId, {
-          messageId,
-          ...(this.threadRootId
-            ? { threadRootId: this.threadRootId }
-            : undefined),
-          component,
-        }),
-      )
-      .then(() => this.diagnostic("persisted", messageId, component))
-      .catch((error) => {
-        this.failures.push(error);
-        this.diagnostic("failed", messageId, component, error);
-      });
+    const pendingIndex = replacePending
+      ? this.pendingPublishes.findIndex(
+          (candidate) => candidate.messageId === messageId,
+        )
+      : -1;
+    if (pendingIndex >= 0) {
+      this.pendingPublishes[pendingIndex] = { messageId, component };
+    } else {
+      this.pendingPublishes.push({ messageId, component });
+    }
+    this.drainPromise ??= this.drain();
+  }
+
+  private async drain() {
+    try {
+      while (this.pendingPublishes.length > 0) {
+        const next = this.pendingPublishes.shift();
+        if (!next) continue;
+        try {
+          await this.client.upsertAgentActivity(this.conversationId, {
+            messageId: next.messageId,
+            ...(this.threadRootId
+              ? { threadRootId: this.threadRootId }
+              : undefined),
+            component: next.component,
+          });
+          this.diagnostic("persisted", next.messageId, next.component);
+        } catch (error) {
+          this.failures.push(error);
+          this.diagnostic("failed", next.messageId, next.component, error);
+        }
+      }
+    } finally {
+      this.drainPromise = undefined;
+      if (this.pendingPublishes.length > 0) this.drainPromise = this.drain();
+    }
   }
 }
