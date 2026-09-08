@@ -16,7 +16,7 @@ packages:
 settings:
   base:
     CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: 0.1.0
+    MARKETING_VERSION: 0.1.1
     SWIFT_VERSION: 6.0
     ENABLE_USER_SCRIPT_SANDBOXING: true
 targets:
@@ -129,7 +129,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.AgentActivityWidget
         CURRENT_PROJECT_VERSION: 1
-        MARKETING_VERSION: 0.1.0
+        MARKETING_VERSION: 0.1.1
         DEVELOPMENT_TEAM: XMMXB25823
         CODE_SIGN_STYLE: Automatic
         SKIP_INSTALL: YES
