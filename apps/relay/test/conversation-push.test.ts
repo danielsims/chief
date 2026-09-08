@@ -22,16 +22,16 @@ function message(body: string, mentions: string[] = []) {
 }
 
 describe("conversation push mentions", () => {
-  const daniel = { id: "user-daniel", name: "Daniel Sims" };
+  const owner = { id: "workspace-owner", name: "Workspace Owner" };
 
   it("titles an explicit @name as a mention even without a structured id", () => {
     const alerts = conversationPushAlerts(
-      message("Hey @Daniel Sims, first brand profile is done"),
-      [daniel],
+      message("Hey @Workspace Owner, first brand profile is done"),
+      [owner],
     );
     expect(alerts).toEqual([
       {
-        userId: "user-daniel",
+        userId: "workspace-owner",
         mentioned: true,
         title: "Marketer mentioned you in #marketing",
       },
@@ -40,11 +40,11 @@ describe("conversation push mentions", () => {
 
   it("keeps ordinary channel messages on the generic title", () => {
     const alerts = conversationPushAlerts(message("Getting oriented now."), [
-      daniel,
+      owner,
     ]);
     expect(alerts).toEqual([
       {
-        userId: "user-daniel",
+        userId: "workspace-owner",
         mentioned: false,
         title: "Marketer in #marketing",
       },

@@ -80,9 +80,9 @@ function fixture(root = "chief-home") {
   git(
     repository,
     "-c",
-    "user.name=Daniel",
+    "user.name=Workspace",
     "-c",
-    "user.email=daniel@example.com",
+    "user.email=owner@example.com",
     "commit",
     "-m",
     "Initial commit",
@@ -234,9 +234,9 @@ void test("project browsing returns a committed tree, README, contributors, file
     git(
       repository,
       "-c",
-      "user.name=Daniel",
+      "user.name=Workspace",
       "-c",
-      "user.email=daniel@example.com",
+      "user.email=owner@example.com",
       "commit",
       "-m",
       "Update documentation",
@@ -271,7 +271,7 @@ void test("project browsing returns a committed tree, README, contributors, file
       root.entries.every((entry) => entry.lastCommit),
       true,
     );
-    assert.equal(root.contributors[0]?.name, "Daniel");
+    assert.equal(root.contributors[0]?.name, "Workspace");
     assert.deepEqual(
       root.commits.map((commit) => commit.subject),
       ["Update documentation", "Initial commit"],

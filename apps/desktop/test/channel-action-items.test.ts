@@ -278,7 +278,7 @@ void test("keeps a pre-upgrade channel action discoverable on its latest root", 
           resolution: {
             answers: { "What should Chief do next?": "Proceed" },
             resolvedAt: 40,
-            resolvedBy: { id: "daniel", name: "Daniel Simms" },
+            resolvedBy: { id: "workspace-owner", name: "Workspace" },
           },
         },
       ],
@@ -336,7 +336,7 @@ void test("shows one durable action card in its owning direct conversation", () 
     resolution: {
       answers: { "Which colour do you like best?": "Green" },
       resolvedAt: 2,
-      resolvedBy: { id: "daniel", name: "Daniel Simms" },
+      resolvedBy: { id: "workspace-owner", name: "Workspace" },
     },
   };
 
