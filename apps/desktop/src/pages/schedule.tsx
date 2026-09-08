@@ -11,7 +11,7 @@ import type {
   ScheduledDraft,
   ScheduleKind,
 } from "./schedule-calendar-core";
-import { PageTitle } from "../components/page-title";
+import { PageHeader } from "../components/page-header";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -259,17 +259,16 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-8 pt-6 pb-6">
-        <div>
-          <PageTitle>Schedule</PageTitle>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="Schedule"
+        description="Plan and manage your team's scheduled work."
+        actions={
           <Button size="sm" onClick={() => createSchedule()}>
             <Plus size={14} />
             New schedule
           </Button>
-        </div>
-      </header>
+        }
+      />
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
