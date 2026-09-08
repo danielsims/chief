@@ -10,9 +10,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-const KEYCHAIN_SERVICE: &str = "com.danielsims.chief.relay";
+const KEYCHAIN_SERVICE: &str = "sh.heychief.desktop.relay";
 const KEYCHAIN_ACCOUNT: &str = "device-nip98-private-key-v1";
-const AGENT_KEYCHAIN_SERVICE: &str = "com.danielsims.chief.agent-identity";
+const AGENT_KEYCHAIN_SERVICE: &str = "sh.heychief.desktop.agent-identity";
 const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25_300;
 const NIP98_KIND: u32 = 27_235;
 

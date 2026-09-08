@@ -19,7 +19,7 @@ import type {
 } from "./types.js";
 import { sessionRecord } from "./local-store-messages.js";
 
-const CHIEF_KEYCHAIN_SERVICE = "com.danielsims.chief.local-database";
+const CHIEF_KEYCHAIN_SERVICE = "sh.heychief.desktop.local-database";
 const bigintSchema = z.bigint();
 
 function diagnosticSessionRecord(
