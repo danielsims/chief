@@ -57,6 +57,15 @@ actor WorkspaceAgentLoop {
     agentLoopLog.info("agent loop stopped for \(self.workspaceID)")
   }
 
+  /// HTTP catch-up also works when a foreground socket is reconnecting.
+  func wake() async {
+    await withTaskGroup(of: Void.self) { group in
+      for agentID in roster {
+        group.addTask { await self.drainMailbox(agentID: agentID) }
+      }
+    }
+  }
+
   private func listen(agentID: String) async {
     var reconnectDelay = 1.0
     while !Task.isCancelled {
@@ -147,7 +156,9 @@ actor WorkspaceAgentLoop {
         ?? (lease.job.kind == "conversation.message"
         ? "Return exactly one final reply. Do not call relay_message_post for \(conversationID); Chief publishes your returned reply there."
         : "")
-      let turn = try await completeJobTurn(
+      let turn = try await withThrowingTaskGroup(of: TurnExtractor.Turn.self) { group in
+        group.addTask { [self] in
+          try await completeJobTurn(
         scope: scope,
         conversationID: conversationID,
         instruction: [context, instruction, deliveryInstruction]
@@ -156,6 +167,17 @@ actor WorkspaceAgentLoop {
         jobKind: lease.job.kind,
         expectedThreadRootID: lease.job.payload.threadRootId
       )
+        }
+        group.addTask { [self] in
+          while true {
+            try await Task.sleep(for: .seconds(30))
+            try await relay.renewAgentJob(workspaceID: workspaceID, agentID: agentID, leaseToken: lease.leaseToken)
+          }
+        }
+        defer { group.cancelAll() }
+        guard let turn = try await group.next() else { throw CancellationError() }
+        return turn
+      }
       let alreadyPublished = scheduledThread.map {
         ScheduledRunDelivery.alreadyPublished(components: turn.components, conversationID: conversationID, threadRootID: $0)
       } ?? false

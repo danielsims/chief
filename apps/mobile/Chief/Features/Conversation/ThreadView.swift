@@ -275,6 +275,7 @@ struct ThreadView: View {
       composerMentionIDs + AgentMentionParser.mentions(in: draft)
     )
     let messageID = UUID().uuidString
+    model.expectAgentReply(messageID: messageID, conversationID: conversationID, mentions: mentions, threadRootID: root.id)
     draft = ""
     composerMentionIDs = []
     composerSkillIDs = []
@@ -301,12 +302,15 @@ struct ThreadView: View {
         )
         sentReplyIDs.insert(message.id)
         model.conversations.merge(message)
+        Task { await model.wakeOnDeviceAgents() }
         // The relay queues the addressed cell once; the live mailbox owns it.
       } catch {
         if await reconcileDeliveredReply(messageID: messageID) {
           sentReplyIDs.insert(messageID)
+          Task { await model.wakeOnDeviceAgents() }
           return
         }
+        model.cancelExpectedAgentReply(messageID: messageID)
         draft = MessageSendRecovery.restoredDraft(
           pending: pendingText,
           current: draft

@@ -78,6 +78,9 @@ final class AppModel {
   private(set) var isWorkspaceReadyForPresentation = false
   private var debugSkipCredentialStore = false
   private var agentLoopTask: Task<Void, Never>?
+  private var agentLoop: WorkspaceAgentLoop?
+  private var agentLoopRoster: [String] = []
+  private var pendingAgentReplies: [String: (workspaceID: String, conversationID: String, agentID: String)] = [:]
   private var workspaceLiveTask: Task<Void, Never>?
   private var workspaceLiveBackgroundStopTask: Task<Void, Never>?
   private var workspaceMembershipRefreshTask: Task<Void, Never>?
@@ -505,7 +508,7 @@ final class AppModel {
     conversationID: String
   ) -> [AgentActivityPresence] {
     guard let workspaceID else { return [] }
-    let ids: Set<String>
+    var ids: Set<String>
     if conversationID == "mission-control" {
       ids = workingAgents.reduce(into: Set<String>()) { result, entry in
         guard entry.key.workspaceID == workspaceID else { return }
@@ -516,6 +519,11 @@ final class AppModel {
         workingAgents[
           ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
         ] ?? []
+    }
+    for pending in pendingAgentReplies.values where pending.workspaceID == workspaceID {
+      if conversationID == "mission-control" || pending.conversationID == conversationID {
+        ids.insert(pending.agentID)
+      }
     }
     let roster = workspace?.agents.map(\.id) ?? []
     return ids.sorted {
@@ -701,6 +709,9 @@ final class AppModel {
     var agents = workingAgents[key] ?? []
     let activityKey = "\(workspaceID):\(conversationID):\(agentID)"
     if isWorking {
+      pendingAgentReplies = pendingAgentReplies.filter {
+        $0.value.workspaceID != workspaceID || $0.value.conversationID != conversationID || $0.value.agentID != agentID
+      }
       agents.insert(agentID)
       if activeAgentActivityIDs[activityKey] == nil {
         let activityID = UUID().uuidString
@@ -928,10 +939,7 @@ final class AppModel {
   }
 
   private func registerAgentKeyIfNeeded(workspaceID: String) async {
-    let roster = (workspace?.agents ?? []).compactMap { agent in
-      let config = configStore.load(workspaceID: workspaceID, agentID: agent.id)
-      return config?.deploymentTarget == "phone" ? agent.id : nil
-    }
+    let roster = onDeviceAgentRoster()
     await withTaskGroup(of: Void.self) { group in
       for agentID in roster {
         group.addTask { [weak self] in
@@ -2227,6 +2235,11 @@ final class AppModel {
   func refreshWorkspaceContent(expectedID: String) async {
     await refreshWorkspaceSnapshot(expectedID: expectedID)
     guard !Task.isCancelled, let snapshot = workspace, snapshot.id == expectedID else { return }
+    await refreshAgentConfigCache(for: snapshot)
+    guard !Task.isCancelled, workspace?.id == expectedID else { return }
+    await registerAgentKeyIfNeeded(workspaceID: expectedID)
+    startAgentLoopIfNeeded()
+    await agentLoop?.wake()
     let ids = snapshot.conversations.filter {
       $0.kind == .direct || joinedConversationIDs?.contains($0.id) == true
     }.map(\.id)
@@ -2728,6 +2741,8 @@ final class AppModel {
         projects: current.projects
       )
     }
+    await registerAgentKeyIfNeeded(workspaceID: workspaceID)
+    startAgentLoopIfNeeded()
     return true
   }
 
@@ -2807,18 +2822,48 @@ final class AppModel {
     let filtered = allowed.filter { $0.isLetter || $0.isNumber || $0 == "-" }
     return filtered.split(separator: "-").filter { !$0.isEmpty }.joined(separator: "-")
   }
+  private func onDeviceAgentRoster() -> [String] {
+    guard let workspace else { return [] }
+    return workspace.agents.filter { $0.canRunOnDevice != false }
+      .flatMap { [$0.id] + $0.subagents.map(\.id) }.filter { agentID in
+        guard let config = configStore.load(workspaceID: workspace.id, agentID: agentID) else { return false }
+        return config.enabled && config.deploymentTarget == "phone"
+      }.sorted()
+  }
+
+  /// This is presentation only. Execution always requires a relay-issued lease.
+  func expectAgentReply(messageID: String, conversationID: String, mentions: [String], threadRootID: String?) {
+    guard let workspaceID = workspace?.id,
+      let agentID = agentTurnTarget(conversationID: conversationID, threadRootID: threadRootID,
+        mentions: mentions, requestedAgentID: nil) else { return }
+    pendingAgentReplies[messageID] = (workspaceID, conversationID, agentID)
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(30))
+      self?.pendingAgentReplies.removeValue(forKey: messageID)
+    }
+  }
+
+  func cancelExpectedAgentReply(messageID: String) {
+    pendingAgentReplies.removeValue(forKey: messageID)
+  }
+
+  func wakeOnDeviceAgents() async {
+    startAgentLoopIfNeeded()
+    await agentLoop?.wake()
+  }
+
   private func startAgentLoopIfNeeded() {
     guard phase == .workspace, let workspace else { return }
-    guard agentLoopTask == nil else { return }
-    let roster = workspace.agents.filter { $0.canRunOnDevice != false }.flatMap { [$0.id] + $0.subagents.map(\.id) }.compactMap { agentID in
-      let config = configStore.load(workspaceID: workspace.id, agentID: agentID)
-      return config?.deploymentTarget == "phone" ? agentID : nil
-    }
+    let roster = onDeviceAgentRoster()
+    guard agentLoopTask == nil || agentLoopRoster != roster else { return }
+    stopAgentLoop()
     guard !roster.isEmpty else { return }
+    agentLoopRoster = roster
     let loop = WorkspaceAgentLoop(
       relay: relay,
       workspaceID: workspace.id,
       roster: roster,
+      configuration: appConfiguration,
       onWorking: { [weak self] agentID, conversationID, isWorking in
         await self?.setAgentWorking(
           agentID: agentID,
@@ -2844,6 +2889,8 @@ final class AppModel {
     )
     agentLoopTask = Task { [weak self] in
       await self?.bootCellRuntimeIfNeeded()
+      guard !Task.isCancelled else { return }
+      self?.agentLoop = loop
       await loop.run()
     }
   }
@@ -2851,6 +2898,8 @@ final class AppModel {
   private func stopAgentLoop() {
     agentLoopTask?.cancel()
     agentLoopTask = nil
+    agentLoop = nil
+    agentLoopRoster = []
   }
 
   private func refreshWorkspaceAfterAgentCompletion(
