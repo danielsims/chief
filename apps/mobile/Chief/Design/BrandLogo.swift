@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 import WebKit
@@ -59,22 +60,50 @@ enum BrandLogoPolicy {
 @MainActor
 enum BrandLogoImage {
   private static var imageCache: [String: UIImage] = [:]
-  private static var webView: WKWebView?
+  private static var inFlight: [String: Task<UIImage?, Never>] = [:]
+
+  static func bundled(domain: String) -> UIImage? {
+    let canonical = PluginCatalogClient.domainAliases[domain.lowercased()] ?? domain.lowercased()
+    return UIImage(named: "Plugin-" + canonical.replacingOccurrences(of: ".", with: "-"))
+  }
+
+  static func cached(url: URL) -> UIImage? {
+    if let image = imageCache[url.absoluteString] { return image }
+    guard let path = cacheURL(url), let image = UIImage(contentsOfFile: path.path) else { return nil }
+    imageCache[url.absoluteString] = image
+    return image
+  }
 
   static func load(url: URL) async -> UIImage? {
-    if let cached = imageCache[url.absoluteString] { return cached }
-    guard let (data, _) = try? await URLSession.shared.data(from: url),
-      !data.isEmpty
-    else { return nil }
-    if let raster = UIImage(data: data) {
-      imageCache[url.absoluteString] = raster
-      return raster
+    if let image = cached(url: url) { return image }
+    if let task = inFlight[url.absoluteString] { return await task.value }
+    let task = Task { @MainActor () -> UIImage? in
+      var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+      request.setValue("image/*", forHTTPHeaderField: "Accept")
+      guard let (data, response) = try? await URLSession.shared.data(for: request),
+        let http = response as? HTTPURLResponse, http.statusCode == 200,
+        !data.isEmpty, data.count <= 2_000_000 else { return nil }
+      let result: UIImage?
+      if let raster = UIImage(data: data) { result = raster }
+      else { result = await rasterizeSVG(data: data) }
+      guard let result else { return nil }
+      imageCache[url.absoluteString] = result
+      if let path = cacheURL(url), let png = result.pngData() {
+        try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? png.write(to: path, options: .atomic)
+      }
+      return result
     }
-    if let rendered = await rasterizeSVG(data: data) {
-      imageCache[url.absoluteString] = rendered
-      return rendered
-    }
-    return nil
+    inFlight[url.absoluteString] = task
+    let image = await task.value
+    inFlight[url.absoluteString] = nil
+    return image
+  }
+
+  private static func cacheURL(_ url: URL) -> URL? {
+    let hash = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+    return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("PluginLogos", isDirectory: true).appendingPathComponent(hash + ".png")
   }
 
   /// Downloads and caches logos up front so grids render instantly with no
@@ -88,11 +117,11 @@ enum BrandLogoImage {
   }
 
   private static func rasterizeSVG(data: Data) async -> UIImage? {
-    guard let markup = String(data: data, encoding: .utf8) else { return nil }
+    guard let markup = String(data: data, encoding: .utf8), markup.contains("<svg") else { return nil }
     let webView = makeWebView()
     let html =
-      "<html><head><meta name='viewport' content='width=\(64),initial-scale=1'>"
-      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;display:flex;align-items:center;justify-content:center;overflow:hidden}</style></head>"
+      "<html><head><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\"><meta name='viewport' content='width=\(64),initial-scale=1'>"
+      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;display:flex;align-items:center;justify-content:center;overflow:hidden}svg{width:64px!important;height:64px!important}</style></head>"
       + "<body>\(markup)</body></html>"
     webView.loadHTMLString(html, baseURL: nil)
     for _ in 0..<60 {
@@ -108,13 +137,12 @@ enum BrandLogoImage {
   }
 
   private static func makeWebView() -> WKWebView {
-    if let webView { return webView }
     let configuration = WKWebViewConfiguration()
     configuration.allowsInlineMediaPlayback = false
+    configuration.defaultWebpagePreferences.allowsContentJavaScript = false
     let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 64, height: 64), configuration: configuration)
     view.isOpaque = false
     view.backgroundColor = .clear
-    webView = view
     return view
   }
 }
@@ -152,11 +180,18 @@ struct BrandLogoView: View {
   let size: CGFloat
 
   @State private var image: UIImage?
-  @State private var failed = false
   @State private var needsBacking = false
 
-  private static var imageCache: [String: UIImage] = [:]
-  private static var backingCache: [String: Bool] = [:]
+  init(domain: String, iconURL: URL?, size: CGFloat) {
+    self.domain = domain
+    self.iconURL = iconURL
+    self.size = size
+    let initial = BrandLogoImage.bundled(domain: domain) ?? iconURL.flatMap(BrandLogoImage.cached)
+    _image = State(initialValue: initial)
+    _needsBacking = State(initialValue: initial.map {
+      BrandLogoPolicy.isGoogle(domain: domain) || BrandLogoPolicy.needsLightBacking($0)
+    } ?? false)
+  }
 
   private var radius: CGFloat { size * 0.23 }
 
@@ -181,29 +216,15 @@ struct BrandLogoView: View {
   }
 
   private func load() async {
-    failed = false
+    image = BrandLogoImage.bundled(domain: domain)
+    if let image {
+      needsBacking = backingPolicy(for: image)
+      return
+    }
     needsBacking = false
-    guard let url = iconURL else {
-      failed = true
-      needsBacking = true
-      return
-    }
-    let key = url.absoluteString
-    if let cached = Self.imageCache[key] {
-      image = cached
-      needsBacking = Self.backingCache[key] ?? backingPolicy(for: cached)
-      return
-    }
-    guard let loaded = await BrandLogoImage.load(url: url) else {
-      failed = true
-      needsBacking = true
-      return
-    }
-    Self.imageCache[key] = loaded
-    let policy = backingPolicy(for: loaded)
-    Self.backingCache[key] = policy
+    guard let url = iconURL, let loaded = await BrandLogoImage.load(url: url), !Task.isCancelled else { return }
     image = loaded
-    needsBacking = policy
+    needsBacking = backingPolicy(for: loaded)
   }
 
   private func backingPolicy(for image: UIImage) -> Bool {
