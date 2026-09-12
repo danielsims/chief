@@ -7,7 +7,6 @@ private enum WorkspaceChrome {
 
 struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
-  @State private var homePath: [String] = []
   @State private var agentsPath: [String] = []
 
   var body: some View {
@@ -17,7 +16,7 @@ struct WorkspaceRootView: View {
       Group {
         switch model.selectedTab {
         case .home:
-          NavigationStack(path: $homePath) { HomeView(path: $homePath) }
+          NavigationStack(path: $model.homeNavigationPath) { HomeView(path: $model.homeNavigationPath) }
         case .plugins:
           NavigationStack { PluginsView() }
         case .projects:
@@ -38,7 +37,7 @@ struct WorkspaceRootView: View {
     .task(id: model.selectedConversationID) {
       guard let conversationID = model.selectedConversationID else { return }
       model.selectedTab = .home
-      homePath = [conversationID]
+      model.homeNavigationPath = [conversationID]
       model.selectedConversationID = nil
     }
   }
@@ -47,7 +46,7 @@ struct WorkspaceRootView: View {
   /// channel/DM is pushed onto the active navigation stack.
   private var inConversationActive: Bool {
     switch model.selectedTab {
-    case .home: return !homePath.isEmpty
+    case .home: return !model.homeNavigationPath.isEmpty
     case .plugins: return false
     case .agents: return !agentsPath.isEmpty
     default: return false

@@ -36,6 +36,21 @@ final class ConversationCacheTests: XCTestCase {
         )
     }
 
+    func testHistoryPreservesConcurrentLiveArrivalsAndEdits() {
+        let cache = ConversationCache()
+        let old = message(id: "old", workspace: "workspace-a", sequence: 1)
+        cache.merge(old)
+        let baseline = cache.messages(workspaceID: "workspace-a", conversationID: "general")
+        var edited = old
+        edited.body = "Live edit"
+        cache.update(edited)
+        let live = message(id: "live", workspace: "workspace-a", sequence: 3)
+        cache.merge(live)
+        let missed = message(id: "missed", workspace: "workspace-a", sequence: 2)
+        cache.reconcileHistory(workspaceID: "workspace-a", conversationID: "general", messages: [old, missed], baseline: baseline)
+        XCTAssertEqual(cache.messages(workspaceID: "workspace-a", conversationID: "general"), [edited, missed, live])
+    }
+
     private func message(id: String, workspace: String, sequence: Int) -> ConversationMessage {
         ConversationMessage(
             id: id,

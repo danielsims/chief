@@ -83,6 +83,7 @@
 		6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */; };
 		6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */; };
 		6F91D08771E347D06D49DBFE /* AgentSkillBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA10DC57916ADE010B38AAE /* AgentSkillBundle.swift */; };
+		72A156FE4B047D5108358EBB /* MessageHistoryLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */; };
 		72B541D2ED7736409B3D4C08 /* RelayDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408BC7275D23283B0CC83006 /* RelayDirectoryTests.swift */; };
 		74B40049EDECAA26972C3379 /* CelldC.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94655488DC2BD184AEE1E8E /* CelldC.swift */; };
 		76250A9E4FA02208AEC2B0BE /* DevCodexBridgeRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10974004AE6FEA79A6C0BAB4 /* DevCodexBridgeRPC.swift */; };
@@ -316,6 +317,7 @@
 		92E66647A96D00E6934F8403 /* Chief.Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Chief.Release.entitlements; sourceTree = "<group>"; };
 		92EEB51BDB05C95BB159446F /* NIP98Authenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NIP98Authenticator.swift; sourceTree = "<group>"; };
 		941571FFB0D8ACDFB157698B /* ScheduledRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledRunTests.swift; sourceTree = "<group>"; };
+		95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHistoryLoaderTests.swift; sourceTree = "<group>"; };
 		97A06203485BA289497EAF4E /* bloom.caf */ = {isa = PBXFileReference; path = bloom.caf; sourceTree = "<group>"; };
 		98236C72F2593788B89CC371 /* AgentIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIdentityStore.swift; sourceTree = "<group>"; };
 		9A8F07A45E8876F9EE7B415A /* OpenCodeStreamingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeStreamingClient.swift; sourceTree = "<group>"; };
@@ -450,6 +452,7 @@
 				DDE24E640C8A982222270AB1 /* ConversationReferenceTests.swift */,
 				A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */,
 				7520EE62054ECE3DF7878FDA /* KickoffToolEvidenceTests.swift */,
+				95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */,
 				DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */,
 				87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */,
 				0D5FCF64562CE70799C63FF2 /* OAuthAuthenticationTests.swift */,
@@ -1115,6 +1118,7 @@
 				CA1A5F505FD53B74AC98AB9F /* ConversationReferenceTests.swift in Sources */,
 				6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */,
 				86C7EEFF3B87F04891590874 /* KickoffToolEvidenceTests.swift in Sources */,
+				72A156FE4B047D5108358EBB /* MessageHistoryLoaderTests.swift in Sources */,
 				6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */,
 				E6D3F21E651FAC203533CB27 /* MobileBrandAssetTests.swift in Sources */,
 				2708F24C8F247A2C0217598B /* OAuthAuthenticationTests.swift in Sources */,
