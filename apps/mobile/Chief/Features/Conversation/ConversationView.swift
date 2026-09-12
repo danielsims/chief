@@ -225,6 +225,7 @@ struct ConversationView: View {
       threadRootID: nil
     )
     let messageID = UUID().uuidString
+    model.expectAgentReply(messageID: messageID, conversationID: conversationID, mentions: mentions, threadRootID: nil)
 
     draft = ""
     composerMentionIDs = []
@@ -252,6 +253,7 @@ struct ConversationView: View {
         )
         sentMessageIDs.insert(message.id)
         model.conversations.merge(message)
+        Task { await model.wakeOnDeviceAgents() }
         print(
           "[Chief] sent message to \(conversationID) mentions=\(mentions) "
             + "wake=\(shouldWakeAgent) attachments=\(pendingAttachments.count)"
@@ -264,8 +266,10 @@ struct ConversationView: View {
           workspaceID: workspaceID
         ) {
           sentMessageIDs.insert(messageID)
+          Task { await model.wakeOnDeviceAgents() }
           return
         }
+        model.cancelExpectedAgentReply(messageID: messageID)
         draft = MessageSendRecovery.restoredDraft(
           pending: pendingText,
           current: draft

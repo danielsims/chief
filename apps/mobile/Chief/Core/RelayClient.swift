@@ -41,6 +41,7 @@ protocol RelayServing: Sendable {
     components: [MessageComponent]
   ) async throws -> ConversationMessage
   func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease?
+  func renewAgentJob(workspaceID: String, agentID: String, leaseToken: String) async throws
   func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord]
   func retryAgentJob(
     workspaceID: String,
@@ -214,6 +215,10 @@ protocol RelayServing: Sendable {
 }
 
 extension RelayServing {
+  func renewAgentJob(workspaceID: String, agentID: String, leaseToken: String) async throws {
+    throw RelayError.unavailable
+  }
+
   func registerPushDevice(token _: String, environment _: String) async throws -> Bool {
     false
   }
@@ -1350,6 +1355,18 @@ actor URLSessionRelayClient: RelayServing {
     } catch RelayError.httpStatus(204) {
       return nil
     }
+  }
+
+  func renewAgentJob(workspaceID: String, agentID: String, leaseToken: String) async throws {
+    struct Renewal: Encodable { let leaseToken: String; let leaseSeconds: Int }
+    struct Renewed: Decodable { let leaseExpiresAt: String }
+    let identity = try AgentIdentityStore(workspaceID: workspaceID, agentID: agentID).ensure()
+    let _: Renewed = try await request(
+      path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/jobs/renew",
+      method: "POST",
+      body: try JSONEncoder().encode(Renewal(leaseToken: leaseToken, leaseSeconds: 120)),
+      signer: identity
+    )
   }
 
   func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord] {
