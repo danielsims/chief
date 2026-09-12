@@ -39,13 +39,10 @@ struct AgentTypingRow: View {
       openActivity()
     } label: {
       HStack(spacing: 10) {
-        HStack(spacing: 6) {
-          ForEach(agents.prefix(3)) { agent in
-            MatrixLoader(size: 15)
-              .foregroundStyle(ChiefTheme.agentColor(agent.id))
-              .frame(width: 23, height: 23)
-          }
-        }
+        Circle()
+          .fill(ChiefTheme.secondary.opacity(0.6))
+          .frame(width: 4, height: 4)
+          .accessibilityHidden(true)
         Text(statusText)
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(ChiefTheme.secondary)
