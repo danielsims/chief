@@ -47,6 +47,7 @@ export function deploymentProgress(
 export async function waitForDeployment({
   buildStartedAt,
   deploymentId,
+  expectedProjectId,
   fetcher,
   maxWaitMs,
   onProgress,
@@ -56,6 +57,7 @@ export async function waitForDeployment({
 }: {
   buildStartedAt: number;
   deploymentId: string;
+  expectedProjectId?: string;
   fetcher: typeof fetch;
   maxWaitMs: number;
   onProgress?: (progress: EveAgentProvisioningProgress) => void;
@@ -126,6 +128,15 @@ export async function waitForDeployment({
         }),
         schema: deploymentSchema,
       });
+      if (
+        deployment.id !== deploymentId ||
+        (expectedProjectId !== undefined &&
+          deployment.projectId !== expectedProjectId)
+      ) {
+        throw new Error(
+          "Vercel returned a different deployment or project while checking progress.",
+        );
+      }
       if (logs.length === 0 && !fetchedEventSnapshot) {
         fetchedEventSnapshot = true;
         const events = await fetchDeploymentEvents({
@@ -191,6 +202,7 @@ async function followDeploymentEvents({
   );
   const response = await fetcher(url, {
     headers: { authorization: `Bearer ${token}` },
+    redirect: "error",
     signal: abort.signal,
   });
   if (!response.ok || !response.body) return;
@@ -241,6 +253,7 @@ async function fetchDeploymentEvents({
   );
   const response = await fetcher(url, {
     headers: { authorization: `Bearer ${token}` },
+    redirect: "error",
     signal: AbortSignal.timeout(20_000),
   });
   const body = await response.text();
