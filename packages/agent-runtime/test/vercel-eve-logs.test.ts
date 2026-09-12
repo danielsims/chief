@@ -49,6 +49,13 @@ void test("surfaces the Vercel build log when a deployment errors", async () => 
     if (url.pathname.startsWith("/v9/projects/") && method === "GET") {
       return new Response("Not found", { status: 404 });
     }
+    if (method === "POST" && url.pathname === "/v11/projects") {
+      return Response.json({
+        id: "prj_failed",
+        name: "failed-eve",
+        accountId: "team_chief",
+      });
+    }
     if (method === "POST" && url.pathname === "/v13/deployments") {
       return Response.json({
         id: "dpl_failed",
