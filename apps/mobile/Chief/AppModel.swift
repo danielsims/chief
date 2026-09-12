@@ -63,6 +63,7 @@ final class AppModel {
   /// channels. Direct messages are participants-only and do not use this set.
   private(set) var joinedConversationIDs: Set<String>?
   private var membershipWorkspaceID: String?
+  var homeNavigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
   private var pendingConversationDeepLink: ConversationDeepLink?
@@ -900,6 +901,7 @@ final class AppModel {
       await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentJobs(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
+      scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: loaded.id)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
       await sendPendingPushToken()
       if loaded.onboardingComplete {
@@ -1233,6 +1235,9 @@ final class AppModel {
     conversations.clearAll()
     session = nil
     workspace = nil
+    homeNavigationPath = []
+    selectedConversationID = nil
+    selectedThread = nil
     isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
@@ -1761,6 +1766,7 @@ final class AppModel {
     let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
     selectedConversationID = id
+    homeNavigationPath = [id]
     if let threadRootID, !threadRootID.isEmpty {
       selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
     } else {
@@ -1803,7 +1809,8 @@ final class AppModel {
       guard isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
       pendingConversationDeepLink = nil
       openConversation(link.conversationID, threadRootID: link.threadRootID)
-      if MobileNotifications.pendingOpen == link { MobileNotifications.pendingOpen = nil }
+      // Persist the tap until the destination view confirms presentation.
+      // SwiftUI can rebuild its navigation stack during launch/workspace switches.
     }
   }
 
@@ -1865,6 +1872,7 @@ final class AppModel {
             }
           }
           connectedAt = .now
+          self.scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: workspaceID)
           await client.waitUntilDisconnected()
           if Task.isCancelled { break }
         } catch is CancellationError {
@@ -1912,6 +1920,7 @@ final class AppModel {
   private func configureReadState(for workspaceID: String) {
     guard readStateWorkspaceID != workspaceID else { return }
     stopWorkspaceLiveStreams()
+    homeNavigationPath = []
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     readStateWorkspaceID = workspaceID
@@ -1932,7 +1941,6 @@ final class AppModel {
     conversationID: String
   ) {
     guard workspace?.id == workspaceID else { return }
-    messages.forEach(conversations.merge)
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     if hydratedReadConversations.insert(key).inserted {
       let context = ConversationReadState.channelKey(conversationID)
@@ -1957,9 +1965,7 @@ final class AppModel {
     {
       updateConversationPreview(with: latest)
     }
-    for message in messages where message.createdAt > launchedAt {
-      recordArrival(message)
-    }
+    // History catch-up updates unread state silently; banners belong to live delivery.
     recomputeUnreadCount(conversationID: conversationID)
   }
 
@@ -2212,14 +2218,58 @@ final class AppModel {
           self.workspaceMembershipRefreshWorkspaceID = nil
         }
       }
-      await self.refreshWorkspaceSnapshot(expectedID: expectedID)
+      await self.refreshWorkspaceContent(expectedID: expectedID)
     }
+  }
+
+  /// One coalesced catch-up on launch, foreground, and socket reconnection.
+  /// HTTP history is authoritative even when socket replay has expired.
+  func refreshWorkspaceContent(expectedID: String) async {
+    await refreshWorkspaceSnapshot(expectedID: expectedID)
+    guard !Task.isCancelled, let snapshot = workspace, snapshot.id == expectedID else { return }
+    let ids = snapshot.conversations.filter {
+      $0.kind == .direct || joinedConversationIDs?.contains($0.id) == true
+    }.map(\.id)
+    let visible = visibleConversationID ?? selectedConversationID
+    let ordered = ids.filter { $0 == visible } + ids.filter { $0 != visible }
+    for id in ordered {
+      guard !Task.isCancelled, workspace?.id == expectedID else { return }
+      do {
+        try await refreshConversation(workspaceID: expectedID, conversationID: id)
+      } catch is CancellationError {
+        return
+      } catch {
+        liveLog.warning("conversation catch-up failed: \(error.localizedDescription)")
+      }
+    }
+    guard !Task.isCancelled, workspace?.id == expectedID else { return }
+    await consumeNotificationDeepLink()
+  }
+
+  func refreshConversation(workspaceID: String, conversationID: String) async throws {
+    let baseline = conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
+    let remote = try await relay.messages(
+      workspaceID: workspaceID, conversationID: conversationID, after: nil
+    )
+    try Task.checkCancellation()
+    guard workspace?.id == workspaceID else { return }
+    // Preserve messages that arrived on the socket while history was in flight.
+    conversations.reconcileHistory(
+      workspaceID: workspaceID, conversationID: conversationID, messages: remote, baseline: baseline)
+    hydrateReadSnapshot(remote, workspaceID: workspaceID, conversationID: conversationID)
+    if isAppActive, visibleConversationID == conversationID {
+      markChannelRead(conversationID: conversationID)
+      if let root = visibleThreadRootID {
+        markThreadRead(conversationID: conversationID, rootMessageID: root)
+      }
+    }
+    recomputeAllConversationPresentation()
   }
 
   private func refreshWorkspaceSnapshot(expectedID: String) async {
     do {
       let remote = try await relay.loadWorkspace()
-      guard !Task.isCancelled, remote.id == expectedID else { return }
+      guard !Task.isCancelled, workspace?.id == expectedID, remote.id == expectedID else { return }
       workspace = remote
       upsertWorkspaceSummary(for: remote, isActive: true)
       await refreshCurrentChannelMemberships(for: remote)
@@ -2234,11 +2284,14 @@ final class AppModel {
   }
 
   func setAppActive(_ active: Bool) {
+    guard active != isAppActive else { return }
     isAppActive = active
     workspaceLiveBackgroundStopTask?.cancel()
     workspaceLiveBackgroundStopTask = nil
     if active {
       if let workspace {
+        // A suspended socket may still look connected. Establish a fresh stream.
+        stopWorkspaceLiveStreams()
         syncWorkspaceLiveStreams(for: workspace)
         scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: workspace.id)
       }
@@ -2262,6 +2315,12 @@ final class AppModel {
   func setVisibleConversation(_ conversationID: String) {
     visibleConversationID = conversationID
     visibleThreadRootID = nil
+    if let pending = MobileNotifications.pendingOpen,
+      pending.workspaceID == workspace?.id,
+      (workspace?.conversationID(for: pending.conversationID) ?? pending.conversationID) == conversationID
+    {
+      MobileNotifications.pendingOpen = nil
+    }
     markChannelRead(conversationID: conversationID)
   }
 
@@ -2956,6 +3015,9 @@ final class AppModel {
     try? sessions.clear()
     session = nil
     workspace = nil
+    homeNavigationPath = []
+    selectedConversationID = nil
+    selectedThread = nil
     isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil

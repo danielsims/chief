@@ -1109,15 +1109,12 @@ actor URLSessionRelayClient: RelayServing {
     after sequence: Int?,
     signingIdentity: NostrIdentity?
   ) async throws -> [ConversationMessage] {
-    var path =
-      "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages?limit=200"
-    if let sequence { path += "&after=\(sequence)" }
-    let page: MessagePage = try await request(
-      path: path,
-      method: "GET",
-      signer: signingIdentity
-    )
-    return page.messages
+    try await MessageHistoryLoader.load(after: sequence) { cursor in
+      var path =
+        "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages?limit=200"
+      if let cursor { path += "&after=\(cursor)" }
+      return try await self.request(path: path, method: "GET", signer: signingIdentity)
+    }
   }
 
   func send(
@@ -1616,7 +1613,33 @@ private struct RelayFailureEnvelope: Decodable {
   let error: Failure
 }
 
-private struct MessagePage: Codable { let messages: [ConversationMessage] }
+struct MessagePage: Codable {
+  let messages: [ConversationMessage]
+  let nextSequence: Int?
+}
+
+/// The relay returns oldest-first pages. A full history must follow every cursor,
+/// including when a channel accumulated several days of scheduled work offline.
+enum MessageHistoryLoader {
+  static func load(
+    after sequence: Int?,
+    isolation: isolated (any Actor)? = #isolation,
+    fetch: (Int?) async throws -> MessagePage
+  ) async throws -> [ConversationMessage] {
+    var cursor = sequence
+    var messages: [ConversationMessage] = []
+    repeat {
+      try Task.checkCancellation()
+      let page = try await fetch(cursor)
+      messages.append(contentsOf: page.messages)
+      guard let next = page.nextSequence else { return messages }
+      guard next > (cursor ?? 0), !page.messages.isEmpty else {
+        throw RelayError.unavailable
+      }
+      cursor = next
+    } while true
+  }
+}
 private struct AppendMessageResult: Codable { let message: ConversationMessage }
 private struct ReactResult: Codable { let message: ConversationMessage }
 private struct WorkspaceListResult: Codable { let workspaces: [WorkspaceSummary] }
