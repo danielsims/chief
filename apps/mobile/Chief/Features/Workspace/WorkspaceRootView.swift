@@ -318,9 +318,6 @@ struct HomeView: View {
           if model.workspaceSyncFailed {
             RelayUnavailableBanner()
           }
-          if attentionCount > 0 {
-            HomeAttentionRow(count: attentionCount)
-          }
           ChannelGroup()
           DMsGroup(path: $path)
         }
@@ -352,14 +349,7 @@ struct HomeView: View {
     return "\(prefix), \(name ?? "there")"
   }
 
-  private var attentionCount: Int {
-    let conversations =
-      model.workspace?.conversations.filter {
-        $0.requiresAttention && model.isConversationJoined($0.id)
-      }.count ?? 0
-    let agents = model.workspace?.agents.filter { $0.status == .needsYou }.count ?? 0
-    return conversations + agents
-  }
+
 }
 
 struct PluginsView: View {
@@ -664,40 +654,6 @@ struct AgentsView: View {
       let card = model.workspace?.agentCard(for: agentID) ?? .chiefFallback(for: agentID)
       AgentDetailView(agent: card.agent, highlightedSubagentID: card.subagentID)
     }
-  }
-}
-
-private struct HomeAttentionRow: View {
-  let count: Int
-
-  var body: some View {
-    HStack(spacing: 12) {
-      Image(systemName: "exclamationmark.circle")
-        .font(.system(size: 16, weight: .medium))
-        .foregroundStyle(ChiefTheme.accent)
-        .frame(width: 34, height: 34)
-        .background(ChiefTheme.accent.opacity(0.08), in: Circle())
-      VStack(alignment: .leading, spacing: 3) {
-        Text("\(count) \(count == 1 ? "item requires" : "items require") attention")
-          .font(.system(size: 15, weight: .semibold))
-        Text("Review and respond")
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
-      }
-      Spacer()
-      Image(systemName: "chevron.right")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(ChiefTheme.tertiary)
-    }
-    .padding(.horizontal, 13)
-    .frame(height: 62)
-    .padding(.horizontal, ChiefTheme.pagePadding)
-    .background(
-      ChiefTheme.surface,
-      in: RoundedRectangle(cornerRadius: 15, style: .continuous)
-    )
-    .overlay { RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(ChiefTheme.line) }
-    .padding(.horizontal, ChiefTheme.pagePadding)
   }
 }
 
