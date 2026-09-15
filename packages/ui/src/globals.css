@@ -107,6 +107,20 @@
   --font-mono: "Geist Variable", monospace;
 
   --radius: 0.625rem;
+  --animate-marquee: marquee 36s linear infinite;
+  --animate-marquee-y: marquee-y 22s linear infinite;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marquee-y {
+  to {
+    transform: translateY(-50%);
+  }
 }
 
 @layer base {
