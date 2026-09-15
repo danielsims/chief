@@ -15,7 +15,7 @@ export function LandingHome() {
       <LandingHero />
       <LandingProduct />
       <LandingFaq />
-      <LandingFooter />
+      <LandingFooter className="mt-[168px]" />
     </main>
   );
 }

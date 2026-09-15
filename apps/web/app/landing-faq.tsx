@@ -1,6 +1,4 @@
-"use client";
-
-import { useState } from "react";
+import { FaqList } from "./faq-list";
 
 const faqs = [
   {
@@ -36,49 +34,13 @@ const faqs = [
 ];
 
 export function LandingFaq() {
-  const [open, setOpen] = useState(0);
-
   return (
     <section className="pt-[132px] max-md:pt-[72px]" id="faq">
       <div className="mx-auto w-[min(1120px,calc(100%-48px))] max-md:w-[calc(100%-40px)]">
         <h2 className="text-foreground mx-auto mb-9 text-center text-[clamp(28px,3.4vw,40px)] leading-[1.12] font-medium tracking-[-0.045em] max-md:mb-5 max-md:text-[28px]">
           FAQs
         </h2>
-        <div>
-          {faqs.map((item, index) => {
-            const isOpen = open === index;
-            return (
-              <div
-                className="shadow-[0_1px_0_var(--border)]"
-                key={item.question}
-              >
-                <h3 className="m-0">
-                  <button
-                    aria-expanded={isOpen}
-                    className="text-foreground flex w-full items-center justify-between gap-6 py-[22px] text-left text-base leading-[1.4] tracking-[-0.02em]"
-                    onClick={() => setOpen(isOpen ? -1 : index)}
-                    type="button"
-                  >
-                    {item.question}
-                    <span
-                      aria-hidden="true"
-                      className="text-muted-foreground grid size-[22px] shrink-0 place-items-center text-[22px] leading-none"
-                    >
-                      {isOpen ? "×" : "+"}
-                    </span>
-                  </button>
-                </h3>
-                {isOpen ? (
-                  <div className="pb-[22px]">
-                    <p className="text-muted-foreground m-0 max-w-[36em] text-[15px] leading-[1.65]">
-                      {item.answer}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+        <FaqList items={faqs} />
       </div>
     </section>
   );

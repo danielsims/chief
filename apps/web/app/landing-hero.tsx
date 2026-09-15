@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { ChiefWordmark } from "./chief-mark";
 import { DownloadButton } from "./download-button";
+import { SiteHeader } from "./site-header";
 
 export function LandingHero() {
   return (
@@ -12,19 +12,7 @@ export function LandingHero() {
         className="absolute inset-x-0 top-0 bottom-[260px] bg-[linear-gradient(#003b9733,#00255322),url('/landing/colour-print.png')] bg-cover bg-[center_62%] max-lg:bottom-[180px] max-md:bottom-[110px]"
       />
 
-      <header className="relative z-10 mx-auto flex max-w-[1440px] items-center justify-between px-[5%] py-8 text-sm text-white max-md:px-[6%] max-md:py-[22px]">
-        <ChiefWordmark className="text-[31px] tracking-[-0.055em] text-white max-md:text-[27px]" />
-        <nav
-          aria-label="Main navigation"
-          className="flex gap-[34px] max-md:hidden"
-        >
-          <Link href="#product">Product</Link>
-          <Link href="#download">Download</Link>
-        </nav>
-        <Link className="font-medium" href="/download">
-          Download ↗
-        </Link>
-      </header>
+      <SiteHeader overlay />
 
       <div className="relative z-10 px-6 pt-[65px] pb-16 text-center text-white max-md:px-[6%] max-md:pt-10 max-md:pb-10">
         <h1 className="m-0 text-[clamp(45px,5.2vw,76px)] leading-[1.04] font-medium tracking-[-0.05em] max-md:text-[clamp(35px,8.5vw,52px)]">
