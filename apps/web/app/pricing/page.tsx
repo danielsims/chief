@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import { MarketingFooter, MarketingHeader } from "../marketing-chrome";
-import { RailsLayout } from "../rails-layout";
+import { MarketingPage } from "../marketing-page";
 import { PricingOffer } from "./pricing-offer";
 
 export const metadata: Metadata = {
@@ -12,14 +11,10 @@ export const metadata: Metadata = {
 
 export default function PricingPage() {
   return (
-    <main className="landing">
-      <RailsLayout>
-        <MarketingHeader />
-        <div className="pricing-page">
-          <PricingOffer />
-        </div>
-        <MarketingFooter />
-      </RailsLayout>
-    </main>
+    <MarketingPage>
+      <div className="mx-auto w-[min(1120px,calc(100%-48px))] max-md:w-[calc(100%-40px)]">
+        <PricingOffer />
+      </div>
+    </MarketingPage>
   );
 }
