@@ -1,10 +1,17 @@
 import Link from "next/link";
 
+import { cn } from "@chief/ui/lib/utils";
+
 import { ChiefWordmark } from "./chief-mark";
 
-export function LandingFooter() {
+export function LandingFooter({ className }: { className?: string }) {
   return (
-    <footer className="bg-background text-foreground mt-[168px] shadow-[0_-1px_0_var(--border)]">
+    <footer
+      className={cn(
+        "bg-background text-foreground shadow-[0_-1px_0_var(--border)]",
+        className,
+      )}
+    >
       <div className="mx-auto w-[min(1120px,calc(100%-48px))] max-md:w-[calc(100%-40px)]">
         <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-x-8 gap-y-12 py-[72px] pb-20 max-md:grid-cols-1 max-md:gap-y-9 max-md:py-12 max-md:pb-14">
           <div>
@@ -23,19 +30,19 @@ export function LandingFooter() {
             <strong className="mb-1.5 text-[13px] font-medium">Product</strong>
             <Link
               className="text-muted-foreground hover:text-foreground text-[15px]"
-              href="#product"
+              href="/#product"
             >
               Workspace
             </Link>
             <Link
               className="text-muted-foreground hover:text-foreground text-[15px]"
-              href="#download"
+              href="/#download"
             >
               Download
             </Link>
             <Link
               className="text-muted-foreground hover:text-foreground text-[15px]"
-              href="#faq"
+              href="/#faq"
             >
               FAQs
             </Link>

@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@chief/ui/lib/utils";
+
 import { usePlatform } from "./platform";
 
 function AppleIcon() {
@@ -26,13 +28,22 @@ function WindowsIcon() {
   );
 }
 
-export function DownloadButton() {
+export function DownloadButton({
+  variant = "hero",
+}: {
+  variant?: "hero" | "page";
+}) {
   const { os } = usePlatform();
   const isWindows = os === "windows";
 
   return (
     <a
-      className="inline-flex h-[46px] touch-manipulation items-center justify-center gap-2.5 rounded-lg bg-white px-[22px] text-sm font-medium tracking-[-0.02em] whitespace-nowrap text-neutral-950 shadow-[0_1px_2px_#0001] transition-opacity hover:opacity-90"
+      className={cn(
+        "inline-flex touch-manipulation items-center justify-center gap-2.5 rounded-xl px-[22px] text-sm font-medium tracking-[-0.02em] whitespace-nowrap transition-opacity hover:opacity-90",
+        variant === "hero" &&
+          "h-[46px] rounded-lg bg-white text-neutral-950 shadow-[0_1px_2px_#0001]",
+        variant === "page" && "bg-primary text-primary-foreground h-12",
+      )}
       href={isWindows ? "/api/download/windows" : "/api/download/macos"}
     >
       {isWindows ? <WindowsIcon /> : <AppleIcon />}
