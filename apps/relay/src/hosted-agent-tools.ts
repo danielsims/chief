@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 import type {
   AgentBrowser,
   AgentComputer,
@@ -15,6 +17,7 @@ import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 import { hostedAgentTools } from "./hosted-agent-tools/registry";
 import { hostedAgentToolName } from "./hosted-agent-tools/tool";
 import { recentConversationMessages } from "./hosted-agent-tools/toolkits/channels";
+import { HttpError } from "./http";
 
 export { recentConversationMessages };
 
@@ -70,10 +73,27 @@ export async function executeHostedAgentTool(
     name,
     rawArguments,
   );
-  return await handler.execute(
-    { computer, browser, env, job, principal },
-    parsed.input,
-  );
+  try {
+    return await handler.execute(
+      { computer, browser, env, job, principal },
+      parsed.input,
+    );
+  } catch (error) {
+    throw parseRecoverableHostedToolError(error);
+  }
+}
+
+export function parseRecoverableHostedToolError(error: unknown) {
+  if (error instanceof RecoverableToolError) return error;
+  if (error instanceof HttpError && error.status < 500) {
+    return new RecoverableToolError(error.message);
+  }
+  if (error instanceof ZodError) {
+    return new RecoverableToolError(
+      error.issues[0]?.message ?? "Tool input is invalid.",
+    );
+  }
+  return error instanceof Error ? error : new Error("Tool execution failed.");
 }
 
 function parseHostedAgentToolCall(

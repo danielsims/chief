@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { workspaceScheduleInputSchema } from "@chief/relay-contracts";
 
@@ -74,19 +74,34 @@ export const relayCellWorkspaceTools = [
   defineRelayCellTool(
     "files.write",
     "messages.send",
-    async ({ client, conversationId }, input) => {
-      const existing = input.id
-        ? (await client.listWorkspaceFiles()).find(
-            (file) => file.id === input.id,
-          )
-        : undefined;
+    async ({ client, conversationId, workspaceId, agentId }, input) => {
+      const name = requiredString(input, "name");
+      const content = requiredString(input, "content");
+      const files = await client.listWorkspaceFiles();
+      const requestedId = optionalString(input, "id");
+      const id =
+        requestedId ??
+        `file-${createHash("sha256")
+          .update(`${workspaceId}:${agentId}:${conversationId}:${name}`)
+          .digest("hex")
+          .slice(0, 32)}`;
+      const existing = files.find((file) => file.id === id);
+      if (existing?.content === content) return existing;
+      const extension =
+        input.format === "html"
+          ? "html"
+          : input.format === "csv"
+            ? "csv"
+            : input.format === "json"
+              ? "json"
+              : "md";
       return await client.saveWorkspaceFile({
-        id: optionalString(input, "id"),
+        id,
         path:
           optionalString(input, "path") ??
           existing?.path ??
-          `artifacts/${randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
-        title: requiredString(input, "name"),
+          `artifacts/${id}.${extension}`,
+        title: name,
         mimeType:
           input.kind === "email"
             ? "message/rfc822"
@@ -97,14 +112,14 @@ export const relayCellWorkspaceTools = [
                 : input.format === "json"
                   ? "application/json"
                   : "text/markdown",
-        content: requiredString(input, "content"),
+        content,
         conversationId:
           optionalString(input, "conversationId") ??
           existing?.conversationId ??
           conversationId,
         expectedVersion: input.expectedVersionId
           ? Number(requiredString(input, "expectedVersionId"))
-          : undefined,
+          : existing?.version,
       });
     },
   ),

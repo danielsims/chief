@@ -73,6 +73,21 @@ final class ScheduledRunTests: XCTestCase {
       AgentToolAuthorization.grant(requestedToolNames: names, config: config).toolNames.isEmpty)
   }
 
+  func testFileWriteUsesTheSharedFilesWriteName() {
+    XCTAssertEqual(WorkspaceFileWriteTool.name, "files_write")
+    XCTAssertEqual(
+      RelayToolRegistry.canonicalName("workspace_file_write"),
+      "files_write"
+    )
+    var config = AgentConfig.defaults(for: "chief")
+    let grant = AgentToolAuthorization.grant(
+      requestedToolNames: [WorkspaceFileWriteTool.name],
+      config: config
+    )
+    XCTAssertTrue(grant.permits(toolName: "files_write"))
+    XCTAssertTrue(grant.permits(toolName: "workspace_file_write"))
+  }
+
   private func decodeRun(state: String) throws -> WorkspaceScheduleRun {
     let json = """
       {"id":"run-1","scheduleId":"schedule-1","threadRootId":"thread-1","state":"\(state)","schedule":{"agentId":"chief","collaborators":["brand","content"],"conversationId":"marketing"},"steps":[{"id":"plan","agentId":"chief","phase":"plan","state":"completed"},{"id":"write","agentId":"brand","phase":"contribute","state":"running"},{"id":"extra","agentId":"content","phase":"contribute","state":"pending"}]}
