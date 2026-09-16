@@ -6,6 +6,7 @@ import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 
 import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
+import { traceContext } from "./ai-sdk-agent-inference-harness";
 
 const requestSchema = z.object({
   model: z.string(),
@@ -66,52 +67,17 @@ describe("AiSdkAgentInference", () => {
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });
 
-  it("normalizes streamed provider reasoning into cumulative progress", async () => {
-    const request = async function (this: void) {
+  it("identifies hosted OpenCode traffic with a coding-agent user agent and session", async () => {
+    let requestHeaders = new Headers();
+    const request = async function (
+      this: void,
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) {
       expect(this).toBeUndefined();
-      const chunks = [
-        {
-          id: "chatcmpl-stream",
-          object: "chat.completion.chunk",
-          created: 1,
-          model: "deepseek-v4-flash",
-          choices: [
-            {
-              index: 0,
-              delta: { role: "assistant", reasoning_content: "Inspecting " },
-              finish_reason: null,
-            },
-          ],
-        },
-        {
-          id: "chatcmpl-stream",
-          object: "chat.completion.chunk",
-          created: 1,
-          model: "deepseek-v4-flash",
-          choices: [
-            {
-              index: 0,
-              delta: {
-                reasoning_content: "the workspace.",
-                content: "Done.",
-              },
-              finish_reason: null,
-            },
-          ],
-        },
-        {
-          id: "chatcmpl-stream",
-          object: "chat.completion.chunk",
-          created: 1,
-          model: "deepseek-v4-flash",
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-        },
-      ];
-      const body = `${chunks
-        .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
-        .join("")}data: [DONE]\n\n`;
-      return new Response(body, {
-        headers: { "content-type": "text/event-stream" },
+      requestHeaders = new Headers(init?.headers);
+      return Response.json({
+        choices: [{ message: { content: "ready", tool_calls: [] } }],
       });
     };
     const inference = new AiSdkAgentInference(
@@ -119,26 +85,97 @@ describe("AiSdkAgentInference", () => {
       traceContext(),
       request,
     );
-    const progress: string[] = [];
 
-    const result = await inference.complete(
-      {
-        messages: [{ role: "user", content: "Inspect the workspace." }],
+    await inference.complete({
+      messages: [{ role: "user", content: "Say ready." }],
+      tools: [],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    expect(requestHeaders.get("user-agent")).toBe(
+      "Chief/1.0 (+https://heychief.sh)",
+    );
+    expect(requestHeaders.get("x-opencode-session")).toBe(
+      "workspace-test:engineer:engineering",
+    );
+    expect(requestHeaders.get("authorization")).toBe("Bearer test-key");
+  });
+
+  it("surfaces an empty OpenCode error body as an HTTP status failure", async () => {
+    const request = async function (this: void) {
+      expect(this).toBeUndefined();
+      return new Response("", { status: 403 });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+
+    await expect(
+      inference.complete({
+        messages: [{ role: "user", content: "Hi." }],
         tools: [],
         maxTokens: 120,
         temperature: 0,
-      },
-      (update) => {
-        progress.push(update.text);
-      },
+      }),
+    ).rejects.toThrow(/HTTP 403 with an empty body/);
+  });
+
+  it("surfaces OpenCode RegionError JSON that is not a bare OpenAI error envelope", async () => {
+    const request = async function (this: void) {
+      expect(this).toBeUndefined();
+      return Response.json(
+        {
+          type: "error",
+          error: {
+            type: "RegionError",
+            message:
+              "The latest version of this model is only available hosted in China and requires explicit opt in.",
+          },
+        },
+        { status: 403 },
+      );
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
     );
 
-    expect(progress).toEqual(["Inspecting ", "Inspecting the workspace."]);
-    expect(result).toEqual({
-      content: "Done.",
-      reasoning: "Inspecting the workspace.",
-      toolCalls: [],
-    });
+    await expect(
+      inference.complete({
+        messages: [{ role: "user", content: "Hi." }],
+        tools: [],
+        maxTokens: 120,
+        temperature: 0,
+      }),
+    ).rejects.toThrow(/requires explicit opt in/);
+  });
+
+  it("leaves retries to the durable cell boundary", async () => {
+    let attempts = 0;
+    const request = async function (this: void) {
+      expect(this).toBeUndefined();
+      attempts += 1;
+      throw new Error("provider unavailable");
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+
+    await expect(
+      inference.complete({
+        messages: [{ role: "user", content: "Hi." }],
+        tools: [],
+        maxTokens: 120,
+        temperature: 0,
+      }),
+    ).rejects.toThrow("provider unavailable");
+    expect(attempts).toBe(1);
   });
 
   it("sends the selected OpenCode Go model", async () => {
@@ -366,30 +403,6 @@ describe("AiSdkAgentInference", () => {
     });
   });
 
-  it("leaves retries to the durable cell boundary", async () => {
-    let attempts = 0;
-    const request = async function (this: void) {
-      expect(this).toBeUndefined();
-      attempts += 1;
-      throw new Error("provider unavailable");
-    };
-    const inference = new AiSdkAgentInference(
-      "test-key",
-      traceContext(),
-      request,
-    );
-
-    await expect(
-      inference.complete({
-        messages: [{ role: "user", content: "Hi." }],
-        tools: [],
-        maxTokens: 120,
-        temperature: 0,
-      }),
-    ).rejects.toThrow("provider unavailable");
-    expect(attempts).toBe(1);
-  });
-
   it.skipIf(!liveApiKey || liveApiKey === "test")(
     "completes a live model-to-tool-to-model round",
     async () => {
@@ -442,15 +455,3 @@ describe("AiSdkAgentInference", () => {
     },
   );
 });
-
-function traceContext() {
-  return {
-    workspaceId: "workspace-test",
-    workspaceName: "Test",
-    agentId: "engineer",
-    conversationId: "engineering",
-    jobId: "job-test",
-    workflowId: "00000000-0000-4000-8000-000000000001",
-    includeContent: false,
-  };
-}
