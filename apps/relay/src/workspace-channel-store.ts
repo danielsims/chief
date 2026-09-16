@@ -12,6 +12,7 @@ import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-g
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
+import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
 import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
 import { channelMembersInsertSeedSnapshotChannels } from "./queries/channel-members/insert-seed-snapshot-channels";
@@ -239,6 +240,20 @@ export class WorkspaceChannelStore {
     } catch {
       return false;
     }
+  }
+
+  ensureChannelOwner(
+    conversationId: string,
+    principalKind: string,
+    principalId: string,
+    joinedAt: string,
+  ) {
+    channelMembersEnsureOwner(this.storage, {
+      conversationId,
+      principalKind,
+      principalId,
+      joinedAt,
+    });
   }
 
   requireChannelManager(conversationId: string, principal: Principal) {

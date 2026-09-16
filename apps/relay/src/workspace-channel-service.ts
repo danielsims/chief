@@ -78,6 +78,14 @@ export class WorkspaceChannelService {
         existing.name === command.payload.name &&
         Number(existing.is_private) === (command.payload.isPrivate ? 1 : 0);
       if (matches) {
+        if (kind === "agent") {
+          this.store.ensureChannelOwner(
+            command.payload.conversationId,
+            kind,
+            id,
+            now,
+          );
+        }
         return json(this.store.channelDetail(command.payload.conversationId));
       }
       throw new HttpError(
