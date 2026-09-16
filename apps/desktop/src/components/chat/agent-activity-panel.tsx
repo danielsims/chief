@@ -135,6 +135,10 @@ export function AgentActivityPanel({
                         <LoaderCircle size={12} className="animate-spin" />
                         Working
                       </>
+                    ) : latestTaskError(agent.tasks) ? (
+                      <span className="text-destructive line-clamp-2">
+                        {latestTaskError(agent.tasks)}
+                      </span>
                     ) : (
                       relativeActivityTime(agent.updatedAt)
                     )}
@@ -157,7 +161,7 @@ export function AgentActivityPanel({
                 <button
                   key={task.id}
                   type="button"
-                  disabled={!onOpenTask}
+                  disabled={!onOpenTask || task.provider === "relay"}
                   onClick={() => onOpenTask?.(task.id)}
                   className="border-border hover:bg-muted/40 flex w-full items-center gap-3 border-b px-4 py-4 text-left"
                 >
@@ -167,8 +171,15 @@ export function AgentActivityPanel({
                       {task.status.replaceAll("_", " ")} ·{" "}
                       {relativeActivityTime(task.updatedAt)}
                     </span>
+                    {task.error ? (
+                      <span className="text-destructive mt-2 block text-sm">
+                        {task.error}
+                      </span>
+                    ) : null}
                   </span>
-                  <ArrowRight size={14} />
+                  {onOpenTask && task.provider !== "relay" ? (
+                    <ArrowRight size={14} />
+                  ) : null}
                 </button>
               ))}
             {[...selected.turns]
@@ -208,4 +219,10 @@ export function AgentActivityPanel({
       </ConversationAuxiliaryPanelBody>
     </ConversationAuxiliaryPanel>
   );
+}
+
+function latestTaskError(tasks: readonly SessionRecord[]) {
+  return [...tasks]
+    .filter((task) => task.status === "failed" && task.error)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.error;
 }

@@ -83,7 +83,7 @@ export function useChiefChatCore({
         (session.parentId === chatId ||
           session.triggerContext?.originConversationId === chatId) &&
         session.kind === "task" &&
-        session.visibility === "private" &&
+        (session.visibility === "private" || session.provider === "relay") &&
         !session.scheduleId,
     )
     .sort((a, b) => a.createdAt - b.createdAt);
