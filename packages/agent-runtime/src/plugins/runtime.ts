@@ -34,6 +34,27 @@ function isPluginClientMessage(
   ].includes(message.type);
 }
 
+function pluginProvider(plugin: PluginCatalogSnapshot["plugins"][number]) {
+  if (plugin.source.type === "discovery" || plugin.source.type === "setup") {
+    return plugin.source.domain;
+  }
+  return plugin.domains?.[0] ?? plugin.name;
+}
+
+function pluginSetupUrl(plugin: PluginCatalogSnapshot["plugins"][number]) {
+  const homepage = plugin.homepage?.trim();
+  if (!homepage) return undefined;
+  try {
+    const url = new URL(homepage);
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      return url.toString();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 /** Coordinates plugin installation, authorization, and runtime discovery. */
 export class PluginRuntime {
   private readonly oauth: PluginOAuthManager;
@@ -106,17 +127,16 @@ export class PluginRuntime {
     }
     this.onChange(workspaceId);
     if (authorization.status === "client_configuration_required") {
+      const setupUrl = pluginSetupUrl(plugin);
       return {
         kind: "plugin_oauth_client",
         pluginId,
         pluginName: plugin.name,
         description: plugin.description,
-        provider:
-          plugin.source.type === "discovery" || plugin.source.type === "setup"
-            ? plugin.source.domain
-            : plugin.name,
+        provider: pluginProvider(plugin),
         serverName: authorization.serverName,
         callbackUrl: PLUGIN_OAUTH_CALLBACK_URL,
+        ...(setupUrl === undefined ? undefined : { setupUrl }),
         status: "client_configuration_required",
       };
     }
@@ -125,10 +145,7 @@ export class PluginRuntime {
       pluginId,
       pluginName: plugin.name,
       description: plugin.description,
-      provider:
-        plugin.source.type === "discovery" || plugin.source.type === "setup"
-          ? plugin.source.domain
-          : plugin.name,
+      provider: pluginProvider(plugin),
       authorizationUrl: authorization.authorizationUrl,
       status: "authorization_required",
     };
