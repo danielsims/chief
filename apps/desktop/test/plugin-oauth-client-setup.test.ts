@@ -7,6 +7,7 @@ import {
   oauthClientCredentialError,
   oauthClientCredentialsAreComplete,
   oauthClientSetupGuide,
+  oauthClientWizardSteps,
 } from "../src/components/plugins/plugin-oauth-client-setup";
 
 type OAuthClientAction = Extract<
@@ -19,57 +20,45 @@ const githubAction: OAuthClientAction = {
   pluginId: "github",
   pluginName: "GitHub",
   description: "GitHub repositories",
-  provider: "GitHub",
+  provider: "github.com",
   serverName: "github",
   callbackUrl: "http://127.0.0.1:4318/plugins/oauth/callback",
+  setupUrl: "https://github.com/",
   status: "client_configuration_required",
 };
 
-void test("provides authoritative GitHub App instructions", () => {
+void test("uses the same two-step OAuth client flow for every provider", () => {
   const guide = oauthClientSetupGuide(githubAction);
+  const wizard = oauthClientWizardSteps(guide);
 
-  assert.equal(guide.setupUrl, "https://github.com/settings/apps/new");
-  assert.equal(
-    guide.documentationUrl,
-    "https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app",
-  );
+  assert.equal(guide.setupUrl, "https://github.com/");
+  assert.equal(guide.setupLinkLabel, "Open GitHub");
   assert.equal(guide.logoDomain, "github.com");
-  assert.match(guide.summary, /workspace relay/i);
+  assert.match(guide.summary, /GitHub/);
+  assert.doesNotMatch(guide.summary, /GitHub App/i);
   assert.equal(guide.callbackLabel, "Callback URL");
-  assert.match(guide.steps[1]?.description ?? "", /user authorization/i);
-  assert.match(
-    guide.steps[2]?.description ?? "",
-    /choose only the repositories/i,
-  );
-  assert.match(guide.steps[3]?.description ?? "", /remote GitHub MCP server/i);
-  assert.match(guide.configurationNotice ?? "", /Chief Cloud/i);
-  assert.match(guide.configurationNotice ?? "", /never paste/i);
-  assert.ok(guide.providerFormFields);
   assert.deepEqual(
-    guide.providerFormFields.map((field) => field.label),
-    ["GitHub App name", "Homepage URL", "Callback URL", "User authorization"],
+    wizard.map((step) => step.id),
+    ["register", "credentials"],
   );
-  assert.equal(
-    guide.providerFormFields.find((field) => field.label === "Homepage URL")
-      ?.guidance,
-    "https://heychief.sh",
-  );
+  assert.match(wizard[0]?.description ?? "", /callback URL/i);
+  assert.match(wizard[1]?.description ?? "", /client secret/i);
   assert.equal(
     guide.fields.find((field) => field.id === "clientSecret")?.required,
-    true,
+    false,
   );
   assert.equal(
     oauthClientCredentialError({
       guide,
-      fieldId: "clientSecret",
-      clientId: "client-id",
+      fieldId: "clientId",
+      clientId: "",
       clientSecret: "",
     }),
-    "Generate and enter a GitHub client secret.",
+    "Enter the client ID issued by the provider.",
   );
 });
 
-void test("uses action metadata for providers without a tailored guide", () => {
+void test("keeps provider-specific setup URLs without changing the copy", () => {
   const guide = oauthClientSetupGuide({
     ...githubAction,
     pluginId: "example",
@@ -77,12 +66,14 @@ void test("uses action metadata for providers without a tailored guide", () => {
     provider: "oauth.example.com",
     setupUrl: "https://oauth.example.com/apps/new",
   });
+  const wizard = oauthClientWizardSteps(guide);
 
   assert.equal(guide.setupUrl, "https://oauth.example.com/apps/new");
+  assert.equal(guide.setupLinkLabel, "Open Example");
   assert.match(guide.summary, /Example/);
-  assert.equal(
-    guide.fields.find((field) => field.id === "clientSecret")?.required,
-    false,
+  assert.deepEqual(
+    wizard.map((step) => step.id),
+    ["register", "credentials"],
   );
 });
 
@@ -92,8 +83,8 @@ void test("requires every credential marked as required by the guide", () => {
   assert.equal(
     oauthClientCredentialsAreComplete({
       guide,
-      clientId: "client-id",
-      clientSecret: "",
+      clientId: "",
+      clientSecret: "client-secret",
     }),
     false,
   );
@@ -101,7 +92,7 @@ void test("requires every credential marked as required by the guide", () => {
     oauthClientCredentialsAreComplete({
       guide,
       clientId: "client-id",
-      clientSecret: "client-secret",
+      clientSecret: "",
     }),
     true,
   );
