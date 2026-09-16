@@ -14,14 +14,18 @@ struct ConversationActivityFooter: View {
           .transition(.opacity)
       }
     }
-    .animation(.easeOut(duration: 0.2), value: visibleAgents)
+    .animation(.easeOut(duration: 0.2), value: visibleAgents.map(\.id))
   }
   private var visibleAgents: [AgentActivityPresence] {
     let scheduled = WorkspaceScheduleRun.workingPresences(Array(scheduledRuns.values), threadRootID: scheduledThreadRootID) { id in
       model.workspace?.agentDisplayName(id) ?? WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
     }
-    var seen = Set<String>()
-    return (agents + scheduled).filter { seen.insert($0.id).inserted }
+    let ids = WorkingAgentPresenceOrder.merging([agents.map(\.id), scheduled.map(\.id)])
+    let names = Dictionary(
+      (agents + scheduled).map { ($0.id, $0.name) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    return ids.map { AgentActivityPresence(id: $0, name: names[$0] ?? $0.capitalized) }
   }
 }
 
@@ -36,12 +40,14 @@ struct AgentTypingRow: View {
     } label: {
       HStack(spacing: 10) {
         HStack(spacing: 6) {
-          ForEach(agents.prefix(3)) { agent in
+          ForEach(Array(agents.prefix(3))) { agent in
             MatrixLoader(size: 15)
               .foregroundStyle(ChiefTheme.agentColor(agent.id))
               .frame(width: 23, height: 23)
+              .transition(.opacity)
           }
         }
+        .animation(.easeOut(duration: 0.2), value: agents.map(\.id))
         Text(statusText)
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(ChiefTheme.secondary)
