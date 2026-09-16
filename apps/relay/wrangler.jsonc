@@ -99,5 +99,5 @@
     "APNS_BUNDLE_ID": "sh.heychief.mobile",
   },
   "routes": [{ "pattern": "relay.heychief.sh", "custom_domain": true }],
-  "observability": { "enabled": false },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
 }
