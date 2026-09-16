@@ -53,13 +53,39 @@ enum BrandLogoPolicy {
   }
 }
 
-/// Rasterizes a provider logo. Raster assets decode directly; vector (SVG)
-/// logos — Granola and friends — are rendered through an offscreen WebView so
-/// they appear the same way they do on the desktop.
+/// Integrations.sh sometimes wraps a PNG in an SVG. Decode that raster
+/// directly so Granola is never a WebView snapshot of a different logo.
+enum BrandLogoSVG {
+  static func embeddedRasterImage(in data: Data) -> UIImage? {
+    guard let markup = String(data: data, encoding: .utf8) else { return nil }
+    for prefix in [
+      "data:image/png;base64,",
+      "data:image/jpeg;base64,",
+      "data:image/webp;base64,",
+    ] {
+      guard let start = markup.range(of: prefix)?.upperBound else { continue }
+      let encoded = markup[start...].prefix {
+        $0 != "\"" && !$0.isWhitespace && $0 != "'"
+      }
+      var payload = String(encoded)
+      let pad = payload.count % 4
+      if pad != 0 { payload += String(repeating: "=", count: 4 - pad) }
+      guard let decoded = Data(base64Encoded: payload),
+        let image = UIImage(data: decoded)
+      else { continue }
+      return image
+    }
+    return nil
+  }
+}
+
+/// Rasterizes a provider logo. Raster assets decode directly; remaining SVG
+/// logos render one at a time through an offscreen WebView so parallel
+/// onboarding prefetch cannot snapshot Sentry into Granola's cache slot.
 @MainActor
 enum BrandLogoImage {
   private static var imageCache: [String: UIImage] = [:]
-  private static var webView: WKWebView?
+  private static var rasterizeChain: Task<UIImage?, Never>?
 
   static func load(url: URL) async -> UIImage? {
     if let cached = imageCache[url.absoluteString] { return cached }
@@ -69,6 +95,10 @@ enum BrandLogoImage {
     if let raster = UIImage(data: data) {
       imageCache[url.absoluteString] = raster
       return raster
+    }
+    if let embedded = BrandLogoSVG.embeddedRasterImage(in: data) {
+      imageCache[url.absoluteString] = embedded
+      return embedded
     }
     if let rendered = await rasterizeSVG(data: data) {
       imageCache[url.absoluteString] = rendered
@@ -88,18 +118,29 @@ enum BrandLogoImage {
   }
 
   private static func rasterizeSVG(data: Data) async -> UIImage? {
+    let previous = rasterizeChain
+    let task = Task { @MainActor in
+      _ = await previous?.value
+      return await renderSVG(data: data)
+    }
+    rasterizeChain = task
+    return await task.value
+  }
+
+  private static func renderSVG(data: Data) async -> UIImage? {
     guard let markup = String(data: data, encoding: .utf8) else { return nil }
     let webView = makeWebView()
     let html =
-      "<html><head><meta name='viewport' content='width=\(64),initial-scale=1'>"
-      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;display:flex;align-items:center;justify-content:center;overflow:hidden}</style></head>"
+      "<html><head><meta name='viewport' content='width=64,initial-scale=1'>"
+      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;overflow:hidden}"
+      + "svg,img{width:64px;height:64px;display:block;object-fit:contain}</style></head>"
       + "<body>\(markup)</body></html>"
     webView.loadHTMLString(html, baseURL: nil)
     for _ in 0..<60 {
       if !webView.isLoading { break }
       try? await Task.sleep(nanoseconds: 40_000_000)
     }
-    try? await Task.sleep(nanoseconds: 60_000_000)
+    try? await Task.sleep(nanoseconds: 80_000_000)
     return await withCheckedContinuation { continuation in
       webView.takeSnapshot(with: nil) { image, _ in
         continuation.resume(returning: image)
@@ -108,13 +149,14 @@ enum BrandLogoImage {
   }
 
   private static func makeWebView() -> WKWebView {
-    if let webView { return webView }
     let configuration = WKWebViewConfiguration()
     configuration.allowsInlineMediaPlayback = false
-    let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 64, height: 64), configuration: configuration)
+    let view = WKWebView(
+      frame: CGRect(x: 0, y: 0, width: 64, height: 64),
+      configuration: configuration
+    )
     view.isOpaque = false
     view.backgroundColor = .clear
-    webView = view
     return view
   }
 }
