@@ -23,6 +23,21 @@ struct AgentActivityPresence: Identifiable, Equatable, Sendable {
   let name: String
 }
 
+enum WorkingAgentPresenceOrder {
+  static func inserting(_ agentID: String, into agents: [String]) -> [String] {
+    agents.contains(agentID) ? agents : agents + [agentID]
+  }
+
+  static func removing(_ agentID: String, from agents: [String]) -> [String] {
+    agents.filter { $0 != agentID }
+  }
+
+  static func merging(_ groups: [[String]]) -> [String] {
+    var seen = Set<String>()
+    return groups.flatMap { $0 }.filter { seen.insert($0).inserted }
+  }
+}
+
 struct AgentActivityRecord: Identifiable, Equatable, Sendable {
   let id: String
   let workspaceID: String
@@ -97,7 +112,9 @@ final class AppModel {
   private var cellRuntimeBooted = false
   /// Genuine in-flight cell work, grouped by conversation. Mission Control
   /// presents the union so the user can watch delegated specialists progress.
-  private(set) var workingAgents: [ConversationKey: Set<String>] = [:]
+  /// Insertion-ordered working agent IDs, so composer matrix loaders keep a
+  /// stable horizontal slot once an agent appears.
+  private(set) var workingAgents: [ConversationKey: [String]] = [:]
   private(set) var agentActivityRecords: [String: AgentActivityRecord] = [:]
   private var relayActivityMessageIDs: [String: String] = [:]
   private var activeAgentActivityIDs: [String: String] = [:]
@@ -504,25 +521,25 @@ final class AppModel {
     conversationID: String
   ) -> [AgentActivityPresence] {
     guard let workspaceID else { return [] }
-    let ids: Set<String>
+    let ids: [String]
     if conversationID == "mission-control" {
-      ids = workingAgents.reduce(into: Set<String>()) { result, entry in
-        guard entry.key.workspaceID == workspaceID else { return }
-        result.formUnion(entry.value)
-      }
+      ids = WorkingAgentPresenceOrder.merging(
+        workingAgents
+          .filter { $0.key.workspaceID == workspaceID }
+          .sorted { $0.key.conversationID < $1.key.conversationID }
+          .map(\.value)
+      )
     } else {
       ids =
         workingAgents[
           ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
         ] ?? []
     }
-    let roster = workspace?.agents.map(\.id) ?? []
-    return ids.sorted {
-      (roster.firstIndex(of: $0) ?? .max) < (roster.firstIndex(of: $1) ?? .max)
-    }.map { agentID in
+    return ids.map { agentID in
       AgentActivityPresence(
         id: agentID,
         name: workspace?.agents.first(where: { $0.id == agentID })?.name
+          ?? workspace?.agents.lazy.flatMap(\.subagents).first(where: { $0.id == agentID })?.name
           ?? WorkspaceAgentCatalog.agent(forID: agentID)?.name
           ?? agentID.capitalized
       )
@@ -700,7 +717,7 @@ final class AppModel {
     var agents = workingAgents[key] ?? []
     let activityKey = "\(workspaceID):\(conversationID):\(agentID)"
     if isWorking {
-      agents.insert(agentID)
+      agents = WorkingAgentPresenceOrder.inserting(agentID, into: agents)
       if activeAgentActivityIDs[activityKey] == nil {
         let activityID = UUID().uuidString
         activeAgentActivityIDs[activityKey] = activityID
@@ -716,7 +733,7 @@ final class AppModel {
         )
       }
     } else {
-      agents.remove(agentID)
+      agents = WorkingAgentPresenceOrder.removing(agentID, from: agents)
       if let activityID = activeAgentActivityIDs.removeValue(forKey: activityKey),
         var record = agentActivityRecords[activityID]
       {
@@ -1905,7 +1922,7 @@ final class AppModel {
       let local = entry.value.filter { agentID in
         activeAgentActivityIDs["\(entry.key.workspaceID):\(entry.key.conversationID):\(agentID)"] != nil
       }
-      if !local.isEmpty { result[entry.key] = Set(local) }
+      if !local.isEmpty { result[entry.key] = local }
     }
   }
 
@@ -2063,7 +2080,10 @@ final class AppModel {
   ) {
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     var agents = workingAgents[key] ?? []
-    if isWorking { agents.insert(agentID) } else { agents.remove(agentID) }
+    agents =
+      isWorking
+      ? WorkingAgentPresenceOrder.inserting(agentID, into: agents)
+      : WorkingAgentPresenceOrder.removing(agentID, from: agents)
     if agents.isEmpty {
       workingAgents.removeValue(forKey: key)
     } else {

@@ -257,6 +257,31 @@ final class ConversationPresentationTests: XCTestCase {
     XCTAssertTrue(prompt.contains("private channels such as #setup"))
   }
 
+  func testWorkingPresenceKeepsFirstSeenOrderWhenAnotherAgentJoins() {
+    var agents: [String] = []
+    agents = WorkingAgentPresenceOrder.inserting("analyst", into: agents)
+    agents = WorkingAgentPresenceOrder.inserting("brand", into: agents)
+    agents = WorkingAgentPresenceOrder.inserting("analyst", into: agents)
+    XCTAssertEqual(agents, ["analyst", "brand"])
+  }
+
+  func testWorkingPresenceKeepsSurvivingAgentsInPlaceWhenOneLeaves() {
+    XCTAssertEqual(
+      WorkingAgentPresenceOrder.removing("brand", from: ["analyst", "brand", "content"]),
+      ["analyst", "content"]
+    )
+  }
+
+  func testWorkingPresenceMergeKeepsTheFirstTimeEachAgentAppeared() {
+    XCTAssertEqual(
+      WorkingAgentPresenceOrder.merging([
+        ["brand", "analyst"],
+        ["analyst", "chief"],
+      ]),
+      ["brand", "analyst", "chief"]
+    )
+  }
+
   private func message(
     id: String,
     author: ConversationMessage.Author,
