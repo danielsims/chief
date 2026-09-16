@@ -248,8 +248,13 @@ private struct PluginRecommendationMessageComponent: View {
     Haptics.medium()
     Task {
       do {
-        let catalog = await PluginCatalogClient.shared.preferredPlugins()
-        guard let plugin = catalog.first(where: { $0.id == pluginID }) else {
+        let plugin = await PluginCatalogClient.shared.plugin(
+          id: pluginID,
+          name: name,
+          domain: domain == pluginID ? nil : domain,
+          description: component.payload["description"]
+        )
+        guard let plugin else {
           throw MobilePluginRuntimeError.unavailable("This plugin is no longer in the catalog.")
         }
         try await PluginCatalogClient.shared.install(
