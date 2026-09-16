@@ -110,7 +110,11 @@ export async function prepareHostedAgentTurn(
   const instruction =
     stringPayload(job, "instruction") ??
     "Respond helpfully to the latest message.";
-  const completion = hostedCompletionContract(instruction, browserEnabled);
+  const completion = hostedCompletionContract(
+    instruction,
+    browserEnabled,
+    job.kind,
+  );
   return {
     jobId: job.id,
     conversationId,
@@ -161,7 +165,11 @@ export function hostedHistoryThreadRootId(
 export function hostedCompletionContract(
   instruction: string,
   browserEnabled: boolean,
-) {
+  jobKind?: string,
+): { requiredToolNames: string[]; browserMustRemainOpen: boolean } {
+  if (jobKind?.startsWith("workspace.kickoff.")) {
+    return { requiredToolNames: [], browserMustRemainOpen: false };
+  }
   const normalized = instruction.toLowerCase();
   const asksForVisibleBrowser =
     browserEnabled &&
