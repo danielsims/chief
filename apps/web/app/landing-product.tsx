@@ -501,6 +501,7 @@ export function LandingProduct() {
                   alt=""
                   className="h-auto w-full rounded-[33px]"
                   height={2868}
+                  sizes="300px"
                   src="/landing/iphone.png"
                   width={1320}
                 />
