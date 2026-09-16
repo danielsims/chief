@@ -5,7 +5,6 @@ struct ConversationActivityFooter: View {
   @Environment(\.scheduledRuns) private var scheduledRuns
   let agents: [AgentActivityPresence]
   var scheduledThreadRootID: String? = nil
-  let errorCount: Int
   let openActivity: () -> Void
 
   var body: some View {
@@ -13,9 +12,6 @@ struct ConversationActivityFooter: View {
       if !visibleAgents.isEmpty {
         AgentTypingRow(agents: visibleAgents, openActivity: openActivity)
           .transition(.opacity)
-      }
-      if errorCount > 0 {
-        AgentActivityErrorStatus(count: errorCount, openActivity: openActivity)
       }
     }
     .animation(.easeOut(duration: 0.2), value: visibleAgents)
@@ -75,38 +71,6 @@ struct AgentTypingRow: View {
     case 3: "\(names[0]), \(names[1]), and \(names[2]) are working…"
     default: "\(names[0]), \(names[1]), and \(names.count - 2) others are working…"
     }
-  }
-}
-
-private struct AgentActivityErrorStatus: View {
-  let count: Int
-  let openActivity: () -> Void
-
-  var body: some View {
-    Button {
-      Haptics.medium()
-      openActivity()
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "exclamationmark.circle")
-          .foregroundStyle(.red)
-        Text("\(count) \(count == 1 ? "error" : "errors")")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.red)
-        Spacer(minLength: 4)
-        Text("Activity")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(ChiefTheme.tertiary)
-        Image(systemName: "chevron.right")
-          .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(ChiefTheme.tertiary)
-      }
-      .padding(.horizontal, ChiefTheme.pagePadding)
-      .padding(.vertical, 8)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("\(count) agent \(count == 1 ? "error" : "errors"). Open activity.")
   }
 }
 

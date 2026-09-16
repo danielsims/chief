@@ -12,7 +12,6 @@ import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
-import { ChatErrorStatus } from "./chat-error-status";
 import { ChatTimeline } from "./chat-timeline";
 import { ChiefChatAuxiliaryPanels } from "./chief-chat-auxiliary-panels";
 import {
@@ -109,7 +108,6 @@ export function ChiefChat({
     childSessions,
     cloudOrganizationId,
     controls,
-    dismissError,
     currentUser,
     interrupt,
     knownAgentIds,
@@ -221,15 +219,6 @@ export function ChiefChat({
   );
   return (
     <>
-      {controls.error && !controls.errorAcknowledged ? (
-        <ChatErrorStatus
-          key={`${controls.error.code ?? "runtime"}:${controls.error.message}`}
-          onOpen={() => {
-            dismissError();
-            setActivityOpen(true);
-          }}
-        />
-      ) : null}
       <div className="relative flex h-full min-w-0 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {header}
