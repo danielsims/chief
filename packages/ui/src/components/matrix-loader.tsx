@@ -11,11 +11,13 @@ interface MatrixLoaderStyle extends React.CSSProperties {
 export function MatrixLoader({
   ariaLabel = "Working",
   className,
+  color,
   fps = 7,
   size = 27,
 }: {
   ariaLabel?: string;
   className?: string;
+  color?: string;
   fps?: number;
   size?: number;
 }) {
@@ -28,6 +30,9 @@ export function MatrixLoader({
     height: size,
     width: size,
   };
+  if (color) {
+    style.color = color;
+  }
 
   return React.createElement(
     "span",

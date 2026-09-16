@@ -80,4 +80,5 @@ void test("the activity matrix inherits the active agent color", () => {
   );
 
   assert.match(html, /color:#fa8ca8/iu);
+  assert.match(html, /Advertising is working/u);
 });
