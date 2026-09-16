@@ -4,6 +4,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AgentInferenceTool } from "@chief/agent-computer";
 import type { JsonObject } from "@chief/relay-contracts";
 import {
+  isJsonBoolean,
+  isJsonObject,
   isJsonString,
   parseJsonObject,
   toJsonObject,
@@ -96,19 +98,72 @@ function localAgentToolParameters(tool: AgentToolDefinition) {
     }),
   );
   const names = pathParameterNames(tool.path);
-  if (names.length === 0) return schema;
+  const withPath =
+    names.length === 0
+      ? schema
+      : {
+          type: "object",
+          allOf: [
+            schema,
+            {
+              type: "object",
+              properties: Object.fromEntries(
+                names.map((name) => [name, { type: "string", minLength: 1 }]),
+              ),
+              required: names,
+            },
+          ],
+        };
+  return openaiFunctionParameters(withPath);
+}
+
+/** OpenCode Go and other OpenAI-compatible providers reject function
+ * parameters whose JSON Schema is an `allOf` intersection with no `type`. */
+function openaiFunctionParameters(schema: JsonObject): JsonObject {
+  const flattened = flattenObjectJsonSchema(schema);
   return {
     type: "object",
-    allOf: [
-      schema,
-      {
-        type: "object",
-        properties: Object.fromEntries(
-          names.map((name) => [name, { type: "string", minLength: 1 }]),
-        ),
-        required: names,
-      },
-    ],
+    properties: flattened.properties,
+    ...(flattened.required.length > 0
+      ? { required: flattened.required }
+      : undefined),
+    additionalProperties: flattened.additionalProperties ?? false,
+  };
+}
+
+function flattenObjectJsonSchema(schema: JsonObject): {
+  properties: JsonObject;
+  required: string[];
+  additionalProperties?: boolean;
+} {
+  const direct = {
+    properties: parseJsonObject(schema.properties) ?? {},
+    required: Array.isArray(schema.required)
+      ? schema.required.filter(isJsonString)
+      : [],
+    additionalProperties: isJsonBoolean(schema.additionalProperties)
+      ? schema.additionalProperties
+      : undefined,
+  };
+  if (!Array.isArray(schema.allOf)) return direct;
+  return schema.allOf
+    .filter(isJsonObject)
+    .map(flattenObjectJsonSchema)
+    .reduce(mergeObjectJsonSchema, direct);
+}
+
+function mergeObjectJsonSchema(
+  left: ReturnType<typeof flattenObjectJsonSchema>,
+  right: ReturnType<typeof flattenObjectJsonSchema>,
+) {
+  return {
+    properties: { ...left.properties, ...right.properties },
+    required: [...new Set([...left.required, ...right.required])],
+    additionalProperties:
+      left.additionalProperties === false ||
+      right.additionalProperties === false
+        ? false
+        : (right.additionalProperties ?? left.additionalProperties),
   };
 }
 
