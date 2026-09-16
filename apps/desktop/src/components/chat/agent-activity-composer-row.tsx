@@ -10,7 +10,7 @@ import { formatAgentActivityStatus } from "./agent-activity-presence";
 function activityColor(agentId: string) {
   return isWorkspaceAgentId(agentId)
     ? WORKSPACE_AGENT_IDENTITIES[agentId].color
-    : "currentColor";
+    : undefined;
 }
 
 export function AgentActivityComposerRow({
@@ -57,7 +57,11 @@ export function AgentActivityComposerRow({
               className="ring-background grid size-[18px] place-items-center rounded-md bg-current/10 text-current ring-1"
               style={{ color: activityColor(agent.id) }}
             >
-              <MatrixLoader ariaLabel={`${agent.label} is working`} size={13} />
+              <MatrixLoader
+                ariaLabel={`${agent.label} is working`}
+                color={activityColor(agent.id)}
+                size={13}
+              />
             </span>
           ))}
         </span>

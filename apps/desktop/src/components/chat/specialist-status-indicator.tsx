@@ -8,16 +8,6 @@ import {
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 
-const AGENT_WORKING_COLOR: Record<string, string> = {
-  brand: "text-foreground",
-  prospector: "text-sky-300",
-  content: "text-amber-300",
-  analyst: "text-cyan-300",
-  ads: "text-rose-300",
-  setup: "text-emerald-300",
-  engineer: "text-orange-300",
-};
-
 export function specialistIsStartingOrWorking(status: SessionRecord["status"]) {
   return status === "idle" || status === "running" || status === "waiting";
 }
@@ -34,14 +24,18 @@ export function SpecialistStatusIndicator({
   status: SessionRecord["status"];
 }) {
   if (status === "idle" || status === "running") {
+    const color = isWorkspaceAgentId(agent)
+      ? WORKSPACE_AGENT_IDENTITIES[agent].color
+      : undefined;
     return (
       <MatrixLoader
         ariaLabel={status === "idle" ? "Starting" : "Working"}
         className={cn(
           "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:rounded-[24%]",
-          AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
+          color ? undefined : "text-slate-300",
           className,
         )}
+        color={color}
         size={size}
       />
     );
