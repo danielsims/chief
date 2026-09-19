@@ -6,6 +6,7 @@ final class MobileSettingsUITests: XCTestCase {
     let app = launch()
     app.buttons["Open profile"].tap()
     XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Delete account"].waitForExistence(timeout: 3))
     XCTAssertFalse(app.staticTexts["Profile photo"].exists)
     attach("Settings overview", app)
     app.buttons["Edit photo"].tap()

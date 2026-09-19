@@ -21,7 +21,14 @@ protocol MobileAuthenticationServing: Sendable {
     callbackURL: URL,
     request: MobileAuthorizationRequest
   ) async throws -> ChiefSession
+  func exchangeAppleIdentityToken(
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?
+  ) async throws -> ChiefSession
   func refreshAccountSession(_ session: ChiefSession) async throws -> ChiefSession
+  func deleteAccount(session: ChiefSession) async throws
   func inviteOrganizationMember(
     email: String,
     organizationID: String,
@@ -40,58 +47,82 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
 
   private let configuration: AppConfiguration
   private let session: URLSession
+  private let authorizingSession: URLSession
+  private let redirectDelegate: RedirectRejectingDelegate
   private let decoder = JSONDecoder()
 
   init(configuration: AppConfiguration, session: URLSession = .shared) {
+    let redirectDelegate = RedirectRejectingDelegate()
     self.configuration = configuration
     self.session = session
+    self.redirectDelegate = redirectDelegate
+    self.authorizingSession = URLSession(
+      configuration: .ephemeral,
+      delegate: redirectDelegate,
+      delegateQueue: nil
+    )
   }
 
   func makeAuthorizationRequest() async throws -> MobileAuthorizationRequest {
-    let state = try Self.randomBase64URL(byteCount: 24)
-    let codeVerifier = try Self.randomBase64URL(byteCount: 32)
-    let digest = SHA256.hash(data: Data(codeVerifier.utf8))
-    let codeChallenge = Data(digest).base64URLEncodedString()
-    let callbackURL = configuration.authenticationCallbackURL
+    try makeAuthorizationRequest(wrapInSignIn: true)
+  }
 
-    var components = URLComponents(
-      url: configuration.accountURL.appending(path: "api/auth/oauth2/authorize"),
-      resolvingAgainstBaseURL: false
+  func makeExistingSessionAuthorizationRequest() async throws -> MobileAuthorizationRequest {
+    try makeAuthorizationRequest(wrapInSignIn: false)
+  }
+
+  nonisolated static func appleRequestNonce() throws -> (raw: String, hashed: String) {
+    let raw = try randomBase64URL(byteCount: 32)
+    return (raw, sha256Hex(raw))
+  }
+
+  nonisolated static func sha256Hex(_ value: String) -> String {
+    SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+  }
+
+  func exchangeAppleIdentityToken(
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?
+  ) async throws -> ChiefSession {
+    let sessionToken = try await signInWithAppleIdentityToken(
+      identityToken: identityToken,
+      nonce: nonce,
+      fullName: fullName,
+      email: email
     )
-    components?.queryItems = [
-      URLQueryItem(name: "client_id", value: Self.clientID),
-      URLQueryItem(name: "redirect_uri", value: callbackURL.absoluteString),
-      URLQueryItem(name: "response_type", value: "code"),
-      URLQueryItem(name: "scope", value: Self.scope),
-      URLQueryItem(name: "code_challenge", value: codeChallenge),
-      URLQueryItem(name: "code_challenge_method", value: "S256"),
-      URLQueryItem(name: "state", value: state),
-      URLQueryItem(name: "resource", value: configuration.relayURL.absoluteString),
-    ]
-    guard let relayAuthorizationURL = components?.url else {
-      throw MobileAuthenticationError.invalidResponse
+    let authorization = try makeAuthorizationRequest(wrapInSignIn: false)
+    let callbackURL = try await authorize(
+      authorization.authorizationURL,
+      sessionToken: sessionToken
+    )
+    let signedIn = try await exchange(callbackURL: callbackURL, request: authorization)
+    return ChiefSession(
+      accessToken: signedIn.accessToken,
+      sessionToken: sessionToken,
+      refreshToken: signedIn.refreshToken,
+      accessTokenExpiresAt: signedIn.accessTokenExpiresAt,
+      user: signedIn.user,
+      workspaceID: signedIn.workspaceID
+    )
+  }
+
+  func deleteAccount(session current: ChiefSession) async throws {
+    var tokens = [current.sessionToken]
+    if current.accessToken != current.sessionToken {
+      tokens.append(current.accessToken)
     }
-    var signIn = URLComponents(
-      url: configuration.accountURL.appending(path: "sign-in"),
-      resolvingAgainstBaseURL: false
-    )
-    signIn?.queryItems = [
-      URLQueryItem(name: "switchAccount", value: "1"),
-      URLQueryItem(
-        name: "callbackUrl",
-        value: relayAuthorizationURL.path(percentEncoded: true)
-          + (relayAuthorizationURL.query.map { "?\($0)" } ?? "")
-      ),
-    ]
-    guard let authorizationURL = signIn?.url else {
-      throw MobileAuthenticationError.invalidResponse
+    var lastError: Error = MobileAuthenticationError.invalidSession
+    for token in tokens {
+      do {
+        try await deleteAccount(bearerToken: token)
+        return
+      } catch {
+        lastError = error
+      }
     }
-    return MobileAuthorizationRequest(
-      authorizationURL: authorizationURL,
-      callbackURL: callbackURL,
-      state: state,
-      codeVerifier: codeVerifier
-    )
+    throw lastError
   }
 
   func exchange(
@@ -132,7 +163,7 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
     {
       return ChiefSession(
         accessToken: current.accessToken,
-        sessionToken: current.accessToken,
+        sessionToken: current.sessionToken,
         refreshToken: current.refreshToken,
         accessTokenExpiresAt: current.accessTokenExpiresAt,
         user: user,
@@ -151,7 +182,8 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
     let refreshed = try await session(from: token, workspaceID: current.workspaceID)
     return ChiefSession(
       accessToken: refreshed.accessToken,
-      sessionToken: refreshed.sessionToken,
+      sessionToken: current.sessionToken == current.accessToken
+        ? refreshed.sessionToken : current.sessionToken,
       refreshToken: refreshed.refreshToken ?? refreshToken,
       accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
       user: refreshed.user,
@@ -189,6 +221,159 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
       )
       throw OrganizationInvitationError.rejected
     }
+  }
+
+  private func makeAuthorizationRequest(wrapInSignIn: Bool) throws -> MobileAuthorizationRequest {
+    let state = try Self.randomBase64URL(byteCount: 24)
+    let codeVerifier = try Self.randomBase64URL(byteCount: 32)
+    let digest = SHA256.hash(data: Data(codeVerifier.utf8))
+    let codeChallenge = Data(digest).base64URLEncodedString()
+    let callbackURL = configuration.authenticationCallbackURL
+
+    var components = URLComponents(
+      url: configuration.accountURL.appending(path: "api/auth/oauth2/authorize"),
+      resolvingAgainstBaseURL: false
+    )
+    var queryItems = [
+      URLQueryItem(name: "client_id", value: Self.clientID),
+      URLQueryItem(name: "redirect_uri", value: callbackURL.absoluteString),
+      URLQueryItem(name: "response_type", value: "code"),
+      URLQueryItem(name: "scope", value: Self.scope),
+      URLQueryItem(name: "code_challenge", value: codeChallenge),
+      URLQueryItem(name: "code_challenge_method", value: "S256"),
+      URLQueryItem(name: "state", value: state),
+      URLQueryItem(name: "resource", value: configuration.relayURL.absoluteString),
+    ]
+    if !wrapInSignIn {
+      queryItems.append(URLQueryItem(name: "prompt", value: "none"))
+    }
+    components?.queryItems = queryItems
+    guard let relayAuthorizationURL = components?.url else {
+      throw MobileAuthenticationError.invalidResponse
+    }
+    let authorizationURL: URL
+    if wrapInSignIn {
+      var signIn = URLComponents(
+        url: configuration.accountURL.appending(path: "sign-in"),
+        resolvingAgainstBaseURL: false
+      )
+      signIn?.queryItems = [
+        URLQueryItem(name: "switchAccount", value: "1"),
+        URLQueryItem(
+          name: "callbackUrl",
+          value: relayAuthorizationURL.path(percentEncoded: true)
+            + (relayAuthorizationURL.query.map { "?\($0)" } ?? "")
+        ),
+      ]
+      guard let signInURL = signIn?.url else {
+        throw MobileAuthenticationError.invalidResponse
+      }
+      authorizationURL = signInURL
+    } else {
+      authorizationURL = relayAuthorizationURL
+    }
+    return MobileAuthorizationRequest(
+      authorizationURL: authorizationURL,
+      callbackURL: callbackURL,
+      state: state,
+      codeVerifier: codeVerifier
+    )
+  }
+
+  private func signInWithAppleIdentityToken(
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?
+  ) async throws -> String {
+    var request = URLRequest(url: endpoint(path: "sign-in/social"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "content-type")
+    request.setValue("application/json", forHTTPHeaderField: "accept")
+    request.setValue(accountOrigin, forHTTPHeaderField: "origin")
+    request.httpBody = try JSONEncoder().encode(
+      AppleSocialSignInRequest(
+        identityToken: identityToken,
+        nonce: nonce,
+        fullName: fullName,
+        email: email
+      )
+    )
+
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw MobileAuthenticationError.network
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      oauthAuthenticationLog.error("Apple identity token returned HTTP \(http.statusCode)")
+      throw MobileAuthenticationError.invalidSession
+    }
+    guard let envelope = try? decoder.decode(SocialSignInResponse.self, from: data),
+      let token = envelope.token?.nonEmpty
+    else {
+      throw MobileAuthenticationError.invalidResponse
+    }
+    return token
+  }
+
+  private func authorize(_ url: URL, sessionToken: String) async throws -> URL {
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "authorization")
+    request.setValue("application/json", forHTTPHeaderField: "accept")
+    request.setValue(accountOrigin, forHTTPHeaderField: "origin")
+    let (data, response) = try await authorizingSession.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw MobileAuthenticationError.network
+    }
+    if let location = http.value(forHTTPHeaderField: "Location"),
+      let redirect = URL(string: location, relativeTo: url)?.absoluteURL
+    {
+      return redirect
+    }
+    if let envelope = try? decoder.decode(AuthorizationRedirect.self, from: data),
+      envelope.redirect,
+      let redirect = envelope.url
+    {
+      return redirect
+    }
+    oauthAuthenticationLog.error(
+      "Native Apple authorize returned HTTP \(http.statusCode) without a callback"
+    )
+    throw MobileAuthenticationError.invalidSession
+  }
+
+  private func deleteAccount(bearerToken: String) async throws {
+    var request = URLRequest(url: endpoint(path: "delete-user"))
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "authorization")
+    request.setValue("application/json", forHTTPHeaderField: "content-type")
+    request.setValue("application/json", forHTTPHeaderField: "accept")
+    request.setValue(accountOrigin, forHTTPHeaderField: "origin")
+    request.httpBody = Data("{}".utf8)
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw MobileAuthenticationError.network
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      oauthAuthenticationLog.error("Account deletion returned HTTP \(http.statusCode)")
+      throw MobileAuthenticationError.accountDeletionFailed
+    }
+    if let envelope = try? decoder.decode(DeleteUserResponse.self, from: data),
+      envelope.success == false
+    {
+      throw MobileAuthenticationError.accountDeletionFailed
+    }
+  }
+
+  private var accountOrigin: String {
+    var components = URLComponents(
+      url: configuration.accountURL,
+      resolvingAgainstBaseURL: false
+    )
+    components?.path = ""
+    components?.query = nil
+    components?.fragment = nil
+    return components?.string ?? configuration.accountURL.absoluteString
   }
 
   private func session(from token: OAuthToken, workspaceID: String?) async throws -> ChiefSession {
@@ -259,7 +444,7 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
     configuration.authenticationAPIURL.appending(path: path)
   }
 
-  private static func randomBase64URL(byteCount: Int) throws -> String {
+  private nonisolated static func randomBase64URL(byteCount: Int) throws -> String {
     var bytes = [UInt8](repeating: 0, count: byteCount)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
       throw MobileAuthenticationError.randomnessUnavailable
@@ -291,6 +476,73 @@ private struct BetterAuthErrorEnvelope: Decodable {
   let message: String?
 }
 
+private struct AppleSocialSignInRequest: Encodable {
+  let provider = "apple"
+  let disableRedirect = true
+  let idToken: IdentityToken
+
+  init(
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?
+  ) {
+    let given = fullName?.givenName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    let family = fullName?.familyName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    let trimmedEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    idToken = IdentityToken(
+      token: identityToken,
+      nonce: nonce,
+      user: given != nil || family != nil || trimmedEmail != nil
+        ? IdentityToken.User(
+          name: given != nil || family != nil
+            ? IdentityToken.User.Name(firstName: given, lastName: family) : nil,
+          email: trimmedEmail
+        ) : nil
+    )
+  }
+
+  struct IdentityToken: Encodable {
+    let token: String
+    let nonce: String
+    let user: User?
+
+    struct User: Encodable {
+      let name: Name?
+      let email: String?
+
+      struct Name: Encodable {
+        let firstName: String?
+        let lastName: String?
+      }
+    }
+  }
+}
+
+private struct SocialSignInResponse: Decodable {
+  let token: String?
+}
+
+private struct AuthorizationRedirect: Decodable {
+  let redirect: Bool
+  let url: URL?
+}
+
+private struct DeleteUserResponse: Decodable {
+  let success: Bool?
+}
+
+private final class RedirectRejectingDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest
+  ) async -> URLRequest? {
+    nil
+  }
+}
+
 enum MobileAuthenticationError: Error, Equatable, LocalizedError {
   case denied
   case stateMismatch
@@ -298,6 +550,7 @@ enum MobileAuthenticationError: Error, Equatable, LocalizedError {
   case invalidResponse
   case network
   case randomnessUnavailable
+  case accountDeletionFailed
 
   var errorDescription: String? {
     switch self {
@@ -307,6 +560,8 @@ enum MobileAuthenticationError: Error, Equatable, LocalizedError {
     case .invalidResponse: "The sign-in service returned an invalid response."
     case .network: "Chief could not reach the sign-in service."
     case .randomnessUnavailable: "Chief could not securely start sign in."
+    case .accountDeletionFailed:
+      "Chief could not delete this account. Try again or contact support."
     }
   }
 }
