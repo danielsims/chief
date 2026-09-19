@@ -1,9 +1,10 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState } from "react";
 
 export interface FaqItem {
-  answer: string;
+  answer: ReactNode;
   question: string;
 }
 
@@ -40,7 +41,7 @@ export function FaqList({
             </h3>
             {isOpen ? (
               <div className="pb-[22px]">
-                <p className="text-muted-foreground m-0 max-w-[36em] text-[15px] leading-[1.65]">
+                <p className="text-muted-foreground m-0 max-w-[36em] text-[15px] leading-[1.65] [&_a]:text-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
                   {item.answer}
                 </p>
               </div>

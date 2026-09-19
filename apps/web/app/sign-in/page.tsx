@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 
@@ -9,7 +10,7 @@ import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 
 import { authClient } from "../../lib/auth-client";
-import { GoogleLogo } from "./google-logo";
+import { SocialProviderButton } from "./provider-button";
 
 function SignInContent() {
   const router = useRouter();
@@ -119,34 +120,59 @@ function SignInContent() {
     );
   }
 
-  const handleGoogleSignIn = async () => {
+  const handleSocialSignIn = async (provider: "apple" | "google") => {
     if (loadingProvider) return;
-    setLoadingProvider("google");
+    setLoadingProvider(provider);
     setError(null);
 
     try {
       // Native entry deliberately stops on this page. Only the user's explicit
-      // provider click clears a previous browser session and opens Google's
+      // provider click clears a previous browser session and opens the
       // account picker; arriving here must never simulate that click.
       const result = await authClient.signIn.social({
-        provider: "google",
+        provider,
         callbackURL: new URL(
           authorizationCallback,
           window.location.origin,
         ).toString(),
       });
       if (result.error) {
-        setError(result.error.message ?? "Google sign-in is unavailable.");
+        setError(
+          result.error.message ??
+            (provider === "apple"
+              ? "Apple sign-in is unavailable."
+              : "Google sign-in is unavailable."),
+        );
         setLoadingProvider(null);
       }
     } catch (error) {
-      console.error("[SignIn] Google sign-in failed:", error);
+      console.error(`[SignIn] ${provider} sign-in failed:`, error);
       setLoadingProvider(null);
       setError(
-        error instanceof Error ? error.message : "Google sign-in failed.",
+        error instanceof Error
+          ? error.message
+          : provider === "apple"
+            ? "Apple sign-in failed."
+            : "Google sign-in failed.",
       );
     }
   };
+
+  const requestedProvider = searchParams.get("provider");
+  const autoStartedApple = useRef(false);
+  useEffect(() => {
+    if (autoStartedApple.current) return;
+    if (requestedProvider !== "apple") return;
+    if (!authenticationMethods?.includes("apple")) return;
+    if (isAuthenticated || loadingProvider) return;
+    autoStartedApple.current = true;
+    void handleSocialSignIn("apple");
+  }, [
+    authenticationMethods,
+    isAuthenticated,
+    loadingProvider,
+    requestedProvider,
+  ]);
 
   const handleEmailAuthentication = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -186,6 +212,12 @@ function SignInContent() {
     }
   };
 
+  const hasSocial =
+    authenticationMethods?.includes("apple") === true ||
+    authenticationMethods?.includes("google") === true;
+  const showEmail =
+    authenticationMethods?.includes("email-password") === true && !hasSocial;
+
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="px-6 pt-6">
@@ -214,7 +246,7 @@ function SignInContent() {
                 ? "You'll be sent back to the app after signing in."
                 : "Sign in to continue to your workspace."}
           </p>
-          {authenticationMethods?.includes("email-password") ? (
+          {showEmail ? (
             <form
               className="mt-8 flex flex-col gap-3 text-left"
               onSubmit={(event) => void handleEmailAuthentication(event)}
@@ -278,43 +310,60 @@ function SignInContent() {
               </button>
             </form>
           ) : null}
-          {authenticationMethods?.includes("google") ? (
-            <Button
-              className={
-                authenticationMethods.includes("email-password")
-                  ? "mt-3 h-11 w-full"
-                  : "mt-8 h-11 w-full"
-              }
-              variant="outline"
-              onClick={handleGoogleSignIn}
+          {authenticationMethods?.includes("apple") ? (
+            <SocialProviderButton
+              className={showEmail ? "mt-3" : "mt-8"}
               disabled={isLoading || loadingProvider !== null}
-            >
-              {loadingProvider === "google" ? (
-                <span
-                  aria-hidden
-                  className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-                />
-              ) : (
-                <GoogleLogo className="mr-2 h-4 w-4" />
-              )}
-              {isLoading ? "Loading…" : "Sign in with Google"}
-            </Button>
+              loading={loadingProvider === "apple"}
+              onClick={() => void handleSocialSignIn("apple")}
+              provider="apple"
+            />
+          ) : null}
+          {authenticationMethods?.includes("google") ? (
+            <SocialProviderButton
+              className={
+                showEmail || authenticationMethods.includes("apple")
+                  ? "mt-3"
+                  : "mt-8"
+              }
+              disabled={isLoading || loadingProvider !== null}
+              loading={loadingProvider === "google"}
+              onClick={() => void handleSocialSignIn("google")}
+              provider="google"
+            />
           ) : null}
           {error ? (
             <p className="text-destructive mt-4 text-sm leading-5">{error}</p>
           ) : null}
+          <p className="text-muted-foreground mt-8 text-xs leading-5">
+            <Link className="hover:text-foreground" href="/privacy">
+              Privacy
+            </Link>
+            {" · "}
+            <Link className="hover:text-foreground" href="/terms">
+              Terms
+            </Link>
+            {isNativeOAuthFlow ? null : (
+              <>
+                {" · "}
+                <Link className="hover:text-foreground" href="/host">
+                  Host your own relay
+                </Link>
+              </>
+            )}
+          </p>
         </div>
       </div>
     </main>
   );
 }
 
-type AuthenticationMethod = "email-password" | "google";
+type AuthenticationMethod = "email-password" | "google" | "apple";
 
 const relayAuthenticationSchema = z.object({
   authentication: z.object({
     methods: z
-      .array(z.enum(["email-password", "google"]))
+      .array(z.enum(["email-password", "google", "apple"]))
       .optional()
       .default(["google"]),
   }),

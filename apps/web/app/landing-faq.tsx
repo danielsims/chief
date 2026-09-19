@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { FaqList } from "./faq-list";
 
 const faqs = [
@@ -23,8 +25,12 @@ const faqs = [
   },
   {
     question: "Can I self host Chief?",
-    answer:
-      "Yes. You can host the relay, the agents, and the backend yourself, on your machine or on your own Cloudflare account. The desktop app is still the official client. The interface will be open source too.",
+    answer: (
+      <>
+        Yes. <Link href="/host">Host a relay</Link> on your own account. The
+        desktop app is still the client.
+      </>
+    ),
   },
   {
     question: "Is the Mac app free?",
