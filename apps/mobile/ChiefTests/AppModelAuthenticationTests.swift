@@ -441,8 +441,21 @@ private struct UnusedAuthentication: MobileAuthenticationServing {
     throw MobileAuthenticationError.network
   }
 
+  func exchangeAppleIdentityToken(
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?
+  ) async throws -> ChiefSession {
+    throw MobileAuthenticationError.network
+  }
+
   func refreshAccountSession(_ session: ChiefSession) async throws -> ChiefSession {
     session
+  }
+
+  func deleteAccount(session: ChiefSession) async throws {
+    throw MobileAuthenticationError.network
   }
 
   func inviteOrganizationMember(

@@ -3,6 +3,9 @@ import SwiftUI
 struct UserProfileView: View {
   @Environment(AppModel.self) private var model
   @State private var ownedWorkspaceID: String?
+  @State private var deleteAccount = false
+  @State private var deletingAccount = false
+  @State private var accountError: String?
 
   var body: some View {
     SettingsPage {
@@ -49,6 +52,19 @@ struct UserProfileView: View {
       }
       .font(.system(size: 14))
       .padding(.vertical, 12)
+      Button(deletingAccount ? "Deleting account…" : "Delete account", role: .destructive) {
+        deleteAccount = true
+      }
+      .font(.system(size: 14))
+      .padding(.vertical, 4)
+      .disabled(deletingAccount)
+      .accessibilityIdentifier("delete-account")
+      if let accountError {
+        Text(accountError)
+          .font(.system(size: 13))
+          .foregroundStyle(.red)
+          .accessibilityIdentifier("delete-account-error")
+      }
     }
     .task(id: model.workspace?.id) {
       ownedWorkspaceID = nil
@@ -63,5 +79,32 @@ struct UserProfileView: View {
       }
     }
     .navigationTitle("Settings")
+    .alert("Delete account?", isPresented: $deleteAccount) {
+      Button("Cancel", role: .cancel) {}
+      Button("Delete account", role: .destructive) {
+        Task { await confirmDeleteAccount() }
+      }
+    } message: {
+      Text(
+        "This permanently deletes your Chief account on this relay, including workspaces you own, and signs you out."
+      )
+    }
+  }
+
+  @MainActor
+  private func confirmDeleteAccount() async {
+    guard !deletingAccount else { return }
+    deletingAccount = true
+    accountError = nil
+    defer { deletingAccount = false }
+    do {
+      try await model.deleteAccount()
+    } catch {
+      accountError =
+        error.localizedDescription.isEmpty
+        ? "Chief could not delete this account. Try again."
+        : error.localizedDescription
+      Haptics.error()
+    }
   }
 }

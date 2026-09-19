@@ -2907,6 +2907,12 @@ final class AppModel {
     applySignedOutState()
   }
 
+  func deleteAccount() async throws {
+    guard let current = session else { return }
+    try await authentication.deleteAccount(session: current)
+    await signOut(of: appConfiguration.relayURL)
+  }
+
   func signOut(of relayURL: URL) async {
     let signingOutActive = RelayDirectoryStore.sameOrigin(
       relayURL,
