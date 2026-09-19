@@ -139,6 +139,7 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
   const [relayUrl, setRelayUrl] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hostSetupUrl = `${new URL(CHIEF_CLOUD_AUTH_UI_URL).origin}/host`;
 
   const connect = async (connection: (typeof savedRelays)[number]) => {
     if (working) return;
@@ -217,13 +218,23 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
         </div>
       </div>
       {!showsSelfHosted ? (
-        <button
-          type="button"
-          onClick={() => setShowsSelfHosted(true)}
-          className="text-muted-foreground hover:text-foreground flex w-full rounded-lg py-1 text-left text-sm transition-colors"
-        >
-          Use a self-hosted relay
-        </button>
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => setShowsSelfHosted(true)}
+            className="text-muted-foreground hover:text-foreground flex w-full rounded-lg py-1 text-left text-sm transition-colors"
+          >
+            Use a self-hosted relay
+          </button>
+          <a
+            className="text-muted-foreground hover:text-foreground flex w-full rounded-lg py-1 text-left text-sm transition-colors"
+            href={hostSetupUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Set up a relay
+          </a>
+        </div>
       ) : (
         <div>
           <label htmlFor="relay-url" className="text-sm font-medium">
@@ -239,6 +250,14 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
             spellCheck={false}
             className="mt-2"
           />
+          <a
+            className="text-muted-foreground hover:text-foreground mt-2 inline-flex text-sm transition-colors"
+            href={hostSetupUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Set up a relay
+          </a>
         </div>
       )}
 
