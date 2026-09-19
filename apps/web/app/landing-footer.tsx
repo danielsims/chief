@@ -36,9 +36,15 @@ export function LandingFooter({ className }: { className?: string }) {
             </Link>
             <Link
               className="text-muted-foreground hover:text-foreground text-[15px]"
-              href="/#download"
+              href="/download"
             >
               Download
+            </Link>
+            <Link
+              className="text-muted-foreground hover:text-foreground text-[15px]"
+              href="/host"
+            >
+              Host a relay
             </Link>
             <Link
               className="text-muted-foreground hover:text-foreground text-[15px]"
