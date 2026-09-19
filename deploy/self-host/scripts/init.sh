@@ -44,7 +44,7 @@ if [ ! -s "$secrets_dir/relay_id" ]; then
   printf 'relay_%s' "$(openssl rand -hex 16)" > "$secrets_dir/relay_id"
 fi
 
-for optional_secret in google_client_secret cloudflare_tunnel_token; do
+for optional_secret in google_client_secret apple_client_secret cloudflare_tunnel_token; do
   if [ ! -f "$secrets_dir/$optional_secret" ]; then
     : > "$secrets_dir/$optional_secret"
   fi
@@ -53,4 +53,4 @@ done
 chmod 0600 "$secrets_dir"/*
 
 echo "Chief self-host configuration is ready at $stack_dir/.env."
-echo "Add a Google client secret only if Google sign-in is enabled."
+echo "Walk through host setup at /host, then add provider secrets only for the methods you enabled."

@@ -50,17 +50,27 @@ Every relay owns its Better Auth database, issuer, signing secret, provider
 credentials, and redirect URIs. Tokens from one relay are never copied into or
 accepted by another relay.
 
-For Google sign-in, create an OAuth client specifically for this deployment,
-set `GOOGLE_CLIENT_ID` in `.env`, write the client secret to
-`secrets/google_client_secret`, and register this exact redirect URI:
+Walk through hostname and provider setup at `/host` on this origin after the
+stack is up, or on https://heychief.sh/host before you start. Email and
+password are always available so the first account can be created on the
+sign-in page. Google and Sign in with Apple are optional: they need OAuth
+clients registered for this hostname, plus the matching secret files under
+`secrets/`.
+
+For Google, register this exact redirect URI:
 
 ```text
 https://your-chief-host.example/api/auth/callback/google
 ```
 
-The auth package already enables email/password when Google is absent. The
-operator-facing first-user/bootstrap experience and additional Better Auth
-providers remain product work; they are not silently emulated by this stack.
+For Apple, register this Return URL on a Services ID you own. Apple does not
+accept localhost. The iPhone app’s Sign in with Apple button belongs to the
+App Store listing; this relay’s Apple client covers web and desktop sign-in
+on this hostname.
+
+```text
+https://your-chief-host.example/api/auth/callback/apple
+```
 
 ## Public TLS
 

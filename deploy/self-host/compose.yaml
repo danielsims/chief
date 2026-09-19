@@ -4,6 +4,7 @@ x-relay-environment: &relay-environment
   ACCOUNT_IDENTITY_MODE: chief-account
   AUTH_BASE_URL: ${CHIEF_PUBLIC_URL:?Set CHIEF_PUBLIC_URL in deploy/self-host/.env}
   AUTH_GOOGLE_REDIRECT_URI: ${CHIEF_PUBLIC_URL}/api/auth/callback/google
+  AUTH_APPLE_REDIRECT_URI: ${CHIEF_PUBLIC_URL}/api/auth/callback/apple
   AUTH_UI_ORIGIN: ${CHIEF_PUBLIC_URL}
   BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
   BOOTSTRAP_TOKEN_SHA256_FILE: /run/secrets/bootstrap_token_sha256
@@ -16,6 +17,9 @@ x-relay-environment: &relay-environment
   COMPUTER_BASE_URL: http://computer:8080
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+  APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+  APPLE_CLIENT_SECRET_FILE: /run/secrets/apple_client_secret
+  APPLE_APP_BUNDLE_IDENTIFIER: ${APPLE_APP_BUNDLE_IDENTIFIER:-}
   CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
   CLOUDFLARE_EMAIL_API_TOKEN: ${CLOUDFLARE_EMAIL_API_TOKEN:-}
   EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
@@ -36,6 +40,7 @@ x-relay-secrets: &relay-secrets
   - relay_secret_key
   - relay_id
   - google_client_secret
+  - apple_client_secret
 
 x-service-security: &service-security
   cap_drop:
@@ -251,6 +256,8 @@ secrets:
     file: ./secrets/bootstrap_token_sha256
   google_client_secret:
     file: ./secrets/google_client_secret
+  apple_client_secret:
+    file: ./secrets/apple_client_secret
   cloudflare_tunnel_token:
     file: ./secrets/cloudflare_tunnel_token
   computer_auth_secret:
