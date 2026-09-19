@@ -6,13 +6,16 @@ import { SiteHeader } from "./site-header";
 export function MarketingPage({
   children,
   footerClassName = "mt-24",
+  overlayHeader = false,
 }: {
   children: ReactNode;
   footerClassName?: string;
+  /** Use on pages whose hero artwork runs behind the header. */
+  overlayHeader?: boolean;
 }) {
   return (
     <main className="bg-background text-foreground min-h-screen antialiased">
-      <SiteHeader />
+      <SiteHeader overlay={overlayHeader} />
       {children}
       <LandingFooter className={footerClassName} />
     </main>

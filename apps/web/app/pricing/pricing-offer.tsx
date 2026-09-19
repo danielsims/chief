@@ -59,17 +59,22 @@ const faqs: FaqItem[] = [
 export function PricingOffer() {
   return (
     <>
-      <section className="pt-4 text-center">
-        <h1 className="text-foreground mx-auto max-w-[16em] text-[clamp(40px,5.2vw,68px)] leading-[1.04] font-medium tracking-[-0.05em]">
+      <section className="landing-rise pt-16 text-center max-md:pt-12">
+        <h1 className="mx-auto max-w-[16em] text-[clamp(40px,5.2vw,68px)] leading-[1.04] font-medium tracking-[-0.05em] text-white">
           Free during beta.
         </h1>
-        <p className="text-muted-foreground mx-auto mt-6 max-w-[600px] text-lg leading-[1.65]">
+        <p
+          className="landing-rise mx-auto mt-6 max-w-[600px] text-lg leading-[1.65] text-white/85"
+          data-rise="2"
+        >
           Use every agent and workspace feature while we build Chief with our
           earliest teams. No card and no surprise charge.
         </p>
       </section>
 
-      <section className="mt-16 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
+      {/* Starts below the artwork's fixed height so the offer content can never
+          stretch the backdrop. */}
+      <section className="relative z-10 mt-[62px] grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         <div className="bg-card rounded-3xl p-9 max-md:p-7">
           <h2 className="text-foreground text-[clamp(24px,2.6vw,32px)] leading-[1.14] font-medium tracking-[-0.045em]">
             Bring the whole team.
