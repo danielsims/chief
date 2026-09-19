@@ -62,13 +62,11 @@ export function DownloadOptions() {
 
         return (
           <article
-            className="bg-card flex flex-col rounded-3xl p-8"
+            className="bg-card flex flex-col rounded-3xl p-7 md:p-8"
             key={option.id}
           >
-            <span className="bg-background text-foreground grid size-11 place-items-center rounded-xl">
-              <Icon className="size-5" />
-            </span>
-            <h2 className="text-foreground mt-5 text-xl font-medium tracking-[-0.03em]">
+            <Icon className="text-foreground size-9 max-md:size-8" />
+            <h2 className="text-foreground mt-6 text-xl font-medium tracking-[-0.03em]">
               {option.name}
             </h2>
             <p className="text-muted-foreground mt-2 text-sm leading-[1.55]">
@@ -79,7 +77,7 @@ export function DownloadOptions() {
             </small>
             <a
               className={cn(
-                "mt-6 inline-flex h-11 w-fit items-center justify-center gap-2.5 rounded-xl px-[22px] text-sm font-medium tracking-[-0.02em] transition-opacity hover:opacity-90",
+                "mt-7 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl px-[22px] text-sm font-medium tracking-[-0.02em] transition-opacity hover:opacity-90",
                 isPreferred
                   ? "bg-primary text-primary-foreground"
                   : "text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
@@ -87,7 +85,6 @@ export function DownloadOptions() {
               href={option.href}
             >
               {option.label}
-              <Icon className="size-4" />
             </a>
           </article>
         );

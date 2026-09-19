@@ -6,7 +6,7 @@ import { ChiefWordmark } from "./chief-mark";
 import { GetAppButton } from "./get-app-button";
 
 const links = [
-  { href: "/#product", label: "Product" },
+  { href: "/", label: "Product" },
   { href: "/pricing", label: "Pricing" },
   { href: "/download", label: "Download" },
 ];
