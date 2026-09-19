@@ -95,6 +95,8 @@
     "AUTH_BASE_URL": "https://relay.heychief.sh",
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
+    "AUTH_APPLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/apple",
+    "APPLE_APP_BUNDLE_IDENTIFIER": "sh.heychief.mobile",
     "APNS_TEAM_ID": "XMMXB25823",
     "APNS_BUNDLE_ID": "sh.heychief.mobile",
   },

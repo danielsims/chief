@@ -42,6 +42,27 @@ describe("public relay routes", () => {
     });
   });
 
+  it("advertises Google and Apple when those providers are configured", async () => {
+    const response = await worker.fetch(
+      new Request("https://relay.test/.well-known/relay"),
+      {
+        ...relayEnv(),
+        APPLE_CLIENT_ID: "sh.example.chief.web",
+        APPLE_CLIENT_SECRET: "apple-client-secret",
+        GOOGLE_CLIENT_ID: "google-client",
+        GOOGLE_CLIENT_SECRET: "google-client-secret",
+      },
+      createExecutionContext(),
+    );
+    const body = relayDiscoverySchema.parse(await response.json());
+
+    expect(body.authentication.methods).toEqual([
+      "email-password",
+      "google",
+      "apple",
+    ]);
+  });
+
   it("publishes secure tunnel URLs when local TLS terminates at a proxy", async () => {
     const response = await worker.fetch(
       new Request("http://relay-tunnel.example/.well-known/relay", {

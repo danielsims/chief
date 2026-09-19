@@ -326,6 +326,30 @@ void test("relay discovery is portable across hosting providers", () => {
   ]);
 });
 
+void test("relay discovery accepts Apple as an authentication method", () => {
+  const discovery = relayDiscoverySchema.parse({
+    protocol: "relay",
+    protocolVersion: 1,
+    relayId: "relay_test",
+    deployment: "self-hosted",
+    apiBaseUrl: "https://chief.example.com/v1",
+    websocketUrl: "wss://chief.example.com/v1/connect",
+    openApiUrl: "https://chief.example.com/openapi.json",
+    capabilities: ["workspaces", "conversations", "durable-agents"],
+    authentication: {
+      scheme: "NIP-98",
+      signingAlgorithm: "secp256k1-schnorr",
+      accountIssuer: "https://chief.example.com/api/auth",
+      methods: ["email-password", "apple"],
+    },
+  });
+
+  assert.deepEqual(discovery.authentication.methods, [
+    "email-password",
+    "apple",
+  ]);
+});
+
 void test("OpenAPI documents idempotent message append", () => {
   const document = createRelayOpenApiDocument("https://relay.example.com");
   const path =

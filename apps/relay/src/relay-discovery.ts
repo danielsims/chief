@@ -28,6 +28,9 @@ export function relayDiscovery(request: Request, url: URL, env: Env) {
         ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
           ? (["google"] as const)
           : []),
+        ...(env.APPLE_CLIENT_ID && env.APPLE_CLIENT_SECRET
+          ? (["apple"] as const)
+          : []),
       ],
     },
   });

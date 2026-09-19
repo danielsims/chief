@@ -13,6 +13,7 @@ export const relayCapabilitySchema = z.enum([
 export const relayAuthenticationMethodSchema = z.enum([
   "email-password",
   "google",
+  "apple",
 ]);
 
 export const relayDiscoverySchema = z.object({
