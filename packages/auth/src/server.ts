@@ -9,7 +9,9 @@ import {
 } from "better-auth/plugins";
 
 import type { ChiefAuthOptions } from "./options";
+import { appleProviderConfig } from "./options";
 import { relayCookiePrefix } from "./cookie-prefix";
+import { oauthAccessTokenSession } from "./oauth-access-session";
 import { trustedOrigins } from "./origins";
 
 const oauthScopes = ["openid", "profile", "email", "offline_access"] as const;
@@ -33,7 +35,12 @@ export function createChiefAuth(
         },
       }
     : {};
-  const googleConfigured = Boolean(options.google);
+  const apple = options.apple
+    ? {
+        apple: appleProviderConfig(options.apple),
+      }
+    : {};
+  const socialConfigured = Boolean(options.google) || Boolean(options.apple);
   const sendOrganizationInvitation = options.sendOrganizationInvitation;
 
   return betterAuth({
@@ -44,15 +51,30 @@ export function createChiefAuth(
     database,
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: googleConfigured,
+      requireEmailVerification: socialConfigured,
     },
-    socialProviders: google,
+    socialProviders: {
+      ...google,
+      ...apple,
+    },
+    user: {
+      deleteUser: {
+        enabled: true,
+      },
+    },
+    session: {
+      // OAuth users have no password. Keep in-app deletion available for any
+      // still-valid native or browser session instead of requiring a fresh
+      // login or an email confirmation loop.
+      freshAge: 0,
+    },
     trustedOrigins: trustedOrigins(options),
     advanced: {
       cookiePrefix: relayCookiePrefix(options.baseURL),
       useSecureCookies: new URL(options.baseURL).protocol === "https:",
     },
     plugins: [
+      oauthAccessTokenSession(),
       bearer(),
       organization({
         allowUserToCreateOrganization: false,

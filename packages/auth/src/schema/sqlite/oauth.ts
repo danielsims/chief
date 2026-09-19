@@ -25,7 +25,7 @@ export const oauthClient = sqliteTable(
     enableEndSession: integer("enable_end_session", { mode: "boolean" }),
     subjectType: text("subject_type"),
     scopes: jsonStrings("scopes"),
-    userId: text("user_id").references(() => user.id),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
     name: text("name"),
