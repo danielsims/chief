@@ -11,13 +11,26 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { usePlatform } from "./platform";
 
-export function GetAppButton() {
+export function GetAppButton({
+  align = "start",
+  size = "default",
+}: {
+  /** Dropdown alignment. Use "end" when the trigger sits at the right edge. */
+  align?: "start" | "end";
+  /** "sm" is the compact header treatment; "default" is the in-page CTA. */
+  size?: "default" | "sm";
+}) {
   const platform = usePlatform();
 
   return (
     <Popover>
-      <PopoverTrigger className="bg-primary text-primary-foreground inline-flex h-12 touch-manipulation items-center justify-center gap-2.5 rounded-xl px-[22px] text-sm font-medium tracking-[-0.02em] whitespace-nowrap transition-opacity hover:opacity-90">
-        Get the app
+      <PopoverTrigger
+        className={cn(
+          "bg-primary text-primary-foreground inline-flex touch-manipulation items-center justify-center gap-2.5 text-sm font-medium tracking-[-0.02em] whitespace-nowrap transition-opacity hover:opacity-90",
+          size === "sm" ? "h-9 rounded-lg px-3.5" : "h-12 rounded-xl px-[22px]",
+        )}
+      >
+        Download the app
         <svg
           aria-hidden="true"
           className="size-3 fill-current"
@@ -27,8 +40,8 @@ export function GetAppButton() {
         </svg>
       </PopoverTrigger>
       <PopoverContent
-        align="start"
-        className="min-w-[228px] bg-[#161616] p-1.5 text-[#f4f4f4] shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_18px_40px_rgba(0,0,0,0.28)]"
+        align={align}
+        className="flex min-w-[228px] flex-col gap-1 bg-[#161616] p-1.5 text-[#f4f4f4] shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_18px_40px_rgba(0,0,0,0.28)]"
         side="bottom"
       >
         <Link

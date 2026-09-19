@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@chief/ui/lib/utils";
 
 import { ChiefWordmark } from "./chief-mark";
+import { GetAppButton } from "./get-app-button";
 
 const links = [
   { href: "/#product", label: "Product" },
@@ -43,9 +44,7 @@ export function SiteHeader({ overlay = false }: { overlay?: boolean }) {
           </Link>
         ))}
       </nav>
-      <Link className="font-medium" href="/download">
-        Download ↗
-      </Link>
+      <GetAppButton align="end" size="sm" />
     </header>
   );
 }

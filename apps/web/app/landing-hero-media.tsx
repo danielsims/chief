@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
 const DESKTOP_SIZES =
-  "(max-width: 767px) calc(95vw - 35px), (max-width: 1023px) calc(93vw - 65px), calc(min(1380px, 92vw) - 88px)";
+  "(max-width: 767px) calc(95vw - 35px), (max-width: 1023px) calc(93vw - 65px), calc(min(1160px, 88vw) - 74px)";
 
-const PHONE_SIZES = "(max-width: 767px) 23vw, (max-width: 1023px) 22vw, 320px";
+const PHONE_SIZES = "(max-width: 767px) 23vw, (max-width: 1023px) 22vw, 274px";
 
 // Steps 4 and 5 of the hero cascade, measured from navigation start so the
 // sequence stays in time with the copy even if hydration is slow. The 70ms gap
@@ -72,7 +72,7 @@ export function LandingHeroMedia() {
   const phoneReady = useCascadeReveal(phoneRef, PHONE_AT_MS);
 
   return (
-    <div className="relative mx-auto w-[min(1380px,92%)] pr-[88px] pb-[35px] max-lg:w-[93%] max-lg:pr-[65px] max-md:w-[95%] max-md:pr-[35px] max-md:pb-7">
+    <div className="relative mx-auto w-[min(1160px,88%)] pr-[74px] pb-[35px] max-lg:w-[93%] max-lg:pr-[60px] max-md:w-[95%] max-md:pr-[35px] max-md:pb-7">
       <div className="hero-reveal" data-revealed={desktopReady}>
         <Image
           alt="Chief desktop: Mission Control with the Engineer thread open"
