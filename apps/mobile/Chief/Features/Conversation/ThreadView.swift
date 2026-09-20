@@ -36,10 +36,6 @@ struct ThreadView: View {
         ConversationActivityFooter(
           agents: workingAgents,
           scheduledThreadRootID: root.id,
-          errorCount: model.activityErrorCount(
-            workspaceID: workspaceID,
-            conversationID: conversationID
-          ),
           openActivity: { showsActivity = true }
         )
       }

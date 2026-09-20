@@ -124,7 +124,7 @@ export async function requestJson<T>({
   const response = await fetcher(url, {
     ...init,
     headers,
-    redirect: "error",
+    redirect: "manual",
     signal: init?.signal ?? AbortSignal.timeout(20_000),
   }).catch((error: unknown) => {
     if (error instanceof Error && error.name === "TimeoutError") {

@@ -14,6 +14,7 @@
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint apps/web",
     "start": "next start",
+    "test": "node --import tsx --test lib/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "@types/react-dom": "catalog:",
     "prettier": "catalog:",
     "tailwindcss": "^4.1.11",
+    "tsx": "^4.23.0",
     "typescript": "catalog:"
   },
   "prettier": "@chief/prettier-config"

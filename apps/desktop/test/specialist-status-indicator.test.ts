@@ -19,6 +19,7 @@ void test("working specialists use the animated rounded matrix", () => {
   assert.match(html, /aria-label="Working"/u);
   assert.match(html, /matrix-loader-cell/u);
   assert.match(html, /rounded-\[24%\]/u);
+  assert.match(html, /color:#7dc7fa/iu);
   assert.doesNotMatch(html, /animate-none/u);
 });
 

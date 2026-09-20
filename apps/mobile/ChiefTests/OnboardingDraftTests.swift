@@ -120,4 +120,53 @@ final class PluginCatalogRankingTests: XCTestCase {
         let ranked = PluginCatalogClient.ranked(options)
         XCTAssertEqual(ranked.map(\.name), ["Popular Tool", "Obscure"])
     }
+
+    func testResolveFindsPluginsOutsideThePreferredPrefix() {
+        let preferred = (0..<PluginCatalogClient.preferredLimit).map { index in
+            PluginOption(
+                id: "featured-\(index)",
+                name: "Featured \(index)",
+                domain: "featured-\(index).example"
+            )
+        }
+        let needle = PluginOption(
+            id: "needle",
+            name: "Needle",
+            domain: "noodleseed.com",
+            description: "Find potential customers."
+        )
+        XCTAssertNil(
+            PluginCatalogClient.resolve(
+                id: "needle",
+                catalog: preferred
+            )
+        )
+        XCTAssertEqual(
+            PluginCatalogClient.resolve(
+                id: "needle",
+                catalog: preferred + [needle]
+            )?.domain,
+            "noodleseed.com"
+        )
+        XCTAssertEqual(
+            PluginCatalogClient.resolve(
+                id: "lunarcrush",
+                catalog: preferred,
+                name: "LunarCrush",
+                domain: "lunarcrush.com",
+                description: "Social analytics."
+            )?.name,
+            "LunarCrush"
+        )
+    }
+
+    func testResolveRejectsCardsWithoutAProviderDomain() {
+        XCTAssertNil(
+            PluginCatalogClient.resolve(
+                id: "gone",
+                catalog: [],
+                name: "Gone"
+            )
+        )
+    }
 }

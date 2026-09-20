@@ -45,6 +45,33 @@ final class MobileAuthenticationSession: ObservableObject {
     }
   }
 
+  func startApple(
+    client: any MobileAuthenticationServing,
+    identityToken: String,
+    nonce: String,
+    fullName: PersonNameComponents?,
+    email: String?,
+    completion: @escaping (ChiefSession) -> Void
+  ) {
+    errorMessage = nil
+    isAuthenticating = true
+
+    Task {
+      do {
+        let signedIn = try await client.exchangeAppleIdentityToken(
+          identityToken: identityToken,
+          nonce: nonce,
+          fullName: fullName,
+          email: email
+        )
+        isAuthenticating = false
+        completion(signedIn)
+      } catch {
+        finish(with: error)
+      }
+    }
+  }
+
   private func finish(with error: Error) {
     let details = error as NSError
     mobileAuthenticationLog.error(
@@ -67,6 +94,9 @@ final class MobileAuthenticationSession: ObservableObject {
       default:
         return "Chief could not open the secure sign-in page."
       }
+    }
+    if (error as? ASAuthorizationError)?.code == .canceled {
+      return "Sign in was cancelled."
     }
     if error is URLError {
       return "Chief could not reach sign in. Please try again."

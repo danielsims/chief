@@ -82,8 +82,9 @@ struct AgentToolGrant: Sendable {
   let permissions: Set<String>
 
   func permits(toolName: String) -> Bool {
-    guard toolNames.contains(toolName),
-      let permission = AgentToolAuthorization.permission(for: toolName)
+    let canonical = RelayToolRegistry.canonicalName(toolName)
+    guard toolNames.contains(canonical),
+      let permission = AgentToolAuthorization.permission(for: canonical)
     else { return false }
     return permissions.contains(permission.rawValue)
   }
@@ -152,7 +153,7 @@ enum AgentToolAuthorization {
   ]
 
   static func permission(for toolName: String) -> AgentToolPermissionID? {
-    permissionByTool[toolName]
+    permissionByTool[RelayToolRegistry.canonicalName(toolName)]
   }
 
   static func grant(
@@ -164,11 +165,15 @@ enum AgentToolAuthorization {
     }
     let permissions = config.effectiveToolPermissions
     let granted = requestedToolNames.filter { toolName in
-      guard let permission = permissionByTool[toolName],
+      let canonical = RelayToolRegistry.canonicalName(toolName)
+      guard let permission = permissionByTool[canonical],
         permissions.contains(permission.rawValue)
       else { return false }
-      return config.approvals != "ask" || !mutatingTools.contains(toolName)
+      return config.approvals != "ask" || !mutatingTools.contains(canonical)
     }
-    return AgentToolGrant(toolNames: Set(granted), permissions: permissions)
+    return AgentToolGrant(
+      toolNames: Set(granted.map(RelayToolRegistry.canonicalName)),
+      permissions: permissions
+    )
   }
 }

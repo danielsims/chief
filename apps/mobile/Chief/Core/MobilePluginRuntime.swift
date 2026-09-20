@@ -473,7 +473,7 @@ actor MobilePluginRuntime {
 
   private func attachStoredConnections(workspaceID: String) async {
     let installations = await MobilePluginStore.shared.installations(workspaceID: workspaceID)
-    let catalog = await PluginCatalogClient.shared.preferredPlugins()
+    let catalog = await PluginCatalogClient.shared.catalog()
     for (pluginID, installation) in installations where installation.connectedAt != nil {
       guard let plugin = catalog.first(where: { $0.id == pluginID }) else { continue }
       let endpoints =

@@ -34,10 +34,6 @@ struct ConversationView: View {
       if isMember {
         ConversationActivityFooter(
           agents: workingAgents,
-          errorCount: model.activityErrorCount(
-            workspaceID: model.workspace?.id,
-            conversationID: conversationID
-          ),
           openActivity: { showsActivity = true }
         )
       }

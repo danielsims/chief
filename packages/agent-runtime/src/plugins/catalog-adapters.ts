@@ -74,6 +74,22 @@ function strings(value: JsonValue | undefined) {
     : [];
 }
 
+export function parseMcpSurfaceFromDocument(
+  raw: unknown,
+): { url: string; name?: string } | undefined {
+  const document = parseJsonObject(raw);
+  const surfaces = Array.isArray(document?.surfaces) ? document.surfaces : [];
+  const surface = surfaces.flatMap((candidate) => {
+    const item = parseJsonObject(candidate);
+    return item?.type === "mcp" && isJsonString(item.url) ? [item] : [];
+  })[0];
+  if (!surface || !isJsonString(surface.url)) return undefined;
+  return {
+    url: surface.url,
+    ...(isJsonString(surface.name) ? { name: surface.name } : undefined),
+  };
+}
+
 function displayName(id: string) {
   return id
     .split(/[.-]/g)
