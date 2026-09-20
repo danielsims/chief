@@ -21,7 +21,10 @@ import type {
   PluginCatalogSnapshot,
   RemotePluginCatalogEntry,
 } from "./types.js";
-import { fetchPluginCatalog } from "./catalog-adapters.js";
+import {
+  fetchPluginCatalog,
+  parseMcpSurfaceFromDocument,
+} from "./catalog-adapters.js";
 import { loadAgentPlugin } from "./loader.js";
 import {
   copyPluginPackage,
@@ -237,14 +240,8 @@ async function materializeDiscoveredPackage(
   );
   if (!response.ok)
     throw new Error(`Could not resolve ${entry.name}'s discovered endpoint.`);
-  const rawDocument: unknown = await response.json();
-  const document = parseJsonObject(rawDocument);
-  const surfaces = Array.isArray(document?.surfaces) ? document.surfaces : [];
-  const surface = surfaces.flatMap((candidate) => {
-    const item = parseJsonObject(candidate);
-    return item?.type === "mcp" && isJsonString(item.url) ? [item] : [];
-  })[0];
-  if (!surface || !isJsonString(surface.url))
+  const surface = parseMcpSurfaceFromDocument(await response.json());
+  if (!surface)
     throw new Error(
       `${entry.name} does not publish a connectable MCP endpoint.`,
     );

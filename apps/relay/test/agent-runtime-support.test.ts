@@ -7,6 +7,7 @@ import { agentJobSchema, agentPrincipalSchema } from "@chief/relay-contracts";
 import {
   HOSTED_JOB_MAX_ATTEMPTS,
   hostedAutomaticRetryAt,
+  hostedProviderErrorMessage,
   isHostedInferenceTimeoutFailure,
   isPermanentHostedFailure,
   resolveInferenceApiKey,
@@ -209,6 +210,43 @@ test("continues to retry transient provider failures", () => {
       ),
     ).toBe(false);
   }
+});
+
+test("surfaces empty provider error bodies with the HTTP status", () => {
+  const cause = new APICallError({
+    message: "",
+    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    requestBodyValues: {},
+    statusCode: 403,
+    responseBody: "",
+  });
+
+  expect(hostedProviderErrorMessage(cause)).toBe(
+    "Inference request failed (HTTP 403): empty error body",
+  );
+  expect(
+    shouldRetryHostedTurnFailure({
+      message: "The relay request is invalid.",
+      cause,
+      code: "invalid_request",
+      status: 400,
+    }),
+  ).toBe(false);
+});
+
+test("does not retry an OpenCode region gate", () => {
+  expect(
+    isPermanentHostedFailure(
+      "The latest version of this model is only available hosted in China and requires explicit opt in.",
+    ),
+  ).toBe(true);
+  expect(
+    shouldRetryHostedTurnFailure({
+      message:
+        "The latest version of this model is only available hosted in China and requires explicit opt in.",
+      status: 403,
+    }),
+  ).toBe(false);
 });
 
 test("does not retry a missing hosted inference credential", () => {

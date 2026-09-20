@@ -78,6 +78,7 @@
 		5F45B98A6941935482D5F06D /* DevCodexBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C02322EE816E34C265B58E /* DevCodexBridgeClient.swift */; };
 		61717A415D8BD022D13422ED /* AddProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C3A169993E68D40E727714 /* AddProjectSheet.swift */; };
 		64DE37DB6B86E189F1079452 /* ChiefAgentActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6D5DE8263A4D3D680EBD18 /* ChiefAgentActivityWidget.swift */; };
+		695730CD9D766B2CA7DFF775 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3EECDF460212A3086ECAA5B9 /* PrivacyInfo.xcprivacy */; };
 		6B454BC8F3277BA9692F1C20 /* RelayTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142E40382CA835D0D7DA0995 /* RelayTools.swift */; };
 		6B9B27A506308FBC77D1423C /* AgentPermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550C244A4DE0DC0F95E17992 /* AgentPermissionsView.swift */; };
 		6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */; };
@@ -136,6 +137,7 @@
 		B2F4BEF9B58FA4627A52A063 /* OnDeviceModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A2A6690C5EDC8EF62A3FFA /* OnDeviceModelStore.swift */; };
 		B46E0A3862DBD509E5E97752 /* MobilePluginRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C239EE0E7A82C38063DC49 /* MobilePluginRuntime.swift */; };
 		B64B7687C2CFD71DE776DAFB /* ScheduledRunMessageCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E8439172C8DB36033F38FA /* ScheduledRunMessageCard.swift */; };
+		B671C9CDB050D202C570F8DB /* ChiefCloudSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A67D1702A5C35022CFD34D /* ChiefCloudSignIn.swift */; };
 		B71F3862CAF9F4C54D6370D1 /* ScheduledRunDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09CB7983BBAD890D4964B1C4 /* ScheduledRunDetailView.swift */; };
 		B7424C935AF344F1A7B1CD7C /* AppConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15333FB517188ED08371E31B /* AppConfigurationTests.swift */; };
 		B89786BB2D71614948C1070A /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0172E7BC02158161191E6D /* SettingsPage.swift */; };
@@ -264,6 +266,7 @@
 		35B66B218036AA14837F6044 /* Chief-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Chief-Bridging-Header.h"; sourceTree = "<group>"; };
 		3830638007AF1DAA98075318 /* NIP98Signer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NIP98Signer.swift; sourceTree = "<group>"; };
 		3DA10DC57916ADE010B38AAE /* AgentSkillBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSkillBundle.swift; sourceTree = "<group>"; };
+		3EECDF460212A3086ECAA5B9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		408BC7275D23283B0CC83006 /* RelayDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayDirectoryTests.swift; sourceTree = "<group>"; };
 		409B8D71E007E40124225596 /* ChiefAgentActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefAgentActivityAttributes.swift; sourceTree = "<group>"; };
 		425DE3C91A48D6A27436E67D /* ChiefMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefMobileApp.swift; sourceTree = "<group>"; };
@@ -339,6 +342,7 @@
 		B5630CDFB1B127647A11E308 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B65953F4FFFBE8EAA5AD8B0A /* ActivityErrorAcknowledgementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityErrorAcknowledgementTests.swift; sourceTree = "<group>"; };
 		B68460474AB4963BCB1DC8BF /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B6A67D1702A5C35022CFD34D /* ChiefCloudSignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefCloudSignIn.swift; sourceTree = "<group>"; };
 		B704745FC8166EC66A8B62C5 /* ScheduledRunDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledRunDemo.swift; sourceTree = "<group>"; };
 		B7AA6C482E6F4AA97E65093D /* OnboardingDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingDraftTests.swift; sourceTree = "<group>"; };
 		B7E41B1CBE7A4D243BA36194 /* ChiefUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ChiefUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -604,6 +608,7 @@
 				97A06203485BA289497EAF4E /* bloom.caf */,
 				D6090413A93795854319D98E /* chime.caf */,
 				5E96644C6E57E3B1C9D7F340 /* droplet.caf */,
+				3EECDF460212A3086ECAA5B9 /* PrivacyInfo.xcprivacy */,
 				035C4F0C8C58832BBF85A94C /* ready.caf */,
 				AAAEF323610F56E86E68DCF3 /* sparkle.caf */,
 				AE91AE5EF6CBC964F001AC9D /* success.caf */,
@@ -677,6 +682,7 @@
 		E0C5D3E27AB3688C1F1FD817 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
+				B6A67D1702A5C35022CFD34D /* ChiefCloudSignIn.swift */,
 				3220FF0DE5ACD36BBD17B0A8 /* MobileAuthenticationSession.swift */,
 				0AA7371F3EAFC68C63952892 /* OAuthAuthenticationClient.swift */,
 				D05B570A10E52ECAC1A2D674 /* SignInView.swift */,
@@ -934,6 +940,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0111F1C1AAD046FC24F835D /* Assets.xcassets in Resources */,
+				695730CD9D766B2CA7DFF775 /* PrivacyInfo.xcprivacy in Resources */,
 				8573908DC5E0D7D4C5E2AFAE /* agent-support.js in Resources */,
 				9BE0B3D902F7FD9C538DBACA /* agent.js in Resources */,
 				8C6AE453D51DE0A7ADB172D7 /* agents in Resources */,
@@ -1000,6 +1007,7 @@
 				2C0F5FEEC1B96E05D08D9671 /* ChatTranscript.swift in Sources */,
 				5671D794DE0FA5437A9F80A6 /* ChiefAgentActivityAttributes.swift in Sources */,
 				E0F0B73432B0FADF5BD05148 /* ChiefCellRuntime.swift in Sources */,
+				B671C9CDB050D202C570F8DB /* ChiefCloudSignIn.swift in Sources */,
 				166C0C5F3E92ACE7F835749A /* ChiefControls.swift in Sources */,
 				4B78E287F77BD8CBC67003BD /* ChiefMobileApp.swift in Sources */,
 				13CE8BA97BDD051A420BC292 /* ChiefOpenCodeAgentHost.swift in Sources */,

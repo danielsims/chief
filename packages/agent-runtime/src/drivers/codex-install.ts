@@ -208,7 +208,7 @@ export async function downloadVerified(
 ) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(180_000),
-    redirect: "error",
+    redirect: "manual",
   });
   if (!response.ok || !response.body)
     throw new Error(`Codex download failed (${response.status}).`);

@@ -17,4 +17,10 @@ final class AppConfigurationTests: XCTestCase {
       configuration.authenticationCallbackURL.absoluteString,
       "chief-mobile://auth")
   }
+
+  func testLegalLinksOpenChiefCloudDocuments() {
+    XCTAssertEqual(ChiefAccountLinks.privacy.absoluteString, "https://heychief.sh/privacy")
+    XCTAssertEqual(ChiefAccountLinks.terms.absoluteString, "https://heychief.sh/terms")
+  }
 }
+

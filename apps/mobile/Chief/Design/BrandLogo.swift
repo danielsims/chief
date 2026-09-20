@@ -54,19 +54,48 @@ enum BrandLogoPolicy {
   }
 }
 
-/// Rasterizes a provider logo. Raster assets decode directly; vector (SVG)
-/// logos — Granola and friends — are rendered through an offscreen WebView so
-/// they appear the same way they do on the desktop.
+/// Integrations.sh sometimes wraps a PNG in an SVG. Decode that raster
+/// directly so Granola is never a WebView snapshot of a different logo.
+enum BrandLogoSVG {
+  static func embeddedRasterImage(in data: Data) -> UIImage? {
+    guard let markup = String(data: data, encoding: .utf8) else { return nil }
+    for prefix in [
+      "data:image/png;base64,",
+      "data:image/jpeg;base64,",
+      "data:image/webp;base64,",
+    ] {
+      guard let start = markup.range(of: prefix)?.upperBound else { continue }
+      let encoded = markup[start...].prefix {
+        $0 != "\"" && !$0.isWhitespace && $0 != "'"
+      }
+      var payload = String(encoded)
+      let pad = payload.count % 4
+      if pad != 0 { payload += String(repeating: "=", count: 4 - pad) }
+      guard let decoded = Data(base64Encoded: payload),
+        let image = UIImage(data: decoded)
+      else { continue }
+      return image
+    }
+    return nil
+  }
+}
+
+/// Rasterizes a provider logo. Raster assets decode directly; remaining SVG
+/// logos render one at a time through an offscreen WebView so parallel
+/// onboarding prefetch cannot snapshot Sentry into Granola's cache slot.
 @MainActor
 enum BrandLogoImage {
   private static var imageCache: [String: UIImage] = [:]
-  private static var inFlight: [String: Task<UIImage?, Never>] = [:]
+  private static var rasterizeChain: Task<UIImage?, Never>?
 
+  /// Logos shipped in the app bundle, so priority plugins render without a
+  /// network round trip and never flash a letter placeholder.
   static func bundled(domain: String) -> UIImage? {
     let canonical = PluginCatalogClient.domainAliases[domain.lowercased()] ?? domain.lowercased()
     return UIImage(named: "Plugin-" + canonical.replacingOccurrences(of: ".", with: "-"))
   }
 
+  /// Disk-backed lookup so a logo survives relaunch without re-downloading.
   static func cached(url: URL) -> UIImage? {
     if let image = imageCache[url.absoluteString] { return image }
     guard let path = cacheURL(url), let image = UIImage(contentsOfFile: path.path) else { return nil }
@@ -76,28 +105,29 @@ enum BrandLogoImage {
 
   static func load(url: URL) async -> UIImage? {
     if let image = cached(url: url) { return image }
-    if let task = inFlight[url.absoluteString] { return await task.value }
-    let task = Task { @MainActor () -> UIImage? in
-      var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
-      request.setValue("image/*", forHTTPHeaderField: "Accept")
-      guard let (data, response) = try? await URLSession.shared.data(for: request),
-        let http = response as? HTTPURLResponse, http.statusCode == 200,
-        !data.isEmpty, data.count <= 2_000_000 else { return nil }
-      let result: UIImage?
-      if let raster = UIImage(data: data) { result = raster }
-      else { result = await rasterizeSVG(data: data) }
-      guard let result else { return nil }
-      imageCache[url.absoluteString] = result
-      if let path = cacheURL(url), let png = result.pngData() {
-        try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? png.write(to: path, options: .atomic)
-      }
-      return result
+    guard let (data, response) = try? await URLSession.shared.data(from: url),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      !data.isEmpty, data.count <= 2_000_000
+    else { return nil }
+    // Order matters: a direct raster decodes cheapest, then a PNG wrapped in
+    // SVG markup, and only then does anything reach a WebView.
+    let result: UIImage?
+    if let raster = UIImage(data: data) {
+      result = raster
+    } else if let embedded = BrandLogoSVG.embeddedRasterImage(in: data) {
+      result = embedded
+    } else if let rendered = await rasterizeSVG(data: data) {
+      result = rendered
+    } else {
+      result = nil
     }
-    inFlight[url.absoluteString] = task
-    let image = await task.value
-    inFlight[url.absoluteString] = nil
-    return image
+    guard let result else { return nil }
+    imageCache[url.absoluteString] = result
+    if let path = cacheURL(url), let png = result.pngData() {
+      try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try? png.write(to: path, options: .atomic)
+    }
+    return result
   }
 
   private static func cacheURL(_ url: URL) -> URL? {
@@ -117,18 +147,32 @@ enum BrandLogoImage {
   }
 
   private static func rasterizeSVG(data: Data) async -> UIImage? {
-    guard let markup = String(data: data, encoding: .utf8), markup.contains("<svg") else { return nil }
+    // SVG snapshots run one at a time. Parallel WebView rasterization is what
+    // previously let onboarding prefetch write one provider's logo into
+    // another's cache slot.
+    let previous = rasterizeChain
+    let task = Task { @MainActor in
+      _ = await previous?.value
+      return await renderSVG(data: data)
+    }
+    rasterizeChain = task
+    return await task.value
+  }
+
+  private static func renderSVG(data: Data) async -> UIImage? {
+    guard let markup = String(data: data, encoding: .utf8) else { return nil }
     let webView = makeWebView()
     let html =
-      "<html><head><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\"><meta name='viewport' content='width=\(64),initial-scale=1'>"
-      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;display:flex;align-items:center;justify-content:center;overflow:hidden}svg{width:64px!important;height:64px!important}</style></head>"
+      "<html><head><meta name='viewport' content='width=64,initial-scale=1'>"
+      + "<style>html,body{margin:0;padding:0;background:transparent;width:64px;height:64px;overflow:hidden}"
+      + "svg,img{width:64px;height:64px;display:block;object-fit:contain}</style></head>"
       + "<body>\(markup)</body></html>"
     webView.loadHTMLString(html, baseURL: nil)
     for _ in 0..<60 {
       if !webView.isLoading { break }
       try? await Task.sleep(nanoseconds: 40_000_000)
     }
-    try? await Task.sleep(nanoseconds: 60_000_000)
+    try? await Task.sleep(nanoseconds: 80_000_000)
     return await withCheckedContinuation { continuation in
       webView.takeSnapshot(with: nil) { image, _ in
         continuation.resume(returning: image)
@@ -139,8 +183,12 @@ enum BrandLogoImage {
   private static func makeWebView() -> WKWebView {
     let configuration = WKWebViewConfiguration()
     configuration.allowsInlineMediaPlayback = false
+    // Logo markup is untrusted remote input, so it never gets script execution.
     configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-    let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 64, height: 64), configuration: configuration)
+    let view = WKWebView(
+      frame: CGRect(x: 0, y: 0, width: 64, height: 64),
+      configuration: configuration
+    )
     view.isOpaque = false
     view.backgroundColor = .clear
     return view

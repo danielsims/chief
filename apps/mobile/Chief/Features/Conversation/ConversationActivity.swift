@@ -5,7 +5,6 @@ struct ConversationActivityFooter: View {
   @Environment(\.scheduledRuns) private var scheduledRuns
   let agents: [AgentActivityPresence]
   var scheduledThreadRootID: String? = nil
-  let errorCount: Int
   let openActivity: () -> Void
 
   var body: some View {
@@ -14,18 +13,19 @@ struct ConversationActivityFooter: View {
         AgentTypingRow(agents: visibleAgents, openActivity: openActivity)
           .transition(.opacity)
       }
-      if errorCount > 0 {
-        AgentActivityErrorStatus(count: errorCount, openActivity: openActivity)
-      }
     }
-    .animation(.easeOut(duration: 0.2), value: visibleAgents)
+    .animation(.easeOut(duration: 0.2), value: visibleAgents.map(\.id))
   }
   private var visibleAgents: [AgentActivityPresence] {
     let scheduled = WorkspaceScheduleRun.workingPresences(Array(scheduledRuns.values), threadRootID: scheduledThreadRootID) { id in
       model.workspace?.agentDisplayName(id) ?? WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
     }
-    var seen = Set<String>()
-    return (agents + scheduled).filter { seen.insert($0.id).inserted }
+    let ids = WorkingAgentPresenceOrder.merging([agents.map(\.id), scheduled.map(\.id)])
+    let names = Dictionary(
+      (agents + scheduled).map { ($0.id, $0.name) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    return ids.map { AgentActivityPresence(id: $0, name: names[$0] ?? $0.capitalized) }
   }
 }
 
@@ -39,10 +39,15 @@ struct AgentTypingRow: View {
       openActivity()
     } label: {
       HStack(spacing: 10) {
-        Circle()
-          .fill(ChiefTheme.secondary.opacity(0.6))
-          .frame(width: 4, height: 4)
-          .accessibilityHidden(true)
+        HStack(spacing: 6) {
+          ForEach(Array(agents.prefix(3))) { agent in
+            MatrixLoader(size: 15)
+              .foregroundStyle(ChiefTheme.agentColor(agent.id))
+              .frame(width: 23, height: 23)
+              .transition(.opacity)
+          }
+        }
+        .animation(.easeOut(duration: 0.2), value: agents.map(\.id))
         Text(statusText)
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(ChiefTheme.secondary)
@@ -72,38 +77,6 @@ struct AgentTypingRow: View {
     case 3: "\(names[0]), \(names[1]), and \(names[2]) are working…"
     default: "\(names[0]), \(names[1]), and \(names.count - 2) others are working…"
     }
-  }
-}
-
-private struct AgentActivityErrorStatus: View {
-  let count: Int
-  let openActivity: () -> Void
-
-  var body: some View {
-    Button {
-      Haptics.medium()
-      openActivity()
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "exclamationmark.circle")
-          .foregroundStyle(.red)
-        Text("\(count) \(count == 1 ? "error" : "errors")")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.red)
-        Spacer(minLength: 4)
-        Text("Activity")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(ChiefTheme.tertiary)
-        Image(systemName: "chevron.right")
-          .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(ChiefTheme.tertiary)
-      }
-      .padding(.horizontal, ChiefTheme.pagePadding)
-      .padding(.vertical, 8)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("\(count) agent \(count == 1 ? "error" : "errors"). Open activity.")
   }
 }
 

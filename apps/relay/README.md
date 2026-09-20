@@ -33,7 +33,8 @@ client may authenticate with the hosted Chief issuer while sending workspace
 traffic to a local relay, but credentials are never copied between issuers. A
 self-hosted production relay owns its Better Auth database, provider choices,
 redirect URIs, and signing secrets; clients learn those endpoints through relay
-discovery before starting PKCE.
+discovery before starting PKCE. Operators choose those providers in the `/host`
+setup guide, then pass them into `wrangler deploy` as `--var` flags.
 
 Desktop development can target the printed URL without changing source:
 

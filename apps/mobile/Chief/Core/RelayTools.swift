@@ -6,12 +6,18 @@ import Foundation
 /// response envelope so the worker persists them into the durable transcript.
 protocol RelayTool: Sendable {
   static var name: String { get }
+  static var aliases: [String] { get }
   static var description: String { get }
   /// The tool's argument schema (a JSON-schema subset) advertised to the model.
   static var parameters: [RelayToolParameter] { get }
   /// Construct a fresh, stateless instance per call.
   init()
   func run(arguments: [String: Any], context: ToolContext) async throws -> String
+}
+
+extension RelayTool {
+  static var aliases: [String] { [] }
+  static var names: [String] { [name] + aliases }
 }
 
 struct RelayToolParameter: Sendable {
@@ -26,12 +32,20 @@ struct RelayToolParameter: Sendable {
   let kind: Kind
   let description: String
   let required: Bool
+  let maxUTF8Count: Int
 
-  init(name: String, kind: Kind, description: String, required: Bool = true) {
+  init(
+    name: String,
+    kind: Kind,
+    description: String,
+    required: Bool = true,
+    maxUTF8Count: Int = 16 * 1_024
+  ) {
     self.name = name
     self.kind = kind
     self.description = description
     self.required = required
+    self.maxUTF8Count = maxUTF8Count
   }
 }
 
@@ -126,16 +140,25 @@ enum RelayToolRegistry {
     }
   }
 
+  static func tool(named name: String) -> (any RelayTool.Type)? {
+    tools.first { $0.names.contains(name) }
+  }
+
+  static func canonicalName(_ name: String) -> String {
+    tool(named: name)?.name ?? name
+  }
+
   /// Execute a model-requested tool call, returning the tool's JSON output.
   static func execute(
     name: String,
     arguments: String,
     context: ToolContext
   ) async throws -> String {
-    guard context.grant.permits(toolName: name) else {
-      throw ToolError.permissionDenied("turn-scoped \(name)")
+    let canonical = canonicalName(name)
+    guard context.grant.permits(toolName: canonical) else {
+      throw ToolError.permissionDenied("turn-scoped \(canonical)")
     }
-    guard let tool = tools.first(where: { $0.name == name }) else {
+    guard let tool = tool(named: name) else {
       throw ToolError.unknown(name)
     }
     let parsed = try validatedToolArguments(arguments, tool: tool)
@@ -149,7 +172,7 @@ private func validatedToolArguments(
   tool: any RelayTool.Type
 ) throws -> [String: Any] {
   let data = Data(json.utf8)
-  guard data.count <= 64 * 1_024,
+  guard data.count <= 256 * 1_024,
     let object = try? JSONSerialization.jsonObject(with: data),
     let arguments = object as? [String: Any]
   else { throw ToolError.invalidArgument("arguments") }
@@ -165,7 +188,7 @@ private func validatedToolArguments(
     let valid: Bool
     switch parameter.kind {
     case .string:
-      valid = (value as? String).map { $0.utf8.count <= 16 * 1_024 } ?? false
+      valid = (value as? String).map { $0.utf8.count <= parameter.maxUTF8Count } ?? false
     case .integer:
       valid = value is Int
         || (value as? Double).map { $0.isFinite && $0.rounded() == $0 } == true

@@ -202,7 +202,7 @@ async function followDeploymentEvents({
   );
   const response = await fetcher(url, {
     headers: { authorization: `Bearer ${token}` },
-    redirect: "error",
+    redirect: "manual",
     signal: abort.signal,
   });
   if (!response.ok || !response.body) return;
@@ -253,7 +253,7 @@ async function fetchDeploymentEvents({
   );
   const response = await fetcher(url, {
     headers: { authorization: `Bearer ${token}` },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(20_000),
   });
   const body = await response.text();

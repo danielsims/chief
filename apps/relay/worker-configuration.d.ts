@@ -20,6 +20,8 @@ interface __BaseEnv_Env {
   AUTH_BASE_URL: string;
   AUTH_UI_ORIGIN: string;
   AUTH_GOOGLE_REDIRECT_URI: string;
+  AUTH_APPLE_REDIRECT_URI: string;
+  APPLE_APP_BUNDLE_IDENTIFIER: string;
   WORKSPACES: DurableObjectNamespace<import("./src/index").WorkspaceObject>;
   ACCOUNTS: DurableObjectNamespace<import("./src/index").AccountObject>;
   CONVERSATIONS: DurableObjectNamespace<
@@ -58,6 +60,8 @@ declare namespace NodeJS {
       | "AUTH_BASE_URL"
       | "AUTH_UI_ORIGIN"
       | "AUTH_GOOGLE_REDIRECT_URI"
+      | "AUTH_APPLE_REDIRECT_URI"
+      | "APPLE_APP_BUNDLE_IDENTIFIER"
     >
   > {}
 }

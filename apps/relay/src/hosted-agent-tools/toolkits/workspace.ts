@@ -59,22 +59,38 @@ export const hostedWorkspaceTools = [
   defineHostedAgentTool(
     "files.write",
     async ({ env, job, principal }, input) => {
-      const existing = input.id
-        ? workspaceFilesResultSchema
-            .parse(
-              await workspaceOperation(env, job, principal, "data-files-list"),
-            )
-            .files.find((file) => file.id === input.id)
-        : undefined;
+      const name = requiredString(input, "name");
+      const content = requiredString(input, "content");
+      const listed = workspaceFilesResultSchema.parse(
+        await workspaceOperation(env, job, principal, "data-files-list"),
+      );
+      const requestedId = optionalString(input, "id");
+      const conversationId =
+        optionalString(input, "conversationId") ??
+        listed.files.find((file) => file.id === requestedId)?.conversationId ??
+        requiredString(job.payload, "conversationId");
+      const id =
+        requestedId ??
+        (await deterministicUuid(`${job.id}:file:${conversationId}:${name}`));
+      const existing = listed.files.find((file) => file.id === id);
+      if (existing?.content === content) return existing;
+      const extension =
+        input.format === "html"
+          ? "html"
+          : input.format === "csv"
+            ? "csv"
+            : input.format === "json"
+              ? "json"
+              : "md";
       return workspaceOperation(env, job, principal, "data-file-save", {
         body: workspaceFileSaveSchema.parse({
-          id: optionalString(input, "id"),
+          id,
           path:
             optionalString(input, "path") ??
             existing?.path ??
-            `artifacts/${crypto.randomUUID()}.${input.format === "html" ? "html" : input.format === "csv" ? "csv" : input.format === "json" ? "json" : "md"}`,
-          title: requiredString(input, "name"),
-          content: requiredString(input, "content"),
+            `artifacts/${id}.${extension}`,
+          title: name,
+          content,
           mimeType:
             input.kind === "email"
               ? "message/rfc822"
@@ -85,17 +101,14 @@ export const hostedWorkspaceTools = [
                   : input.format === "json"
                     ? "application/json"
                     : "text/markdown",
-          conversationId:
-            optionalString(input, "conversationId") ??
-            existing?.conversationId ??
-            requiredString(job.payload, "conversationId"),
+          conversationId: existing?.conversationId ?? conversationId,
           expectedVersion: input.expectedVersionId
             ? Number(requiredString(input, "expectedVersionId"))
-            : undefined,
+            : existing?.version,
         }),
       });
     },
-    { effect: "non_replayable" },
+    { effect: "idempotent" },
   ),
 
   defineHostedAgentTool(

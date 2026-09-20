@@ -43,6 +43,10 @@ final class ChiefLaunchTests: XCTestCase {
     XCTAssertTrue(
       app.staticTexts["Your team of agents,\nalready at work."].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["sign-in-button"].exists)
+    XCTAssertTrue(app.buttons["google-sign-in-button"].exists)
+    XCTAssertTrue(app.links["Privacy"].exists)
+    XCTAssertTrue(app.links["Terms"].exists)
+    XCTAssertFalse(app.textFields["relay-address"].exists)
   }
 
   func testWorkspaceAndProfileControlsAreFirstClass() {

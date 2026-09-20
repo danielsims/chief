@@ -20,9 +20,22 @@ export interface TurnFailure {
 }
 
 export function internalFailureMessage(failure: TurnFailure) {
+  if (APICallError.isInstance(failure.cause)) {
+    return hostedProviderErrorMessage(failure.cause);
+  }
   return failure.cause instanceof Error
     ? failure.cause.message
     : failure.message;
+}
+
+export function hostedProviderErrorMessage(error: APICallError) {
+  const detail =
+    [error.message, error.responseBody]
+      .map((value) => value?.trim())
+      .find((value) => value) ?? "empty error body";
+  return error.statusCode
+    ? `Inference request failed (HTTP ${error.statusCode}): ${detail.slice(0, 500)}`
+    : detail.slice(0, 600);
 }
 
 const hostedLeaseSchema = z.object({
@@ -34,7 +47,7 @@ export const HOSTED_JOB_MAX_ATTEMPTS = 3;
 const providerQuotaFailure =
   /\b(?:available balance|credit balance|insufficient[_ -]?quota|quota exceeded|usage limit reached)\b/iu;
 const permanentHostedFailure =
-  /\b(?:no inference credential|not configured for hosted agents|hosted agent configuration is unavailable|incorrect or expired|invalid api key|unauthorized|forbidden|kickoff is missing|work channel was not created|channel must be public|must continue in a private)\b/iu;
+  /\b(?:no inference credential|not configured for hosted agents|hosted agent configuration is unavailable|incorrect or expired|invalid api key|unauthorized|forbidden|regionerror|requires explicit opt in|kickoff is missing|work channel was not created|channel must be public|must continue in a private)\b/iu;
 
 export function hostedClaimRequest() {
   return new Request("https://agent.internal/claim", {

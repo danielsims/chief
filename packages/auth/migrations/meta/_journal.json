@@ -15,6 +15,13 @@
       "when": 1788753600000,
       "tag": "0001_desktop_loopback_redirect",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789580000000,
+      "tag": "0002_oauth_client_user_cascade",
+      "breakpoints": true
     }
   ]
 }

@@ -111,9 +111,12 @@ final class PluginCatalogClient {
     "gmail.googleapis.com": "workspace.google.com",
   ]
 
+  static let preferredLimit = 30
+
   /// The resolved onboarding list. Read synchronously so the Apps step never
   /// flickers between the short fallback and the full catalog.
   private(set) var cached: [PluginOption]?
+  private var fullCatalog: [PluginOption]?
 
   private struct Envelope: Decodable { let data: [Entry] }
   private struct Entry: Decodable {
@@ -131,17 +134,72 @@ final class PluginCatalogClient {
   /// Resolves the onboarding plugin list once and caches it. Call early (for
   /// example when onboarding starts) so the Apps step is already populated.
   func preferredPlugins(forceRefresh: Bool = false) async -> [PluginOption] {
-    if let cached, !forceRefresh { return cached }
+    _ = await catalog(forceRefresh: forceRefresh)
+    return cached ?? PluginOption.preferred
+  }
+
+  /// The full integrations.sh MCP catalog. Recommendation cards and Add must
+  /// look plugins up here — the onboarding list is only a ranked prefix.
+  func catalog(forceRefresh: Bool = false) async -> [PluginOption] {
+    if let fullCatalog, !forceRefresh { return fullCatalog }
+    let parsed = await fetchRemoteCatalog()
+    let resolved = parsed.isEmpty ? PluginOption.preferred : parsed
+    fullCatalog = resolved
+    cached = Array(Self.ranked(resolved).prefix(Self.preferredLimit))
+    return resolved
+  }
+
+  func plugin(
+    id: String,
+    name: String? = nil,
+    domain: String? = nil,
+    description: String? = nil,
+    forceRefresh: Bool = false
+  ) async -> PluginOption? {
+    Self.resolve(
+      id: id,
+      catalog: await catalog(forceRefresh: forceRefresh),
+      name: name,
+      domain: domain,
+      description: description
+    )
+  }
+
+  /// Finds a catalog plugin by id, then falls back to the card payload so a
+  /// recommended plugin still connects when it sits outside the preferred 30.
+  static func resolve(
+    id: String,
+    catalog: [PluginOption],
+    name: String? = nil,
+    domain: String? = nil,
+    description: String? = nil
+  ) -> PluginOption? {
+    if let match = catalog.first(where: { $0.id == id }) { return match }
+    let trimmedDomain = domain?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard trimmedDomain.contains(".") else { return nil }
+    let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let trimmedDescription =
+      description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return PluginOption(
+      id: id,
+      name: trimmedName.isEmpty ? id : trimmedName,
+      domain: trimmedDomain,
+      description: trimmedDescription.isEmpty
+        ? "Connect this service to your Chief agents."
+        : trimmedDescription
+    )
+  }
+
+  private func fetchRemoteCatalog() async -> [PluginOption] {
     guard let url = URL(string: "https://integrations.sh/api.json"),
       let (data, response) = try? await URLSession.shared.data(from: url),
       (response as? HTTPURLResponse)?.statusCode == 200,
       let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
     else {
-      cached = PluginOption.preferred
-      return PluginOption.preferred
+      return []
     }
 
-    let parsed = envelope.data.compactMap { (entry) -> PluginOption? in
+    return envelope.data.compactMap { (entry) -> PluginOption? in
       guard entry.kind == "mcp",
         let name = entry.name?.trimmingCharacters(in: .whitespacesAndNewlines),
         !name.isEmpty,
@@ -161,9 +219,6 @@ final class PluginCatalogClient {
         homepageURL: entry.url.flatMap(URL.init(string:))
       )
     }
-    let resolved = parsed.isEmpty ? PluginOption.preferred : Array(Self.ranked(parsed).prefix(30))
-    cached = resolved
-    return resolved
   }
 
   func installedPluginIDs(workspaceID: String) async -> Set<String> {
@@ -364,7 +419,7 @@ struct PluginsListTool: RelayTool {
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let options = await PluginCatalogClient.shared.preferredPlugins(
+    let options = await PluginCatalogClient.shared.catalog(
       forceRefresh: (arguments["refresh"] as? Bool) == true
     )
     var plugins: [[String: Any]] = []
@@ -401,7 +456,7 @@ struct PluginsRecommendTool: RelayTool {
     guard let pluginIDs = arguments["pluginIds"] as? [String],
       !pluginIDs.isEmpty, pluginIDs.count <= 8
     else { throw ToolError.invalidArgument("pluginIds") }
-    let catalog = await PluginCatalogClient.shared.preferredPlugins()
+    let catalog = await PluginCatalogClient.shared.catalog()
     let selected = pluginIDs.compactMap { id in catalog.first { $0.id == id } }
     guard selected.count == Set(pluginIDs).count else {
       throw ToolError.invalidArgument("unknown pluginIds")
@@ -458,7 +513,7 @@ struct PluginsInstallTool: RelayTool {
     let pluginID = try arguments.requiredString("pluginId")
     let trusted = (arguments["trusted"] as? Bool) == true
     guard trusted else { throw ToolError.permissionDenied("plugin installation approval") }
-    let catalog = await PluginCatalogClient.shared.preferredPlugins()
+    let catalog = await PluginCatalogClient.shared.catalog()
     guard let option = catalog.first(where: { $0.id == pluginID }) else {
       throw ToolError.invalidArgument("pluginId")
     }

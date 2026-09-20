@@ -1,5 +1,6 @@
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   channelCreateCommandSchema,
   channelMemberAddCommandSchema,
   channelMembersResultSchema,
@@ -17,6 +18,19 @@ interface SpecialistKickoff {
   payload: { conversationId: string };
 }
 
+function specialistChannelPrincipal(
+  chief: AgentPrincipal,
+  agentId: string,
+): AgentPrincipal {
+  return {
+    kind: "agent",
+    agentId: agentIdSchema.parse(agentId),
+    pubkey: chief.pubkey,
+    workspaceId: chief.workspaceId,
+    role: "member",
+  };
+}
+
 export async function ensureKickoffWorkChannel(
   env: Env,
   job: AgentJob,
@@ -24,7 +38,8 @@ export async function ensureKickoffWorkChannel(
   entry: SpecialistKickoff,
   conversationId: string,
 ) {
-  await workspaceOperation(env, job, agent, "channels-create", {
+  const ownerPrincipal = specialistChannelPrincipal(agent, entry.agentId);
+  await workspaceOperation(env, job, ownerPrincipal, "channels-create", {
     body: channelCreateCommandSchema.parse({
       commandId: await deterministicUuid(
         `${job.id}:${entry.operationKey}:channel`,
@@ -40,7 +55,7 @@ export async function ensureKickoffWorkChannel(
     }),
   });
   const owner = await missionControlOwnerId(env, job, agent);
-  await workspaceOperation(env, job, agent, "channels-members-add", {
+  await workspaceOperation(env, job, ownerPrincipal, "channels-members-add", {
     body: channelMemberAddCommandSchema.parse({
       commandId: await deterministicUuid(
         `${job.id}:${entry.operationKey}:members`,
@@ -49,10 +64,7 @@ export async function ensureKickoffWorkChannel(
       occurredAt: job.createdAt,
       payload: {
         conversationId,
-        members: [
-          { kind: "user", principalId: owner },
-          { kind: "agent", principalId: entry.agentId },
-        ],
+        members: [{ kind: "user", principalId: owner }],
       },
     }),
   });
