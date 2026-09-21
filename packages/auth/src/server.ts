@@ -9,9 +9,9 @@ import {
 } from "better-auth/plugins";
 
 import type { ChiefAuthOptions } from "./options";
-import { appleProviderConfig } from "./options";
 import { relayCookiePrefix } from "./cookie-prefix";
 import { oauthAccessTokenSession } from "./oauth-access-session";
+import { appleProviderConfig } from "./options";
 import { trustedOrigins } from "./origins";
 
 const oauthScopes = ["openid", "profile", "email", "offline_access"] as const;

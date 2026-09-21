@@ -107,31 +107,41 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
+  // Use the completion-handler delegate methods deliberately. The async ObjC
+  // bridge can invoke UIKit's completion on a cooperative executor, which
+  // crashes during notification-driven state restoration on a physical iPhone.
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification
-  ) async -> UNNotificationPresentationOptions {
-    let info = notification.request.content.userInfo
-    let mentioned = info["mentioned"] as? Bool == true
-    // Ordinary foreground arrivals use the transcript + haptic. An explicit
-    // @mention still deserves a banner while the app is open.
-    if mentioned { return [.banner, .sound, .list] }
-    return []
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+  ) {
+    let mentioned = notification.request.content.userInfo["mentioned"] as? Bool == true
+    Task { @MainActor in
+      completionHandler(mentioned ? [.banner, .sound, .list] : [])
+    }
   }
 
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse
-  ) async {
-    guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
-      let link = ConversationDeepLink(userInfo: response.notification.request.content.userInfo)
-    else { return }
-    await MainActor.run {
-      Self.pendingOpen = link
-      NotificationCenter.default.post(
-        name: Self.didOpenConversation,
-        object: nil
-      )
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
+    let link = response.actionIdentifier == UNNotificationDismissActionIdentifier
+      ? nil : ConversationDeepLink(userInfo: response.notification.request.content.userInfo)
+    Self.finishNotificationResponse(link: link, completionHandler: completionHandler)
+  }
+
+  nonisolated static func finishNotificationResponse(
+    link: ConversationDeepLink?,
+    completionHandler: @escaping @Sendable () -> Void
+  ) {
+    Task { @MainActor in
+      // All responses, including unrecognized/dismissed notifications, must
+      // finish on the main thread. Persist valid taps before releasing UIKit.
+      defer { completionHandler() }
+      guard let link else { return }
+      pendingOpen = link
+      NotificationCenter.default.post(name: didOpenConversation, object: nil)
     }
   }
 }

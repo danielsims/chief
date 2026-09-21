@@ -78,6 +78,7 @@ final class AppModel {
   /// channels. Direct messages are participants-only and do not use this set.
   private(set) var joinedConversationIDs: Set<String>?
   private var membershipWorkspaceID: String?
+  var homeNavigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
   private var pendingConversationDeepLink: ConversationDeepLink?
@@ -92,6 +93,9 @@ final class AppModel {
   private(set) var isWorkspaceReadyForPresentation = false
   private var debugSkipCredentialStore = false
   private var agentLoopTask: Task<Void, Never>?
+  private var agentLoop: WorkspaceAgentLoop?
+  private var agentLoopRoster: [String] = []
+  private var pendingAgentReplies: [String: (workspaceID: String, conversationID: String, agentID: String)] = [:]
   private var workspaceLiveTask: Task<Void, Never>?
   private var workspaceLiveBackgroundStopTask: Task<Void, Never>?
   private var workspaceMembershipRefreshTask: Task<Void, Never>?
@@ -521,7 +525,7 @@ final class AppModel {
     conversationID: String
   ) -> [AgentActivityPresence] {
     guard let workspaceID else { return [] }
-    let ids: [String]
+    var ids: [String]
     if conversationID == "mission-control" {
       ids = WorkingAgentPresenceOrder.merging(
         workingAgents
@@ -534,6 +538,13 @@ final class AppModel {
         workingAgents[
           ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
         ] ?? []
+    }
+    // A pending reply keeps its agent visible before the stream confirms it,
+    // and first-seen order must survive that insertion.
+    for pending in pendingAgentReplies.values where pending.workspaceID == workspaceID {
+      if conversationID == "mission-control" || pending.conversationID == conversationID {
+        ids = WorkingAgentPresenceOrder.inserting(pending.agentID, into: ids)
+      }
     }
     return ids.map { agentID in
       AgentActivityPresence(
@@ -717,6 +728,11 @@ final class AppModel {
     var agents = workingAgents[key] ?? []
     let activityKey = "\(workspaceID):\(conversationID):\(agentID)"
     if isWorking {
+      // The stream confirmed the reply, so drop the optimistic marker, then
+      // keep the agent in first-seen position.
+      pendingAgentReplies = pendingAgentReplies.filter {
+        $0.value.workspaceID != workspaceID || $0.value.conversationID != conversationID || $0.value.agentID != agentID
+      }
       agents = WorkingAgentPresenceOrder.inserting(agentID, into: agents)
       if activeAgentActivityIDs[activityKey] == nil {
         let activityID = UUID().uuidString
@@ -917,6 +933,7 @@ final class AppModel {
       await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentJobs(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
+      scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: loaded.id)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
       await sendPendingPushToken()
       if loaded.onboardingComplete {
@@ -943,10 +960,7 @@ final class AppModel {
   }
 
   private func registerAgentKeyIfNeeded(workspaceID: String) async {
-    let roster = (workspace?.agents ?? []).compactMap { agent in
-      let config = configStore.load(workspaceID: workspaceID, agentID: agent.id)
-      return config?.deploymentTarget == "phone" ? agent.id : nil
-    }
+    let roster = onDeviceAgentRoster()
     await withTaskGroup(of: Void.self) { group in
       for agentID in roster {
         group.addTask { [weak self] in
@@ -1250,6 +1264,9 @@ final class AppModel {
     conversations.clearAll()
     session = nil
     workspace = nil
+    homeNavigationPath = []
+    selectedConversationID = nil
+    selectedThread = nil
     isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
@@ -1778,6 +1795,7 @@ final class AppModel {
     let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
     selectedConversationID = id
+    homeNavigationPath = [id]
     if let threadRootID, !threadRootID.isEmpty {
       selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
     } else {
@@ -1820,7 +1838,8 @@ final class AppModel {
       guard isWorkspaceReadyForPresentation, !isSwitchingWorkspace else { return }
       pendingConversationDeepLink = nil
       openConversation(link.conversationID, threadRootID: link.threadRootID)
-      if MobileNotifications.pendingOpen == link { MobileNotifications.pendingOpen = nil }
+      // Persist the tap until the destination view confirms presentation.
+      // SwiftUI can rebuild its navigation stack during launch/workspace switches.
     }
   }
 
@@ -1882,6 +1901,7 @@ final class AppModel {
             }
           }
           connectedAt = .now
+          self.scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: workspaceID)
           await client.waitUntilDisconnected()
           if Task.isCancelled { break }
         } catch is CancellationError {
@@ -1929,6 +1949,7 @@ final class AppModel {
   private func configureReadState(for workspaceID: String) {
     guard readStateWorkspaceID != workspaceID else { return }
     stopWorkspaceLiveStreams()
+    homeNavigationPath = []
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     readStateWorkspaceID = workspaceID
@@ -1949,7 +1970,6 @@ final class AppModel {
     conversationID: String
   ) {
     guard workspace?.id == workspaceID else { return }
-    messages.forEach(conversations.merge)
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     if hydratedReadConversations.insert(key).inserted {
       let context = ConversationReadState.channelKey(conversationID)
@@ -1974,9 +1994,7 @@ final class AppModel {
     {
       updateConversationPreview(with: latest)
     }
-    for message in messages where message.createdAt > launchedAt {
-      recordArrival(message)
-    }
+    // History catch-up updates unread state silently; banners belong to live delivery.
     recomputeUnreadCount(conversationID: conversationID)
   }
 
@@ -2232,14 +2250,63 @@ final class AppModel {
           self.workspaceMembershipRefreshWorkspaceID = nil
         }
       }
-      await self.refreshWorkspaceSnapshot(expectedID: expectedID)
+      await self.refreshWorkspaceContent(expectedID: expectedID)
     }
+  }
+
+  /// One coalesced catch-up on launch, foreground, and socket reconnection.
+  /// HTTP history is authoritative even when socket replay has expired.
+  func refreshWorkspaceContent(expectedID: String) async {
+    await refreshWorkspaceSnapshot(expectedID: expectedID)
+    guard !Task.isCancelled, let snapshot = workspace, snapshot.id == expectedID else { return }
+    await refreshAgentConfigCache(for: snapshot)
+    guard !Task.isCancelled, workspace?.id == expectedID else { return }
+    await registerAgentKeyIfNeeded(workspaceID: expectedID)
+    startAgentLoopIfNeeded()
+    await agentLoop?.wake()
+    let ids = snapshot.conversations.filter {
+      $0.kind == .direct || joinedConversationIDs?.contains($0.id) == true
+    }.map(\.id)
+    let visible = visibleConversationID ?? selectedConversationID
+    let ordered = ids.filter { $0 == visible } + ids.filter { $0 != visible }
+    for id in ordered {
+      guard !Task.isCancelled, workspace?.id == expectedID else { return }
+      do {
+        try await refreshConversation(workspaceID: expectedID, conversationID: id)
+      } catch is CancellationError {
+        return
+      } catch {
+        liveLog.warning("conversation catch-up failed: \(error.localizedDescription)")
+      }
+    }
+    guard !Task.isCancelled, workspace?.id == expectedID else { return }
+    await consumeNotificationDeepLink()
+  }
+
+  func refreshConversation(workspaceID: String, conversationID: String) async throws {
+    let baseline = conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
+    let remote = try await relay.messages(
+      workspaceID: workspaceID, conversationID: conversationID, after: nil
+    )
+    try Task.checkCancellation()
+    guard workspace?.id == workspaceID else { return }
+    // Preserve messages that arrived on the socket while history was in flight.
+    conversations.reconcileHistory(
+      workspaceID: workspaceID, conversationID: conversationID, messages: remote, baseline: baseline)
+    hydrateReadSnapshot(remote, workspaceID: workspaceID, conversationID: conversationID)
+    if isAppActive, visibleConversationID == conversationID {
+      markChannelRead(conversationID: conversationID)
+      if let root = visibleThreadRootID {
+        markThreadRead(conversationID: conversationID, rootMessageID: root)
+      }
+    }
+    recomputeAllConversationPresentation()
   }
 
   private func refreshWorkspaceSnapshot(expectedID: String) async {
     do {
       let remote = try await relay.loadWorkspace()
-      guard !Task.isCancelled, remote.id == expectedID else { return }
+      guard !Task.isCancelled, workspace?.id == expectedID, remote.id == expectedID else { return }
       workspace = remote
       upsertWorkspaceSummary(for: remote, isActive: true)
       await refreshCurrentChannelMemberships(for: remote)
@@ -2254,11 +2321,14 @@ final class AppModel {
   }
 
   func setAppActive(_ active: Bool) {
+    guard active != isAppActive else { return }
     isAppActive = active
     workspaceLiveBackgroundStopTask?.cancel()
     workspaceLiveBackgroundStopTask = nil
     if active {
       if let workspace {
+        // A suspended socket may still look connected. Establish a fresh stream.
+        stopWorkspaceLiveStreams()
         syncWorkspaceLiveStreams(for: workspace)
         scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: workspace.id)
       }
@@ -2282,6 +2352,12 @@ final class AppModel {
   func setVisibleConversation(_ conversationID: String) {
     visibleConversationID = conversationID
     visibleThreadRootID = nil
+    if let pending = MobileNotifications.pendingOpen,
+      pending.workspaceID == workspace?.id,
+      (workspace?.conversationID(for: pending.conversationID) ?? pending.conversationID) == conversationID
+    {
+      MobileNotifications.pendingOpen = nil
+    }
     markChannelRead(conversationID: conversationID)
   }
 
@@ -2689,6 +2765,8 @@ final class AppModel {
         projects: current.projects
       )
     }
+    await registerAgentKeyIfNeeded(workspaceID: workspaceID)
+    startAgentLoopIfNeeded()
     return true
   }
 
@@ -2768,18 +2846,48 @@ final class AppModel {
     let filtered = allowed.filter { $0.isLetter || $0.isNumber || $0 == "-" }
     return filtered.split(separator: "-").filter { !$0.isEmpty }.joined(separator: "-")
   }
+  private func onDeviceAgentRoster() -> [String] {
+    guard let workspace else { return [] }
+    return workspace.agents.filter { $0.canRunOnDevice != false }
+      .flatMap { [$0.id] + $0.subagents.map(\.id) }.filter { agentID in
+        guard let config = configStore.load(workspaceID: workspace.id, agentID: agentID) else { return false }
+        return config.enabled && config.deploymentTarget == "phone"
+      }.sorted()
+  }
+
+  /// This is presentation only. Execution always requires a relay-issued lease.
+  func expectAgentReply(messageID: String, conversationID: String, mentions: [String], threadRootID: String?) {
+    guard let workspaceID = workspace?.id,
+      let agentID = agentTurnTarget(conversationID: conversationID, threadRootID: threadRootID,
+        mentions: mentions, requestedAgentID: nil) else { return }
+    pendingAgentReplies[messageID] = (workspaceID, conversationID, agentID)
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(30))
+      self?.pendingAgentReplies.removeValue(forKey: messageID)
+    }
+  }
+
+  func cancelExpectedAgentReply(messageID: String) {
+    pendingAgentReplies.removeValue(forKey: messageID)
+  }
+
+  func wakeOnDeviceAgents() async {
+    startAgentLoopIfNeeded()
+    await agentLoop?.wake()
+  }
+
   private func startAgentLoopIfNeeded() {
     guard phase == .workspace, let workspace else { return }
-    guard agentLoopTask == nil else { return }
-    let roster = workspace.agents.filter { $0.canRunOnDevice != false }.flatMap { [$0.id] + $0.subagents.map(\.id) }.compactMap { agentID in
-      let config = configStore.load(workspaceID: workspace.id, agentID: agentID)
-      return config?.deploymentTarget == "phone" ? agentID : nil
-    }
+    let roster = onDeviceAgentRoster()
+    guard agentLoopTask == nil || agentLoopRoster != roster else { return }
+    stopAgentLoop()
     guard !roster.isEmpty else { return }
+    agentLoopRoster = roster
     let loop = WorkspaceAgentLoop(
       relay: relay,
       workspaceID: workspace.id,
       roster: roster,
+      configuration: appConfiguration,
       onWorking: { [weak self] agentID, conversationID, isWorking in
         await self?.setAgentWorking(
           agentID: agentID,
@@ -2805,6 +2913,8 @@ final class AppModel {
     )
     agentLoopTask = Task { [weak self] in
       await self?.bootCellRuntimeIfNeeded()
+      guard !Task.isCancelled else { return }
+      self?.agentLoop = loop
       await loop.run()
     }
   }
@@ -2812,6 +2922,8 @@ final class AppModel {
   private func stopAgentLoop() {
     agentLoopTask?.cancel()
     agentLoopTask = nil
+    agentLoop = nil
+    agentLoopRoster = []
   }
 
   private func refreshWorkspaceAfterAgentCompletion(
@@ -2982,6 +3094,9 @@ final class AppModel {
     try? sessions.clear()
     session = nil
     workspace = nil
+    homeNavigationPath = []
+    selectedConversationID = nil
+    selectedThread = nil
     isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil

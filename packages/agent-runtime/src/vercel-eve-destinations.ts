@@ -104,6 +104,7 @@ async function findExistingVercelProject({
   const url = vercelUrl(`/v9/projects/${encodeURIComponent(name)}`, { teamId });
   const response = await fetcher(url, {
     headers: { authorization: `Bearer ${token}` },
+    redirect: "manual",
     signal: AbortSignal.timeout(20_000),
   }).catch((error: unknown) => {
     if (error instanceof Error && error.name === "TimeoutError") {

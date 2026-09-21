@@ -3,6 +3,33 @@ import XCTest
 @testable import Chief
 
 final class ConversationDeepLinkTests: XCTestCase {
+  @MainActor
+  func testNotificationCompletionReturnsToMainThreadAndPersistsTap() async {
+    MobileNotifications.pendingOpen = nil
+    defer { MobileNotifications.pendingOpen = nil }
+    let completed = expectation(description: "UIKit completion")
+    let link = ConversationDeepLink(workspaceID: "workspace-a", conversationID: "marketing")
+    await Task.detached {
+      MobileNotifications.finishNotificationResponse(link: link) {
+        XCTAssertTrue(Thread.isMainThread)
+        completed.fulfill()
+      }
+    }.value
+    await fulfillment(of: [completed], timeout: 2)
+    XCTAssertEqual(MobileNotifications.pendingOpen, link)
+  }
+
+  func testUnrecognizedNotificationStillCompletesOnMainThread() async {
+    let completed = expectation(description: "Unrecognized response completion")
+    await Task.detached {
+      MobileNotifications.finishNotificationResponse(link: nil) {
+        XCTAssertTrue(Thread.isMainThread)
+        completed.fulfill()
+      }
+    }.value
+    await fulfillment(of: [completed], timeout: 2)
+  }
+
   func testParsesNotificationUserInfoIncludingThread() {
     let link = ConversationDeepLink(
       userInfo: [

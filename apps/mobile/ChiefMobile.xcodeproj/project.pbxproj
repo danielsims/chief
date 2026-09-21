@@ -84,6 +84,7 @@
 		6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */; };
 		6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */; };
 		6F91D08771E347D06D49DBFE /* AgentSkillBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA10DC57916ADE010B38AAE /* AgentSkillBundle.swift */; };
+		72A156FE4B047D5108358EBB /* MessageHistoryLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */; };
 		72B541D2ED7736409B3D4C08 /* RelayDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408BC7275D23283B0CC83006 /* RelayDirectoryTests.swift */; };
 		74B40049EDECAA26972C3379 /* CelldC.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94655488DC2BD184AEE1E8E /* CelldC.swift */; };
 		76250A9E4FA02208AEC2B0BE /* DevCodexBridgeRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10974004AE6FEA79A6C0BAB4 /* DevCodexBridgeRPC.swift */; };
@@ -319,6 +320,7 @@
 		92E66647A96D00E6934F8403 /* Chief.Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Chief.Release.entitlements; sourceTree = "<group>"; };
 		92EEB51BDB05C95BB159446F /* NIP98Authenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NIP98Authenticator.swift; sourceTree = "<group>"; };
 		941571FFB0D8ACDFB157698B /* ScheduledRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledRunTests.swift; sourceTree = "<group>"; };
+		95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHistoryLoaderTests.swift; sourceTree = "<group>"; };
 		97A06203485BA289497EAF4E /* bloom.caf */ = {isa = PBXFileReference; path = bloom.caf; sourceTree = "<group>"; };
 		98236C72F2593788B89CC371 /* AgentIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIdentityStore.swift; sourceTree = "<group>"; };
 		9A8F07A45E8876F9EE7B415A /* OpenCodeStreamingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeStreamingClient.swift; sourceTree = "<group>"; };
@@ -454,6 +456,7 @@
 				DDE24E640C8A982222270AB1 /* ConversationReferenceTests.swift */,
 				A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */,
 				7520EE62054ECE3DF7878FDA /* KickoffToolEvidenceTests.swift */,
+				95C8B29F5F4A037B1A1D1E47 /* MessageHistoryLoaderTests.swift */,
 				DDA28170398F2FEC3B0CCA2F /* MessageSendRecoveryTests.swift */,
 				87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */,
 				0D5FCF64562CE70799C63FF2 /* OAuthAuthenticationTests.swift */,
@@ -887,20 +890,20 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					21489BD74FB7DA2426F84A88 = {
-						DevelopmentTeam = XMMXB25823;
+						DevelopmentTeam = "${CHIEF_APPLE_TEAM_ID}";
 						ProvisioningStyle = Automatic;
 					};
 					6A9A403FEE2F07A0D73B02AC = {
-						DevelopmentTeam = XMMXB25823;
+						DevelopmentTeam = "${CHIEF_APPLE_TEAM_ID}";
 						ProvisioningStyle = Automatic;
 					};
 					7764C117EAD2B5380FB656F4 = {
-						DevelopmentTeam = XMMXB25823;
+						DevelopmentTeam = "${CHIEF_APPLE_TEAM_ID}";
 						ProvisioningStyle = Automatic;
 						TestTargetID = 813CB936C174ED572BD4D967;
 					};
 					813CB936C174ED572BD4D967 = {
-						DevelopmentTeam = XMMXB25823;
+						DevelopmentTeam = "${CHIEF_APPLE_TEAM_ID}";
 					};
 				};
 			};
@@ -1123,6 +1126,7 @@
 				CA1A5F505FD53B74AC98AB9F /* ConversationReferenceTests.swift in Sources */,
 				6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */,
 				86C7EEFF3B87F04891590874 /* KickoffToolEvidenceTests.swift in Sources */,
+				72A156FE4B047D5108358EBB /* MessageHistoryLoaderTests.swift in Sources */,
 				6D43C331A85609FDADD44715 /* MessageSendRecoveryTests.swift in Sources */,
 				E6D3F21E651FAC203533CB27 /* MobileBrandAssetTests.swift in Sources */,
 				2708F24C8F247A2C0217598B /* OAuthAuthenticationTests.swift in Sources */,
@@ -1192,7 +1196,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1222,8 +1226,8 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				INFOPLIST_FILE = ChiefAgentActivityWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1231,7 +1235,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.AgentActivityWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.AgentActivityWidget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -1243,14 +1247,14 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.tests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Chief.app/Chief";
@@ -1262,14 +1266,14 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.uitests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Chief;
@@ -1281,14 +1285,14 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.uitests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Chief;
@@ -1304,7 +1308,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Chief/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1326,7 +1330,7 @@
 				OTHER_SWIFT_FLAGS = (
 					"-DCELL_RUNTIME",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}";
 				PRODUCT_NAME = Chief;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "Chief/Vendored/CelldC/Chief-Bridging-Header.h";
@@ -1343,7 +1347,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Chief/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1365,7 +1369,7 @@
 				OTHER_SWIFT_FLAGS = (
 					"-DCELL_RUNTIME",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}";
 				PRODUCT_NAME = Chief;
 				PROVISIONING_PROFILE_SPECIFIER = "Chief iOS Development";
 				SDKROOT = iphoneos;
@@ -1379,14 +1383,14 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.tests";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Chief.app/Chief";
@@ -1398,8 +1402,8 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XMMXB25823;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = "${CHIEF_APPLE_TEAM_ID}";
 				INFOPLIST_FILE = ChiefAgentActivityWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1407,7 +1411,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.heychief.mobile.AgentActivityWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = "${CHIEF_BUNDLE_ID}.AgentActivityWidget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -1448,7 +1452,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

@@ -21,9 +21,33 @@ final class AppModelAuthenticationTests: XCTestCase {
     await model.hydrateWorkspace()
     XCTAssertEqual(model.selectedConversationID, "marketing")
     XCTAssertEqual(model.selectedThread?.rootMessageID, "scheduled-root")
+    XCTAssertEqual(model.homeNavigationPath, ["marketing"])
+    XCTAssertEqual(MobileNotifications.pendingOpen, newest)
+    model.setVisibleConversation("general")
+    XCTAssertEqual(MobileNotifications.pendingOpen, newest)
+    model.setVisibleConversation("marketing")
     XCTAssertNil(MobileNotifications.pendingOpen)
     model.openConversation("general")
     XCTAssertNil(model.selectedThread)
+  }
+
+  func testForegroundCatchUpLoadsMessagesCreatedWhileAway() async throws {
+    let relay = FixtureRelayClient()
+    let model = AppModel(
+      sessions: TestSessionStore(), workspaces: TestWorkspaceStore(),
+      inferenceCredentials: TestInferenceCredentialStore(), relay: relay,
+      conversations: ConversationCache(), authentication: UnusedAuthentication())
+    model.completeSignIn(.fixture)
+    await model.hydrateWorkspace()
+    let workspaceID = DemoWorkspace.snapshot.id
+    let channelID = "mission-control"
+    model.setVisibleConversation(channelID)
+    let message = try await relay.send(
+      messageID: "missed-scheduled-result", body: "Saturday scheduled result",
+      workspaceID: workspaceID, conversationID: channelID, threadRootID: nil)
+    await model.refreshWorkspaceContent(expectedID: workspaceID)
+    XCTAssertTrue(model.conversations.messages(
+      workspaceID: workspaceID, conversationID: channelID).contains { $0.id == message.id })
   }
 
   func testSignedInUserStaysInWorkspaceSetupWhenRelayIsUnavailable() async {

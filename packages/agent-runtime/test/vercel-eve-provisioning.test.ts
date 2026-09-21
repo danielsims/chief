@@ -77,6 +77,16 @@ function newEveProjectFetcher({
         projects: listedProjects ?? Object.values(existingProjects),
       });
     }
+    if (method === "POST" && url.pathname === "/v11/projects") {
+      const created = z
+        .object({ name: z.string() })
+        .parse(JSON.parse(body ?? "{}"));
+      return Response.json({
+        id: "prj_new",
+        name: created.name,
+        accountId: "team_chief",
+      });
+    }
     const projectName = vercelProjectNameFromPath(url.pathname);
     if (method === "GET" && projectName) {
       const existing = existingProjects[projectName];
@@ -186,6 +196,13 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
         ],
       });
     }
+    if (method === "GET" && url.pathname === "/v9/projects/prj_researcher") {
+      return Response.json({
+        id: "prj_researcher",
+        name: "researcher",
+        accountId: "team_chief",
+      });
+    }
     if (method === "POST" && url.pathname === "/v13/deployments") {
       return Response.json({
         id: "dpl_researcher",
@@ -260,7 +277,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.match(uploadedSources, /\[chief-message\] publish failed/u);
   assert.match(uploadedSources, /authorization/u);
   assert.match(uploadedSources, /timingSafeEqual/u);
-  assert.match(uploadedSources, /"eve": "\^0\.50\.0"/u);
+  assert.match(uploadedSources, /"eve": "0\.52\.2"/u);
   assert.match(uploadedSources, /"node": "24\.x"/u);
   assert.match(uploadedSources, /"typecheck": "tsc"/u);
   assert.match(uploadedSources, /eve\/workflow-modules/u);
@@ -483,4 +500,132 @@ void test("explains HTML responses from Vercel instead of treating them as JSON"
     }),
     /web page/u,
   );
+});
+
+const securityInput = {
+  teamId: "team_chief",
+  project: { kind: "new" as const, projectName: "isolated-eve" },
+  agent: {
+    name: "Chief",
+    description: "Coordinator",
+    instructions: "Coordinate.",
+    model: "openai/gpt-5.6-terra",
+  },
+  environment,
+};
+
+for (const mismatch of [
+  "creation-collision",
+  "creation-team",
+  "deployment-project",
+  "poll-project",
+  "poll-id",
+]) {
+  void test(`stops provisioning on ${mismatch} without touching another project`, async () => {
+    const requests: { url: URL; method: string; body: string | null }[] = [];
+    const base = newEveProjectFetcher({});
+    const fetcher: typeof fetch = async (request, init) => {
+      const url = new URL(new Request(request).url);
+      const method = init?.method ?? "GET";
+      const body = init?.body ? await new Response(init.body).text() : null;
+      requests.push({ url, method, body });
+      assert.equal(
+        init?.redirect,
+        "error",
+        "All credential-bearing requests reject redirects",
+      );
+      if (url.pathname === "/v11/projects") {
+        assert.ok(!body?.includes(environment.CHIEF_CHANNEL_TOKEN));
+        if (mismatch === "creation-collision")
+          return Response.json(
+            { error: { message: "Project already exists" } },
+            { status: 409 },
+          );
+        if (mismatch === "creation-team")
+          return Response.json({
+            id: "prj_other",
+            name: "isolated-eve",
+            accountId: "team_other",
+          });
+      }
+      if (
+        mismatch === "deployment-project" &&
+        url.pathname === "/v13/deployments"
+      ) {
+        return Response.json({
+          id: "dpl_eve",
+          projectId: "prj_other",
+          readyState: "QUEUED",
+        });
+      }
+      if (
+        mismatch.startsWith("poll-") &&
+        url.pathname === "/v13/deployments/dpl_eve"
+      ) {
+        return Response.json({
+          id: mismatch === "poll-id" ? "dpl_other" : "dpl_eve",
+          projectId: mismatch === "poll-project" ? "prj_other" : "prj_new",
+          readyState: "READY",
+        });
+      }
+      return base(request, init);
+    };
+    await assert.rejects(
+      provisionVercelEveDeployment({
+        token: "test-token",
+        input: securityInput,
+        fetcher,
+        pollIntervalMs: 0,
+      }),
+    );
+    assert.ok(requests.every((r) => !r.url.pathname.includes("prj_other")));
+    if (mismatch.startsWith("creation-")) {
+      assert.ok(!requests.some((r) => r.url.pathname === "/v13/deployments"));
+    }
+    if (mismatch === "deployment-project") {
+      assert.ok(
+        !requests.some(
+          (r) => r.url.pathname.endsWith("/env") || r.method === "PATCH",
+        ),
+      );
+    }
+    const deployment = requests.find(
+      (r) => r.url.pathname === "/v13/deployments",
+    );
+    if (deployment) assert.match(deployment.body ?? "", /"project":"prj_new"/u);
+  });
+}
+
+void test("rejects an existing project's changed identity before uploading or mutating", async () => {
+  const base = newEveProjectFetcher({
+    listedProjects: [{ id: "prj_selected", name: "isolated-eve" }],
+  });
+  const writes: string[] = [];
+  await assert.rejects(
+    provisionVercelEveDeployment({
+      token: "test-token",
+      input: {
+        ...securityInput,
+        project: {
+          kind: "existing",
+          projectId: "prj_selected",
+          projectName: "isolated-eve",
+        },
+      },
+      fetcher: async (request, init) => {
+        const url = new URL(new Request(request).url);
+        if ((init?.method ?? "GET") !== "GET") writes.push(url.pathname);
+        if (url.pathname === "/v9/projects/prj_selected") {
+          return Response.json({
+            id: "prj_other",
+            name: "isolated-eve",
+            accountId: "team_chief",
+          });
+        }
+        return base(request, init);
+      },
+    }),
+    /different project/u,
+  );
+  assert.deepEqual(writes, []);
 });

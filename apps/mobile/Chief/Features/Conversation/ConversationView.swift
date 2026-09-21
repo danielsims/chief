@@ -78,6 +78,7 @@ struct ConversationView: View {
       await members
       model.markChannelRead(conversationID: conversationID)
     }
+    .refreshable { await load() }
     .onDisappear {
       model.clearVisibleConversation(conversationID)
     }
@@ -174,16 +175,8 @@ struct ConversationView: View {
     }
 
     do {
-      let remote = try await model.relay.messages(
-        workspaceID: workspaceID,
-        conversationID: conversationID,
-        after: nil
-      )
-      model.conversations.replace(
-        workspaceID: workspaceID,
-        conversationID: conversationID,
-        messages: remote
-      )
+      try await model.refreshConversation(workspaceID: workspaceID, conversationID: conversationID)
+      let remote = model.conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
       seenMessageIDs = Set(remote.map(\.id))
       sentMessageIDs = []
       print("[Chief] loaded \(remote.count) messages for \(conversationID)")
@@ -228,6 +221,7 @@ struct ConversationView: View {
       threadRootID: nil
     )
     let messageID = UUID().uuidString
+    model.expectAgentReply(messageID: messageID, conversationID: conversationID, mentions: mentions, threadRootID: nil)
 
     draft = ""
     composerMentionIDs = []
@@ -255,6 +249,7 @@ struct ConversationView: View {
         )
         sentMessageIDs.insert(message.id)
         model.conversations.merge(message)
+        Task { await model.wakeOnDeviceAgents() }
         print(
           "[Chief] sent message to \(conversationID) mentions=\(mentions) "
             + "wake=\(shouldWakeAgent) attachments=\(pendingAttachments.count)"
@@ -267,8 +262,10 @@ struct ConversationView: View {
           workspaceID: workspaceID
         ) {
           sentMessageIDs.insert(messageID)
+          Task { await model.wakeOnDeviceAgents() }
           return
         }
+        model.cancelExpectedAgentReply(messageID: messageID)
         draft = MessageSendRecovery.restoredDraft(
           pending: pendingText,
           current: draft

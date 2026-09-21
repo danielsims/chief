@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 import WebKit
@@ -87,24 +88,52 @@ enum BrandLogoImage {
   private static var imageCache: [String: UIImage] = [:]
   private static var rasterizeChain: Task<UIImage?, Never>?
 
+  /// Logos shipped in the app bundle, so priority plugins render without a
+  /// network round trip and never flash a letter placeholder.
+  static func bundled(domain: String) -> UIImage? {
+    let canonical = PluginCatalogClient.domainAliases[domain.lowercased()] ?? domain.lowercased()
+    return UIImage(named: "Plugin-" + canonical.replacingOccurrences(of: ".", with: "-"))
+  }
+
+  /// Disk-backed lookup so a logo survives relaunch without re-downloading.
+  static func cached(url: URL) -> UIImage? {
+    if let image = imageCache[url.absoluteString] { return image }
+    guard let path = cacheURL(url), let image = UIImage(contentsOfFile: path.path) else { return nil }
+    imageCache[url.absoluteString] = image
+    return image
+  }
+
   static func load(url: URL) async -> UIImage? {
-    if let cached = imageCache[url.absoluteString] { return cached }
-    guard let (data, _) = try? await URLSession.shared.data(from: url),
-      !data.isEmpty
+    if let image = cached(url: url) { return image }
+    guard let (data, response) = try? await URLSession.shared.data(from: url),
+      let http = response as? HTTPURLResponse, http.statusCode == 200,
+      !data.isEmpty, data.count <= 2_000_000
     else { return nil }
+    // Order matters: a direct raster decodes cheapest, then a PNG wrapped in
+    // SVG markup, and only then does anything reach a WebView.
+    let result: UIImage?
     if let raster = UIImage(data: data) {
-      imageCache[url.absoluteString] = raster
-      return raster
+      result = raster
+    } else if let embedded = BrandLogoSVG.embeddedRasterImage(in: data) {
+      result = embedded
+    } else if let rendered = await rasterizeSVG(data: data) {
+      result = rendered
+    } else {
+      result = nil
     }
-    if let embedded = BrandLogoSVG.embeddedRasterImage(in: data) {
-      imageCache[url.absoluteString] = embedded
-      return embedded
+    guard let result else { return nil }
+    imageCache[url.absoluteString] = result
+    if let path = cacheURL(url), let png = result.pngData() {
+      try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try? png.write(to: path, options: .atomic)
     }
-    if let rendered = await rasterizeSVG(data: data) {
-      imageCache[url.absoluteString] = rendered
-      return rendered
-    }
-    return nil
+    return result
+  }
+
+  private static func cacheURL(_ url: URL) -> URL? {
+    let hash = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+    return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("PluginLogos", isDirectory: true).appendingPathComponent(hash + ".png")
   }
 
   /// Downloads and caches logos up front so grids render instantly with no
@@ -118,6 +147,9 @@ enum BrandLogoImage {
   }
 
   private static func rasterizeSVG(data: Data) async -> UIImage? {
+    // SVG snapshots run one at a time. Parallel WebView rasterization is what
+    // previously let onboarding prefetch write one provider's logo into
+    // another's cache slot.
     let previous = rasterizeChain
     let task = Task { @MainActor in
       _ = await previous?.value
@@ -151,6 +183,8 @@ enum BrandLogoImage {
   private static func makeWebView() -> WKWebView {
     let configuration = WKWebViewConfiguration()
     configuration.allowsInlineMediaPlayback = false
+    // Logo markup is untrusted remote input, so it never gets script execution.
+    configuration.defaultWebpagePreferences.allowsContentJavaScript = false
     let view = WKWebView(
       frame: CGRect(x: 0, y: 0, width: 64, height: 64),
       configuration: configuration
@@ -194,11 +228,18 @@ struct BrandLogoView: View {
   let size: CGFloat
 
   @State private var image: UIImage?
-  @State private var failed = false
   @State private var needsBacking = false
 
-  private static var imageCache: [String: UIImage] = [:]
-  private static var backingCache: [String: Bool] = [:]
+  init(domain: String, iconURL: URL?, size: CGFloat) {
+    self.domain = domain
+    self.iconURL = iconURL
+    self.size = size
+    let initial = BrandLogoImage.bundled(domain: domain) ?? iconURL.flatMap(BrandLogoImage.cached)
+    _image = State(initialValue: initial)
+    _needsBacking = State(initialValue: initial.map {
+      BrandLogoPolicy.isGoogle(domain: domain) || BrandLogoPolicy.needsLightBacking($0)
+    } ?? false)
+  }
 
   private var radius: CGFloat { size * 0.23 }
 
@@ -223,29 +264,15 @@ struct BrandLogoView: View {
   }
 
   private func load() async {
-    failed = false
+    image = BrandLogoImage.bundled(domain: domain)
+    if let image {
+      needsBacking = backingPolicy(for: image)
+      return
+    }
     needsBacking = false
-    guard let url = iconURL else {
-      failed = true
-      needsBacking = true
-      return
-    }
-    let key = url.absoluteString
-    if let cached = Self.imageCache[key] {
-      image = cached
-      needsBacking = Self.backingCache[key] ?? backingPolicy(for: cached)
-      return
-    }
-    guard let loaded = await BrandLogoImage.load(url: url) else {
-      failed = true
-      needsBacking = true
-      return
-    }
-    Self.imageCache[key] = loaded
-    let policy = backingPolicy(for: loaded)
-    Self.backingCache[key] = policy
+    guard let url = iconURL, let loaded = await BrandLogoImage.load(url: url), !Task.isCancelled else { return }
     image = loaded
-    needsBacking = policy
+    needsBacking = backingPolicy(for: loaded)
   }
 
   private func backingPolicy(for image: UIImage) -> Bool {
