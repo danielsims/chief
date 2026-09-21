@@ -50,7 +50,7 @@
     {
       "binding": "AUTH_DB",
       "database_name": "chief-relay-auth",
-      "database_id": "86b1e10c-f1b2-4772-bc3a-c7b07d7e751b",
+      "database_id": "replace-with-your-own-d1-database-id",
       "migrations_dir": "../../packages/auth/migrations",
     },
   ],
@@ -96,9 +96,8 @@
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
     "AUTH_APPLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/apple",
-    "APPLE_APP_BUNDLE_IDENTIFIER": "sh.heychief.mobile",
-    "APNS_TEAM_ID": "XMMXB25823",
-    "APNS_BUNDLE_ID": "sh.heychief.mobile",
+    // Apple identifiers belong to whoever is building the iOS client. They are
+    // provided at deploy time rather than committed to source.
   },
   "routes": [{ "pattern": "relay.heychief.sh", "custom_domain": true }],
   "observability": { "enabled": true, "head_sampling_rate": 1 },

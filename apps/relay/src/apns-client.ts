@@ -35,18 +35,22 @@ let cachedJwt: { token: string; expiresAt: number } | null = null;
 
 export function apnsReady(env: ApnsEnv) {
   return Boolean(
-    env.APNS_P8?.trim() && env.APNS_KEY_ID?.trim() && env.APNS_TEAM_ID?.trim(),
+    env.APNS_P8?.trim() &&
+    env.APNS_KEY_ID?.trim() &&
+    env.APNS_TEAM_ID?.trim() &&
+    env.APNS_BUNDLE_ID?.trim(),
   );
 }
 
 export async function sendApnsAlert(env: ApnsEnv, alert: ApnsAlert) {
+  const topic = env.APNS_BUNDLE_ID?.trim();
+  if (!topic) return 0;
   const jwt = await apnsJwt(env);
   if (!jwt) return 0;
   const host =
     alert.environment === "production"
       ? "api.push.apple.com"
       : "api.sandbox.push.apple.com";
-  const topic = env.APNS_BUNDLE_ID?.trim() ?? "sh.heychief.mobile";
   const response = await fetch(`https://${host}/3/device/${alert.token}`, {
     method: "POST",
     headers: {
