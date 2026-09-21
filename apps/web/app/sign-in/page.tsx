@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -30,6 +30,8 @@ function SignInContent() {
   const [error, setError] = useState<string | null>(null);
   // Get the callback URL from query params, default to home
   const callbackUrl = safeLocalPath(searchParams.get("callbackUrl"));
+  const requestedProvider = searchParams.get("provider");
+  const autoStartedApple = useRef(false);
   const isAddingAccount = searchParams.get("add") === "account";
 
   // Desktop PKCE params, present when the desktop app opens this page
@@ -44,6 +46,49 @@ function SignInContent() {
 
   // Native authorization can continue immediately. A normal browser visit
   // stays on this page so the relay session can be inspected or signed out.
+  // Stable callback so the relay-discovery fetch below can start Apple
+  // without depending on a handler recreated every render.
+  const startSocialSignIn = useCallback(
+    async (provider: "apple" | "google") => {
+      if (loadingProvider) return;
+      setLoadingProvider(provider);
+      setError(null);
+
+      try {
+        // Native entry deliberately stops on this page. Only the user's explicit
+        // provider click clears a previous browser session and opens the
+        // account picker; arriving here must never simulate that click.
+        const result = await authClient.signIn.social({
+          provider,
+          callbackURL: new URL(
+            authorizationCallback,
+            window.location.origin,
+          ).toString(),
+        });
+        if (result.error) {
+          setError(
+            result.error.message ??
+              (provider === "apple"
+                ? "Apple sign-in is unavailable."
+                : "Google sign-in is unavailable."),
+          );
+          setLoadingProvider(null);
+        }
+      } catch (error) {
+        console.error(`[SignIn] ${provider} sign-in failed:`, error);
+        setLoadingProvider(null);
+        setError(
+          error instanceof Error
+            ? error.message
+            : provider === "apple"
+              ? "Apple sign-in failed."
+              : "Google sign-in failed.",
+        );
+      }
+    },
+    [authorizationCallback, loadingProvider],
+  );
+
   useEffect(() => {
     if (isAuthenticated && !isAddingAccount && isNativeOAuthFlow) {
       router.replace(authorizationCallback);
@@ -66,7 +111,21 @@ function SignInContent() {
         return parseAuthenticationMethods(await response.json());
       })
       .then((methods) => {
-        if (!cancelled) setAuthenticationMethods(methods);
+        if (cancelled) return;
+        setAuthenticationMethods(methods);
+        // A deep link can ask for Apple specifically. Start it here, from the
+        // response that revealed the provider, rather than reacting to state:
+        // this is the external event that makes the request valid.
+        if (
+          !autoStartedApple.current &&
+          !loadingProvider &&
+          requestedProvider === "apple" &&
+          methods.includes("apple") &&
+          !session?.user
+        ) {
+          autoStartedApple.current = true;
+          void startSocialSignIn("apple");
+        }
       })
       .catch((caught: unknown) => {
         console.error("[SignIn] Could not read relay authentication:", caught);
@@ -75,7 +134,7 @@ function SignInContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadingProvider, requestedProvider, session?.user, startSocialSignIn]);
 
   if (isAuthenticated && !isAddingAccount && isNativeOAuthFlow) {
     return null;
@@ -119,60 +178,6 @@ function SignInContent() {
       </main>
     );
   }
-
-  const handleSocialSignIn = async (provider: "apple" | "google") => {
-    if (loadingProvider) return;
-    setLoadingProvider(provider);
-    setError(null);
-
-    try {
-      // Native entry deliberately stops on this page. Only the user's explicit
-      // provider click clears a previous browser session and opens the
-      // account picker; arriving here must never simulate that click.
-      const result = await authClient.signIn.social({
-        provider,
-        callbackURL: new URL(
-          authorizationCallback,
-          window.location.origin,
-        ).toString(),
-      });
-      if (result.error) {
-        setError(
-          result.error.message ??
-            (provider === "apple"
-              ? "Apple sign-in is unavailable."
-              : "Google sign-in is unavailable."),
-        );
-        setLoadingProvider(null);
-      }
-    } catch (error) {
-      console.error(`[SignIn] ${provider} sign-in failed:`, error);
-      setLoadingProvider(null);
-      setError(
-        error instanceof Error
-          ? error.message
-          : provider === "apple"
-            ? "Apple sign-in failed."
-            : "Google sign-in failed.",
-      );
-    }
-  };
-
-  const requestedProvider = searchParams.get("provider");
-  const autoStartedApple = useRef(false);
-  useEffect(() => {
-    if (autoStartedApple.current) return;
-    if (requestedProvider !== "apple") return;
-    if (!authenticationMethods?.includes("apple")) return;
-    if (isAuthenticated || loadingProvider) return;
-    autoStartedApple.current = true;
-    void handleSocialSignIn("apple");
-  }, [
-    authenticationMethods,
-    isAuthenticated,
-    loadingProvider,
-    requestedProvider,
-  ]);
 
   const handleEmailAuthentication = async (
     event: React.FormEvent<HTMLFormElement>,
@@ -315,7 +320,7 @@ function SignInContent() {
               className={showEmail ? "mt-3" : "mt-8"}
               disabled={isLoading || loadingProvider !== null}
               loading={loadingProvider === "apple"}
-              onClick={() => void handleSocialSignIn("apple")}
+              onClick={() => void startSocialSignIn("apple")}
               provider="apple"
             />
           ) : null}
@@ -328,7 +333,7 @@ function SignInContent() {
               }
               disabled={isLoading || loadingProvider !== null}
               loading={loadingProvider === "google"}
-              onClick={() => void handleSocialSignIn("google")}
+              onClick={() => void startSocialSignIn("google")}
               provider="google"
             />
           ) : null}
