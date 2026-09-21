@@ -20,9 +20,17 @@ pnpm dev
 pnpm desktop
 ```
 
-Copy the relevant `.env.example` files to `.env.local` and provide your own
-development services. Public builds do not connect to Chief's production
-backend by default.
+Desktop and mobile clients default to Chief's hosted relay and sign-in service
+unless you select another relay or configure URL overrides. The web app also
+defaults to the hosted relay. Starting local services does not automatically
+point clients at them.
+
+For local desktop development, copy `apps/desktop/.env.example` to
+`apps/desktop/.env.local` and set `VITE_CHIEF_RELAY_URL`, `VITE_AUTH_BASE_URL`,
+and `VITE_AUTH_UI_URL` for your relay and authentication UI. Copy
+`apps/web/.env.example` to `apps/web/.env.local` and set `CHIEF_RELAY_URL` to
+your relay. See the [desktop configuration guide](./apps/desktop/README.md#configuration)
+and [self-hosting guide](./deploy/self-host/README.md) for setup details.
 
 ## Make a change
 

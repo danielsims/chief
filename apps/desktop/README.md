@@ -22,8 +22,16 @@ Copy the sanitized example and add your own backend values:
 cp apps/desktop/.env.example apps/desktop/.env.local
 ```
 
-`VITE_AUTH_BASE_URL` defaults to the local web app during development and is
-required for packaged builds.
+Both development and packaged builds default to Chief's hosted services:
+
+- `VITE_CHIEF_RELAY_URL`: `https://relay.heychief.sh`
+- `VITE_AUTH_BASE_URL`: `https://relay.heychief.sh`
+- `VITE_AUTH_UI_URL`: `https://heychief.sh`
+
+For local development, set all three values to your relay and authentication UI
+URLs. Starting local services alone does not change these defaults. A relay
+selected and saved in the app takes precedence over these defaults.
+
 `VITE_WORKSPACE_APP_PATH` is optional. It points local deployment work at a
 different Eve workspace.
 

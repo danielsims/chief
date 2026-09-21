@@ -56,6 +56,11 @@ Agents can use focused playbooks, connected services, and general workspace tool
 
 ### Install
 
+Clients default to Chief's hosted relay and sign-in service. To use local or
+self-hosted services, configure the URL overrides described in the
+[contributing guide](./CONTRIBUTING.md#run-chief-locally) or select your relay
+in the app. Starting a local relay alone does not redirect client traffic.
+
 ```bash
 git clone https://github.com/danielsims/chief.git
 cd chief
