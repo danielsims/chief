@@ -19,6 +19,7 @@ import {
 import {
   deploymentSchema,
   environmentKeysSchema,
+  projectIdentitySchema,
   requestJson,
   unknownSchema,
   vercelUrl,
@@ -154,6 +155,51 @@ async function provisionVercelEveDeploymentInternal(
       : eveProjectFiles(resolvedInput);
   assertChiefChannelPackaged(files);
   const gitMetadata = await vercelGitMetadata(resolvedInput, files, git);
+  // Reserve a new project atomically before uploading source or credentials.
+  // A name lookup alone races with other creators; deployments may reuse names.
+  const project = await requestJson({
+    fetcher,
+    token,
+    url: vercelUrl(
+      resolvedInput.project.kind === "new"
+        ? "/v11/projects"
+        : `/v9/projects/${encodeURIComponent(resolvedInput.project.projectId)}`,
+      { teamId: input.teamId },
+    ),
+    init:
+      resolvedInput.project.kind === "new"
+        ? {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              name: resolvedInput.project.projectName,
+              framework: "eve",
+              publicSource: false,
+            }),
+          }
+        : { method: "GET" },
+    schema: projectIdentitySchema,
+  });
+  if (
+    project.accountId !== input.teamId ||
+    project.name !== resolvedInput.project.projectName ||
+    (resolvedInput.project.kind === "existing" &&
+      project.id !== resolvedInput.project.projectId) ||
+    (resolvedInput.project.kind === "new" &&
+      catalog.projects.some((existing) => existing.id === project.id))
+  ) {
+    throw new Error(
+      "Vercel returned a different project. Chief stopped before uploading code or credentials.",
+    );
+  }
+  const boundInput: EveAgentProvisioningInput = {
+    ...resolvedInput,
+    project: {
+      kind: "existing",
+      projectId: project.id,
+      projectName: project.name,
+    },
+  };
   reportProgress(span, onProgress, {
     phase: "uploading",
     logs: [
@@ -183,20 +229,15 @@ async function provisionVercelEveDeploymentInternal(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(
-        deploymentRequestBody(resolvedInput, files, gitMetadata),
+        deploymentRequestBody(boundInput, files, gitMetadata),
       ),
     },
     schema: deploymentSchema,
   });
-  if (resolvedInput.project.kind === "new") {
-    const preexisting = catalog.projects.find(
-      (project) => project.id === deployment.projectId,
+  if (deployment.projectId !== project.id) {
+    throw new Error(
+      "Vercel returned a deployment for a different project. Chief stopped before changing project settings.",
     );
-    if (preexisting) {
-      throw new Error(
-        `Vercel reused existing project "${preexisting.name}". Chief stopped before changing its environment or deleting it. Choose a different project name.`,
-      );
-    }
   }
   const buildStartedAt = Date.now();
   reportProgress(
@@ -234,6 +275,7 @@ async function provisionVercelEveDeploymentInternal(
   const ready = await waitForDeployment({
     buildStartedAt,
     deploymentId: deployment.id,
+    expectedProjectId: project.id,
     fetcher,
     maxWaitMs,
     onProgress: (progress) => reportProgress(span, onProgress, progress),

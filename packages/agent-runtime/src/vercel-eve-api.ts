@@ -3,6 +3,12 @@ import { z } from "zod";
 import type { JsonValue } from "@chief/relay-contracts";
 import { parseJsonValue } from "@chief/relay-contracts";
 
+export const projectIdentitySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  accountId: z.string().min(1),
+});
+
 export const deploymentSchema = z
   .object({
     id: z.string().min(1),
@@ -110,11 +116,15 @@ export async function requestJson<T>({
   url: URL;
   errorMessage?: string;
 }): Promise<T> {
+  if (url.origin !== "https://api.vercel.com" || url.username || url.password) {
+    throw new Error("Vercel credentials can only be sent to the Vercel API.");
+  }
   const headers = new Headers(init?.headers);
   headers.set("authorization", `Bearer ${token}`);
   const response = await fetcher(url, {
     ...init,
     headers,
+    redirect: "manual",
     signal: init?.signal ?? AbortSignal.timeout(20_000),
   }).catch((error: unknown) => {
     if (error instanceof Error && error.name === "TimeoutError") {

@@ -33,6 +33,27 @@ final class ConversationCache {
         )
     }
 
+    /// Reconcile a history response without overwriting live changes made while
+    /// the request was in flight. Build the collection once for large backlogs.
+    func reconcileHistory(
+        workspaceID: String,
+        conversationID: String,
+        messages: [ConversationMessage],
+        baseline: [ConversationMessage]
+    ) {
+        let before = Dictionary(baseline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var current = Dictionary(
+            self.messages(workspaceID: workspaceID, conversationID: conversationID).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for message in messages where message.workspaceID == workspaceID && message.conversationID == conversationID {
+            if current[message.id] == nil || current[message.id] == before[message.id] {
+                current[message.id] = message
+            }
+        }
+        replace(workspaceID: workspaceID, conversationID: conversationID, messages: Array(current.values))
+    }
+
     /// Fold an edit/reaction event into the cache. Cursor catch-up can deliver
     /// an update after its original append fell before the saved frontier, so
     /// a missing row must be inserted rather than discarded.

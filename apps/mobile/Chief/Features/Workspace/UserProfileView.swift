@@ -46,6 +46,10 @@ struct UserProfileView: View {
           SettingsDestination(title: "Notifications", icon: "bell")
         }.buttonStyle(.plain)
       }
+      Text("Chief \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
+        .font(.system(size: 12))
+        .foregroundStyle(ChiefTheme.tertiary)
+        .accessibilityLabel("App version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""), build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")")
       Button("Sign out", role: .destructive) {
         Haptics.heavy()
         Task { await model.signOut(of: model.appConfiguration.relayURL) }

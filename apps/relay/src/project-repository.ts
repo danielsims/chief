@@ -216,7 +216,7 @@ export class GitHubProjectRepository implements ProjectRepositoryAdapter {
         "user-agent": "Chief-Relay",
         "x-github-api-version": "2026-03-10",
       },
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {

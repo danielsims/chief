@@ -94,15 +94,9 @@ struct ChannelAccessBar: View {
 
 struct ChannelAccessLoadingBar: View {
   var body: some View {
-    HStack(spacing: 10) {
-      ProgressView().controlSize(.small)
-      Text("Checking channel access…")
-        .font(.system(size: 12.5))
-        .foregroundStyle(ChiefTheme.secondary)
-    }
-    .frame(maxWidth: .infinity, alignment: .center)
-    .padding(.horizontal, ChiefTheme.pagePadding)
-    .padding(.vertical, 15)
-    .background(ChiefTheme.surface)
+    // Reserve composer space while permissions resolve, without a loading tray.
+    Color.clear
+      .frame(height: 64)
+      .accessibilityLabel("Checking channel access")
   }
 }

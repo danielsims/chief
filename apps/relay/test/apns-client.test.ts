@@ -24,14 +24,23 @@ describe("APNs client", () => {
     ).toBe(0);
   });
 
-  it("is ready only when the signing key, key id, and team id are present", () => {
+  it("is ready only when the signing key, key id, team id, and bundle id are present", () => {
+    expect(
+      apnsReady({
+        APNS_P8: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+        APNS_KEY_ID: "KEYID123",
+        APNS_TEAM_ID: "TEAMID123",
+        APNS_BUNDLE_ID: "com.example.chief",
+      }),
+    ).toBe(true);
+
     expect(
       apnsReady({
         APNS_P8: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
         APNS_KEY_ID: "KEYID123",
         APNS_TEAM_ID: "TEAMID123",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("encodes a tap destination the mobile app can open", () => {

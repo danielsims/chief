@@ -302,3 +302,66 @@ struct SignInView: View {
     return try await RelayConnectionValidator.validate(address)
   }
 }
+
+private struct SignInRelaySheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var address: String
+  @FocusState private var isFocused: Bool
+  let onSave: (String) -> Void
+
+  init(address: String, onSave: @escaping (String) -> Void) {
+    _address = State(initialValue: address)
+    self.onSave = onSave
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ChiefSheetHeader(title: "Change relay", doneTitle: "Cancel")
+      VStack(alignment: .leading, spacing: 16) {
+        TextField("https://heychief.sh", text: $address)
+          .font(.system(size: 15))
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .keyboardType(.URL)
+          .textContentType(.URL)
+          .submitLabel(.done)
+          .focused($isFocused)
+          .padding(.horizontal, 14)
+          .frame(height: 50)
+          .background(ChiefSheetPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+          .overlay { RoundedRectangle(cornerRadius: 14).stroke(ChiefSheetPalette.separator) }
+          .accessibilityLabel("Relay address")
+          .accessibilityIdentifier("relay-address")
+          .onSubmit(save)
+        Button("Save", action: save)
+          .font(.system(size: 16, weight: .semibold))
+          .frame(maxWidth: .infinity, minHeight: 50)
+          .background(Color(uiColor: .label), in: RoundedRectangle(cornerRadius: 14))
+          .foregroundStyle(Color(uiColor: .systemBackground))
+          .disabled(trimmedAddress.isEmpty)
+          .accessibilityIdentifier("save-relay")
+        Button("Use default") {
+          address = "https://heychief.sh"
+          save()
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(ChiefTheme.secondary)
+        .frame(maxWidth: .infinity, minHeight: 44)
+      }
+      .padding(.horizontal, 24)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .chiefSheet([.height(300)])
+    .onAppear { isFocused = true }
+  }
+
+  private var trimmedAddress: String {
+    address.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func save() {
+    guard !trimmedAddress.isEmpty else { return }
+    onSave(trimmedAddress)
+    dismiss()
+  }
+}
