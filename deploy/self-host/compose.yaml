@@ -59,8 +59,8 @@ services:
     image: grafana/otel-lgtm:0.31.0
     profiles: ["observability"]
     ports:
-      - "${CHIEF_OBSERVABILITY_PORT:-3000}:3000"
-      - "${CHIEF_OTLP_HTTP_PORT:-14318}:4318"
+      - "127.0.0.1:${CHIEF_OBSERVABILITY_PORT:-3000}:3000"
+      - "127.0.0.1:${CHIEF_OTLP_HTTP_PORT:-14318}:4318"
     volumes:
       - observability-data:/data
       - ./grafana/chief-agent-observability.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/chief-agent-observability.yaml:ro

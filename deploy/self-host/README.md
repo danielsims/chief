@@ -101,6 +101,15 @@ observability profile and open `http://localhost:3000`:
 pnpm self-host:up:observability
 ```
 
+The Grafana and OTLP host ports bind to `127.0.0.1` only. You can change their
+port numbers with `CHIEF_OBSERVABILITY_PORT` and `CHIEF_OTLP_HTTP_PORT`; they
+remain restricted to the host. Relay containers reach the collector directly
+over the Compose network, so this does not interrupt trace collection.
+
+The bundled Grafana image is intended for development and starts with the
+default `admin` / `admin` login. Keep it private; use an SSH tunnel for remote
+access rather than publishing these ports on a server's public interface.
+
 This sends OTLP data directly from the relay container to the bundled local
 collector. Its Loki, Tempo, and Grafana data stays in the local
 `observability-data` Docker volume; it is never used as the production
