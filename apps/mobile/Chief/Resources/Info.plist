@@ -28,7 +28,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>sh.heychief.mobile</string>
+			<string>${CHIEF_BUNDLE_ID}</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>chief-mobile</string>

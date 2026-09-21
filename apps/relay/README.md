@@ -82,3 +82,16 @@ The production-shaped single-node stack lives in
 D1, Durable Object, and R2 bindings, the Chief auth UI, schema migrations, and a
 TLS/WebSocket gateway. See `deploy/self-host/README.md` for its operational and
 scaling boundaries.
+
+## Optional Apple client configuration
+
+Relay self-hosting does not require an Apple Developer account. Push is enabled
+only when all four `APNS_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, and `APNS_BUNDLE_ID`
+values are present. Configure the key and key ID as deployment secrets.
+
+`pnpm relay:deploy` maps exported `CHIEF_APPLE_TEAM_ID` and `CHIEF_BUNDLE_ID`
+to the APNs settings and sets `APPLE_APP_BUNDLE_IDENTIFIER` for the client.
+`CHIEF_APPLE_BUNDLE_ID` is also accepted as a fallback for the bundle ID.
+The wrapper does not load the mobile app's `.env`; export values explicitly.
+Additional arguments are forwarded to Wrangler. Replace the D1 database ID in
+`wrangler.jsonc` with the ID of your own database before deploying.
