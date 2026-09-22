@@ -232,7 +232,7 @@ export function ProjectsPage() {
             ))}
           </div>
         ) : visibleProjects.length === 0 ? (
-          <div className="bg-sidebar flex min-h-64 w-full flex-col items-center justify-center rounded-2xl border border-black/[0.055] px-8 py-14 text-center dark:border-white/[0.055]">
+          <div className="flex min-h-full w-full flex-col items-center justify-center px-8 py-10 text-center">
             <p className="text-[18px] leading-tight font-medium tracking-[-0.025em]">
               {projects.projects.length === 0
                 ? "No projects yet"

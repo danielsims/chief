@@ -176,6 +176,8 @@ export function PluginsPagePreview() {
     stale: false,
     warning: undefined,
     loading: false,
+    error: null,
+    refreshing: false,
     busyPluginId: null,
     refresh: () => undefined,
     install: () => Promise.resolve(undefined),

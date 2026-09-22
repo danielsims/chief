@@ -1,4 +1,12 @@
-import { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Check,
   LoaderCircle,
@@ -22,6 +30,7 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { PluginRuntimeState } from "../../lib/runtime-plugins";
+import { pagePluginGroups } from "../../lib/plugin-pagination";
 import {
   comparePluginPresentation,
   featuredPluginOptions,
@@ -116,45 +125,76 @@ const PluginSections = memo(function PluginSections({
   onInstall: (plugin: AgentPluginSummary) => void;
   onAuthorize: (plugin: AgentPluginSummary) => void;
 }) {
-  return grouped.map(([label, group]) => (
-    <section
-      key={label}
-      className="[contain-intrinsic-size:auto_320px] [content-visibility:auto]"
-    >
-      <h2 className="text-muted-foreground mb-3 text-xs font-medium">
-        {label}
-      </h2>
-      <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
-        {group.map((plugin) => (
-          <article
-            key={`${plugin.source.type}-${plugin.id}`}
-            className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+  const [limit, setLimit] = useState(48);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const total = grouped.reduce((sum, [, group]) => sum + group.length, 0);
+  useEffect(() => {
+    const element = sentinel.current;
+    if (!element || limit >= total) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) setLimit((current) => current + 48);
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [limit, total]);
+  return (
+    <>
+      {pagePluginGroups(grouped, limit).map(([label, group]) => (
+        <section
+          key={label}
+          className="[contain-intrinsic-size:auto_320px] [content-visibility:auto]"
+        >
+          <h2 className="text-muted-foreground mb-3 text-xs font-medium">
+            {label}
+          </h2>
+          <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
+            {group.map((plugin) => (
+              <article
+                key={`${plugin.source.type}-${plugin.id}`}
+                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+              >
+                <ProviderLogo
+                  domain={pluginDomain(plugin)}
+                  label={plugin.name}
+                  className="size-12 shrink-0 rounded-[15px]"
+                />
+                <div className="min-w-0 flex-1 pr-5">
+                  <h3 className="truncate text-sm font-medium">
+                    {plugin.name}
+                  </h3>
+                  <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                    {plugin.description}
+                  </p>
+                  <span className="sr-only">{sourceLabel(plugin)}</span>
+                </div>
+                <div className="shrink-0">
+                  <PluginAction
+                    plugin={plugin}
+                    busy={busyPluginId === plugin.id}
+                    onInstall={() => onInstall(plugin)}
+                    onAuthorize={() => onAuthorize(plugin)}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+      {limit < total ? (
+        <div ref={sentinel} className="flex justify-center py-4">
+          <Button
+            variant="ghost"
+            onClick={() => setLimit((current) => current + 48)}
           >
-            <ProviderLogo
-              domain={pluginDomain(plugin)}
-              label={plugin.name}
-              className="size-12 shrink-0 rounded-[15px]"
-            />
-            <div className="min-w-0 flex-1 pr-5">
-              <h3 className="truncate text-sm font-medium">{plugin.name}</h3>
-              <p className="text-muted-foreground mt-0.5 truncate text-xs">
-                {plugin.description}
-              </p>
-              <span className="sr-only">{sourceLabel(plugin)}</span>
-            </div>
-            <div className="shrink-0">
-              <PluginAction
-                plugin={plugin}
-                busy={busyPluginId === plugin.id}
-                onInstall={() => onInstall(plugin)}
-                onAuthorize={() => onAuthorize(plugin)}
-              />
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  ));
+            Show more plugins
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
 });
 
 function FilterOption({
@@ -365,6 +405,7 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
               variant="ghost"
               size="icon"
               title="Refresh plugins"
+              disabled={plugins.refreshing}
               onClick={() => plugins.refresh(true)}
             >
               <RefreshCw size={14} />
@@ -378,26 +419,33 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
           <LoaderCircle className="animate-spin" size={16} /> Loading plugins…
         </div>
       ) : (
-        <>
-          <div className="space-y-8 py-5" hidden={view !== "all"}>
-            <PluginSections
-              grouped={allGrouped}
-              busyPluginId={plugins.busyPluginId}
-              onInstall={install}
-              onAuthorize={authorize}
-            />
-          </div>
-          <div className="space-y-8 py-5" hidden={view !== "yours"}>
-            <PluginSections
-              grouped={yoursGrouped}
-              busyPluginId={plugins.busyPluginId}
-              onInstall={install}
-              onAuthorize={authorize}
-            />
-          </div>
-        </>
+        <div className="space-y-8 py-5">
+          <PluginSections
+            key={`${view}:${type}:${status}:${deferredQuery}`}
+            grouped={view === "all" ? allGrouped : yoursGrouped}
+            busyPluginId={plugins.busyPluginId}
+            onInstall={install}
+            onAuthorize={authorize}
+          />
+        </div>
       )}
-      {!plugins.loading && visibleCount === 0 ? (
+      {plugins.error ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-4 rounded-lg border p-4 text-sm"
+        >
+          <p>{plugins.error}</p>
+          <Button
+            variant="outline"
+            onClick={() => plugins.refresh(true)}
+            disabled={plugins.refreshing}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
+
+      {!plugins.loading && !plugins.error && visibleCount === 0 ? (
         <p className="text-muted-foreground py-20 text-center text-sm">
           {view === "yours"
             ? "You have not added any plugins yet."
