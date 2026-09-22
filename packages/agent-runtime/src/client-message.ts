@@ -333,6 +333,7 @@ export type ClientMessage =
   | {
       type: "listPlugins";
       workspaceId: string;
+      requestId?: string;
       refresh?: boolean;
       executorCapability: ExecutorCapability;
     }
