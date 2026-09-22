@@ -2,7 +2,14 @@ import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, ExternalLink, Server, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Server,
+  Settings2,
+} from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -101,18 +108,20 @@ export function RelayConnectionControl({
 
 export function RelayConnectionDialog({
   children,
+  open: controlledOpen,
+  onOpenChange,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent className="max-w-[440px] gap-0 p-0">
-        <DialogHeader className="border-b px-5 py-5 pr-12">
-          <DialogTitle>Connection</DialogTitle>
-          <DialogDescription>Choose a relay.</DialogDescription>
-        </DialogHeader>
         <RelayConnectionForm onDone={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
@@ -192,116 +201,151 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
   };
 
   return (
-    <div className="p-5">
-      <div className="mb-5">
-        <p className="text-sm font-medium">Relays</p>
-        <div className="mt-2 space-y-1">
-          {savedRelays.map((connection) => {
-            const cloud = connection.relayUrl === chiefCloud.relayUrl;
-            const active = connection.relayUrl === new URL(RELAY_URL).origin;
-            return (
-              <button
-                key={connection.relayUrl}
-                type="button"
-                disabled={working}
-                onClick={() => void connect(connection)}
-                className="hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors disabled:opacity-50"
+    <>
+      <DialogHeader className="border-b px-5 py-5 pr-12">
+        <DialogTitle>
+          {showsSelfHosted ? "Self-hosted relay" : "Connection"}
+        </DialogTitle>
+        <DialogDescription>
+          {showsSelfHosted
+            ? "Host your own relay, then connect it to Chief."
+            : "Choose a relay."}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="p-5">
+        {!showsSelfHosted ? (
+          <>
+            <div className="mb-5">
+              <p className="text-sm font-medium">Relays</p>
+              <div className="mt-2 space-y-1">
+                {savedRelays.map((connection) => {
+                  const cloud = connection.relayUrl === chiefCloud.relayUrl;
+                  const active =
+                    connection.relayUrl === new URL(RELAY_URL).origin;
+                  return (
+                    <button
+                      key={connection.relayUrl}
+                      type="button"
+                      disabled={working}
+                      onClick={() => void connect(connection)}
+                      className="hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors disabled:opacity-50"
+                    >
+                      {cloud ? (
+                        <ChiefMark className="text-foreground size-4" />
+                      ) : (
+                        <Server className="text-muted-foreground size-4 shrink-0" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm">
+                          {cloud
+                            ? "Chief Cloud"
+                            : new URL(connection.relayUrl).host}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-xs">
+                          {cloud ? "Managed by Chief" : "Self hosted"}
+                        </span>
+                      </span>
+                      {active ? (
+                        <Check className="text-muted-foreground size-4 shrink-0" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => setShowsSelfHosted(true)}
+              disabled={working}
+            >
+              Use a self-hosted relay
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </Button>
+          </>
+        ) : (
+          <div className="space-y-5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ml-2"
+              disabled={working}
+              onClick={() => setShowsSelfHosted(false)}
+            >
+              <ArrowLeft aria-hidden="true" className="mr-1.5 size-4" />
+              Back to relays
+            </Button>
+            <div className="space-y-3">
+              <p className="text-sm font-medium">1. Host your relay</p>
+              <p className="text-muted-foreground text-sm leading-5">
+                Our setup guide walks you through deploying your own relay in
+                your browser. Come back here when it’s ready.
+              </p>
+              <Button
+                className="w-full"
+                render={
+                  <a
+                    href={HOST_SETUP_URL}
+                    onClick={openHostSetup}
+                    rel="noreferrer"
+                    target="_blank"
+                  />
+                }
               >
-                {cloud ? (
-                  <ChiefMark className="text-foreground size-4" />
-                ) : (
-                  <Server className="text-muted-foreground size-4 shrink-0" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm">
-                    {cloud ? "Chief Cloud" : new URL(connection.relayUrl).host}
-                  </span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    {cloud ? "Managed by Chief" : "Self hosted"}
-                  </span>
-                </span>
-                {active ? (
-                  <Check className="text-muted-foreground size-4 shrink-0" />
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      {!showsSelfHosted ? (
-        <div className="space-y-1">
-          <button
-            type="button"
-            onClick={() => setShowsSelfHosted(true)}
-            className="text-muted-foreground hover:text-foreground flex w-full rounded-lg py-1 text-left text-sm transition-colors"
-          >
-            Use a self-hosted relay
-          </button>
-          <a
-            className="text-muted-foreground hover:text-foreground flex w-full items-center rounded-lg py-1 text-left text-sm transition-colors"
-            href={HOST_SETUP_URL}
-            onClick={openHostSetup}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Host a relay
-            <ExternalLink aria-hidden="true" className="ml-1.5 size-3.5" />
-          </a>
-        </div>
-      ) : (
-        <div>
-          <label htmlFor="relay-url" className="text-sm font-medium">
-            Relay URL
-          </label>
-          <p className="text-muted-foreground mt-1 text-xs leading-5">
-            Host your relay in your browser, then add its URL here.
-          </p>
-          <Input
-            id="relay-url"
-            value={relayUrl}
-            onChange={(event) => setRelayUrl(event.target.value)}
-            placeholder="https://chief.example.com"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            className="mt-2"
-          />
-          <a
-            className="text-muted-foreground hover:text-foreground mt-2 inline-flex items-center text-sm transition-colors"
-            href={HOST_SETUP_URL}
-            onClick={openHostSetup}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Host a relay
-            <ExternalLink aria-hidden="true" className="ml-1.5 size-3.5" />
-          </a>
-        </div>
-      )}
+                Host a relay
+                <ExternalLink aria-hidden="true" className="size-4" />
+              </Button>
+            </div>
+            <div className="border-t pt-5">
+              <label htmlFor="relay-url" className="text-sm font-medium">
+                2. Add your relay URL
+              </label>
+              <p className="text-muted-foreground mt-1 text-sm leading-5">
+                Already hosting a relay? Paste its URL below to connect.
+              </p>
+              <Input
+                id="relay-url"
+                value={relayUrl}
+                onChange={(event) => setRelayUrl(event.target.value)}
+                placeholder="https://chief.example.com"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                className="mt-3"
+                disabled={working}
+              />
+            </div>
+          </div>
+        )}
 
-      {error ? (
-        <p className="text-destructive mt-4 text-xs leading-5">{error}</p>
-      ) : null}
-
-      <div className="mt-6 flex justify-end gap-2">
-        {onDone ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onDone}
-            disabled={working}
-          >
-            Cancel
-          </Button>
+        {error ? (
+          <p className="text-destructive mt-4 text-xs leading-5">{error}</p>
         ) : null}
-        <Button
-          type="button"
-          onClick={() => void apply()}
-          disabled={working || !showsSelfHosted || !relayUrl.trim()}
-        >
-          {working ? "Connecting…" : "Add relay"}
-        </Button>
+
+        <div className="mt-6 flex justify-end gap-2">
+          {onDone ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onDone}
+              disabled={working}
+            >
+              Cancel
+            </Button>
+          ) : null}
+          {showsSelfHosted ? (
+            <Button
+              type="button"
+              onClick={() => void apply()}
+              disabled={working || !relayUrl.trim()}
+            >
+              {working ? "Connecting…" : "Add relay"}
+            </Button>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
