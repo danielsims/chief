@@ -51,7 +51,12 @@ export function usePlugins() {
   } | null>(null);
   const error =
     loadError?.workspaceId === cloudOrganizationId ? loadError.message : null;
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshingWorkspace, setRefreshingWorkspace] = useState<string | null>(
+    null,
+  );
+  const refreshing = Boolean(
+    cloudOrganizationId && refreshingWorkspace === cloudOrganizationId,
+  );
   const [busyPluginId, setBusyPluginId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export function usePlugins() {
       ) {
         clearTimeout(pending.current.timer);
         pending.current = null;
-        setRefreshing(false);
+        setRefreshingWorkspace(null);
         setLoadError({
           workspaceId: cloudOrganizationId,
           message: message.message,
@@ -79,7 +84,7 @@ export function usePlugins() {
       }
       if (pending.current) clearTimeout(pending.current.timer);
       pending.current = null;
-      setRefreshing(false);
+      setRefreshingWorkspace(null);
       setLoadError(null);
       const next: PluginState = {
         plugins: message.plugins,
@@ -93,6 +98,7 @@ export function usePlugins() {
     });
     return () => {
       unsubscribe();
+      setRefreshingWorkspace(null);
       if (pending.current) clearTimeout(pending.current.timer);
       pending.current = null;
     };
@@ -103,12 +109,12 @@ export function usePlugins() {
       if (!cloudOrganizationId || !capability || pending.current) return;
       const id = requestId();
       setLoadError(null);
-      setRefreshing(true);
+      setRefreshingWorkspace(cloudOrganizationId);
       pending.current = {
         id,
         timer: setTimeout(() => {
           pending.current = null;
-          setRefreshing(false);
+          setRefreshingWorkspace(null);
           setLoadError({
             workspaceId: cloudOrganizationId,
             message:
