@@ -3,7 +3,10 @@ use std::{
     net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 
 use k256::elliptic_curve::rand_core::{OsRng, RngCore};
@@ -25,11 +28,16 @@ pub struct PluginHostConnection {
 }
 
 #[derive(Default)]
-pub struct PluginHostSupervisor(Mutex<Option<PluginHostProcess>>);
+pub struct PluginHostSupervisor {
+    process: Mutex<Option<PluginHostProcess>>,
+    startup: Mutex<()>,
+    stopping: AtomicBool,
+}
 
 impl PluginHostSupervisor {
     pub fn stop(&self) {
-        let Ok(mut process) = self.0.lock() else {
+        self.stopping.store(true, Ordering::SeqCst);
+        let Ok(mut process) = self.process.lock() else {
             return;
         };
         if let Some(mut process) = process.take() {
@@ -55,6 +63,7 @@ pub(crate) fn plugin_directory(app: &tauri::AppHandle) -> Result<PathBuf, String
 struct RuntimeRoot {
     path: PathBuf,
     packaged: bool,
+    executable: Option<PathBuf>,
 }
 
 fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
@@ -67,10 +76,16 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
         return Ok(RuntimeRoot {
             path: packaged,
             packaged: true,
+            executable: None,
         });
     }
     if !cfg!(debug_assertions) {
-        return Err("Chief's plugin runtime is not installed on this Mac.".to_string());
+        let installed = crate::plugin_runtime::ensure(app)?;
+        return Ok(RuntimeRoot {
+            path: installed.join("agent-runtime"),
+            packaged: true,
+            executable: Some(installed.join(crate::plugin_runtime::node_name())),
+        });
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../packages/agent-runtime")
@@ -79,16 +94,28 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
     Ok(RuntimeRoot {
         path,
         packaged: false,
+        executable: None,
     })
 }
 
 #[tauri::command]
-pub fn start_plugin_host(
-    app: tauri::AppHandle,
-    supervisor: tauri::State<'_, PluginHostSupervisor>,
-) -> Result<PluginHostConnection, String> {
+pub async fn start_plugin_host(app: tauri::AppHandle) -> Result<PluginHostConnection, String> {
+    tauri::async_runtime::spawn_blocking(move || start(&app))
+        .await
+        .map_err(|_| "Chief's runtime setup stopped unexpectedly.".to_string())?
+}
+
+fn start(app: &tauri::AppHandle) -> Result<PluginHostConnection, String> {
+    let supervisor = app.state::<PluginHostSupervisor>();
+    let _startup = supervisor
+        .startup
+        .lock()
+        .map_err(|_| "Chief could not prepare its plugin host.".to_string())?;
+    if supervisor.stopping.load(Ordering::SeqCst) {
+        return Err("Chief is shutting down.".into());
+    }
     let mut process = supervisor
-        .0
+        .process
         .lock()
         .map_err(|_| "Chief could not access its plugin host.".to_string())?;
     if let Some(current) = process.as_mut() {
@@ -97,9 +124,18 @@ pub fn start_plugin_host(
         }
     }
 
-    let runtime = runtime_root(&app)?;
+    drop(process);
+    let runtime = runtime_root(app)?;
+    let mut process = supervisor
+        .process
+        .lock()
+        .map_err(|_| "Chief could not access its plugin host.".to_string())?;
+    if supervisor.stopping.load(Ordering::SeqCst) {
+        return Err("Chief is shutting down.".into());
+    }
+    crate::plugin_runtime::progress(app, "starting");
     let root = runtime.path;
-    let plugin_root = plugin_directory(&app)?;
+    let plugin_root = plugin_directory(app)?;
     std::fs::create_dir_all(&plugin_root)
         .map_err(|_| "Chief could not create its plugin directory.".to_string())?;
     let log_directory = app
@@ -119,15 +155,19 @@ pub fn start_plugin_host(
         .unwrap_or_else(|_| Stdio::null());
 
     let mut command = if runtime.packaged {
-        let executable = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(Path::to_path_buf))
-            .map(|path| {
-                path.join(if cfg!(target_os = "windows") {
-                    "chief-agent-runtime.exe"
-                } else {
-                    "chief-agent-runtime"
-                })
+        let executable = runtime
+            .executable
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|path| path.parent().map(Path::to_path_buf))
+                    .map(|path| {
+                        path.join(if cfg!(target_os = "windows") {
+                            "chief-agent-runtime.exe"
+                        } else {
+                            "chief-agent-runtime"
+                        })
+                    })
             })
             .filter(|path| path.is_file())
             .ok_or_else(|| "Chief's bundled Node runtime is unavailable.".to_string())?;

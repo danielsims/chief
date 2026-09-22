@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderGit2 } from "lucide-react";
+import { FolderGit2, LoaderCircle } from "lucide-react";
+import { toast } from "sonner";
 
 import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
@@ -15,6 +17,7 @@ import {
 } from "@chief/ui/components/dialog";
 import { cn } from "@chief/ui/lib/utils";
 
+import { prepareDesktopPluginHost } from "../../lib/desktop-plugin-host";
 import { useProjects } from "../../lib/runtime-projects";
 
 type ProjectSource = "attach" | "clone";
@@ -35,6 +38,11 @@ function AddProjectDialogForm({
   initialRemoteUrl,
 }: AddProjectDialogProps) {
   const projects = useProjects();
+  const submitting = useRef(false);
+  const [preparing, setPreparing] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const busy = preparing || projects.busy;
   const [source, setSource] = useState<ProjectSource>(
     initialRemoteUrl ? "clone" : "attach",
   );
@@ -52,14 +60,59 @@ function AddProjectDialogForm({
   };
 
   const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setPreparing(true);
+    setSetupError(null);
+    projects.clearError();
+    setSetupStatus("Preparing local tools…");
+    let unlisten: (() => void) | undefined;
+    let toastId: string | number | undefined;
     try {
+      if (isTauri()) {
+        unlisten = await listen<string>(
+          "chief://plugin-runtime-progress",
+          ({ payload }) => {
+            const message = {
+              downloading: "Downloading Chief plugin runtime…",
+              verifying: "Verifying Chief plugin runtime…",
+              installing: "Installing Chief plugin runtime…",
+              starting: "Starting local tools…",
+            }[payload];
+            if (!message) return;
+            setSetupStatus(message);
+            if (payload === "downloading" || toastId !== undefined) {
+              toastId = toast.loading(message, { id: toastId });
+            }
+          },
+        );
+        await prepareDesktopPluginHost();
+      }
+      unlisten?.();
+      unlisten = undefined;
+      if (toastId !== undefined) {
+        toast.success("Chief plugin runtime is ready", { id: toastId });
+        toastId = undefined;
+      }
+      setSetupStatus(
+        source === "clone"
+          ? "Cloning and connecting…"
+          : "Connecting repository…",
+      );
       if (source === "attach") await projects.attach(path);
       else await projects.clone(remoteUrl);
       setPath("");
       setRemoteUrl("");
       onOpenChange(false);
-    } catch {
-      // The hook keeps a user-facing error in the dialog.
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSetupError(message);
+      if (toastId !== undefined) toast.error(message, { id: toastId });
+    } finally {
+      unlisten?.();
+      submitting.current = false;
+      setPreparing(false);
+      setSetupStatus(null);
     }
   };
 
@@ -67,7 +120,7 @@ function AddProjectDialogForm({
     <Dialog
       open={visible}
       onOpenChange={(next) => {
-        if (!projects.busy) onOpenChange(next);
+        if (!busy) onOpenChange(next);
       }}
     >
       <DialogContent className="border-border/70 max-w-[460px] gap-0 overflow-hidden rounded-xl p-0">
@@ -91,7 +144,9 @@ function AddProjectDialogForm({
               <button
                 key={value}
                 type="button"
+                disabled={busy}
                 onClick={() => {
+                  setSetupError(null);
                   setSource(value);
                   projects.clearError();
                 }}
@@ -110,6 +165,7 @@ function AddProjectDialogForm({
               isTauri() ? (
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => void chooseFolder()}
                   className="border-border/70 hover:bg-muted/40 flex h-11 w-full items-center gap-3 rounded-md border bg-transparent px-3 text-left transition-colors"
                 >
@@ -130,6 +186,7 @@ function AddProjectDialogForm({
                 </button>
               ) : (
                 <input
+                  disabled={busy}
                   value={path}
                   onChange={(event) => setPath(event.target.value)}
                   placeholder="/path/to/repository"
@@ -139,6 +196,7 @@ function AddProjectDialogForm({
               )
             ) : (
               <input
+                disabled={busy}
                 id="project-remote"
                 value={remoteUrl}
                 onChange={(event) => setRemoteUrl(event.target.value)}
@@ -167,9 +225,21 @@ function AddProjectDialogForm({
             </details>
           ) : null}
 
-          {projects.error ? (
+          {setupStatus ? (
+            <div
+              role="status"
+              className="text-muted-foreground mt-3 flex items-center gap-2 text-sm"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 animate-spin"
+              />
+              {setupStatus}
+            </div>
+          ) : null}
+          {setupError || projects.error ? (
             <div className="border-destructive/20 bg-destructive/[0.06] text-destructive mt-3 rounded-lg border px-3 py-2 text-sm leading-5">
-              {projects.error}
+              {setupError ?? projects.error}
             </div>
           ) : null}
         </div>
@@ -177,13 +247,13 @@ function AddProjectDialogForm({
         <DialogFooter className="border-border/70 border-t px-5 py-3">
           <Button
             variant="ghost"
-            disabled={projects.busy}
+            disabled={busy}
             onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
           <Button
-            loading={projects.busy}
+            loading={busy}
             disabled={source === "attach" ? !path.trim() : !remoteUrl.trim()}
             onClick={() => void submit()}
           >
