@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
+  MessagesSquare,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
@@ -128,31 +129,57 @@ export function DashboardSidePanels({
                 ease: [0.22, 1, 0.36, 1],
               }}
             >
-              <h2 className="m-0 line-clamp-2 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
-                {activeAnalyticsSlide.title}
-              </h2>
-              <div className="mt-2 flex items-baseline gap-2">
-                {activeAnalyticsSlide.value ? (
-                  <strong className="text-[22px] font-medium">
-                    {activeAnalyticsSlide.value}
-                  </strong>
-                ) : null}
-                <span className="text-muted-foreground text-sm leading-5">
-                  {activeAnalyticsSlide.label}
-                </span>
-                {activeAnalyticsSlide.trend !== null ? (
-                  <Trend value={activeAnalyticsSlide.trend} />
-                ) : null}
-              </div>
-              {activeAnalyticsSlide.points ? (
-                <div className="[@container_insights_(max-height:230px)]:hidden">
-                  <AnalyticsChart
-                    label={activeAnalyticsSlide.label}
-                    points={activeAnalyticsSlide.points}
-                    reduceMotion={Boolean(prefersReducedMotion)}
-                  />
+              {activeAnalyticsSlide.id === "start" ? (
+                <div className="flex h-full flex-col items-start justify-center gap-3">
+                  <div
+                    aria-hidden="true"
+                    className="bg-background text-muted-foreground grid size-9 shrink-0 place-items-center rounded-xl border [@container_insights_(max-height:190px)]:hidden"
+                  >
+                    <MessagesSquare size={18} strokeWidth={1.5} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-medium tracking-tight">
+                      {activeAnalyticsSlide.title}
+                    </h2>
+                    <p className="text-muted-foreground mt-1.5 max-w-64 text-xs leading-5 [@container_insights_(max-height:190px)]:hidden">
+                      Share a goal or a task. Your team’s results will appear
+                      here.
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-2 text-xs font-medium">
+                    Start a conversation{" "}
+                    <ArrowRight aria-hidden="true" size={13} />
+                  </span>
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  <h2 className="m-0 line-clamp-2 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
+                    {activeAnalyticsSlide.title}
+                  </h2>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    {activeAnalyticsSlide.value ? (
+                      <strong className="text-[22px] font-medium">
+                        {activeAnalyticsSlide.value}
+                      </strong>
+                    ) : null}
+                    <span className="text-muted-foreground text-sm leading-5">
+                      {activeAnalyticsSlide.label}
+                    </span>
+                    {activeAnalyticsSlide.trend !== null ? (
+                      <Trend value={activeAnalyticsSlide.trend} />
+                    ) : null}
+                  </div>
+                  {activeAnalyticsSlide.points ? (
+                    <div className="[@container_insights_(max-height:230px)]:hidden">
+                      <AnalyticsChart
+                        label={activeAnalyticsSlide.label}
+                        points={activeAnalyticsSlide.points}
+                        reduceMotion={Boolean(prefersReducedMotion)}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              )}
             </motion.article>
           ) : null}
         </AnimatePresence>
@@ -304,13 +331,26 @@ export function DashboardSidePanels({
               })}
             </div>
           ) : (
-            <div className="text-muted-foreground flex h-full min-h-16 items-center justify-center text-center">
-              <span className="grid gap-1">
-                <strong className="text-foreground text-sm font-medium">
-                  No upcoming work
-                </strong>
-                <span className="text-sm">Your schedule is clear.</span>
-              </span>
+            <div className="flex min-h-full flex-col items-center justify-center px-3 py-5 text-center">
+              <CalendarDays
+                aria-hidden="true"
+                className="text-muted-foreground/60 mb-3"
+                size={24}
+                strokeWidth={1.5}
+              />
+              <h3 className="text-sm font-medium">
+                Make room for routine work
+              </h3>
+              <p className="text-muted-foreground mt-1.5 max-w-56 text-xs leading-5">
+                Give your team a task to repeat. See what’s coming up here.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/schedule")}
+                className="hover:bg-accent mt-3 inline-flex min-h-8 items-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors"
+              >
+                Open schedule <ArrowRight aria-hidden="true" size={13} />
+              </button>
             </div>
           )}
         </div>

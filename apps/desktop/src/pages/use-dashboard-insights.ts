@@ -275,10 +275,10 @@ export function useDashboardInsights({
       : [
           {
             id: "start",
-            title: "Give your team something worth working on.",
+            title: "Start something with Chief",
             destination: "/conversations?dm=chief",
             value: "",
-            label: "Set a goal with Chief",
+            label: "Start a conversation",
             trend: null,
             points: null,
           },
