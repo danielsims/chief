@@ -41,6 +41,28 @@ values for `VERCEL_TOKEN`, a hosted HTTPS `EXECUTOR_MCP_URL`, and
 `EXECUTOR_MCP_TOKEN`. Localhost Executor URLs are rejected for cloud deploys,
 and recurring schedules remain on the local scheduler.
 
+## On-demand plugin runtime
+
+The lightweight app downloads its plugin runtime the first time a local repository
+or plugin needs it. Repository setup shows progress and continues automatically;
+failed downloads leave the entered URL intact for retry. Public repositories need
+no GitHub token. Private repositories still use the Mac's existing Git credentials.
+
+Each desktop build pins the runtime URL and SHA-256 in
+`src-tauri/plugin-runtime-release.json`. The native installer checks the digest,
+rejects unsafe archive entries, and installs into a versioned application-data
+cache. It never runs an unverified download. Offline packages use their bundled
+runtime instead.
+
+To prepare a new runtime on its target platform, run `pnpm runtime:bundle` from
+this directory, then `node scripts/package-plugin-runtime.mjs`. macOS preparation
+requires `APPLE_SIGNING_IDENTITY`; use the Node version in `.nvmrc`. The script
+writes an archive under `.audit/runtime-release` and updates the pinned manifest.
+Review and publish that immutable asset at its generated GitHub release URL
+**before distributing the corresponding desktop build**. Do not replace an
+existing asset: prepare a new digest and rebuild the app. Only platforms present
+in the manifest support on-demand installation.
+
 ## Build
 
 Install the platform prerequisites from the [Tauri documentation](https://v2.tauri.app/start/prerequisites/), then run:

@@ -5,6 +5,7 @@ mod cell_supervisor;
 mod native_notifications;
 mod oauth_loopback;
 mod plugin_host;
+mod plugin_runtime;
 mod relay_identity;
 
 use auth_session::{

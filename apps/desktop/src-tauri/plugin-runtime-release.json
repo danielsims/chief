@@ -1,0 +1,6 @@
+{
+  "aarch64-apple-darwin": {
+    "url": "https://github.com/danielsims/chief/releases/download/plugin-runtime-a25b100011fe0e4a/chief-plugin-runtime-aarch64-apple-darwin-a25b100011fe0e4a.tar.gz",
+    "sha256": "a25b100011fe0e4a71af7a60e9fd5b723d4164125da1967cac3a2dd88b14bdee"
+  }
+}
