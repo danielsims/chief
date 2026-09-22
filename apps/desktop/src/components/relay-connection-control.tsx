@@ -44,6 +44,28 @@ import { ChiefMark } from "./chief-mark";
 
 const HOST_SETUP_URL = "https://heychief.sh/host";
 
+function RelayIllustration() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative flex h-28 items-center justify-center overflow-hidden"
+    >
+      <div className="border-border/50 absolute size-52 rounded-full border" />
+      <div className="border-border/30 absolute size-72 rounded-full border" />
+      <div className="bg-background relative grid size-14 place-items-center rounded-2xl border shadow-sm">
+        <ChiefMark className="size-6" />
+      </div>
+      <div className="relative flex w-20 items-center justify-center">
+        <div className="border-muted-foreground/30 absolute inset-x-0 border-t border-dashed" />
+        <span className="bg-card border-muted-foreground/40 relative size-2 rounded-full border" />
+      </div>
+      <div className="bg-background relative grid size-14 place-items-center rounded-2xl border shadow-sm">
+        <Server className="text-muted-foreground size-6" strokeWidth={1.5} />
+      </div>
+    </div>
+  );
+}
+
 export function RelayConnectionControl({
   error,
   retrying = false,
@@ -203,14 +225,31 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
   return (
     <>
       <DialogHeader className="border-b px-5 py-5 pr-12">
-        <DialogTitle>
-          {showsSelfHosted ? "Self-hosted relay" : "Connection"}
-        </DialogTitle>
-        <DialogDescription>
-          {showsSelfHosted
-            ? "Host your own relay, then connect it to Chief."
-            : "Choose a relay."}
-        </DialogDescription>
+        <div className="flex items-center gap-3">
+          {showsSelfHosted ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="-ml-2 size-8 shrink-0"
+              aria-label="Back to relays"
+              disabled={working}
+              onClick={() => setShowsSelfHosted(false)}
+            >
+              <ArrowLeft aria-hidden="true" className="size-4" />
+            </Button>
+          ) : null}
+          <div className="space-y-1.5">
+            <DialogTitle>
+              {showsSelfHosted ? "Self-hosted relay" : "Connection"}
+            </DialogTitle>
+            <DialogDescription>
+              {showsSelfHosted
+                ? "Your infrastructure, connected to Chief."
+                : "Choose a relay."}
+            </DialogDescription>
+          </div>
+        </div>
       </DialogHeader>
       <div className="p-5">
         {!showsSelfHosted ? (
@@ -266,22 +305,11 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
           </>
         ) : (
           <div className="space-y-5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="-ml-2"
-              disabled={working}
-              onClick={() => setShowsSelfHosted(false)}
-            >
-              <ArrowLeft aria-hidden="true" className="mr-1.5 size-4" />
-              Back to relays
-            </Button>
             <div className="space-y-3">
-              <p className="text-sm font-medium">1. Host your relay</p>
-              <p className="text-muted-foreground text-sm leading-5">
-                Our setup guide walks you through deploying your own relay in
-                your browser. Come back here when it’s ready.
+              <RelayIllustration />
+              <p className="text-muted-foreground text-center text-sm leading-5">
+                Set up your relay with our browser guide, then paste its URL
+                below to connect.
               </p>
               <Button
                 className="w-full"
@@ -300,11 +328,8 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
             </div>
             <div className="border-t pt-5">
               <label htmlFor="relay-url" className="text-sm font-medium">
-                2. Add your relay URL
+                Relay URL
               </label>
-              <p className="text-muted-foreground mt-1 text-sm leading-5">
-                Already hosting a relay? Paste its URL below to connect.
-              </p>
               <Input
                 id="relay-url"
                 value={relayUrl}
