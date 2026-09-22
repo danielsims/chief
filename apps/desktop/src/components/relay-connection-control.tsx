@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { Check, Server, Settings2 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Check, ExternalLink, Server, Settings2 } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -33,6 +34,8 @@ import {
   validateRelayConnection,
 } from "../lib/relay-connection";
 import { ChiefMark } from "./chief-mark";
+
+const HOST_SETUP_URL = "https://heychief.sh/host";
 
 export function RelayConnectionControl({
   error,
@@ -139,7 +142,15 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
   const [relayUrl, setRelayUrl] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hostSetupUrl = `${new URL(CHIEF_CLOUD_AUTH_UI_URL).origin}/host`;
+  const openHostSetup = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!isTauri()) return;
+    event.preventDefault();
+    void openUrl(HOST_SETUP_URL).catch(() => {
+      setError(
+        "Could not open your browser. Visit https://heychief.sh/host to set up a relay.",
+      );
+    });
+  };
 
   const connect = async (connection: (typeof savedRelays)[number]) => {
     if (working) return;
@@ -227,19 +238,24 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
             Use a self-hosted relay
           </button>
           <a
-            className="text-muted-foreground hover:text-foreground flex w-full rounded-lg py-1 text-left text-sm transition-colors"
-            href={hostSetupUrl}
+            className="text-muted-foreground hover:text-foreground flex w-full items-center rounded-lg py-1 text-left text-sm transition-colors"
+            href={HOST_SETUP_URL}
+            onClick={openHostSetup}
             rel="noreferrer"
             target="_blank"
           >
-            Set up a relay
+            Host a relay
+            <ExternalLink aria-hidden="true" className="ml-1.5 size-3.5" />
           </a>
         </div>
       ) : (
         <div>
           <label htmlFor="relay-url" className="text-sm font-medium">
-            Add a relay
+            Relay URL
           </label>
+          <p className="text-muted-foreground mt-1 text-xs leading-5">
+            Host your relay in your browser, then add its URL here.
+          </p>
           <Input
             id="relay-url"
             value={relayUrl}
@@ -251,12 +267,14 @@ export function RelayConnectionForm({ onDone }: { onDone?: () => void }) {
             className="mt-2"
           />
           <a
-            className="text-muted-foreground hover:text-foreground mt-2 inline-flex text-sm transition-colors"
-            href={hostSetupUrl}
+            className="text-muted-foreground hover:text-foreground mt-2 inline-flex items-center text-sm transition-colors"
+            href={HOST_SETUP_URL}
+            onClick={openHostSetup}
             rel="noreferrer"
             target="_blank"
           >
-            Set up a relay
+            Host a relay
+            <ExternalLink aria-hidden="true" className="ml-1.5 size-3.5" />
           </a>
         </div>
       )}
