@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { Check, ExternalLink, Link2, Lock, Search } from "lucide-react";
+import { Check, ExternalLink, Lock, Search } from "lucide-react";
 
 import type { GitHubRepository } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
@@ -87,7 +87,13 @@ export function AddProjectDialogForm({
   const repositories = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const all = ready?.repositories ?? [];
-    if (!needle || pastedUrl) return all;
+    if (pastedUrl) {
+      const name = githubRepositoryName(pastedUrl)?.toLowerCase();
+      return all.filter(
+        (repository) => repository.fullName.toLowerCase() === name,
+      );
+    }
+    if (!needle) return all;
     return all.filter((repository) =>
       repository.fullName.toLowerCase().includes(needle),
     );
@@ -134,6 +140,17 @@ export function AddProjectDialogForm({
   };
 
   const shownError = error ?? projects.error;
+  const connectGitHub = () =>
+    ready?.connection.app
+      ? void openGitHub(github.connect)
+      : setSettingUp(true);
+  // One primary action: connect GitHub until there is something to add.
+  const offersConnect =
+    !selection &&
+    !!ready &&
+    !ready.waiting &&
+    !connected &&
+    ready.connection.canManage;
 
   return (
     <Dialog
@@ -196,72 +213,65 @@ export function AddProjectDialogForm({
               />
             </div>
 
-            <div className="mt-3 h-64 overflow-y-auto">
-              {pastedUrl && !pastedRepository ? (
-                <RepositoryRow
-                  icon={<Link2 className="size-4" strokeWidth={1.75} />}
-                  title={displayUrl(pastedUrl)}
-                  selected
-                  onSelect={() => undefined}
-                />
-              ) : github.state.status === "loading" ? (
-                <RowSkeletons />
-              ) : !ready ? (
-                <Centered>
-                  <p className="text-muted-foreground text-sm">
-                    {github.state.status === "unavailable"
-                      ? github.state.message
-                      : null}
-                  </p>
-                </Centered>
-              ) : ready.waiting ? (
-                <Centered>
-                  <GitHubConnectIllustration waiting />
-                  <p className="text-muted-foreground text-sm">
-                    Finish connecting in your browser.
-                  </p>
-                </Centered>
-              ) : !connected ? (
-                <Centered>
-                  <GitHubConnectIllustration />
-                  <p className="text-muted-foreground max-w-xs text-sm leading-5">
-                    {ready.connection.canManage
-                      ? "Connect GitHub to add private repositories."
-                      : "A workspace owner can connect GitHub for private repositories."}
-                  </p>
-                  {ready.connection.canManage ? (
-                    <Button
-                      onClick={() =>
-                        ready.connection.app
-                          ? void openGitHub(github.connect)
-                          : setSettingUp(true)
-                      }
-                    >
-                      Connect GitHub
-                    </Button>
-                  ) : null}
-                </Centered>
-              ) : repositories.length === 0 ? (
-                <Centered>
-                  <p className="text-muted-foreground text-sm">
-                    {query.trim()
-                      ? "No matching repositories."
-                      : "No repositories are shared with Chief yet."}
-                  </p>
-                </Centered>
-              ) : (
-                <div className="space-y-0.5">
-                  {repositories.map((repository) => (
-                    <GitHubRepositoryRow
-                      key={repository.id}
-                      repository={repository}
-                      selected={selected === repository.fullName}
-                      onSelect={() => setSelected(repository.fullName)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* A pasted URL with nothing to list needs no list at all. */}
+            {pastedUrl && repositories.length === 0 ? null : (
+              <div className="mt-3 h-64 overflow-y-auto">
+                {github.state.status === "loading" ? (
+                  <RowSkeletons />
+                ) : !ready ? (
+                  <Centered>
+                    <p className="text-muted-foreground text-sm">
+                      {github.state.status === "unavailable"
+                        ? github.state.message
+                        : null}
+                    </p>
+                  </Centered>
+                ) : ready.waiting ? (
+                  <Centered>
+                    <GitHubConnectIllustration waiting />
+                    <p className="text-muted-foreground text-sm">
+                      Finish connecting in your browser.
+                    </p>
+                  </Centered>
+                ) : !connected && pastedUrl ? null : !connected ? (
+                  <Centered>
+                    <GitHubConnectIllustration />
+                    <p className="text-muted-foreground max-w-xs text-sm leading-5">
+                      {ready.connection.canManage
+                        ? "Connect GitHub to add private repositories."
+                        : "A workspace owner can connect GitHub for private repositories."}
+                    </p>
+                  </Centered>
+                ) : repositories.length === 0 &&
+                  pastedUrl ? null : repositories.length === 0 ? (
+                  <Centered>
+                    <p className="text-muted-foreground text-sm">
+                      {query.trim()
+                        ? "No matching repositories."
+                        : "No repositories are shared with Chief yet."}
+                    </p>
+                  </Centered>
+                ) : (
+                  <div className="space-y-0.5">
+                    {repositories.map((repository) => (
+                      <GitHubRepositoryRow
+                        key={repository.id}
+                        repository={repository}
+                        selected={
+                          pastedUrl
+                            ? repository.fullName === pastedRepository?.fullName
+                            : selected === repository.fullName
+                        }
+                        onSelect={() => {
+                          setQuery("");
+                          setSelected(repository.fullName);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {shownError ? (
               <p className="text-destructive mt-3 text-xs leading-5">
@@ -306,13 +316,17 @@ export function AddProjectDialogForm({
               >
                 Cancel
               </Button>
-              <Button
-                loading={busy}
-                disabled={!selection}
-                onClick={() => void add()}
-              >
-                Add repository
-              </Button>
+              {offersConnect ? (
+                <Button onClick={connectGitHub}>Connect GitHub</Button>
+              ) : (
+                <Button
+                  loading={busy}
+                  disabled={!selection}
+                  onClick={() => void add()}
+                >
+                  Add repository
+                </Button>
+              )}
             </>
           )}
         </DialogFooter>
@@ -428,10 +442,6 @@ function remoteUrlFrom(value: string) {
   } catch {
     return null;
   }
-}
-
-function displayUrl(url: string) {
-  return url.replace(/^https:\/\//u, "").replace(/\.git$/u, "");
 }
 
 /** Names the workspace's GitHub App after what it is: this team's agents. */
