@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { z } from "zod";
 
-import type {
-  GitHubConnection,
-  GitHubRepository,
-} from "@chief/relay-contracts";
+import type { GitHubConnection } from "@chief/relay-contracts";
 
 import { useRelaySession } from "./relay-session-context";
 
@@ -17,13 +15,24 @@ export type GitHubConnectionState =
   | {
       status: "ready";
       connection: GitHubConnection;
-      repositories: GitHubRepository[];
       /** Waiting for the person to finish on GitHub in their browser. */
       waiting: boolean;
     };
 
 export function isGitHubConnected(connection: GitHubConnection) {
   return connection.installations.length > 0;
+}
+
+const publicRepositorySchema = z.object({ private: z.boolean() });
+
+/** Whether anyone can clone the repository, without connecting GitHub. */
+export async function isPublicGitHubRepository(repository: string) {
+  const response = await fetch(`https://api.github.com/repos/${repository}`, {
+    headers: { accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) return false;
+  const parsed = publicRepositorySchema.safeParse(await response.json());
+  return parsed.success && !parsed.data.private;
 }
 
 /**
@@ -41,9 +50,6 @@ export function useGitHubConnection() {
     if (!client) return;
     try {
       const connection = await client.github.connection();
-      const repositories = isGitHubConnected(connection)
-        ? await client.github.repositories()
-        : [];
       setState((current) => {
         const before =
           current.status === "ready"
@@ -54,7 +60,6 @@ export function useGitHubConnection() {
         return {
           status: "ready",
           connection,
-          repositories,
           waiting: waitStartedAt.current !== null,
         };
       });
