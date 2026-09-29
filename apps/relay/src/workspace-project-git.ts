@@ -54,6 +54,7 @@ export function chiefGitRepositoryFiles(
   const normalized = repo.replace(/\.git$/u, "").toLowerCase();
   const rows = projectsFindChiefGitRepositoryFiles<ProjectRow>(storage);
   const row = rows.find((project) => {
+    if (project.provider_id !== "chief-git") return false;
     const remote = project.canonical_remote_url?.replace(/\.git$/u, "") ?? "";
     const identity = remote.split("/").at(-1)?.toLowerCase();
     const name = project.name
