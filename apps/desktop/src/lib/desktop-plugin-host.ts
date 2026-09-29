@@ -76,7 +76,7 @@ function pluginHostUrl(port: number) {
 
 async function waitUntilReady({ port, token }: PluginHostConnection) {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
     try {
       const response = await tauriFetch(`${pluginHostUrl(port)}/healthz`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -91,6 +91,17 @@ async function waitUntilReady({ port, token }: PluginHostConnection) {
   throw lastError instanceof Error
     ? lastError
     : new Error("Chief's plugin host did not start.");
+}
+
+/** Prepare local tooling before starting a time-limited repository operation. */
+export async function prepareDesktopPluginHost() {
+  try {
+    const connection = await hostConnection();
+    await waitUntilReady(connection);
+  } catch (error) {
+    connectionPromise = null;
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 export async function requestDesktopPluginHost(

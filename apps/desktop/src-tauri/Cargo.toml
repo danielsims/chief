@@ -34,6 +34,9 @@ base64 = "0.22"
 hex = "0.4"
 k256 = { version = "0.13", features = ["schnorr"] }
 sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tar = "0.4"
+flate2 = "1"
 url = "2"
 tauri-plugin-dialog = "2"
 

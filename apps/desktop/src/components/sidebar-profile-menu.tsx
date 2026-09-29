@@ -57,6 +57,7 @@ export function SidebarProfileMenu() {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [identities, setIdentities] = useState(sortedRelayIdentities);
   const relay = useRelaySession();
   const userStatus = useUserStatus(cloudOrganizationId, user?.id ?? null);
@@ -217,15 +218,16 @@ export function SidebarProfileMenu() {
           </div>
 
           <DropdownMenuSeparator />
-          <RelayConnectionDialog>
-            <button
-              type="button"
-              className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
-            >
-              <Plus className="text-muted-foreground size-4 shrink-0" />
-              Connect another relay
-            </button>
-          </RelayConnectionDialog>
+          <DropdownMenuItem
+            onSelect={() => {
+              setProfileMenuOpen(false);
+              setConnectionDialogOpen(true);
+            }}
+            className="h-9 gap-2.5"
+          >
+            <Plus className="text-muted-foreground size-4 shrink-0" />
+            Connect another relay
+          </DropdownMenuItem>
           <button
             type="button"
             onClick={() => {
@@ -239,6 +241,10 @@ export function SidebarProfileMenu() {
           </button>
         </DropdownMenuContent>
       </DropdownMenu>
+      <RelayConnectionDialog
+        open={connectionDialogOpen}
+        onOpenChange={setConnectionDialogOpen}
+      />
       {statusDialogOpen ? (
         <SetStatusDialog
           open

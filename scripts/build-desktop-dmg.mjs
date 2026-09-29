@@ -38,6 +38,7 @@ if (identity) {
   );
 }
 
+// Local DMGs bundle the plugin runtime; only Forge releases host it separately.
 run("pnpm --filter @chief/desktop build:app:offline", buildEnv);
 
 if (identity) {

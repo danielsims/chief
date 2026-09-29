@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import type {
@@ -41,17 +41,51 @@ export function usePlugins() {
       ? received.value
       : (cache.get(cloudOrganizationId) ?? null)
     : null;
+  const pending = useRef<{
+    id: string;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const [loadError, setLoadError] = useState<{
+    workspaceId: string;
+    message: string;
+  } | null>(null);
+  const error =
+    loadError?.workspaceId === cloudOrganizationId ? loadError.message : null;
+  const [refreshingWorkspace, setRefreshingWorkspace] = useState<string | null>(
+    null,
+  );
+  const refreshing = Boolean(
+    cloudOrganizationId && refreshingWorkspace === cloudOrganizationId,
+  );
   const [busyPluginId, setBusyPluginId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!cloudOrganizationId) return;
     const unsubscribe = client.subscribe((message) => {
       if (
+        message.type === "error" &&
+        pending.current &&
+        message.requestId === pending.current.id
+      ) {
+        clearTimeout(pending.current.timer);
+        pending.current = null;
+        setRefreshingWorkspace(null);
+        setLoadError({
+          workspaceId: cloudOrganizationId,
+          message: message.message,
+        });
+        return;
+      }
+      if (
         message.type !== "plugins" ||
         message.workspaceId !== cloudOrganizationId
       ) {
         return;
       }
+      if (pending.current) clearTimeout(pending.current.timer);
+      pending.current = null;
+      setRefreshingWorkspace(null);
+      setLoadError(null);
       const next: PluginState = {
         plugins: message.plugins,
         sources: message.sources,
@@ -64,14 +98,33 @@ export function usePlugins() {
     });
     return () => {
       unsubscribe();
+      setRefreshingWorkspace(null);
+      if (pending.current) clearTimeout(pending.current.timer);
+      pending.current = null;
     };
   }, [client, cloudOrganizationId]);
 
   const refresh = useCallback(
     (force = false) => {
-      if (!cloudOrganizationId || !capability) return;
+      if (!cloudOrganizationId || !capability || pending.current) return;
+      const id = requestId();
+      setLoadError(null);
+      setRefreshingWorkspace(cloudOrganizationId);
+      pending.current = {
+        id,
+        timer: setTimeout(() => {
+          pending.current = null;
+          setRefreshingWorkspace(null);
+          setLoadError({
+            workspaceId: cloudOrganizationId,
+            message:
+              "Plugins could not finish loading. Check your connection and try again.",
+          });
+        }, 360_000),
+      };
       client.send({
         type: "listPlugins",
+        requestId: id,
         workspaceId: cloudOrganizationId,
         refresh: force,
         executorCapability: capability,
@@ -81,8 +134,15 @@ export function usePlugins() {
   );
 
   useEffect(() => {
-    if (status === "connected" && capability && !state) refresh();
-  }, [capability, refresh, state, status]);
+    if (status === "connected" && capability && !state && !error) refresh();
+  }, [capability, error, refresh, state, status]);
+
+  // Local tools can still be installing on first launch, so failed loads recover on their own.
+  useEffect(() => {
+    if (!error || state || status !== "connected") return;
+    const timer = setTimeout(() => refresh(), 30_000);
+    return () => clearTimeout(timer);
+  }, [error, refresh, state, status]);
 
   const waitForPlugin = useCallback(
     (
@@ -267,7 +327,9 @@ export function usePlugins() {
 
   return {
     ...state,
-    loading: !state,
+    loading: !state && !error,
+    error,
+    refreshing,
     busyPluginId,
     refresh,
     install,

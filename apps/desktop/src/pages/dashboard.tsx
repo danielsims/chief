@@ -383,7 +383,12 @@ export function DashboardPage() {
                     size={15}
                   />
                 ) : (
-                  <Check className="text-muted-foreground mb-6" size={18} />
+                  <div
+                    aria-hidden="true"
+                    className="bg-background text-muted-foreground mb-5 grid size-12 place-items-center rounded-2xl border"
+                  >
+                    <Check size={22} strokeWidth={1.5} />
+                  </div>
                 )}
                 <h2 className="m-0 text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]">
                   {preparingWorkspace
@@ -402,8 +407,8 @@ export function DashboardPage() {
                         ? "Chief is continuing the setup with the details you provided. Follow the work in the conversation."
                         : "Chief is reviewing your website, saved context and connected sources. You can leave this open; the work will continue."
                     : agentSchedules.length > 0
-                      ? `Nothing needs your judgment. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "task is" : "tasks are"} still active.`
-                      : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
+                      ? `No decisions waiting on you. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "task is" : "tasks are"} still active.`
+                      : "No decisions waiting on you. Set up a recurring task, or give Chief something new to work on."}
                 </p>
                 <button
                   className={cn(
