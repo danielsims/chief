@@ -43,10 +43,14 @@ and recurring schedules remain on the local scheduler.
 
 ## On-demand plugin runtime
 
-The lightweight app downloads its plugin runtime the first time a local repository
-or plugin needs it. Repository setup shows progress and continues automatically;
-failed downloads leave the entered URL intact for retry. Public repositories need
-no GitHub token. Private repositories still use the Mac's existing Git credentials.
+The lightweight app installs its plugin runtime silently in the background at
+launch. Screens that need local tools simply wait for it; there is no separate
+download step or progress UI. Network failures, server errors and corrupted
+transfers are retried automatically, and the plugins page retries on its own if
+setup still fails. Details go to `plugin-runtime.log` in the app log directory.
+Runtimes from earlier builds are removed once the current one is installed.
+Public repositories need no GitHub token. Private repositories still use the
+Mac's existing Git credentials.
 
 Each desktop build pins the runtime URL and SHA-256 in
 `src-tauri/plugin-runtime-release.json`. The native installer checks the digest,
@@ -59,7 +63,9 @@ this directory, then `node scripts/package-plugin-runtime.mjs`. macOS preparatio
 requires `APPLE_SIGNING_IDENTITY`; use the Node version in `.nvmrc`. The script
 writes an archive under `.audit/runtime-release` and updates the pinned manifest.
 Review and publish that immutable asset at its generated GitHub release URL
-**before distributing the corresponding desktop build**. Do not replace an
+**before distributing the corresponding desktop build**. `build:app:release` and
+`pnpm desktop:dmg` run `verify:plugin-runtime-release` first and refuse to build
+while the asset is unpublished (including draft releases) or its digest differs. Do not replace an
 existing asset: prepare a new digest and rebuild the app. Only platforms present
 in the manifest support on-demand installation.
 
@@ -77,7 +83,8 @@ requiring the private updater signing key. Release automation uses
 
 On the Chief release Mac, the local development packaging loop is available
 from the repository root. It selects the Developer ID identity, builds the
-app and DMG, verifies the app signature, and reveals the DMG in Finder:
+lightweight app and DMG, verifies the app signature, and reveals the DMG in
+Finder. It first checks that the pinned plugin runtime is published:
 
 ```bash
 pnpm desktop:dmg
