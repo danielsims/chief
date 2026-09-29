@@ -15,6 +15,7 @@ import { PageHeader } from "../components/page-header";
 import { AddProjectDialog } from "../components/projects/add-project-dialog";
 import { ProjectCard } from "../components/projects/project-card";
 import { ProjectDetail } from "../components/projects/project-detail";
+import { useRelaySession } from "../lib/relay-session-context";
 import { useProjectAccessRequests } from "../lib/runtime-project-actions";
 import { useProjects } from "../lib/runtime-projects";
 import {
@@ -60,6 +61,7 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const projects = useProjects();
+  const relay = useRelaySession();
   const access = useProjectAccessRequests();
   const [adding, setAdding] = useState(false);
   const [projectFilter, setProjectFilter] = useState<
@@ -145,6 +147,12 @@ export function ProjectsPage() {
             snapshot={selected}
             onBack={() => void navigate("/projects")}
             onRefresh={projects.refresh}
+            onDelete={async () => {
+              if (!relay.client) throw new Error("Chief isn't connected yet.");
+              await relay.client.deleteProject(selected.project.id);
+              projects.refresh();
+              void navigate("/projects");
+            }}
           />
         ) : access.requests?.length ? (
           <>
