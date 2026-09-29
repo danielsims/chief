@@ -136,16 +136,21 @@ export function githubSetupPage(input: {
     default_events: [],
   });
   const action = `https://github.com/settings/apps/new?state=${encodeURIComponent(input.state)}`;
-  return page(
-    document(
-      "Opening GitHub",
-      `<h1>Opening GitHub</h1>
+  // Blank on purpose: it only exists to hand the manifest to GitHub, and Chief
+  // already shows that GitHub is opening.
+  return page(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Opening GitHub</title>
+<style>:root { color-scheme: light dark; } body { margin: 0; background: Canvas; }</style>
+</head>
+<body>
 <form id="manifest" method="post" action="${escape(action)}">
   <input type="hidden" name="manifest" value="${escape(manifest)}" />
   <noscript><button type="submit">Continue to GitHub</button></noscript>
 </form>
-<script>document.getElementById("manifest").submit();</script>`,
-      false,
-    ),
-  );
+<script>document.getElementById("manifest").submit();</script>
+</body>
+</html>`);
 }

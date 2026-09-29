@@ -61,8 +61,10 @@ export interface AddProjectDialogFormProps extends AddProjectDialogProps {
 }
 
 /**
- * Paste a GitHub link and connect it. Public repositories are added straight
- * away; a private one first connects GitHub, then is added when that finishes.
+ * Connecting a repository: a short introduction the first time, then paste a
+ * GitHub link. Public repositories are added straight away; a private one
+ * connects GitHub first (naming the workspace's own app on a self-hosted
+ * relay) and is added as soon as GitHub hands back.
  */
 export function AddProjectDialogForm({
   open: visible,
@@ -74,12 +76,12 @@ export function AddProjectDialogForm({
   isPublic = isPublicGitHubRepository,
 }: AddProjectDialogFormProps) {
   const [url, setUrl] = useState(initialRemoteUrl ?? "");
+  const [started, setStarted] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [settingUp, setSettingUp] = useState(false);
-  const [appName, setAppName] = useState(
-    defaultAppName(workspaceName).slice(0, 34),
-  );
+  const [appName, setAppName] = useState(defaultAppName(workspaceName));
   // A private repository waiting for GitHub to be connected before it's added.
   const pending = useRef<string | null>(null);
   const submitting = useRef(false);
@@ -87,7 +89,12 @@ export function AddProjectDialogForm({
   const ready = github.state.status === "ready" ? github.state : null;
   const connected = ready ? isGitHubConnected(ready.connection) : false;
   const waiting = ready?.waiting ?? false;
-  const busy = adding || projects.busy;
+  const busy = adding || checking || projects.busy;
+  const step = naming
+    ? "name"
+    : started || connected || initialRemoteUrl
+      ? "repository"
+      : "intro";
 
   const add = async (remoteUrl: string) => {
     if (submitting.current) return;
@@ -118,9 +125,9 @@ export function AddProjectDialogForm({
   });
 
   const openGitHub = async (action: () => Promise<void>) => {
+    setNaming(false);
     try {
       await action();
-      setSettingUp(false);
     } catch (cause) {
       pending.current = null;
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -135,7 +142,11 @@ export function AddProjectDialogForm({
       return;
     }
     setError(null);
-    if (connected || (await isPublic(repository).catch(() => false))) {
+    setChecking(true);
+    const publicRepository =
+      connected || (await isPublic(repository).catch(() => false));
+    setChecking(false);
+    if (publicRepository) {
       await add(remoteUrl);
       return;
     }
@@ -145,10 +156,10 @@ export function AddProjectDialogForm({
     }
     pending.current = remoteUrl;
     if (ready.connection.app) await openGitHub(github.connect);
-    else setSettingUp(true);
+    else setNaming(true);
   };
 
-  const status = error ?? projects.error;
+  const shownError = error ?? projects.error;
 
   return (
     <Dialog
@@ -160,32 +171,35 @@ export function AddProjectDialogForm({
       <DialogContent className="border-border/70 max-w-[440px] gap-0 overflow-hidden rounded-xl p-0">
         <DialogHeader className="px-5 pt-5">
           <DialogTitle className="text-[17px] font-medium tracking-tight">
-            {settingUp ? "Connect GitHub" : "Add a repository"}
+            {step === "intro"
+              ? "Connect Chief to GitHub"
+              : step === "name"
+                ? "Name your GitHub App"
+                : "Add a repository"}
           </DialogTitle>
           <DialogDescription>
-            {settingUp
-              ? "Chief creates a private GitHub App for this workspace."
-              : "Paste a GitHub link for your agents to work in."}
+            {step === "intro"
+              ? "Give your agents the repositories you choose."
+              : step === "name"
+                ? "GitHub shows this name when you share repositories."
+                : "Paste a GitHub link for your agents to work in."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-5 pt-5 pb-4">
-          {settingUp ? (
-            <>
-              <label
-                htmlFor="github-app-name"
-                className="block text-sm font-medium"
-              >
-                App name
-              </label>
-              <input
-                id="github-app-name"
-                value={appName}
-                maxLength={34}
-                onChange={(event) => setAppName(event.target.value)}
-                className="border-border/70 focus:border-foreground/25 mt-2 h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none"
-              />
-            </>
+        <div className="px-5 pt-5 pb-5">
+          {step === "intro" ? (
+            <div className="py-6">
+              <GitHubConnectIllustration />
+            </div>
+          ) : step === "name" ? (
+            <input
+              autoFocus
+              aria-label="GitHub App name"
+              value={appName}
+              maxLength={34}
+              onChange={(event) => setAppName(event.target.value)}
+              className="border-border/70 focus:border-foreground/25 h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none"
+            />
           ) : (
             <input
               autoFocus
@@ -203,60 +217,52 @@ export function AddProjectDialogForm({
               className="border-border/70 focus:border-foreground/25 h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none"
             />
           )}
-          <div className="mt-8 mb-3">
-            <GitHubConnectIllustration waiting={waiting} />
-          </div>
-          <p
-            role="status"
-            className={
-              status
-                ? "text-destructive min-h-5 text-center text-xs leading-5"
-                : "text-muted-foreground min-h-5 text-center text-xs leading-5"
-            }
-          >
-            {status ??
-              (waiting ? "Finish connecting GitHub in your browser." : null)}
-          </p>
+          {shownError ? (
+            <p role="alert" className="text-destructive mt-2 text-xs leading-5">
+              {shownError}
+            </p>
+          ) : null}
         </div>
 
         <DialogFooter className="border-border/70 border-t px-5 py-3">
-          {settingUp ? (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setSettingUp(false);
-                  pending.current = null;
-                }}
-              >
-                Back
-              </Button>
-              <Button
-                disabled={!appName.trim()}
-                onClick={() =>
-                  void openGitHub(() => github.setUp(appName.trim()))
-                }
-              >
-                Continue to GitHub
-              </Button>
-            </>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              if (step === "name") {
+                setNaming(false);
+                pending.current = null;
+              } else {
+                onOpenChange(false);
+              }
+            }}
+          >
+            {step === "name" ? "Back" : "Cancel"}
+          </Button>
+          {step === "intro" ? (
+            <Button onClick={() => setStarted(true)}>Get started</Button>
+          ) : step === "name" ? (
+            <Button
+              disabled={!appName.trim()}
+              onClick={() =>
+                void openGitHub(() => github.setUp(appName.trim()))
+              }
+            >
+              Continue to GitHub
+            </Button>
           ) : (
-            <>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                loading={busy || waiting}
-                disabled={!url.trim()}
-                onClick={() => void connectRepository()}
-              >
-                Connect repository
-              </Button>
-            </>
+            <Button
+              disabled={!url.trim() || busy || waiting}
+              onClick={() => void connectRepository()}
+            >
+              {waiting
+                ? "Opening GitHub…"
+                : adding
+                  ? "Connecting…"
+                  : checking
+                    ? "Checking…"
+                    : "Connect repository"}
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>
@@ -264,8 +270,11 @@ export function AddProjectDialogForm({
   );
 }
 
-/** Names the workspace's GitHub App after what it is: this team's agents. */
+/**
+ * GitHub App names are unique across GitHub, so the workspace's name makes
+ * this one its own while still reading as Chief.
+ */
 function defaultAppName(workspaceName: string | undefined) {
   const name = workspaceName?.trim();
-  return `${name === undefined || name === "" ? "Chief" : name} Agents`;
+  return (name ? `Chief for ${name}` : "Chief").slice(0, 34);
 }
