@@ -169,13 +169,12 @@ export function AddProjectDialogForm({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-5 pt-7 pb-5">
-          <GitHubConnectIllustration waiting={waiting} />
+        <div className="px-5 pt-5 pb-4">
           {settingUp ? (
             <>
               <label
                 htmlFor="github-app-name"
-                className="mt-7 block text-sm font-medium"
+                className="block text-sm font-medium"
               >
                 App name
               </label>
@@ -201,15 +200,18 @@ export function AddProjectDialogForm({
               }}
               placeholder="https://github.com/owner/repository"
               aria-label="GitHub repository link"
-              className="border-border/70 focus:border-foreground/25 mt-7 h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none"
+              className="border-border/70 focus:border-foreground/25 h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none"
             />
           )}
+          <div className="mt-8 mb-3">
+            <GitHubConnectIllustration waiting={waiting} />
+          </div>
           <p
             role="status"
             className={
               status
-                ? "text-destructive mt-2 min-h-5 text-xs leading-5"
-                : "text-muted-foreground mt-2 min-h-5 text-xs leading-5"
+                ? "text-destructive min-h-5 text-center text-xs leading-5"
+                : "text-muted-foreground min-h-5 text-center text-xs leading-5"
             }
           >
             {status ??
