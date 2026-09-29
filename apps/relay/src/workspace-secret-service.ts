@@ -14,7 +14,9 @@ const secretInputSchema = z.object({
 });
 
 const internalSecret = (name: string) =>
-  name === "vercel-deployment" || name.startsWith("external-agent.");
+  name === "vercel-deployment" ||
+  name.startsWith("external-agent.") ||
+  name.startsWith("github-");
 
 function grantedSecret(config: AgentConfig) {
   if (!config.enabled || !("secretRef" in config.inference)) return undefined;
@@ -37,6 +39,13 @@ export class WorkspaceSecretService {
     const context = readTrustedContext(request);
     this.requireOwner(context.principal);
     const input = secretInputSchema.parse(await parseJson(request));
+    // GitHub credentials are only ever written by the GitHub connection flow.
+    if (input.name.startsWith("github-"))
+      throw new HttpError(
+        403,
+        "secret_reserved",
+        "This secret name is reserved for Chief's GitHub connection.",
+      );
     await this.store.set(context.workspaceId, input.name, input.value);
     return json({ workspaceId: context.workspaceId, name: input.name });
   }

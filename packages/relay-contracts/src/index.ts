@@ -9,6 +9,7 @@ export * from "./machines";
 export * from "./envelopes";
 export * from "./execution";
 export * from "./external-agents";
+export * from "./github";
 export * from "./identifiers";
 export * from "./identity";
 export * from "./json";
