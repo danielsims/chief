@@ -18,7 +18,7 @@
 	}
 
 	@relay {
-		path /api/auth /api/auth/* /.well-known/* /github/* /health /openapi.json /v1/*
+		path /api/auth /api/auth/* /.well-known/* /git/* /github/* /health /openapi.json /v1/*
 	}
 	handle @relay {
 		reverse_proxy relay:8787

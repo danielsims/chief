@@ -11,8 +11,12 @@ export const projectRemoteUrlSchema = z
   .max(2_048)
   .refine((value) => {
     const url = new URL(value);
+    // Plain HTTP is only for a relay running on this machine.
+    const local =
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(url.hostname);
     return (
-      ["https:", "ssh:"].includes(url.protocol) &&
+      (["https:", "ssh:"].includes(url.protocol) || local) &&
       !url.password &&
       !(url.protocol === "https:" && url.username) &&
       !url.search &&
