@@ -47,6 +47,7 @@ import {
 } from "../lib/workspace-channels";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
+import { SidebarUpdateCard } from "./sidebar-update-card";
 import { WorkspaceSearch } from "./workspace-search";
 
 const PRIMARY_ITEMS = [
@@ -439,6 +440,7 @@ export function Sidebar({
           onPinnedChange={updatePinned}
         />
       </nav>
+      <SidebarUpdateCard />
       <div className="shrink-0 px-2.5 pt-1 pb-3">
         <SidebarProfileMenu />
       </div>
