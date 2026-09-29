@@ -225,20 +225,22 @@ export function AddProjectDialogForm({
         </div>
 
         <DialogFooter className="border-border/70 border-t px-5 py-3">
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => {
-              if (step === "name") {
-                setNaming(false);
-                pending.current = null;
-              } else {
-                onOpenChange(false);
-              }
-            }}
-          >
-            {step === "name" ? "Back" : "Cancel"}
-          </Button>
+          {step === "intro" ? null : (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                if (step === "name") {
+                  setNaming(false);
+                  pending.current = null;
+                } else {
+                  onOpenChange(false);
+                }
+              }}
+            >
+              {step === "name" ? "Back" : "Cancel"}
+            </Button>
+          )}
           {step === "intro" ? (
             <Button onClick={() => setStarted(true)}>Get started</Button>
           ) : step === "name" ? (
