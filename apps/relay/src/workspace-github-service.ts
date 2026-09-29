@@ -86,7 +86,7 @@ export class WorkspaceGitHubService {
       principal,
       name,
     });
-    const url = new URL("/github/setup", request.url);
+    const url = new URL("/github/setup", publicOrigin(this.env, request.url));
     url.searchParams.set("ticket", ticket);
     return json({ url: url.toString() });
   }
@@ -259,4 +259,12 @@ export class WorkspaceGitHubService {
     }
     return principal;
   }
+}
+
+/** The address people reach this relay at, which GitHub sends them back to. */
+export function publicOrigin(env: Env, requestUrl: string) {
+  return (env.RELAY_PUBLIC_URL ?? new URL(requestUrl).origin).replace(
+    /\/$/u,
+    "",
+  );
 }

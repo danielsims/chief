@@ -6,6 +6,7 @@ x-relay-environment: &relay-environment
   AUTH_GOOGLE_REDIRECT_URI: ${CHIEF_PUBLIC_URL}/api/auth/callback/google
   AUTH_APPLE_REDIRECT_URI: ${CHIEF_PUBLIC_URL}/api/auth/callback/apple
   AUTH_UI_ORIGIN: ${CHIEF_PUBLIC_URL}
+  RELAY_PUBLIC_URL: ${CHIEF_PUBLIC_URL}
   BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
   BOOTSTRAP_TOKEN_SHA256_FILE: /run/secrets/bootstrap_token_sha256
   CHIEF_LOG_LEVEL: ${CHIEF_LOG_LEVEL:-info}

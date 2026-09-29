@@ -13,6 +13,7 @@ import { HttpError, relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
+import { publicOrigin } from "./workspace-github-service";
 
 const workspaceGitHubRoute =
   /^\/v1\/workspaces\/([^/]+)\/github(?:\/(setup|install|repositories|clone-token))?$/u;
@@ -96,7 +97,7 @@ export async function routeGitHubBrowser(
       );
       return githubSetupPage({
         name: verified.name ?? "Chief Agents",
-        origin: url.origin,
+        origin: publicOrigin(env, url.toString()),
         state: ticket ?? "",
       });
     }
