@@ -6,7 +6,6 @@ import {
   List,
   RefreshCw,
   Search,
-  SlidersHorizontal,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -96,29 +95,20 @@ export function FilesLibrary({
         title="Files"
         description="Documents, images, and media created by your team."
         actions={
-          <>
-            {onRefresh ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onRefresh}
-                aria-label="Refresh files"
-              >
-                <RefreshCw size={14} />
-              </Button>
-            ) : null}
+          onRefresh ? (
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={() => navigate("/plugins")}
+              onClick={onRefresh}
+              aria-label="Refresh files"
             >
-              <SlidersHorizontal size={13} /> Connect tools
+              <RefreshCw size={14} />
             </Button>
-          </>
+          ) : null
         }
       />
-      <main className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-y py-3">
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-y py-3">
           <div className="flex flex-wrap gap-1" aria-label="File categories">
             {categories.map((item) => (
               <button
@@ -206,7 +196,7 @@ export function FilesLibrary({
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex min-h-80 flex-col items-center justify-center text-center">
+          <div className="flex flex-1 flex-col items-center justify-center py-10 text-center">
             <FolderOpen
               size={42}
               strokeWidth={1.1}

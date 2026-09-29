@@ -41,6 +41,32 @@ values for `VERCEL_TOKEN`, a hosted HTTPS `EXECUTOR_MCP_URL`, and
 `EXECUTOR_MCP_TOKEN`. Localhost Executor URLs are rejected for cloud deploys,
 and recurring schedules remain on the local scheduler.
 
+## On-demand plugin runtime
+
+The lightweight app installs its plugin runtime silently in the background at
+launch. Screens that need local tools simply wait for it; there is no separate
+download step or progress UI. Network failures, server errors and corrupted
+transfers are retried automatically, and the plugins page retries on its own if
+setup still fails. Details go to `plugin-runtime.log` in the app log directory.
+Runtimes from earlier builds are removed once the current one is installed.
+Public repositories need no GitHub token. Private repositories still use the
+Mac's existing Git credentials.
+
+The runtime ships as an asset of the same GitHub release as the app. Release
+builds run `scripts/package-plugin-runtime.mjs` before compiling: it bundles and
+signs the runtime, writes
+`src-tauri/target/release-assets/macos/chief-plugin-runtime-{version}-{target}.tar.gz`,
+and pins that file's `v{version}` release URL and SHA-256 into the generated
+(untracked) `src-tauri/plugin-runtime-release.json`. Forge uploads everything in
+`release-assets` with the installers, and publishes the release only after
+every upload succeeds, so an app release never points to a missing runtime.
+
+The native installer checks the digest, rejects unsafe archive entries, and
+installs into a versioned application-data cache. It never runs an unverified
+download. Local and offline builds pin no runtime: offline packages bundle it,
+and development uses the workspace runtime. Only targets listed in the
+packaging script (currently Apple Silicon) support on-demand installation.
+
 ## Build
 
 Install the platform prerequisites from the [Tauri documentation](https://v2.tauri.app/start/prerequisites/), then run:
@@ -50,12 +76,14 @@ pnpm --filter @chief/desktop build:app
 ```
 
 This local packaging command creates the lightweight app and DMG without
-requiring the private updater signing key. Release automation uses
-`build:app:release` with its signing credentials.
+requiring the private updater signing key. It pins no plugin runtime, so use the
+offline build below when you need local plugins. Release automation (Forge) runs
+`tauri build` with its signing credentials, which packages the runtime asset.
 
 On the Chief release Mac, the local development packaging loop is available
 from the repository root. It selects the Developer ID identity, builds the
-app and DMG, verifies the app signature, and reveals the DMG in Finder:
+app and DMG with the plugin runtime bundled, verifies the app signature and
+packaged plugin host, and reveals the DMG in Finder:
 
 ```bash
 pnpm desktop:dmg
