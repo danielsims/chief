@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { ComposerImageAttachment } from "../components/chat/composer-image-attachments";
@@ -8,8 +8,9 @@ import { createComposerHandoff } from "../components/chat/composer-handoff";
 import { ComposerRecipient } from "../components/chat/composer-recipient";
 import { PageTitle } from "../components/page-title";
 import { useAuth } from "../lib/auth/auth-context";
-import { useRuntime } from "../lib/runtime";
+import { useLocalChats, useRuntime } from "../lib/runtime";
 import {
+  directMessageChatForAgent,
   directMessageIdsForAgents,
   workspaceAgentIdentity,
 } from "../lib/workspace-channels";
@@ -28,8 +29,9 @@ function greeting(now: number) {
  */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { agents } = useRuntime();
+  const { cloudOrganizationId, user } = useAuth();
+  const { agents, status } = useRuntime();
+  const localChats = useLocalChats(cloudOrganizationId);
   const [ask, setAsk] = useState("");
   const [attachments, setAttachments] = useState<ComposerImageAttachment[]>([]);
   const [recipientId, setRecipientId] = useState<WorkspaceAgentId>("chief");
@@ -42,6 +44,20 @@ export function DashboardPage() {
     [agents],
   );
   const [openedAt] = useState(() => Date.now());
+  const { chats, loading, startDirectMessage } = localChats;
+
+  // Open the chosen agent's conversation ahead of time, so sending switches
+  // straight into it instead of waiting for the relay to create it.
+  const recipientChatReady = Boolean(
+    directMessageChatForAgent(chats, recipientId),
+  );
+  useEffect(() => {
+    if (loading || status !== "connected" || recipientChatReady) return;
+    startDirectMessage(recipientId).catch((error: unknown) => {
+      // The conversation page opens it again if this attempt fails.
+      console.warn("[Overview] Could not prepare the conversation:", error);
+    });
+  }, [loading, recipientChatReady, recipientId, startDirectMessage, status]);
   const firstName = user?.name.trim().split(/\s+/)[0] ?? "there";
 
   const submit = () => {
