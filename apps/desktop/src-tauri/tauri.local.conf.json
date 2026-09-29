@@ -1,5 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm build && node scripts/package-plugin-runtime.mjs --clear"
+  },
   "bundle": {
     "createUpdaterArtifacts": false
   }
