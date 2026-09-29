@@ -46,7 +46,7 @@ function ConnectedAddProjectDialog(props: AddProjectDialogProps) {
   );
 }
 
-export interface AddProjectDialogFormProps extends AddProjectDialogProps {
+interface AddProjectDialogFormProps extends AddProjectDialogProps {
   projects: Pick<
     ReturnType<typeof useProjects>,
     "busy" | "error" | "clearError" | "clone"
@@ -56,8 +56,6 @@ export interface AddProjectDialogFormProps extends AddProjectDialogProps {
     "state" | "connect" | "setUp"
   >;
   workspaceName?: string;
-  /** Whether GitHub serves the repository to anyone; injectable for previews. */
-  isPublic?: (repository: string) => Promise<boolean>;
 }
 
 /**
@@ -66,14 +64,13 @@ export interface AddProjectDialogFormProps extends AddProjectDialogProps {
  * connects GitHub first (naming the workspace's own app on a self-hosted
  * relay) and is added as soon as GitHub hands back.
  */
-export function AddProjectDialogForm({
+function AddProjectDialogForm({
   open: visible,
   onOpenChange,
   initialRemoteUrl,
   projects,
   github,
   workspaceName,
-  isPublic = isPublicGitHubRepository,
 }: AddProjectDialogFormProps) {
   const [url, setUrl] = useState(initialRemoteUrl ?? "");
   const [started, setStarted] = useState(false);
@@ -144,7 +141,8 @@ export function AddProjectDialogForm({
     setError(null);
     setChecking(true);
     const publicRepository =
-      connected || (await isPublic(repository).catch(() => false));
+      connected ||
+      (await isPublicGitHubRepository(repository).catch(() => false));
     setChecking(false);
     if (publicRepository) {
       await add(remoteUrl);

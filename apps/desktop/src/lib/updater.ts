@@ -9,22 +9,9 @@ import { createAppUpdateController } from "./app-update";
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const RESUME_CHECK_AGE_MS = 30 * 60 * 1000;
 
-// Development only: `VITE_CHIEF_FAKE_UPDATE=0.9.0 pnpm dev` stages a pretend
-// release so the sidebar card can be reviewed without publishing one.
-const FAKE_UPDATE_VERSION = import.meta.env.DEV
-  ? import.meta.env.VITE_CHIEF_FAKE_UPDATE
-  : undefined;
-
 const updates = createAppUpdateController({
-  check: FAKE_UPDATE_VERSION
-    ? () =>
-        Promise.resolve({
-          version: FAKE_UPDATE_VERSION,
-          download: () => Promise.resolve(),
-          install: () => Promise.resolve(),
-        })
-    : check,
-  relaunch: FAKE_UPDATE_VERSION ? () => Promise.resolve() : relaunch,
+  check,
+  relaunch,
   warn: (message) => console.warn(message),
 });
 
@@ -32,7 +19,7 @@ let started = false;
 let lastCheckedAt = 0;
 
 function canCheckForUpdates() {
-  return Boolean(FAKE_UPDATE_VERSION) || (isTauri() && !import.meta.env.DEV);
+  return isTauri() && !import.meta.env.DEV;
 }
 
 function refresh() {
