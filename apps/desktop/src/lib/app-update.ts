@@ -10,6 +10,15 @@ export type AppUpdateStatus =
   | { state: "installing"; version: string }
   | { state: "failed"; version: string };
 
+/** The sidebar only speaks up once there is something to act on. */
+export function showsUpdateCard(status: AppUpdateStatus) {
+  return (
+    status.state === "ready" ||
+    status.state === "installing" ||
+    status.state === "failed"
+  );
+}
+
 export interface DownloadableUpdate {
   version: string;
   download: () => Promise<void>;
