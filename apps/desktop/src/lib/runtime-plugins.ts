@@ -137,6 +137,13 @@ export function usePlugins() {
     if (status === "connected" && capability && !state && !error) refresh();
   }, [capability, error, refresh, state, status]);
 
+  // Local tools can still be installing on first launch, so failed loads recover on their own.
+  useEffect(() => {
+    if (!error || state || status !== "connected") return;
+    const timer = setTimeout(() => refresh(), 30_000);
+    return () => clearTimeout(timer);
+  }, [error, refresh, state, status]);
+
   const waitForPlugin = useCallback(
     (
       pluginId: string,
