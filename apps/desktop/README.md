@@ -52,22 +52,20 @@ Runtimes from earlier builds are removed once the current one is installed.
 Public repositories need no GitHub token. Private repositories still use the
 Mac's existing Git credentials.
 
-Each desktop build pins the runtime URL and SHA-256 in
-`src-tauri/plugin-runtime-release.json`. The native installer checks the digest,
-rejects unsafe archive entries, and installs into a versioned application-data
-cache. It never runs an unverified download. Offline packages use their bundled
-runtime instead.
+The runtime ships as an asset of the same GitHub release as the app. Release
+builds run `scripts/package-plugin-runtime.mjs` before compiling: it bundles and
+signs the runtime, writes
+`src-tauri/target/release-assets/macos/chief-plugin-runtime-{version}-{target}.tar.gz`,
+and pins that file's `v{version}` release URL and SHA-256 into the generated
+(untracked) `src-tauri/plugin-runtime-release.json`. Forge uploads everything in
+`release-assets` with the installers, and publishes the release only after
+every upload succeeds, so an app release never points to a missing runtime.
 
-To prepare a new runtime on its target platform, run `pnpm runtime:bundle` from
-this directory, then `node scripts/package-plugin-runtime.mjs`. macOS preparation
-requires `APPLE_SIGNING_IDENTITY`; use the Node version in `.nvmrc`. The script
-writes an archive under `.audit/runtime-release` and updates the pinned manifest.
-Review and publish that immutable asset at its generated GitHub release URL
-**before distributing the corresponding desktop build**. `build:app:release` and
-`pnpm desktop:dmg` run `verify:plugin-runtime-release` first and refuse to build
-while the asset is unpublished (including draft releases) or its digest differs. Do not replace an
-existing asset: prepare a new digest and rebuild the app. Only platforms present
-in the manifest support on-demand installation.
+The native installer checks the digest, rejects unsafe archive entries, and
+installs into a versioned application-data cache. It never runs an unverified
+download. Local and offline builds pin no runtime: offline packages bundle it,
+and development uses the workspace runtime. Only targets listed in the
+packaging script (currently Apple Silicon) support on-demand installation.
 
 ## Build
 
@@ -78,13 +76,14 @@ pnpm --filter @chief/desktop build:app
 ```
 
 This local packaging command creates the lightweight app and DMG without
-requiring the private updater signing key. Release automation uses
-`build:app:release` with its signing credentials.
+requiring the private updater signing key. It pins no plugin runtime, so use the
+offline build below when you need local plugins. Release automation (Forge) runs
+`tauri build` with its signing credentials, which packages the runtime asset.
 
 On the Chief release Mac, the local development packaging loop is available
 from the repository root. It selects the Developer ID identity, builds the
-lightweight app and DMG, verifies the app signature, and reveals the DMG in
-Finder. It first checks that the pinned plugin runtime is published:
+app and DMG with the plugin runtime bundled, verifies the app signature and
+packaged plugin host, and reveals the DMG in Finder:
 
 ```bash
 pnpm desktop:dmg

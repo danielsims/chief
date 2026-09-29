@@ -96,9 +96,10 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn ensure_locked(app: &tauri::AppHandle) -> Result<PathBuf, Failure> {
-    let releases: std::collections::HashMap<String, Release> =
-        serde_json::from_str(include_str!("../plugin-runtime-release.json"))
-            .map_err(|_| "Chief's runtime release information is invalid.")?;
+    let releases: std::collections::HashMap<String, Release> = serde_json::from_str(include_str!(
+        concat!(env!("OUT_DIR"), "/plugin-runtime-release.json")
+    ))
+    .map_err(|_| "Chief's runtime release information is invalid.")?;
     let release = releases.get(env!("CHIEF_BUILD_TARGET")).ok_or_else(|| {
         Failure::Unsupported("Local plugins are not available on this platform yet.".into())
     })?;
@@ -424,8 +425,10 @@ mod tests {
     #[ignore = "Requires a locally built release archive"]
     fn verifies_and_installs_release_artifact() {
         let archive = PathBuf::from(std::env::var("CHIEF_TEST_RUNTIME_ARCHIVE").unwrap());
-        let releases: std::collections::HashMap<String, Release> =
-            serde_json::from_str(include_str!("../plugin-runtime-release.json")).unwrap();
+        let releases: std::collections::HashMap<String, Release> = serde_json::from_str(
+            include_str!(concat!(env!("OUT_DIR"), "/plugin-runtime-release.json")),
+        )
+        .unwrap();
         let release = releases.get(env!("CHIEF_BUILD_TARGET")).unwrap();
         let root = temp_root();
         let installed = install_with(&root, release, |target| {
