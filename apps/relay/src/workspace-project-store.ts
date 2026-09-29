@@ -107,6 +107,20 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
   for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
     storage,
   )) {
+    // Only agents' own Chief Git repositories carry generated files. A
+    // connected repository that shares an agent's name keeps its content, and
+    // files an earlier backfill wrongly attached to one are removed.
+    if (project.provider_id !== "chief-git") {
+      if (hasGeneratedAgentFiles(project.repository_files_json)) {
+        projectsUpdateBackfillAgentProjectFiles(storage, {
+          agentId: null,
+          description: null,
+          repositoryFilesJson: null,
+          projectId: project.project_id,
+        });
+      }
+      continue;
+    }
     if (
       project.repository_files_json &&
       !hasLegacyUndefinedReadme(project.repository_files_json)
@@ -160,6 +174,26 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
       projectId: project.project_id,
     });
   }
+}
+
+const GENERATED_AGENT_FILES = [
+  "README.md",
+  "agent/identity.json",
+  "agent/instructions.md",
+];
+
+function hasGeneratedAgentFiles(repositoryFilesJson: string | null) {
+  if (!repositoryFilesJson) return false;
+  const parsed = projectRepositoryFilesSchema.safeParse(
+    JSON.parse(repositoryFilesJson),
+  );
+  return (
+    parsed.success &&
+    parsed.data.length === GENERATED_AGENT_FILES.length &&
+    parsed.data.every(
+      ({ path }, index) => path === GENERATED_AGENT_FILES[index],
+    )
+  );
 }
 
 function hasLegacyUndefinedReadme(repositoryFilesJson: string) {
