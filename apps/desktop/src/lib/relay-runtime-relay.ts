@@ -1,5 +1,7 @@
 import type { RelayClient } from "@chief/relay-client";
 
+import type { ProjectGitHubAccess } from "./relay-runtime-project-connect";
+
 export type RelayRuntimeRelay = Pick<
   RelayClient,
   | "schedules"
@@ -25,4 +27,5 @@ export type RelayRuntimeRelay = Pick<
   | "startDirectMessage"
   | "subscribeWorkspace"
   | "updateWorkspaceFile"
->;
+> &
+  ProjectGitHubAccess;

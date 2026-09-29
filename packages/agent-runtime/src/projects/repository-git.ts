@@ -88,12 +88,18 @@ export async function git(
   args: string[],
   cwd?: string,
   timeout = GIT_TIMEOUT_MS,
+  config: Record<string, string> = {},
 ) {
   try {
     const result = await executeFile("git", gitCommand(args), {
       ...(cwd ? { cwd } : undefined),
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        LC_ALL: "C",
+        ...environmentConfig(config),
+      },
       maxBuffer: GIT_OUTPUT_LIMIT,
       timeout,
     });
@@ -101,6 +107,22 @@ export async function git(
   } catch (error) {
     throw new Error(textGitError(error));
   }
+}
+
+/**
+ * Passes one-off Git config through the environment rather than `-c`, so
+ * values such as access tokens never appear in process listings.
+ */
+function environmentConfig(config: Record<string, string>) {
+  const entries = Object.entries(config);
+  const environment: Record<string, string> = {};
+  if (entries.length === 0) return environment;
+  environment.GIT_CONFIG_COUNT = String(entries.length);
+  entries.forEach(([key, value], index) => {
+    environment[`GIT_CONFIG_KEY_${index}`] = key;
+    environment[`GIT_CONFIG_VALUE_${index}`] = value;
+  });
+  return environment;
 }
 
 export async function gitBuffer(

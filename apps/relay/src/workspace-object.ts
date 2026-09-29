@@ -32,6 +32,7 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
+import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
@@ -76,6 +77,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         (operation === "secret-get" || operation === "secret-list");
       const readsVercel =
         request.method === "GET" && operation === "vercel-destinations";
+      const readsGitHub =
+        request.method === "GET" &&
+        (operation === "github-connection" ||
+          operation === "github-repositories");
       const deletesExternalAgent =
         request.method === "DELETE" &&
         operation === "external-agent-disconnect";
@@ -83,6 +88,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method !== "POST" &&
         !readsSecret &&
         !readsVercel &&
+        !readsGitHub &&
         !deletesExternalAgent
       ) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
@@ -266,6 +272,21 @@ export class WorkspaceObject extends DurableObject<Env> {
         return yield* attempt("workspace.onboarding.start", () =>
           startEveWorkspaceKickoffFromRequest(env, ctx.storage, request),
         );
+      }
+
+      if (operation?.startsWith("github-")) {
+        const github = new WorkspaceGitHubService(ctx.storage, env);
+        const handlers: Partial<Record<string, () => Promise<Response>>> = {
+          "github-connection": () => github.connection(request),
+          "github-setup": () => github.setup(request),
+          "github-install": () => github.install(request),
+          "github-repositories": () => github.repositories(request),
+          "github-clone-token": () => github.cloneToken(request),
+          "github-app-store": () => github.storeApp(request),
+          "github-installation-add": () => github.addInstallation(request),
+        };
+        const handler = handlers[operation];
+        if (handler) return yield* attempt(`workspace.${operation}`, handler);
       }
 
       if (
