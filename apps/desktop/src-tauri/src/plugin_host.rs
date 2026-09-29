@@ -133,7 +133,6 @@ fn start(app: &tauri::AppHandle) -> Result<PluginHostConnection, String> {
     if supervisor.stopping.load(Ordering::SeqCst) {
         return Err("Chief is shutting down.".into());
     }
-    crate::plugin_runtime::progress(app, "starting");
     let root = runtime.path;
     let plugin_root = plugin_directory(app)?;
     std::fs::create_dir_all(&plugin_root)
