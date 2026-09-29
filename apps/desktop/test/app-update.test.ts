@@ -5,7 +5,10 @@ import type {
   AppUpdateDependencies,
   DownloadableUpdate,
 } from "../src/lib/app-update";
-import { createAppUpdateController } from "../src/lib/app-update";
+import {
+  createAppUpdateController,
+  showsUpdateCard,
+} from "../src/lib/app-update";
 
 function fakeUpdate(
   version: string,
@@ -150,4 +153,18 @@ void test("a failed install can be retried with a fresh download", async () => {
     state: "installing",
     version: "0.1.3",
   });
+});
+
+void test("the sidebar card only appears once there is something to act on", () => {
+  assert.equal(showsUpdateCard({ state: "idle" }), false);
+  assert.equal(
+    showsUpdateCard({ state: "downloading", version: "0.1.3" }),
+    false,
+  );
+  assert.equal(showsUpdateCard({ state: "ready", version: "0.1.3" }), true);
+  assert.equal(
+    showsUpdateCard({ state: "installing", version: "0.1.3" }),
+    true,
+  );
+  assert.equal(showsUpdateCard({ state: "failed", version: "0.1.3" }), true);
 });

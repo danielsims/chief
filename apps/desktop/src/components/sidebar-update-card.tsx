@@ -1,59 +1,50 @@
-import { ArrowDownToLine, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 
-import { useAppUpdate } from "../lib/updater";
+import type { AppUpdate } from "../lib/updater";
 
 /**
- * Floats above the sidebar footer once a downloaded update is ready. It
- * overlays the channel list rather than resizing it, so appearing never shifts
- * anything the person is looking at.
+ * Floats over the bottom of the sidebar once a downloaded update is ready. It
+ * overlays the channel list instead of taking space from it; the sidebar pads
+ * its list so every row can still be scrolled clear of the card.
  */
-export function SidebarUpdateCard() {
-  const { status, install } = useAppUpdate();
-  if (
-    status.state !== "ready" &&
-    status.state !== "installing" &&
-    status.state !== "failed"
-  ) {
-    return null;
-  }
+export function SidebarUpdateCard({ update }: { update: AppUpdate }) {
+  const { status, install } = update;
+  if (status.state === "idle" || status.state === "downloading") return null;
 
   const installing = status.state === "installing";
   const failed = status.state === "failed";
   return (
     <div className="pointer-events-none relative h-0">
-      <div className="bg-sidebar border-sidebar-border pointer-events-auto absolute inset-x-2.5 bottom-1 rounded-xl border p-3 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
-        <div className="flex items-center gap-2.5">
-          <span className="bg-sidebar-accent flex size-7 shrink-0 items-center justify-center rounded-full">
-            <ArrowDownToLine size={14} strokeWidth={1.75} />
+      <div className="bg-sidebar border-sidebar-border pointer-events-auto absolute inset-x-2.5 bottom-1 flex items-center gap-3 rounded-xl border py-2.5 pr-2.5 pl-3.5 shadow-[0_6px_20px_rgba(0,0,0,0.1)] dark:shadow-[0_6px_20px_rgba(0,0,0,0.4)]">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] leading-4 font-semibold">
+            {failed ? "Update didn't install" : "Update ready"}
           </span>
-          <span className="min-w-0">
-            <span className="block text-[13px] leading-4 font-semibold">
-              {failed ? "Update failed" : "Update ready"}
-            </span>
-            <span className="text-sidebar-muted block truncate text-[12px] leading-4">
-              {failed ? "Chief couldn't install it" : `Chief ${status.version}`}
-            </span>
+          <span className="text-sidebar-muted block truncate text-[12px] leading-4">
+            Chief {status.version}
           </span>
-        </div>
+        </span>
         <Button
           type="button"
           variant="outline"
-          size="sm"
+          size="xs"
           disabled={installing}
           onClick={install}
-          className="mt-2.5 w-full"
+          aria-label={
+            failed
+              ? `Try installing Chief ${status.version} again`
+              : `Restart to update to Chief ${status.version}`
+          }
+          className="px-2.5"
         >
           {installing ? (
-            <>
-              <LoaderCircle className="animate-spin" size={14} />
-              Restarting…
-            </>
+            <LoaderCircle className="animate-spin" size={13} />
           ) : failed ? (
             "Try again"
           ) : (
-            "Restart to update"
+            "Restart"
           )}
         </Button>
       </div>

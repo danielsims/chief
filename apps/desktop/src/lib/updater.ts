@@ -56,10 +56,12 @@ function startUpdateChecks() {
   });
 }
 
-export function useAppUpdate(): {
+export interface AppUpdate {
   status: AppUpdateStatus;
   install: () => void;
-} {
+}
+
+export function useAppUpdate(): AppUpdate {
   useEffect(startUpdateChecks, []);
   const status = useSyncExternalStore(
     updates.subscribe,
