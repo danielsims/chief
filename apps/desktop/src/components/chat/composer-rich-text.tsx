@@ -231,6 +231,19 @@ function applyFormat(
   }
 }
 
+/** A placeholder extension whose text can change after the editor exists. */
+function adjustablePlaceholder(initial: string) {
+  const extension = Placeholder.configure({ placeholder: initial });
+  return {
+    extension,
+    update(placeholder: string) {
+      if (extension.options.placeholder === placeholder) return false;
+      extension.options.placeholder = placeholder;
+      return true;
+    },
+  };
+}
+
 export const ComposerRichText = forwardRef<
   ComposerRichTextHandle,
   {
@@ -266,11 +279,14 @@ export const ComposerRichText = forwardRef<
   }, [onKeyDown, onStateChange, onValueChange]);
 
   const [mentionExtension] = useState(agentMentionDecorations);
+  const [placeholderControl] = useState(() =>
+    adjustablePlaceholder(placeholder),
+  );
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, horizontalRule: false }),
       Link.configure({ openOnClick: false }),
-      Placeholder.configure({ placeholder }),
+      placeholderControl.extension,
       Markdown,
       mentionExtension,
     ],
@@ -302,6 +318,15 @@ export const ComposerRichText = forwardRef<
       onValueChangeRef.current(markdown);
     },
   });
+
+  // A changed placeholder (e.g. a new recipient) shows without recreating the
+  // editor; an empty transaction redraws its decoration.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (placeholderControl.update(placeholder)) {
+      editor.view.dispatch(editor.state.tr);
+    }
+  }, [editor, placeholder, placeholderControl]);
 
   useEffect(() => {
     if (!autoFocus || !editor) return;
