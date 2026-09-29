@@ -38,10 +38,8 @@ if (identity) {
   );
 }
 
-// The DMG is the lightweight app: it fetches its plugin runtime on first launch,
-// so the pinned runtime must already be downloadable.
-run("pnpm --filter @chief/desktop verify:plugin-runtime-release", process.env);
-run("pnpm --filter @chief/desktop build:app", buildEnv);
+// Local DMGs bundle the plugin runtime; only Forge releases host it separately.
+run("pnpm --filter @chief/desktop build:app:offline", buildEnv);
 
 if (identity) {
   run(
@@ -50,6 +48,7 @@ if (identity) {
   );
 }
 
+run("pnpm --filter @chief/desktop verify:packaged-plugin-host", process.env);
 run(
   "open -R apps/desktop/src-tauri/target/release/bundle/dmg/Chief_*.dmg",
   process.env,

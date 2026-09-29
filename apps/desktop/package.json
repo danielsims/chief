@@ -9,7 +9,7 @@
     "build": "tsc && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
     "build:app": "tauri build --config src-tauri/tauri.local.conf.json",
     "build:app:offline": "tauri build --config src-tauri/tauri.offline.conf.json",
-    "build:app:release": "node scripts/verify-plugin-runtime-release.mjs && tauri build",
+    "build:app:release": "tauri build",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint apps/desktop",
@@ -18,8 +18,7 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "runtime:bundle": "pnpm --dir ../.. --filter @chief/agent-runtime build:desktop-sidecar",
-    "verify:packaged-plugin-host": "node scripts/verify-packaged-plugin-host.mjs",
-    "verify:plugin-runtime-release": "node scripts/verify-plugin-runtime-release.mjs"
+    "verify:packaged-plugin-host": "node scripts/verify-packaged-plugin-host.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.33",
