@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
 
 import type { ActionItem, AnalyticsDataset } from "@chief/agent-runtime/types";
@@ -43,7 +42,6 @@ const LEARNING_ACTION_ID = "workspace-onboarding";
 export function useDashboardController() {
   const navigate = useNavigate();
   const chiefNavigation = useChiefNavigation();
-  const prefersReducedMotion = useReducedMotion();
   const [ask, setAsk] = useState("");
   const [askAttachments, setAskAttachments] = useState<
     ComposerImageAttachment[]
@@ -223,26 +221,18 @@ export function useDashboardController() {
         (channel) => channel.id === currentActionTarget.channelId,
       )
     : null;
-  const {
-    activeAnalyticsSlide,
-    agentWorkTimeline,
-    analyticsIndex,
-    analyticsSlides,
-    moveAnalytics,
-    selectAnalytics,
-    setAnalyticsPaused,
-  } = useDashboardInsights({
-    analytics,
-    analytics30,
-    datasets,
-    newProspects,
-    preparationActive,
-    preparationChildren,
-    preparationRoot,
-    prefersReducedMotion,
-    previous30,
-    workspaceData,
-  });
+  const { agentWorkTimeline, highlights, recentOutputs } = useDashboardInsights(
+    {
+      analytics,
+      analytics30,
+      newProspects,
+      preparationActive,
+      preparationChildren,
+      preparationRoot,
+      previous30,
+      workspaceData,
+    },
+  );
   const currentActionDirectAgentId = directMessageAgentIdFromChatId(
     currentAction?.sourceId ?? null,
   );
@@ -400,11 +390,8 @@ export function useDashboardController() {
     Boolean(continuingChatId);
 
   return {
-    activeAnalyticsSlide,
     agentSchedules,
     agentWorkTimeline,
-    analyticsIndex,
-    analyticsSlides,
     ask,
     askAttachments,
     chiefNavigation,
@@ -421,20 +408,18 @@ export function useDashboardController() {
     firstName,
     learningSelected,
     localChats,
+    highlights,
     moveAction,
-    moveAnalytics,
     navigate,
     nextEngineeringIntegration,
     openAction,
     organization,
     overviewActions,
-    prefersReducedMotion,
     preparingWorkspace,
     questionAction,
     resolveAction,
+    recentOutputs,
     resolvedOverviewActionIndex,
-    selectAnalytics,
-    setAnalyticsPaused,
     setAsk,
     setAskAttachments,
     setContinuingChatId,

@@ -1,23 +1,7 @@
-import {
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-import {
-  Line,
-  LineChart,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 
 import type { ActionItem } from "@chief/agent-runtime/types";
-import {
-  isJsonNumber,
-  isJsonObject,
-  isJsonString,
-} from "@chief/relay-contracts";
+import { isJsonString } from "@chief/relay-contracts";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -41,108 +25,6 @@ export function formatNumber(value: number) {
     notation: value > 9999 ? "compact" : "standard",
     maximumFractionDigits: 1,
   }).format(value);
-}
-
-function chartPointLabel(value: string) {
-  const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
-  const dashedDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const match = compactDate ?? dashedDate;
-  if (!match) return value;
-  const [, year, month, day] = match;
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-  }).format(new Date(Number(year), Number(month) - 1, Number(day)));
-}
-
-function parseChartPoint(
-  value: unknown,
-): { x?: string; value?: number } | null {
-  if (!isJsonObject(value)) return null;
-  const x = isJsonString(value.x) ? value.x : undefined;
-  const pointValue = isJsonNumber(value.value) ? value.value : undefined;
-  return x === undefined && pointValue === undefined
-    ? null
-    : { x, value: pointValue };
-}
-
-export function AnalyticsChart({
-  label,
-  points,
-  reduceMotion,
-}: {
-  label: string;
-  points: { x: string; value: number }[];
-  reduceMotion: boolean;
-}) {
-  return (
-    <div
-      aria-hidden="true"
-      className="text-foreground/65 absolute right-[18px] bottom-[42px] left-[18px] h-[58px]"
-    >
-      <ResponsiveContainer height="100%" width="100%">
-        <LineChart
-          data={points}
-          margin={{ bottom: 2, left: 2, right: 2, top: 2 }}
-        >
-          <RechartsTooltip
-            allowEscapeViewBox={{ x: true, y: true }}
-            content={({ active, payload }) => {
-              const point = parseChartPoint(payload[0]?.payload);
-              if (!active || point?.value === undefined) return null;
-              return (
-                <div className="border-border bg-popover text-popover-foreground min-w-28 border px-2.5 py-2 shadow-lg">
-                  {point.x ? (
-                    <p className="text-muted-foreground text-[10px]">
-                      {chartPointLabel(point.x)}
-                    </p>
-                  ) : null}
-                  <p className="mt-0.5 flex items-baseline justify-between gap-4 text-xs">
-                    <span>{label}</span>
-                    <strong className="font-medium">
-                      {formatNumber(point.value)}
-                    </strong>
-                  </p>
-                </div>
-              );
-            }}
-            cursor={false}
-            isAnimationActive={false}
-            wrapperStyle={{ pointerEvents: "none", zIndex: 5 }}
-          />
-          <Line
-            activeDot={{ fill: "var(--foreground)", r: 3, strokeWidth: 0 }}
-            animationDuration={420}
-            dataKey="value"
-            dot={false}
-            isAnimationActive={!reduceMotion}
-            stroke="var(--foreground)"
-            strokeOpacity={0.68}
-            strokeWidth={1.25}
-            type="linear"
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-export function Trend({ value }: { value: number | null }) {
-  if (value === null) {
-    return <span className="text-[9px] text-emerald-500">New</span>;
-  }
-  const positive = value >= 0;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 text-[9px]",
-        positive ? "text-emerald-500" : "text-red-500",
-      )}
-    >
-      {positive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-      {Math.abs(value).toFixed(1)}%
-    </span>
-  );
 }
 
 export function WorkspaceIndicator({

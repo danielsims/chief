@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import type {
   AnalyticsDataset,
@@ -12,14 +12,22 @@ import { formatNumber } from "../components/overview-presentation";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../lib/runtime";
 
-interface AnalyticsSlide {
+/** A real number worth a glance, shown only when there is data behind it. */
+export interface DashboardHighlight {
   id: string;
-  title: string;
-  destination: string;
   value: string;
   label: string;
   trend: number | null;
-  points: { x: string; value: number }[] | null;
+  destination: string;
+}
+
+/** Something an agent produced recently. */
+export interface DashboardOutput {
+  id: string;
+  title: string;
+  agentId: string | undefined;
+  updatedAt: number;
+  destination: string;
 }
 
 interface AgentWorkTimelineItem {
@@ -64,45 +72,27 @@ function periodMetric(
   )?.value;
 }
 
-function trendTitle(label: string, trend: number | null, hasData: boolean) {
-  if (!hasData) return `${label} will appear after the first report.`;
-  if (trend === null) return `${label} has a new baseline.`;
-  if (trend > 2) return `${label} is moving in the right direction.`;
-  if (trend < -2) return `${label} needs a closer look.`;
-  return `${label} is holding steady.`;
-}
-
-function chartPoints(points: { x: string; value: number }[]) {
-  return points.length < 2 ? null : points;
-}
-
 export function useDashboardInsights({
   analytics,
   analytics30,
-  datasets,
   newProspects,
   preparationActive,
   preparationChildren,
   preparationRoot,
-  prefersReducedMotion,
   previous30,
   workspaceData,
 }: {
   analytics: AnalyticsDataset | undefined;
   analytics30: AnalyticsDatasetPeriod | undefined;
-  datasets: AnalyticsDataset[] | undefined;
   newProspects: number;
   preparationActive: boolean;
   preparationChildren: SessionRecord[];
   preparationRoot: SessionRecord | undefined;
-  prefersReducedMotion: boolean | null;
   previous30: AnalyticsDatasetPeriod | undefined;
   workspaceData: ReturnType<typeof useWorkspaceData>;
 }) {
   const { cloudOrganizationId } = useAuth();
   const { files } = useWorkspaceFiles(cloudOrganizationId);
-  const [analyticsIndex, setAnalyticsIndex] = useState(0);
-  const [analyticsPaused, setAnalyticsPaused] = useState(false);
   const agentWorkTimeline = useMemo<AgentWorkTimelineItem[]>(() => {
     const activeTasks = workspaceData.activity.filter(
       (session) =>
@@ -168,31 +158,11 @@ export function useDashboardInsights({
     workspaceData.now,
     workspaceData.recurringWork,
   ]);
-  const analyticsSlides = useMemo<AnalyticsSlide[]>(() => {
-    const currentTraffic = periodMetric(analytics30, [
-      "activeUsers",
-      "users",
-      "sessions",
-    ]);
-    const previousTraffic = periodMetric(previous30, [
-      "activeUsers",
-      "users",
-      "sessions",
-    ]);
-    const currentSignups = periodMetric(analytics30, [
-      "conversions",
-      "keyEvents",
-      "signups",
-    ]);
-    const previousSignups = periodMetric(previous30, [
-      "conversions",
-      "keyEvents",
-      "signups",
-    ]);
-    const trafficTrend = percentageChange(currentTraffic, previousTraffic);
-    const signupTrend = percentageChange(currentSignups, previousSignups);
-    const hasTraffic = currentTraffic !== undefined;
-    const hasSignups = currentSignups !== undefined;
+  const highlights = useMemo<DashboardHighlight[]>(() => {
+    const traffic = ["activeUsers", "users", "sessions"];
+    const signups = ["conversions", "keyEvents", "signups"];
+    const currentTraffic = periodMetric(analytics30, traffic);
+    const currentSignups = periodMetric(analytics30, signups);
     const trafficMetric = analytics?.metrics.find((metric) =>
       ["activeusers", "users", "sessions"].includes(parseMetricKey(metric.key)),
     );
@@ -201,133 +171,64 @@ export function useDashboardInsights({
         parseMetricKey(metric.key),
       ),
     );
-    const trafficSeries = analytics?.series?.find((series) =>
-      ["activeusers", "users", "sessions"].includes(
-        parseMetricKey(series.metric || series.id || series.label),
-      ),
-    );
-    const metrics: AnalyticsSlide[] = [
-      {
-        id: "traffic",
-        destination: "/analytics",
-        title: trendTitle("Traffic", trafficTrend, hasTraffic),
-        value: datasets === undefined ? "—" : formatNumber(currentTraffic ?? 0),
-        label: parseMetricLabel(trafficMetric?.label, "traffic"),
-        trend: trafficTrend,
-        points: chartPoints((trafficSeries?.points ?? []).slice(-14)),
-      },
-      {
-        id: "signups",
-        destination: "/analytics",
-        title: trendTitle("Signups", signupTrend, hasSignups),
-        value: datasets === undefined ? "—" : formatNumber(currentSignups ?? 0),
-        label: parseMetricLabel(signupMetric?.label, "tracked conversions"),
-        trend: signupTrend,
-        points:
-          currentSignups !== undefined && previousSignups !== undefined
-            ? chartPoints([
-                {
-                  x: previous30?.label ?? "Previous period",
-                  value: previousSignups,
-                },
-                {
-                  x: analytics30?.label ?? "Current period",
-                  value: currentSignups,
-                },
-              ])
-            : null,
-      },
-      {
-        id: "prospects",
-        destination: "/prospects",
-        title:
-          newProspects > 0
-            ? "New buying signals are ready to review."
-            : "Prospecting is quiet right now.",
-        value: workspaceData.loading ? "—" : formatNumber(newProspects),
-        label: "new prospects",
-        trend: null,
-        points: null,
-      },
-    ].filter((slide) =>
-      slide.id === "traffic"
-        ? hasTraffic
-        : slide.id === "signups"
-          ? hasSignups
-          : newProspects > 0,
-    );
-    const outputs: AnalyticsSlide[] = files
-      .filter((file) => file.createdBy === "agent")
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 3)
-      .map((file) => ({
-        id: `file-${file.id}`,
-        title: file.name,
-        destination: `/files/${encodeURIComponent(file.id)}`,
-        value: "",
-        label: `From ${file.sourceAgentId ?? "your team"} · ${new Date(file.updatedAt).toLocaleDateString([], { month: "short", day: "numeric" })}`,
-        trend: null,
-        points: null,
-      }));
-    const slides = [...outputs, ...metrics];
-    return slides.length
-      ? slides
-      : [
-          {
-            id: "start",
-            title: "Start something with Chief",
-            destination: "/conversations?dm=chief",
-            value: "",
-            label: "Start a conversation",
-            trend: null,
-            points: null,
-          },
-        ];
-  }, [
-    files,
-    analytics,
-    analytics30,
-    newProspects,
-    previous30,
-    datasets,
-    workspaceData.loading,
-  ]);
+    return [
+      ...(currentTraffic === undefined
+        ? []
+        : [
+            {
+              id: "traffic",
+              value: formatNumber(currentTraffic),
+              label: parseMetricLabel(trafficMetric?.label, "visitors"),
+              trend: percentageChange(
+                currentTraffic,
+                periodMetric(previous30, traffic),
+              ),
+              destination: "/analytics",
+            },
+          ]),
+      ...(currentSignups === undefined
+        ? []
+        : [
+            {
+              id: "signups",
+              value: formatNumber(currentSignups),
+              label: parseMetricLabel(signupMetric?.label, "signups"),
+              trend: percentageChange(
+                currentSignups,
+                periodMetric(previous30, signups),
+              ),
+              destination: "/analytics",
+            },
+          ]),
+      ...(newProspects > 0
+        ? [
+            {
+              id: "prospects",
+              value: formatNumber(newProspects),
+              label: newProspects === 1 ? "new prospect" : "new prospects",
+              trend: null,
+              destination: "/prospects",
+            },
+          ]
+        : []),
+    ];
+  }, [analytics, analytics30, newProspects, previous30]);
 
-  useEffect(() => {
-    if (analyticsPaused || prefersReducedMotion || analyticsSlides.length < 2) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setAnalyticsIndex((current) => (current + 1) % analyticsSlides.length);
-    }, 8_000);
-    return () => window.clearTimeout(timer);
-  }, [
-    analyticsIndex,
-    analyticsPaused,
-    analyticsSlides.length,
-    prefersReducedMotion,
-  ]);
-  const moveAnalytics = (direction: number) => {
-    setAnalyticsIndex(
-      (current) =>
-        (current + direction + analyticsSlides.length) % analyticsSlides.length,
-    );
-  };
+  const recentOutputs = useMemo<DashboardOutput[]>(
+    () =>
+      files
+        .filter((file) => file.createdBy === "agent")
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 4)
+        .map((file) => ({
+          id: file.id,
+          title: file.name,
+          agentId: file.sourceAgentId,
+          updatedAt: file.updatedAt,
+          destination: `/files/${encodeURIComponent(file.id)}`,
+        })),
+    [files],
+  );
 
-  const selectAnalytics = (index: number) => {
-    if (index === analyticsIndex) return;
-    setAnalyticsIndex(index);
-  };
-
-  const activeAnalyticsSlide =
-    analyticsSlides[analyticsIndex] ?? analyticsSlides[0];
-  return {
-    activeAnalyticsSlide,
-    agentWorkTimeline,
-    analyticsIndex,
-    analyticsSlides,
-    moveAnalytics,
-    selectAnalytics,
-    setAnalyticsPaused,
-  };
+  return { agentWorkTimeline, highlights, recentOutputs };
 }
