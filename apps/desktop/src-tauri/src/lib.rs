@@ -69,6 +69,7 @@ pub fn run() {
             app.manage(PluginHostSupervisor::default());
             app.manage(Mutex::new(OAuthLoopback::default()));
             focus_main_window(&handle);
+            plugin_runtime::prefetch(&handle);
             Ok(())
         })
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
