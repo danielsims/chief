@@ -1,9 +1,7 @@
 import { useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderGit2, LoaderCircle } from "lucide-react";
-import { toast } from "sonner";
 
 import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
@@ -65,40 +63,12 @@ function AddProjectDialogForm({
     setPreparing(true);
     setSetupError(null);
     projects.clearError();
-    setSetupStatus("Preparing local tools…");
-    let unlisten: (() => void) | undefined;
-    let toastId: string | number | undefined;
+    setSetupStatus(
+      source === "clone" ? "Cloning and connecting…" : "Connecting repository…",
+    );
     try {
-      if (isTauri()) {
-        unlisten = await listen<string>(
-          "chief://plugin-runtime-progress",
-          ({ payload }) => {
-            const message = {
-              downloading: "Downloading Chief plugin runtime…",
-              verifying: "Verifying Chief plugin runtime…",
-              installing: "Installing Chief plugin runtime…",
-              starting: "Starting local tools…",
-            }[payload];
-            if (!message) return;
-            setSetupStatus(message);
-            if (payload === "downloading" || toastId !== undefined) {
-              toastId = toast.loading(message, { id: toastId });
-            }
-          },
-        );
-        await prepareDesktopPluginHost();
-      }
-      unlisten?.();
-      unlisten = undefined;
-      if (toastId !== undefined) {
-        toast.success("Chief plugin runtime is ready", { id: toastId });
-        toastId = undefined;
-      }
-      setSetupStatus(
-        source === "clone"
-          ? "Cloning and connecting…"
-          : "Connecting repository…",
-      );
+      // Local tools may still be installing in the background; wait quietly.
+      if (isTauri()) await prepareDesktopPluginHost();
       if (source === "attach") await projects.attach(path);
       else await projects.clone(remoteUrl);
       setPath("");
@@ -107,9 +77,7 @@ function AddProjectDialogForm({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSetupError(message);
-      if (toastId !== undefined) toast.error(message, { id: toastId });
     } finally {
-      unlisten?.();
       submitting.current = false;
       setPreparing(false);
       setSetupStatus(null);
