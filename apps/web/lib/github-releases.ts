@@ -33,7 +33,9 @@ export async function getLatestRelease(): Promise<GitHubRelease | null> {
     `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
     {
       headers: githubHeaders("application/vnd.github+json"),
-      next: { revalidate: 300 },
+      // Always ask GitHub: a cached lookup kept serving 0.1.1 downloads and
+      // hid 0.1.2 from the updater after it was published.
+      cache: "no-store",
     },
   );
 
