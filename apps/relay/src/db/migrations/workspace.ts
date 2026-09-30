@@ -151,6 +151,15 @@ export function initializeWorkspaceSchema(
       updated_at TEXT NOT NULL,
       PRIMARY KEY (agent_id, delivery_id)
     );
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS agent_memories_scope_idx
+      ON agent_memories (agent_id, scope_key);
     CREATE TABLE IF NOT EXISTS policy (
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL

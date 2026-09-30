@@ -15,6 +15,7 @@ import {
   sha256,
 } from "./external-agent-channel-security";
 import { receiveExternalAgentTool } from "./external-agent-channel-tools";
+import { receiveExternalAgentMemory } from "./external-agent-memory";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { externalAgentRegistrationReplay } from "./external-agent-registration-result";
 import { HttpError, json, parseJson } from "./http";
@@ -371,6 +372,10 @@ export class ExternalAgentChannelService {
 
   async receiveTools(request: Request, rawAgentId: string) {
     return receiveExternalAgentTool(this.inboundHost(), request, rawAgentId);
+  }
+
+  async receiveMemory(request: Request, rawAgentId: string) {
+    return receiveExternalAgentMemory(this.inboundHost(), request, rawAgentId);
   }
 
   runtime(agentId: string) {
