@@ -12,6 +12,8 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { channelMembersDeleteChannelsMembersRemove } from "./queries/channel-members/delete-channels-members-remove";
+import { channelMembershipEventsDeleteChannelsMembersRemove } from "./queries/channel-membership-events/delete-channels-members-remove";
 import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
@@ -19,6 +21,7 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
+import { directConversationId } from "./workspace-channel-service";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
 import {
@@ -98,6 +101,7 @@ export async function dispatchWorkspaceMessage(
     message.conversationId,
     context.principal,
   );
+  if (channel.kind === "direct") await removeStrayDirectMembers(store, channel);
   const people = store
     .channelMemberRows(message.conversationId)
     .flatMap((member) =>
@@ -257,6 +261,10 @@ async function addMentionedAgentsToChannel(input: {
   messageId: string;
   store: WorkspaceChannelStore;
 }) {
+  // A direct conversation only ever holds its two participants; mentioning an
+  // agent there never invites it in.
+  if (input.store.requireChannel(input.conversationId).kind === "direct")
+    return;
   const missing = input.mentions.filter(
     (agentId) =>
       input.store.memberRole("agent", agentId) &&
@@ -287,6 +295,41 @@ async function addMentionedAgentsToChannel(input: {
     input.context,
     true,
   );
+}
+
+/**
+ * Earlier relays let mentions invite agents into direct conversations, where
+ * every agent member answers every message. Anyone who isn't part of the pair
+ * the conversation's id was derived from is removed.
+ */
+async function removeStrayDirectMembers(
+  store: WorkspaceChannelStore,
+  channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
+) {
+  const conversationId = String(channel.conversation_id);
+  const members = store.channelMemberRows(conversationId);
+  if (members.length <= 2) return;
+  const creator = `${String(channel.created_by_kind)}:${String(channel.created_by_id)}`;
+  const strays: typeof members = [];
+  for (const member of members) {
+    const principal = `${member.kind}:${member.principalId}`;
+    if (principal === creator) continue;
+    if ((await directConversationId(creator, principal)) !== conversationId)
+      strays.push(member);
+  }
+  if (strays.length === 0) return;
+  store.storage.transactionSync(() => {
+    for (const member of strays) {
+      const target = {
+        conversationId,
+        principalKind: member.kind,
+        principalId: member.principalId,
+      };
+      channelMembersDeleteChannelsMembersRemove(store.storage, target);
+      channelMembershipEventsDeleteChannelsMembersRemove(store.storage, target);
+    }
+    store.rewriteSnapshot(() => undefined);
+  });
 }
 
 function owningThreadRoot(

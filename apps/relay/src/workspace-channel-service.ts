@@ -193,17 +193,10 @@ export class WorkspaceChannelService {
         }),
       );
     }
-    const pair = [`${kind}:${id}`, `${target.kind}:${target.principalId}`]
-      .sort()
-      .join("|");
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(pair),
+    const conversationId = await directConversationId(
+      `${kind}:${id}`,
+      `${target.kind}:${target.principalId}`,
     );
-    const conversationId = `dm-${Array.from(new Uint8Array(digest))
-      .slice(0, 16)
-      .map((value) => value.toString(16).padStart(2, "0"))
-      .join("")}`;
     const name = this.principalDisplayName(target.kind, target.principalId);
     const now = new Date().toISOString();
     this.store.storage.transactionSync(() => {
@@ -408,4 +401,17 @@ export class WorkspaceChannelService {
     });
     return json(channelActionResultSchema.parse({ ok: true }));
   }
+}
+
+/** A direct conversation's id is derived from exactly the pair it belongs to. */
+export async function directConversationId(first: string, second: string) {
+  const pair = [first, second].sort().join("|");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(pair),
+  );
+  return `dm-${Array.from(new Uint8Array(digest))
+    .slice(0, 16)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
