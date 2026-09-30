@@ -52,7 +52,7 @@ void test("simultaneous thread agents are all represented", () => {
   assert.match(html, /Prospector, Marketer, and Setup are working/u);
   assert.match(html, /Prospector is working/u);
   assert.match(html, /Marketer is working/u);
-  assert.match(html, />\+1</u);
+  assert.match(html, /Setup is working/u);
 });
 
 void test("inactive activity reserves the composer presence row", () => {

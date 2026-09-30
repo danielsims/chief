@@ -1,6 +1,10 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
 import type { AgentActivityPresence } from "./agent-activity-presence";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
 
 export function AgentActivityComposerRow({
@@ -41,17 +45,18 @@ export function AgentActivityComposerRow({
         aria-label={`${visibleStatusLabel}. View activity.`}
       >
         <span className="flex shrink-0 items-center gap-1">
-          {visibleAgents.slice(0, 2).map((agent) => (
+          {visibleAgents.slice(0, 4).map((agent) => (
             <MatrixLoader
               key={agent.id}
               ariaLabel={`${agent.label} is working`}
+              color={agentLoaderColor(agent.id)}
               size={13}
             />
           ))}
         </span>
-        {visibleAgents.length > 2 ? (
+        {visibleAgents.length > 4 ? (
           <span className="text-muted-foreground shrink-0 text-[9px] font-medium">
-            +{visibleAgents.length - 2}
+            +{visibleAgents.length - 4}
           </span>
         ) : null}
         <span className="chief-shimmer-text min-w-0 truncate text-[11px] font-medium">
@@ -63,4 +68,12 @@ export function AgentActivityComposerRow({
       </button>
     </div>
   );
+}
+
+// White identities (Chief) follow the text colour so they stay visible in light mode.
+function agentLoaderColor(agentId: string) {
+  const color = isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
+    : undefined;
+  return color?.toLowerCase() === "#ffffff" ? undefined : color;
 }
