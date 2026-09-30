@@ -53,10 +53,11 @@ import { AgentMessageAccess } from "./agent-message-access";
 
 export type { AgentIntegrationOption } from "./agent-detail-sections";
 
-type DetailTab = "configuration" | "channels" | "permissions";
+type DetailTab = "configuration" | "runtime" | "channels" | "permissions";
 
 const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "configuration", label: "Configuration" },
+  { id: "runtime", label: "Runtime" },
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
 ];
@@ -274,30 +275,6 @@ export function AgentDetail({
                 <p className="text-muted-foreground mt-5 max-w-3xl text-[13px] leading-6">
                   {agent.description}
                 </p>
-
-                <AgentExecutionCard
-                  agent={agent}
-                  execution={execution}
-                  ready={ready}
-                  saving={saving}
-                  error={preferenceError}
-                  relayClient={relayClient}
-                  onExternalAgentChanged={onExternalAgentChanged}
-                  onApply={(draft) =>
-                    save({
-                      deploymentTarget: relayDeploymentTarget(draft.deployment),
-                      driver: draft.provider,
-                      model: draft.model,
-                    })
-                  }
-                  onApplyToTeam={(draft) =>
-                    onApplyExecutionToTeam(
-                      relayDeploymentTarget(draft.deployment),
-                      draft.provider,
-                      draft.model,
-                    )
-                  }
-                />
               </header>
 
               <nav
@@ -358,6 +335,34 @@ export function AgentDetail({
                       onRemove={onRemove}
                     />
                   </div>
+                ) : null}
+
+                {activeTab === "runtime" ? (
+                  <AgentExecutionCard
+                    agent={agent}
+                    execution={execution}
+                    ready={ready}
+                    saving={saving}
+                    error={preferenceError}
+                    relayClient={relayClient}
+                    onExternalAgentChanged={onExternalAgentChanged}
+                    onApply={(draft) =>
+                      save({
+                        deploymentTarget: relayDeploymentTarget(
+                          draft.deployment,
+                        ),
+                        driver: draft.provider,
+                        model: draft.model,
+                      })
+                    }
+                    onApplyToTeam={(draft) =>
+                      onApplyExecutionToTeam(
+                        relayDeploymentTarget(draft.deployment),
+                        draft.provider,
+                        draft.model,
+                      )
+                    }
+                  />
                 ) : null}
 
                 {activeTab === "channels" ? (

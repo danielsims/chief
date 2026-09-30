@@ -241,7 +241,7 @@ function VercelBuildLog({
         className="hover:bg-muted/40 flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
         onClick={() => setExpanded((open) => !open)}
       >
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 flex-1 items-center gap-2">
           <ChevronRight
             className={
               expanded
@@ -249,7 +249,9 @@ function VercelBuildLog({
                 : "text-muted-foreground size-3.5 transition-transform"
             }
           />
-          <span className="text-xs font-medium">Build Logs</span>
+          <span className="shrink-0 text-xs font-medium whitespace-nowrap">
+            Build Logs
+          </span>
           <span className="text-muted-foreground min-w-0 truncate text-[11px]">
             {collapsedBuildLogSummary({
               complete: complete && !running,

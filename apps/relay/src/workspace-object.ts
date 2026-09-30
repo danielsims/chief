@@ -79,7 +79,9 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method === "GET" &&
         (operation === "secret-get" || operation === "secret-list");
       const readsVercel =
-        request.method === "GET" && operation === "vercel-destinations";
+        request.method === "GET" &&
+        (operation === "vercel-destinations" ||
+          operation === "vercel-deployment");
       const readsGitHub =
         request.method === "GET" &&
         (operation === "github-connection" ||
@@ -303,7 +305,8 @@ export class WorkspaceObject extends DurableObject<Env> {
         operation === "vercel-connect" ||
         operation === "vercel-destinations" ||
         operation === "vercel-provision" ||
-        operation === "vercel-redeploy"
+        operation === "vercel-redeploy" ||
+        operation === "vercel-deployment"
       ) {
         const vercel = new WorkspaceVercelService(ctx.storage, env);
         if (operation === "vercel-connect") {
@@ -314,6 +317,11 @@ export class WorkspaceObject extends DurableObject<Env> {
         if (operation === "vercel-destinations") {
           return yield* attempt("workspace.vercel.destinations", () =>
             vercel.destinations(request),
+          );
+        }
+        if (operation === "vercel-deployment") {
+          return yield* attempt("workspace.vercel.deployment", () =>
+            vercel.deployment(request),
           );
         }
         if (operation === "vercel-redeploy") {
