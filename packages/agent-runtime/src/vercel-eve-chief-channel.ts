@@ -24,6 +24,9 @@ const deliverySchema = z.object({ payload: z.object({
   people: z.array(z.object({
     id: z.string(), name: z.string(), role: z.string(),
   })).optional(),
+  thread: z.array(z.object({
+    author: z.string(), body: z.string(), createdAt: z.string(),
+  })).optional(),
 }) });
 type ChiefState = {
   deliveryId: string; capability: string; agentId: string;
@@ -217,6 +220,9 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
             : ${JSON.stringify(eveChiefChannelReplyGuidance)},
           ${JSON.stringify(toneTeammate.render())},
           peopleRoster(input.payload.people),
+          input.payload.thread?.length
+            ? \`The thread so far, oldest first:\n\${input.payload.thread.map((entry) => \`\${entry.author}: \${entry.body}\`).join("\\n")}\`
+            : "",
           conversationId ? \`Current conversation id: \${conversationId}.\` : "",
           messageId ? \`User message id: \${messageId}.\` : "",
           threadRootId ? \`Thread root id: \${threadRootId}.\` : "",

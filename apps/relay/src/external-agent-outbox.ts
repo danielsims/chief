@@ -1,8 +1,11 @@
 import type { ExternalAgentDeliveryCommand } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   externalAgentDeliveryCommandSchema,
   externalAgentDeliveryResultSchema,
+  messagePageSchema,
   parseJsonObject,
+  workspaceIdSchema,
 } from "@chief/relay-contracts";
 
 import {
@@ -11,8 +14,11 @@ import {
   requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
+import { externalAgentPrincipal } from "./external-agent-continuation";
 import { EXTERNAL_DELIVERY_LEASE_MS } from "./external-agent-outbox-deadline";
 import { HttpError } from "./http";
+import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { acceptDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/accept-delivery";
 import { claimDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/claim-delivery";
 import { dropReconcilingDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/drop-reconciling-delivery";
@@ -26,7 +32,10 @@ import { requeueDeliveryExternalAgentOutbox } from "./queries/external-agent-out
 import { resendReconcilingDeliveryExternalAgentOutbox } from "./queries/external-agent-outbox/resend-reconciling-delivery";
 import { retryStaleDeliveriesExternalAgentOutbox } from "./queries/external-agent-outbox/retry-stale-deliveries";
 import { externalAgentRuntimesFindRuntimeAgentIdEndpointUrlTokenSecretRefConnectionStatus } from "./queries/external-agent-runtimes/find-runtime-agent-id-endpoint-url-token-secret-ref-connection-status";
-import { externalRuntimeOwner } from "./workspace-agent-runtime";
+import {
+  externalRuntimeOwner,
+  workspaceAgentNames,
+} from "./workspace-agent-runtime";
 import { firstRow } from "./workspace-channel-store";
 import { workspacePeople } from "./workspace-member-names";
 import { setWorkspaceAlarm } from "./workspace-schedule-store";
@@ -321,7 +330,7 @@ export class ExternalAgentOutbox {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: this.deliveryBody(row),
+      body: await this.deliveryBody(workspaceId, row),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
@@ -363,17 +372,75 @@ export class ExternalAgentOutbox {
     return row;
   }
 
-  private deliveryBody(row: OutboxRow) {
+  private async deliveryBody(workspaceId: string, row: OutboxRow) {
     const envelope = parseJsonObject(JSON.parse(row.payload_json));
     if (!envelope) {
       return row.payload_json;
     }
     const payload = parseJsonObject(envelope.payload);
     if (!payload) return row.payload_json;
+    const people = workspacePeople(this.storage);
+    const delivery = externalAgentDeliveryCommandSchema.parse(envelope).payload;
     return JSON.stringify({
       ...envelope,
-      payload: { ...payload, people: workspacePeople(this.storage) },
+      payload: {
+        ...payload,
+        people,
+        thread: await this.thread(workspaceId, row.agent_id, delivery, people),
+      },
     });
+  }
+
+  /** The thread so far, so an agent answers with the whole conversation in view. */
+  private async thread(
+    workspaceId: string,
+    agentId: string,
+    delivery: ExternalAgentDeliveryCommand["payload"],
+    people: readonly { id: string; name: string }[],
+  ) {
+    if (!delivery.conversationId || !delivery.threadRootId) return [];
+    const url = new URL("https://conversation.internal/messages");
+    url.searchParams.set("threadRootId", delivery.threadRootId);
+    url.searchParams.set("limit", "50");
+    const response = await this.env.CONVERSATIONS.get(
+      this.env.CONVERSATIONS.idFromName(
+        `${workspaceId}:${delivery.conversationId}`,
+      ),
+    ).fetch(
+      withTrustedContext(
+        new Request(url, {
+          headers: { "x-chief-internal-operation": "agent-history" },
+        }),
+        {
+          principal: externalAgentPrincipal(
+            workspaceIdSchema.parse(workspaceId),
+            agentIdSchema.parse(agentId),
+          ),
+          requestId: crypto.randomUUID(),
+          workspaceId: workspaceIdSchema.parse(workspaceId),
+          conversationId: delivery.conversationId,
+        },
+      ),
+    );
+    if (!response.ok) {
+      await releaseInternalResponse(response);
+      return [];
+    }
+    const names = new Map([
+      ...people.map((person) => [person.id, person.name] as const),
+      ...workspaceAgentNames(this.storage),
+    ]);
+    return messagePageSchema
+      .parse(await response.json())
+      .messages.filter(
+        (message) =>
+          message.id !== delivery.message.id && message.body.trim() !== "",
+      )
+      .map((message) => ({
+        author: names.get(message.author.id) ?? message.author.id,
+        body: message.body.slice(0, 4_000),
+        createdAt: message.createdAt,
+      }));
   }
 
   private accept(agentId: string, deliveryId: string, sessionId: string) {
@@ -402,7 +469,7 @@ export class ExternalAgentOutbox {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: this.deliveryBody(row),
+      body: await this.deliveryBody(workspaceId, row),
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
