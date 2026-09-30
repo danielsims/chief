@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { agentIdSchema } from "./identifiers";
+
 export const vercelTeamOptionSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -74,6 +76,10 @@ export const eveAgentProvisioningResultSchema = z.object({
   deploymentUrl: z.string().url(),
   productionUrl: z.string().url(),
   inspectorUrl: z.string().url().optional(),
+});
+
+export const eveAgentRedeployCommandSchema = z.object({
+  agentId: agentIdSchema,
 });
 
 export const vercelDeploymentReadyStateSchema = z.enum([

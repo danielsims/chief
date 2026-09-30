@@ -166,24 +166,25 @@ export function EveDestinationForm({
   return (
     <div
       className={
-        presentation === "detail" ? "mt-4 space-y-5 border-t pt-4" : "space-y-5"
+        presentation === "detail"
+          ? "bg-muted/25 mt-3 space-y-4 rounded-2xl px-4 py-3.5"
+          : "space-y-5"
       }
     >
       {presentation === "detail" ? (
         <div>
-          <p className="text-sm font-medium">
-            Deploy {agent.name} to Vercel Eve
-          </p>
-          <p className="text-muted-foreground mt-1 text-[13px] leading-5">
-            Chief will package this agent’s instructions into a Vercel project.
-            Messaging and channel activity will continue through this relay.
+          <p className="text-[13px] font-medium">Deploy to Vercel Eve</p>
+          <p className="text-muted-foreground mt-0.5 text-[12px] leading-5">
+            Choose where {agent.name} runs. Chief keeps it up to date after
+            this.
           </p>
         </div>
       ) : null}
 
       {connection === "checking" ? (
         <p className="text-muted-foreground text-[13px]">Checking Vercel…</p>
-      ) : connection === "error" ? null : (
+      ) : connection === "error" ||
+        (connection === "connected" && presentation === "detail") ? null : (
         <VercelConnection
           connected={connection === "connected"}
           credentialKind="account-access-token"
@@ -256,6 +257,7 @@ export function EveDestinationForm({
           {presentation === "detail" ? (
             <Button
               variant="ghost"
+              size="sm"
               disabled={saving}
               onClick={() => {
                 clearEveDeploymentDraft(agent.id);
@@ -266,6 +268,7 @@ export function EveDestinationForm({
             </Button>
           ) : null}
           <Button
+            size={presentation === "detail" ? "sm" : "default"}
             disabled={!client || connection !== "connected" || saving}
             onClick={() => {
               if (destinationOnly) {

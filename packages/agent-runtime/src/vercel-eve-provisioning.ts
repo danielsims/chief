@@ -290,7 +290,10 @@ async function provisionVercelEveDeploymentInternal(
       : undefined;
   if (!deploymentUrl)
     throw new Error("Vercel did not return a deployment URL.");
-  const productionDomain = ready.alias?.[0];
+  // Chief only delivers to vercel.app hosts, so skip any custom domains.
+  const productionDomain = ready.alias?.find((alias) =>
+    alias.endsWith(".vercel.app"),
+  );
   if (!productionDomain)
     throw new Error("Vercel did not assign a production domain.");
 

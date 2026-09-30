@@ -206,6 +206,7 @@ function migrateExternalAgentSchema(storage: DurableObjectStorage) {
     ["delivery_signing_key_id", "TEXT NOT NULL DEFAULT ''"],
     ["delivery_signing_secret_ref", "TEXT NOT NULL DEFAULT ''"],
     ["replaces_native", "INTEGER NOT NULL DEFAULT 0"],
+    ["deployment_issue", "TEXT"],
   ]);
   addColumns(storage, "external_agent_outbox", [
     ["delivery_generation", "INTEGER NOT NULL DEFAULT 1"],
