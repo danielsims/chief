@@ -139,11 +139,24 @@ async function executeJob(
     createdAt: Date.parse(job.createdAt),
   });
   const runId = randomUUID();
-  await cell.leasesManager.acquire(cell.id, {
-    runId,
-    agentId,
-    ttlMs: 5 * 60_000,
-  });
+  try {
+    await cell.leasesManager.acquire(cell.id, {
+      runId,
+      agentId,
+      ttlMs: 5 * 60_000,
+    });
+  } catch (error) {
+    // Hand the job straight back rather than leaving it leased until expiry.
+    await client.completeAgentJob(agentId, {
+      leaseToken: lease.leaseToken,
+      outcome: {
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+        retryAt: new Date(Date.now() + 30_000).toISOString(),
+      },
+    });
+    throw error;
+  }
   let session: AgentSession | null = null;
   const renew = setInterval(() => {
     void Promise.all([
@@ -423,6 +436,9 @@ async function listenForJobs() {
     `${requiredEnvironment("CHIEF_WORKSPACE_ID")}:${requiredEnvironment("CHIEF_AGENT_ID")}`,
     store.cellStore(),
   );
+  // This process is the cell's only worker, so a run lease still on disk was
+  // left by a previous process that exited mid-run.
+  await cell.leasesManager.expireStale(Number.MAX_SAFE_INTEGER);
   let draining: Promise<void> | null = null;
   const drain = () => {
     draining ??= drainMailbox(cell, client, config).finally(() => {
@@ -458,14 +474,20 @@ async function listenForJobs() {
         socket.on("message", () => {
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        const poll = setInterval(() => {
+        // The relay pushes every job that becomes claimable, including delayed
+        // jobs and expired leases, so claims follow socket messages. The slow
+        // drain only covers a push lost on a socket that died silently.
+        const keepAlive = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) socket.ping();
+        }, 30_000);
+        const fallback = setInterval(() => {
           void drain().catch((error) =>
             console.error("[cell] mailbox poll:", error),
           );
-          if (socket.readyState === WebSocket.OPEN) socket.ping();
-        }, 30_000);
+        }, 300_000);
         socket.on("close", () => {
-          clearInterval(poll);
+          clearInterval(keepAlive);
+          clearInterval(fallback);
           resolve();
         });
         socket.on("error", (error) => {
