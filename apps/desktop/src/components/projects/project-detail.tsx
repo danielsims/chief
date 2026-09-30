@@ -122,8 +122,9 @@ export function ProjectDetail({
               {project.name}
             </h1>
             <p className="text-muted-foreground mt-1 truncate text-[13px] leading-5">
-              {repositoryPath ??
+              {repositoryWebUrl ??
                 project.canonicalRemoteUrl ??
+                repositoryPath ??
                 "Local-only repository on another runtime"}
             </p>
           </div>
