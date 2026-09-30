@@ -376,10 +376,12 @@ export function AgentDetail({
 
                 {activeTab === "permissions" ? (
                   <>
-                    <AgentMessageAccess
-                      agentId={agent.id}
-                      client={relayClient}
-                    />
+                    {execution.deployment.kind === "on-device" ? (
+                      <AgentMessageAccess
+                        agentId={agent.id}
+                        client={relayClient}
+                      />
+                    ) : null}
                     <AgentPermissionsTab
                       permissions={toolPermissions}
                       ready={ready}

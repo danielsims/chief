@@ -171,9 +171,12 @@ export class WorkspaceVercelService {
 
   /** Redeploys every Eve agent whose generated project differs from what is live. */
   async updateOutdatedAgents(workspaceId: string) {
-    for (const { agent_id: agentId } of externalAgentSnapshotRows(
-      this.storage,
-    )) {
+    for (const {
+      agent_id: agentId,
+      connection_status: status,
+    } of externalAgentSnapshotRows(this.storage)) {
+      // Agents still being set up are deployed by that flow.
+      if (status === "pending_setup") continue;
       const input = await this.deployedInput(workspaceId, agentId);
       if (!input) {
         this.setDeploymentIssue(
