@@ -151,11 +151,13 @@ function AddProjectDialogForm({
     }
     setError(null);
     setChecking(true);
-    const publicRepository =
+    // With GitHub connected, the clone uses its access; otherwise only public
+    // repositories can be added straight away.
+    const addable =
       connected ||
       (await isPublicGitHubRepository(repository).catch(() => false));
     setChecking(false);
-    if (publicRepository) {
+    if (addable) {
       await add(remoteUrl);
       return;
     }
