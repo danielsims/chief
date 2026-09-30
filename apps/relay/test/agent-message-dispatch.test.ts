@@ -118,6 +118,37 @@ describe("workspace agent message dispatch", () => {
     expect(await directAgentMembers(ctx, conversationId)).toEqual([agentId]);
   });
 
+  it("keeps an agent's own conversation when removing a stray agent from it", async () => {
+    const ctx = await setup();
+    const chiefId = agentIdSchema.parse("chief");
+    const engineerId = agentIdSchema.parse("engineer");
+    await registerAgent(ctx, chiefId, hexKey(String(chiefId)));
+    await registerAgent(ctx, engineerId, hexKey(String(engineerId)));
+    await assignProvider(ctx, chiefId);
+    await assignProvider(ctx, engineerId);
+    const added = await rpc(
+      ctx,
+      ctx.principal,
+      "channels-members-add",
+      envelope({
+        conversationId: "chief",
+        kind: "agent",
+        principalId: engineerId,
+      }),
+    );
+    expect(added.status).toBe(200);
+    expect(await directAgentMembers(ctx, "chief")).toHaveLength(2);
+
+    const response = await dispatchMessage(
+      ctx,
+      ctx.principal,
+      testMessage(ctx, "chief", "How about now?"),
+    );
+
+    expect(await response.json()).toEqual({ agentIds: [chiefId] });
+    expect(await directAgentMembers(ctx, "chief")).toEqual([chiefId]);
+  });
+
   it("invites and dispatches an agent mentioned outside a private channel", async () => {
     const ctx = await setup();
     await registerAgent(ctx, agentId, hexKey(String(agentId)));

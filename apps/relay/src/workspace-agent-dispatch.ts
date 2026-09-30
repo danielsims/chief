@@ -299,8 +299,10 @@ async function addMentionedAgentsToChannel(input: {
 
 /**
  * Earlier relays let mentions invite agents into direct conversations, where
- * every agent member answers every message. Anyone who isn't part of the pair
- * the conversation's id was derived from is removed.
+ * every agent member answers every message. A direct conversation belongs to
+ * its creator and one participant: the agent it is named after (the original
+ * per-agent conversations), or the principal its dm- id was derived from.
+ * Other members are removed, and only once that participant is identified.
  */
 async function removeStrayDirectMembers(
   store: WorkspaceChannelStore,
@@ -310,13 +312,20 @@ async function removeStrayDirectMembers(
   const members = store.channelMemberRows(conversationId);
   if (members.length <= 2) return;
   const creator = `${String(channel.created_by_kind)}:${String(channel.created_by_id)}`;
-  const strays: typeof members = [];
+  const participants = new Set([creator]);
   for (const member of members) {
     const principal = `${member.kind}:${member.principalId}`;
-    if (principal === creator) continue;
-    if ((await directConversationId(creator, principal)) !== conversationId)
-      strays.push(member);
+    if (
+      (member.kind === "agent" && member.principalId === conversationId) ||
+      (await directConversationId(creator, principal)) === conversationId
+    ) {
+      participants.add(principal);
+    }
   }
+  if (participants.size !== 2) return;
+  const strays = members.filter(
+    (member) => !participants.has(`${member.kind}:${member.principalId}`),
+  );
   if (strays.length === 0) return;
   store.storage.transactionSync(() => {
     for (const member of strays) {
