@@ -66,6 +66,10 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   fetch(request: Request) {
+    if (!this.eveAgentsUpdated) {
+      this.eveAgentsUpdated = true;
+      this.ctx.waitUntil(updateOutdatedEveAgents(this.ctx.storage, this.env));
+    }
     const connectWebSocket = this.connectWebSocket.bind(this);
     const routeOperation = this.routeOperation.bind(this);
     const program = Effect.gen(function* () {
@@ -115,11 +119,7 @@ export class WorkspaceObject extends DurableObject<Env> {
   private eveAgentsUpdated = false;
 
   async alarm() {
-    const updates = this.eveAgentsUpdated
-      ? Promise.resolve()
-      : updateOutdatedEveAgents(this.ctx.storage, this.env);
-    this.eveAgentsUpdated = true;
-    await Promise.all([runWorkspaceAlarm(this.ctx.storage, this.env), updates]);
+    await runWorkspaceAlarm(this.ctx.storage, this.env);
   }
 
   private routeOperation(request: Request, operation: string | null) {
