@@ -19,10 +19,7 @@ import {
 } from "./external-agent-channel-security";
 import { receiveExternalAgentTool } from "./external-agent-channel-tools";
 import { externalAgentPrincipal } from "./external-agent-continuation";
-import {
-  externalConversationFetch,
-  markExternalAgentWorking,
-} from "./external-agent-conversation";
+import { externalConversationFetch } from "./external-agent-conversation";
 import { receiveExternalAgentMemory } from "./external-agent-memory";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { externalAgentRegistrationReplay } from "./external-agent-registration-result";
@@ -362,19 +359,6 @@ export class ExternalAgentChannelService {
       conversationId,
       threadRootId,
     );
-    if (queued && !command.payload.scheduleStepId) {
-      await markExternalAgentWorking(
-        this.env,
-        workspaceId,
-        conversationId,
-        command.payload.message.id,
-        externalAgentPrincipal(
-          workspaceIdSchema.parse(workspaceId),
-          agentIdSchema.parse(agentId),
-        ),
-        true,
-      );
-    }
     if (queued) {
       await this.reportDeploymentIssue(
         workspaceId,
