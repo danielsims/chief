@@ -1,17 +1,7 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
 import type { AgentActivityPresence } from "./agent-activity-presence";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
-
-function activityColor(agentId: string) {
-  return isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
-    : undefined;
-}
 
 export function AgentActivityComposerRow({
   agents,
@@ -50,28 +40,14 @@ export function AgentActivityComposerRow({
         className="group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors duration-150"
         aria-label={`${visibleStatusLabel}. View activity.`}
       >
-        <span className="flex shrink-0 items-center -space-x-1">
-          {visibleAgents.slice(0, 2).map((agent) => {
-            const color = activityColor(agent.id);
-            // Drawn like the agent's avatar: its colour fills the tile and the
-            // loader sits on top in ink, so every colour reads in both themes.
-            return (
-              <span
-                key={agent.id}
-                className="ring-background grid size-[18px] place-items-center rounded-md bg-current/10 text-current shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent)] ring-1"
-                style={
-                  color
-                    ? { backgroundColor: color, color: "#090909" }
-                    : undefined
-                }
-              >
-                <MatrixLoader
-                  ariaLabel={`${agent.label} is working`}
-                  size={13}
-                />
-              </span>
-            );
-          })}
+        <span className="flex shrink-0 items-center gap-1">
+          {visibleAgents.slice(0, 2).map((agent) => (
+            <MatrixLoader
+              key={agent.id}
+              ariaLabel={`${agent.label} is working`}
+              size={13}
+            />
+          ))}
         </span>
         {visibleAgents.length > 2 ? (
           <span className="text-muted-foreground shrink-0 text-[9px] font-medium">
