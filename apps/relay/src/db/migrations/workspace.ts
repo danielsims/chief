@@ -283,5 +283,10 @@ function migrateLegacyChannelSchema(storage: DurableObjectStorage) {
              (SELECT created_at FROM workspace WHERE singleton = 1),
              ''
            )
+     -- Runs on every start: only rows still missing a value are rewritten.
+     WHERE COALESCE(workspace_id, '') = ''
+        OR COALESCE(created_by_id, '') = ''
+        OR COALESCE(created_at, '') = ''
+        OR COALESCE(updated_at, '') = ''
   `);
 }

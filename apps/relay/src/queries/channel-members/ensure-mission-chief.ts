@@ -17,6 +17,7 @@ INSERT INTO channel_members (
           )
         ON CONFLICT(conversation_id, principal_kind, principal_id) DO UPDATE
           SET role = 'owner'
+          WHERE role <> 'owner'
 `),
   );
 }
