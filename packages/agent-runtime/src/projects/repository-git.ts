@@ -311,19 +311,28 @@ export async function repositorySnapshot(
       .split("\n")
       .filter((line) => line && !line.startsWith("#")).length;
     const iconDataUrl = await projectIconDataUrl(binding.repositoryPath, head);
+    // Local branches and the remote branches with no local counterpart,
+    // named as Git resolves them (for example origin/feature).
     const branchOutput = await git(
       [
         "for-each-ref",
-        "--count=40",
-        "--format=%(refname:short)%00%(objectname:short)%00%(subject)",
+        "--sort=-committerdate",
+        "--format=%(refname:short)%00%(objectname:short)%00%(subject)%00%(upstream:short)%00%(symref)",
         "refs/heads",
+        "refs/remotes",
       ],
       binding.repositoryPath,
     );
-    const branchSummaries = branchOutput.split("\n").flatMap((line) => {
-      const [name, shortHash, subject] = line.split("\0");
-      return name && shortHash && subject ? [{ name, shortHash, subject }] : [];
+    const refs = branchOutput.split("\n").flatMap((line) => {
+      const [name, shortHash, subject, upstream, symref] = line.split("\0");
+      return name && shortHash && subject !== undefined && !symref
+        ? [{ name, shortHash, subject, upstream }]
+        : [];
     });
+    const tracked = new Set(refs.map(({ upstream }) => upstream));
+    const branchSummaries = refs
+      .filter(({ name }) => !tracked.has(name))
+      .map(({ name, shortHash, subject }) => ({ name, shortHash, subject }));
     return {
       project,
       binding,
