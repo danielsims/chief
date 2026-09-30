@@ -15,6 +15,8 @@ export interface ConversationActivityTurn {
   agentId?: string;
   prompt: string;
   blocks: ContentBlock[];
+  /** When each tool call last changed, keyed by tool use id. */
+  toolTimes: Map<string, number>;
 }
 
 function activityBlocks(blocks: readonly ContentBlock[]) {
@@ -81,12 +83,20 @@ export function conversationActivityTurns(
         startedAt: message.createdAt ?? prompt?.createdAt,
         prompt: prompt ? visiblePrompt(prompt.blocks) : "Agent-initiated work",
         blocks: [],
+        toolTimes: new Map(),
       };
       groups.set(key, turn);
       turns.push(turn);
     }
     turn.updatedAt = message.createdAt ?? turn.updatedAt;
     turn.blocks.push(...blocks);
+    if (message.createdAt === undefined) continue;
+    for (const block of blocks) {
+      if (block.type === "tool_use")
+        turn.toolTimes.set(block.id, message.createdAt);
+      if (block.type === "tool_result")
+        turn.toolTimes.set(block.tool_use_id, message.createdAt);
+    }
   }
   return turns;
 }

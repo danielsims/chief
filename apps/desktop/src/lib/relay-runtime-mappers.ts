@@ -108,7 +108,16 @@ export function agentRunEvent(message: ConversationMessage) {
           : "The agent run was interrupted.",
       };
     }
-    return { type: "status" as const, status: "running" as const };
+    // Completed steps can land after the reply; only unfinished work means
+    // the agent is still running.
+    const working = message.components.some(
+      (component) =>
+        component.payload.status === "running" ||
+        component.payload.status === "working",
+    );
+    return working
+      ? { type: "status" as const, status: "running" as const }
+      : undefined;
   }
   return message.author.kind === "agent"
     ? { type: "result" as const, ok: true }
