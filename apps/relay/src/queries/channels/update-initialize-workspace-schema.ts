@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { relayDatabase } from "../../db/connection";
 import { executeDatabaseQuery } from "../../db/execute";
@@ -13,7 +13,12 @@ export function channelsUpdateInitializeWorkspaceSchema(
       db
         .update(channels)
         .set({ is_private: 0 })
-        .where(eq(channels.conversation_id, "mission-control")),
+        .where(
+          and(
+            eq(channels.conversation_id, "mission-control"),
+            ne(channels.is_private, 0),
+          ),
+        ),
     ),
   );
 }
