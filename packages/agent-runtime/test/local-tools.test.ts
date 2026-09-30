@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
+import { LocalStore } from "../src/local-store.js";
 import { handleLocalTool, localToolsOpenApi } from "../src/local-tools.js";
 import { SessionManager } from "../src/manager.js";
 import { defaultWorkspaceWaysOfWorking } from "../src/workspace-ways-of-working.js";
@@ -15,7 +19,11 @@ function operation(
   return result;
 }
 
-const manager = new SessionManager();
+const directory = mkdtempSync(join(tmpdir(), "chief-local-tools-"));
+const manager = new SessionManager(
+  new LocalStore(join(directory, "chief.sqlite")),
+);
+test.after(() => rmSync(directory, { recursive: true, force: true }));
 manager.workspaceData = () =>
   Promise.resolve({
     prospects: [],
@@ -192,9 +200,8 @@ void test("file writes notify the owning specialist publication hook", async () 
     updatedAt: 1,
   };
   const published: unknown[] = [];
-  const fileManager = new SessionManager();
-  fileManager.workspaceData = () => manager.workspaceData("workspace-1");
-  fileManager.saveWorkspaceFile = () => Promise.resolve(file);
+  const saveWorkspaceFile = manager.saveWorkspaceFile.bind(manager);
+  manager.saveWorkspaceFile = () => Promise.resolve(file);
 
   const response = await handleLocalTool(
     new Request("http://127.0.0.1:4318/local-tools/files/write", {
@@ -207,13 +214,15 @@ void test("file writes notify the owning specialist publication hook", async () 
       }),
     }),
     "workspace-1",
-    fileManager,
+    manager,
     {
       onFileWritten: (written) => {
         published.push(written);
       },
     },
-  );
+  ).finally(() => {
+    manager.saveWorkspaceFile = saveWorkspaceFile;
+  });
 
   assert.equal(response.status, 200);
   assert.deepEqual(published, [file]);
