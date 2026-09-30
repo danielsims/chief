@@ -24,10 +24,15 @@ export interface ChatControlState {
   questions: PendingQuestion[];
   toolProgress: Record<string, string>;
   /** Agents with a turn in progress, so several can show as working at once. */
-  workingAgentIds: string[];
+  workingAgents: WorkingAgent[];
   lastCostUsd?: number;
   error?: ChatRuntimeError;
   errorAcknowledged?: boolean;
+}
+
+export interface WorkingAgent {
+  agentId: string;
+  threadRootId?: string;
 }
 
 export interface ChatRuntimeError {
@@ -43,17 +48,22 @@ export const emptyChatControls: ChatControlState = {
   approvals: [],
   questions: [],
   toolProgress: {},
-  workingAgentIds: [],
+  workingAgents: [],
 };
 
 function withWorkingAgent(
   controls: ChatControlState,
-  agentId: string | undefined,
+  agent: { agentId?: string; threadRootId?: string },
   working: boolean,
 ) {
-  if (!agentId) return controls.workingAgentIds;
-  const others = controls.workingAgentIds.filter((id) => id !== agentId);
-  return working ? [...others, agentId] : others;
+  const { agentId, threadRootId } = agent;
+  if (!agentId) return controls.workingAgents;
+  const others = controls.workingAgents.filter(
+    (entry) => entry.agentId !== agentId || entry.threadRootId !== threadRootId,
+  );
+  return working
+    ? [...others, { agentId, ...(threadRootId ? { threadRootId } : undefined) }]
+    : others;
 }
 
 /** Prevents process state from one conversation appearing on another while
@@ -111,13 +121,13 @@ export function reduceChatControls(
     case "result": {
       const message = event.ok ? undefined : visibleRuntimeError(event.error);
       const error = message ? { message } : undefined;
-      const workingAgentIds = event.agentId
-        ? withWorkingAgent(controls, event.agentId, false)
+      const workingAgents = event.agentId
+        ? withWorkingAgent(controls, event, false)
         : [];
       return {
         ...controls,
-        status: workingAgentIds.length > 0 ? "running" : "idle",
-        workingAgentIds,
+        status: workingAgents.length > 0 ? "running" : "idle",
+        workingAgents,
         approvals: [],
         questions: [],
         lastCostUsd: event.costUsd ?? controls.lastCostUsd,
@@ -128,9 +138,9 @@ export function reduceChatControls(
     case "status":
       return {
         ...controls,
-        workingAgentIds: withWorkingAgent(
+        workingAgents: withWorkingAgent(
           controls,
-          event.agentId,
+          event,
           event.status === "running",
         ),
         status: event.status === "running" ? "running" : "idle",
@@ -143,7 +153,7 @@ export function reduceChatControls(
         return {
           ...controls,
           status: "idle",
-          workingAgentIds: [],
+          workingAgents: [],
           approvals: [],
           questions: [],
         };
@@ -155,8 +165,8 @@ export function reduceChatControls(
           ...(event.code ? { code: event.code } : undefined),
           ...(event.agentId ? { agentId: event.agentId } : undefined),
         }),
-        workingAgentIds: event.agentId
-          ? withWorkingAgent(controls, event.agentId, false)
+        workingAgents: event.agentId
+          ? withWorkingAgent(controls, event, false)
           : [],
       };
     case "exit":
