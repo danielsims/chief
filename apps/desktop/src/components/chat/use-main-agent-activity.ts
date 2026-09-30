@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { SessionRecord } from "@chief/agent-runtime/types";
 import type { ScheduleRun } from "@chief/relay-contracts";
 
+import type { WorkingAgent } from "../../lib/runtime-chat-controls";
 import {
   isWorkspaceAgentId,
   WORKSPACE_AGENT_IDENTITIES,
@@ -28,6 +29,7 @@ export function useMainAgentActivity({
   statusLabel,
   tasks,
   scheduleRuns,
+  workingAgents,
 }: {
   activeRootTurn: { agentId: string; threadRootId?: string } | null;
   channelAgentIds?: readonly string[];
@@ -36,6 +38,7 @@ export function useMainAgentActivity({
   statusLabel: string;
   scheduleRuns: readonly ScheduleRun[];
   tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[];
+  workingAgents: readonly WorkingAgent[];
 }) {
   const agents = useMemo(() => {
     const fallbackRootAgentId =
@@ -48,6 +51,12 @@ export function useMainAgentActivity({
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
     return mergeAgentActivityPresence(root, [
+      ...workingAgents
+        .filter((agent) => !agent.threadRootId)
+        .map((agent) => ({
+          id: agent.agentId,
+          label: activityAgentName(agent.agentId),
+        })),
       ...taskAgentActivityPresence(tasks, activityAgentName),
       ...scheduledAgentActivityPresence(scheduleRuns, activityAgentName),
     ]);
@@ -58,6 +67,7 @@ export function useMainAgentActivity({
     running,
     tasks,
     scheduleRuns,
+    workingAgents,
   ]);
 
   return {

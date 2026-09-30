@@ -20,7 +20,8 @@ void test("falls back to the relay when this machine has no Vercel token", async
             kind: "complete",
             result: {
               deploymentId: "dpl_relay",
-              deploymentUrl: "https://relay-eve.vercel.app",
+              deploymentUrl: "https://relay-eve-abc.vercel.app",
+              productionUrl: "https://relay-eve.vercel.app",
               projectId: "prj_relay",
             },
           })}\n`,

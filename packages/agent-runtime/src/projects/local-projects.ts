@@ -51,6 +51,8 @@ const prepareSchema = z.discriminatedUnion("source", [
       .transform((value) => workspaceIdSchema.parse(value)),
     source: z.literal("clone"),
     remoteUrl: z.string().trim().min(1),
+    /** A short-lived GitHub token for this one clone; never stored. */
+    accessToken: z.string().trim().min(1).optional(),
   }),
 ]);
 
@@ -93,10 +95,23 @@ export async function prepareLocalProject(
     );
     await mkdir(join(destination, ".."), { recursive: true, mode: 0o700 });
     try {
-      await git(["clone", "--", remote, destination], undefined, 120_000);
+      await git(
+        ["clone", "--", remote, destination],
+        undefined,
+        120_000,
+        parsed.accessToken
+          ? {
+              "http.extraheader": `AUTHORIZATION: basic ${Buffer.from(
+                `x-access-token:${parsed.accessToken}`,
+              ).toString("base64")}`,
+            }
+          : {},
+      );
     } catch {
       throw new Error(
-        "Could not clone this repository. For private GitHub repositories, run gh auth login and gh auth setup-git on this Mac, or use an SSH URL with an authorized SSH key. You can also attach an existing checkout.",
+        parsed.accessToken
+          ? "Chief couldn't clone this repository. Try again."
+          : "Chief couldn't clone this repository. Check the URL, and for a private repository make sure it's shared with Chief on GitHub.",
       );
     }
     path = await repositoryRoot(destination);

@@ -102,3 +102,19 @@ export function externalRuntimeOwner(
     )?.id ?? agentId
   );
 }
+
+/** Every agent and subagent in the workspace, by id, with its display name. */
+export function workspaceAgentNames(storage: DurableObjectStorage) {
+  const row = firstRow<
+    { snapshot_json: string | null } & Record<string, SqlStorageValue>
+  >(workspaceFindWorkspaceAgent(storage));
+  const agents = row?.snapshot_json
+    ? decodeWorkspaceSnapshot(row.snapshot_json).agents
+    : [];
+  return new Map(
+    agents.flatMap((agent) => [
+      [agent.id, agent.name] as const,
+      ...agent.subagents.map((child) => [child.id, child.name] as const),
+    ]),
+  );
+}

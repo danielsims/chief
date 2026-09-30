@@ -123,6 +123,13 @@ function isMessageAppend(
   return (
     request.method === "POST" &&
     new URL(request.url).pathname ===
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages`
+      new URL(conversationMessagesUrl(workspaceId, conversationId)).pathname
   );
+}
+
+export function conversationMessagesUrl(
+  workspaceId: string,
+  conversationId: string,
+) {
+  return `https://relay.internal/v1/workspaces/${encodeURIComponent(workspaceId)}/conversations/${encodeURIComponent(conversationId)}/messages`;
 }

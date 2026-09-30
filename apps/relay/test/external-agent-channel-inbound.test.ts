@@ -4,6 +4,7 @@ import { agentIdSchema } from "@chief/relay-contracts";
 
 import {
   activeTestSnapshot,
+  appendConversationMessage,
   appendRootMessage,
   channelEnvelope,
   channelRpc,
@@ -312,7 +313,11 @@ describe("external agent channel inbound", () => {
         });
       }),
     );
-    const triggerId = crypto.randomUUID();
+    const triggerId = await appendConversationMessage(
+      ctx,
+      conversationId,
+      "Hello Chief.",
+    );
     await dispatchTestMessage(ctx, ctx.principal, {
       id: triggerId,
       workspaceId: ctx.workspaceId,
@@ -330,6 +335,11 @@ describe("external agent channel inbound", () => {
     await vi.waitFor(() => expect(delivered.current).not.toBeNull());
     if (!delivered.current) throw new Error("Expected an external delivery.");
     const continuation = delivered.current.payload.continuation;
+    const eyes = async () =>
+      (await testConversationMessages(ctx, ctx.principal, conversationId))
+        .find((message) => message.id === triggerId)
+        ?.reactions.some((reaction) => reaction.emoji === "👀");
+    expect(await eyes()).toBe(false);
     const thinking = await receiveExternalActivity(
       ctx,
       "eve-dm",
@@ -356,6 +366,7 @@ describe("external agent channel inbound", () => {
       sessionId: "eve-dm-session",
       body: "Hello. What should we work on first?",
     };
+    expect(await eyes()).toBe(true);
     const accepted = await receiveExternalAgent(
       ctx,
       "eve-dm",
@@ -365,6 +376,7 @@ describe("external agent channel inbound", () => {
 
     expect(thinking.status).toBe(200);
     expect(accepted.status).toBe(200);
+    expect(await eyes()).toBe(false);
     const messages = await testConversationMessages(
       ctx,
       ctx.principal,

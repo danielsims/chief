@@ -201,6 +201,7 @@ export function useProjectBrowser(
   project: ProjectRecord | undefined,
   ref: string | undefined,
   path: string,
+  hasLocalRepository: boolean,
 ) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
@@ -215,8 +216,12 @@ export function useProjectBrowser(
   const [error, setError] = useState<string | null>(null);
   const activeRequest = useRef<string | null>(null);
   const cached = key ? browserCache.get(key) : undefined;
+  // A local clone is the repository itself; relay files only stand in when
+  // there is nothing on disk to read.
   const relayBrowser =
-    project && ref ? relayProjectBrowser(project, ref, path) : undefined;
+    !hasLocalRepository && project && ref
+      ? relayProjectBrowser(project, ref, path)
+      : undefined;
   const browser =
     relayBrowser ??
     (received && received.key === key ? received.browser : cached);

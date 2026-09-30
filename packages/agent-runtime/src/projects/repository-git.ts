@@ -88,12 +88,18 @@ export async function git(
   args: string[],
   cwd?: string,
   timeout = GIT_TIMEOUT_MS,
+  config: Record<string, string> = {},
 ) {
   try {
     const result = await executeFile("git", gitCommand(args), {
       ...(cwd ? { cwd } : undefined),
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        LC_ALL: "C",
+        ...environmentConfig(config),
+      },
       maxBuffer: GIT_OUTPUT_LIMIT,
       timeout,
     });
@@ -101,6 +107,22 @@ export async function git(
   } catch (error) {
     throw new Error(textGitError(error));
   }
+}
+
+/**
+ * Passes one-off Git config through the environment rather than `-c`, so
+ * values such as access tokens never appear in process listings.
+ */
+function environmentConfig(config: Record<string, string>) {
+  const entries = Object.entries(config);
+  const environment: Record<string, string> = {};
+  if (entries.length === 0) return environment;
+  environment.GIT_CONFIG_COUNT = String(entries.length);
+  entries.forEach(([key, value], index) => {
+    environment[`GIT_CONFIG_KEY_${index}`] = key;
+    environment[`GIT_CONFIG_VALUE_${index}`] = value;
+  });
+  return environment;
 }
 
 export async function gitBuffer(
@@ -289,19 +311,28 @@ export async function repositorySnapshot(
       .split("\n")
       .filter((line) => line && !line.startsWith("#")).length;
     const iconDataUrl = await projectIconDataUrl(binding.repositoryPath, head);
+    // Local branches and the remote branches with no local counterpart,
+    // named as Git resolves them (for example origin/feature).
     const branchOutput = await git(
       [
         "for-each-ref",
-        "--count=40",
-        "--format=%(refname:short)%00%(objectname:short)%00%(subject)",
+        "--sort=-committerdate",
+        "--format=%(refname:short)%00%(objectname:short)%00%(subject)%00%(upstream:short)%00%(symref)",
         "refs/heads",
+        "refs/remotes",
       ],
       binding.repositoryPath,
     );
-    const branchSummaries = branchOutput.split("\n").flatMap((line) => {
-      const [name, shortHash, subject] = line.split("\0");
-      return name && shortHash && subject ? [{ name, shortHash, subject }] : [];
+    const refs = branchOutput.split("\n").flatMap((line) => {
+      const [name, shortHash, subject, upstream, symref] = line.split("\0");
+      return name && shortHash && subject !== undefined && !symref
+        ? [{ name, shortHash, subject, upstream }]
+        : [];
     });
+    const tracked = new Set(refs.map(({ upstream }) => upstream));
+    const branchSummaries = refs
+      .filter(({ name }) => !tracked.has(name))
+      .map(({ name, shortHash, subject }) => ({ name, shortHash, subject }));
     return {
       project,
       binding,

@@ -97,6 +97,9 @@ export function agentRunEvent(message: ConversationMessage) {
       return {
         type: "error" as const,
         agentId: message.author.id,
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
         ...(isJsonString(error.payload.code)
           ? { code: error.payload.code }
           : undefined),
@@ -108,10 +111,33 @@ export function agentRunEvent(message: ConversationMessage) {
           : "The agent run was interrupted.",
       };
     }
-    return { type: "status" as const, status: "running" as const };
+    // Completed steps can land after the reply; only unfinished work means
+    // the agent is still running.
+    const working = message.components.some(
+      (component) =>
+        component.payload.status === "running" ||
+        component.payload.status === "working",
+    );
+    return working
+      ? {
+          type: "status" as const,
+          status: "running" as const,
+          agentId: message.author.id,
+          ...(message.threadRootId
+            ? { threadRootId: message.threadRootId }
+            : undefined),
+        }
+      : undefined;
   }
   return message.author.kind === "agent"
-    ? { type: "result" as const, ok: true }
+    ? {
+        type: "result" as const,
+        ok: true,
+        agentId: message.author.id,
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
+      }
     : undefined;
 }
 

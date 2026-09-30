@@ -49,6 +49,7 @@ import {
   toChiefMessage,
 } from "./relay-runtime-mappers";
 import { appendRelayMessage } from "./relay-runtime-messages";
+import { localProjectSnapshots } from "./relay-runtime-project-connect";
 import { routeRelayWorkspaceDataCommand } from "./relay-runtime-workspace-data";
 import {
   loadWorkspaceCursor,
@@ -79,14 +80,29 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (this.snapshot === snapshot) return;
     this.snapshot = snapshot;
     this.emit({ type: "agents", agents: relayAgentDefinitions(snapshot) });
-    this.emit({
-      type: "projects",
-      workspaceId: snapshot.id,
-      projects: relayProjectSnapshots(snapshot.projects),
-    });
+    void this.emitProjects();
     void this.listChannels().catch((error: unknown) =>
       this.recordError(parseRelayError(error)),
     );
+  }
+
+  private projectsRevision = 0;
+
+  // Every project update carries this machine's local clones, so a snapshot
+  // refresh never hides a clone behind the relay's copy of the project.
+  private async emitProjects() {
+    const revision = ++this.projectsRevision;
+    const snapshot = this.snapshot;
+    try {
+      const projects = await localProjectSnapshots(
+        snapshot.id,
+        relayProjectSnapshots(snapshot.projects),
+      );
+      if (revision !== this.projectsRevision) return;
+      this.emit({ type: "projects", workspaceId: snapshot.id, projects });
+    } catch (error) {
+      this.recordError(parseRelayError(error));
+    }
   }
 
   constructor(
@@ -135,11 +151,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     await this.refreshSnapshot();
     await this.listChats();
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
-    this.emit({
-      type: "projects",
-      workspaceId: this.snapshot.id,
-      projects: relayProjectSnapshots(this.snapshot.projects),
-    });
+    await this.emitProjects();
     await this.listChannels();
   }
   async createNativeAgent(
@@ -449,18 +461,22 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (isChannelMembershipMessage(message)) {
       this.requestChannelRosterRefresh();
     }
-    const knownChannel = this.snapshot.conversations.some(
-      (conversation) =>
-        conversation.id === message.conversationId &&
-        conversation.kind === "channel",
+    const knownConversation = this.snapshot.conversations.find(
+      (conversation) => conversation.id === message.conversationId,
     );
+    const knownChannel = knownConversation?.kind === "channel";
+    const revised =
+      event.type === "conversation.message.reacted" ||
+      event.type === "conversation.message.edited" ||
+      event.type === "conversation.message.deleted";
+    if (!isActivity && revised && knownConversation?.kind === "direct") {
+      void this.openChannelEvents(message.conversationId).catch((error) =>
+        this.recordError(parseRelayError(error)),
+      );
+    }
     if (!isActivity && (knownChannel || isChannelMembershipMessage(message))) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
-      if (
-        event.type === "conversation.message.reacted" ||
-        event.type === "conversation.message.edited" ||
-        event.type === "conversation.message.deleted"
-      ) {
+      if (revised) {
         void this.openChannelEvents(message.conversationId).catch((error) =>
           this.recordError(parseRelayError(error)),
         );

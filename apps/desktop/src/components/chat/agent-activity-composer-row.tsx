@@ -7,12 +7,6 @@ import {
 } from "../../lib/workspace-channels";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
 
-function activityColor(agentId: string) {
-  return isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
-    : undefined;
-}
-
 export function AgentActivityComposerRow({
   agents,
   agentLabel = "Chief",
@@ -50,24 +44,19 @@ export function AgentActivityComposerRow({
         className="group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors duration-150"
         aria-label={`${visibleStatusLabel}. View activity.`}
       >
-        <span className="flex shrink-0 items-center -space-x-1">
-          {visibleAgents.slice(0, 2).map((agent) => (
-            <span
+        <span className="flex shrink-0 items-center gap-1">
+          {visibleAgents.slice(0, 4).map((agent) => (
+            <MatrixLoader
               key={agent.id}
-              className="ring-background grid size-[18px] place-items-center rounded-md bg-current/10 text-current ring-1"
-              style={{ color: activityColor(agent.id) }}
-            >
-              <MatrixLoader
-                ariaLabel={`${agent.label} is working`}
-                color={activityColor(agent.id)}
-                size={13}
-              />
-            </span>
+              ariaLabel={`${agent.label} is working`}
+              color={agentLoaderColor(agent.id)}
+              size={13}
+            />
           ))}
         </span>
-        {visibleAgents.length > 2 ? (
+        {visibleAgents.length > 4 ? (
           <span className="text-muted-foreground shrink-0 text-[9px] font-medium">
-            +{visibleAgents.length - 2}
+            +{visibleAgents.length - 4}
           </span>
         ) : null}
         <span className="chief-shimmer-text min-w-0 truncate text-[11px] font-medium">
@@ -79,4 +68,12 @@ export function AgentActivityComposerRow({
       </button>
     </div>
   );
+}
+
+// White identities (Chief) follow the text colour so they stay visible in light mode.
+function agentLoaderColor(agentId: string) {
+  const color = isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
+    : undefined;
+  return color?.toLowerCase() === "#ffffff" ? undefined : color;
 }

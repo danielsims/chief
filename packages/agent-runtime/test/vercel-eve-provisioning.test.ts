@@ -117,6 +117,7 @@ function newEveProjectFetcher({
       projectId: "prj_new",
       readyState,
       url: "agent-build.vercel.app",
+      alias: ["agent.vercel.app"],
     });
   };
 }
@@ -231,6 +232,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
       projectId: "prj_researcher",
       readyState: "READY",
       url: "researcher-build.vercel.app",
+      alias: ["researcher.vercel.app"],
     });
   };
 
@@ -262,6 +264,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
 
   assert.equal(result.deploymentId, "dpl_researcher");
   assert.equal(result.deploymentUrl, "https://researcher-build.vercel.app");
+  assert.equal(result.productionUrl, "https://researcher.vercel.app");
   assert.equal(
     requests.filter((request) => request.url.pathname === "/v2/files").length,
     0,
@@ -277,7 +280,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.match(uploadedSources, /\[chief-message\] publish failed/u);
   assert.match(uploadedSources, /authorization/u);
   assert.match(uploadedSources, /timingSafeEqual/u);
-  assert.match(uploadedSources, /"eve": "0\.52\.2"/u);
+  assert.match(uploadedSources, /"eve": "0\.68\.0"/u);
   assert.match(uploadedSources, /"node": "24\.x"/u);
   assert.match(uploadedSources, /"typecheck": "tsc"/u);
   assert.match(uploadedSources, /eve\/workflow-modules/u);
@@ -293,8 +296,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.equal(deployment.url.searchParams.get("teamId"), "team_chief");
   assert.match(deployment.body ?? "", /prj_researcher/);
   assert.match(deployment.body ?? "", /"framework":"eve"/u);
-  assert.match(deployment.body ?? "", /"gitMetadata"/u);
-  assert.match(deployment.body ?? "", /\/git\/workspace-1\/researcher\.git/u);
+  assert.doesNotMatch(deployment.body ?? "", /"gitMetadata"/u);
   assert.doesNotMatch(deployment.body ?? "", /"outputDirectory"/u);
   const environmentRequest = requests.find((request) =>
     request.url.pathname.endsWith("/env"),

@@ -208,45 +208,13 @@ export class ExternalAgentAdministration {
     const { endpoint } = externalAgentEndpointUpdateSchema.parse(
       await parseJson(request),
     );
-    requireVerifiedEveEndpoint(endpoint);
-    const runtime = firstRow<RuntimeRow>(
-      externalAgentRuntimesFindUpdateEndpoint(this.storage, agentId),
+    setExternalAgentEndpoint(
+      this.storage,
+      this.channels,
+      context.workspaceId,
+      agentId,
+      endpoint,
     );
-    if (!runtime)
-      throw new HttpError(
-        404,
-        "external_agent_not_found",
-        "This external agent is not registered.",
-      );
-    const workspace = this.channels.requireWorkspace(context.workspaceId);
-    if (!workspace.snapshot_json)
-      throw new HttpError(
-        409,
-        "workspace_snapshot_unavailable",
-        "This workspace cannot update agents.",
-      );
-    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    this.storage.transactionSync(() => {
-      externalAgentRuntimesUpdateUpdateEndpoint(this.storage, {
-        endpointUrl: endpoint,
-        updatedAt: new Date().toISOString(),
-        agentId: agentId,
-      });
-      workspaceUpdateVerifyConnection(
-        this.storage,
-        JSON.stringify({
-          ...snapshot,
-          agents: snapshot.agents.map((agent) =>
-            agent.id === agentId && agent.runtime.kind === "external-channel"
-              ? {
-                  ...agent,
-                  runtime: { ...agent.runtime, endpoint },
-                }
-              : agent,
-          ),
-        }),
-      );
-    });
     return json(
       externalAgentEndpointUpdateResultSchema.parse({ updated: true, agentId }),
     );
@@ -420,4 +388,53 @@ export class ExternalAgentAdministration {
       }),
     );
   }
+}
+
+/** Points the relay at the agent's Eve endpoint and records it in the workspace snapshot. */
+export function setExternalAgentEndpoint(
+  storage: DurableObjectStorage,
+  channels: WorkspaceChannelStore,
+  workspaceId: string,
+  agentId: string,
+  endpoint: string,
+) {
+  requireVerifiedEveEndpoint(endpoint);
+  const runtime = firstRow<RuntimeRow>(
+    externalAgentRuntimesFindUpdateEndpoint(storage, agentId),
+  );
+  if (!runtime)
+    throw new HttpError(
+      404,
+      "external_agent_not_found",
+      "This external agent is not registered.",
+    );
+  const workspace = channels.requireWorkspace(workspaceId);
+  if (!workspace.snapshot_json)
+    throw new HttpError(
+      409,
+      "workspace_snapshot_unavailable",
+      "This workspace cannot update agents.",
+    );
+  const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+  storage.transactionSync(() => {
+    externalAgentRuntimesUpdateUpdateEndpoint(storage, {
+      endpointUrl: endpoint,
+      updatedAt: new Date().toISOString(),
+      agentId: agentId,
+    });
+    workspaceUpdateVerifyConnection(
+      storage,
+      JSON.stringify({
+        ...snapshot,
+        agents: snapshot.agents.map((agent) =>
+          agent.id === agentId && agent.runtime.kind === "external-channel"
+            ? {
+                ...agent,
+                runtime: { ...agent.runtime, endpoint },
+              }
+            : agent,
+        ),
+      }),
+    );
+  });
 }

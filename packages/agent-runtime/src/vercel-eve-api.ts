@@ -15,6 +15,7 @@ export const deploymentSchema = z
     projectId: z.string().min(1),
     readyState: z.string().nullish(),
     url: z.string().nullish(),
+    alias: z.array(z.string()).nullish(),
     inspectorUrl: z.string().url().nullish(),
   })
   .passthrough();

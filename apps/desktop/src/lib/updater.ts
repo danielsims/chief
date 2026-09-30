@@ -1,82 +1,59 @@
-import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater";
+import { useEffect, useSyncExternalStore } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 
-export interface AvailableUpdate {
-  version: string;
-  body?: string;
-  date?: string;
-}
+import type { AppUpdateStatus } from "./app-update";
+import { createAppUpdateController } from "./app-update";
 
-export interface UpdateProgress {
-  downloaded: number;
-  total: number | null;
-  phase: "downloading" | "installing";
-}
+const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const RESUME_CHECK_AGE_MS = 30 * 60 * 1000;
 
-let availableUpdate: Update | null = null;
-let activeCheck: Promise<AvailableUpdate | null> | null = null;
-let activeInstall: Promise<void> | null = null;
+const updates = createAppUpdateController({
+  check,
+  relaunch,
+  warn: (message) => console.warn(message),
+});
 
-export function canCheckForUpdates() {
+let started = false;
+let lastCheckedAt = 0;
+
+function canCheckForUpdates() {
   return isTauri() && !import.meta.env.DEV;
 }
 
-export async function checkForUpdate(): Promise<AvailableUpdate | null> {
-  if (!canCheckForUpdates()) return null;
-  if (activeCheck) return activeCheck;
-
-  activeCheck = check()
-    .then((update) => {
-      availableUpdate = update;
-      if (!update) return null;
-
-      return {
-        version: update.version,
-        body: update.body ?? undefined,
-        date: update.date ?? undefined,
-      };
-    })
-    .finally(() => {
-      activeCheck = null;
-    });
-
-  return activeCheck;
+function refresh() {
+  lastCheckedAt = Date.now();
+  void updates.refresh();
 }
 
-export async function installUpdate(
-  onProgress?: (progress: UpdateProgress) => void,
-): Promise<void> {
-  if (activeInstall) return activeInstall;
-
-  activeInstall = (async () => {
-    const update = availableUpdate ?? (await check());
-    if (!update) throw new Error("The update is no longer available.");
-
-    let downloaded = 0;
-    let total: number | null = null;
-
-    await update.downloadAndInstall((event: DownloadEvent) => {
-      if (event.event === "Started") {
-        total = event.data.contentLength ?? null;
-        onProgress?.({ downloaded: 0, total, phase: "downloading" });
-        return;
-      }
-
-      if (event.event === "Progress") {
-        downloaded += event.data.chunkLength;
-        onProgress?.({ downloaded, total, phase: "downloading" });
-        return;
-      }
-
-      onProgress?.({ downloaded, total, phase: "installing" });
-    });
-
-    await relaunch();
-  })().finally(() => {
-    activeInstall = null;
+/** Starts background update checks once for the lifetime of the window. */
+function startUpdateChecks() {
+  if (started || !canCheckForUpdates()) return;
+  started = true;
+  refresh();
+  window.setInterval(refresh, CHECK_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (
+      document.visibilityState === "visible" &&
+      Date.now() - lastCheckedAt >= RESUME_CHECK_AGE_MS
+    ) {
+      refresh();
+    }
   });
+}
 
-  return activeInstall;
+export interface AppUpdate {
+  status: AppUpdateStatus;
+  install: () => void;
+}
+
+export function useAppUpdate(): AppUpdate {
+  useEffect(startUpdateChecks, []);
+  const status = useSyncExternalStore(
+    updates.subscribe,
+    updates.getStatus,
+    updates.getStatus,
+  );
+  return { status, install: () => void updates.install() };
 }

@@ -137,7 +137,7 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
   defineEveChannelTool({
     operationId: "channels.reactions.add",
     description:
-      "Adds one idempotent emoji reaction as this agent. Use emoji 👀 on the triggering user message before any other work tool.",
+      "Adds one idempotent emoji reaction as this agent. Chief already shows 👀 while you work.",
     input: {
       channelId: "z.string().min(1)",
       messageId: "z.string().min(1)",

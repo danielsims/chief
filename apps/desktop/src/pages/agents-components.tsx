@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { Users, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type {
@@ -100,6 +100,7 @@ export function AgentAvatar({
   );
 }
 
+/** Laid out exactly like a project card, so the two lists read as one system. */
 export function TeamAgentCard({
   agent,
   override,
@@ -112,38 +113,50 @@ export function TeamAgentCard({
   onSelect: () => void;
 }) {
   const enabled = override?.enabled ?? true;
+  const subagents = agent.subagents?.length ?? 0;
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-muted hover:bg-accent/70 group flex flex-col rounded-2xl px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
+        "bg-muted hover:bg-accent/70 group flex min-h-[116px] w-full flex-col rounded-2xl px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
         selected && "bg-accent/40 ring-foreground/15 ring-1",
       )}
     >
-      <span className="flex w-full flex-col">
-        <span className="flex items-start gap-3.5">
-          <AgentAvatar name={agent.name} enabled={enabled} size="lg" />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2">
-              <span className="block truncate text-sm font-semibold">
-                {agent.name}
-              </span>
-            </span>
-            <span className="text-muted-foreground mt-0.5 block truncate text-[12px] leading-4">
-              {agent.subagents?.length
-                ? `${agent.role} · ${agent.subagents.length} subagent${agent.subagents.length === 1 ? "" : "s"}`
-                : agent.role}
+      <span className="flex w-full items-start gap-3">
+        <ChiefAgentAvatar
+          agentId={agent.id}
+          label={agent.name}
+          className="size-10 rounded-xl"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-medium">
+            {agent.name}
+          </span>
+          <span className="text-muted-foreground mt-1 block truncate text-[12px] leading-4">
+            {agent.role}
+          </span>
+        </span>
+      </span>
+      <span className="text-muted-foreground mt-auto flex w-full items-center gap-4 pt-3 text-[12px] leading-4">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-1.5 rounded-full",
+              enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          <span className="truncate">{enabled ? "Active" : "Paused"}</span>
+        </span>
+        {subagents > 0 ? (
+          <span className="ml-auto flex min-w-0 items-center gap-1.5">
+            <Users size={13} />
+            <span className="truncate">
+              {subagents} {subagents === 1 ? "subagent" : "subagents"}
             </span>
           </span>
-          <ChevronRight
-            size={13}
-            className="text-muted-foreground/60 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5"
-          />
-        </span>
-        <span className="text-muted-foreground mt-4 line-clamp-2 text-[12px] leading-5">
-          {agent.description}
-        </span>
+        ) : null}
       </span>
     </button>
   );

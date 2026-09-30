@@ -32,6 +32,7 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
+import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
@@ -50,7 +51,10 @@ import {
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
-import { WorkspaceVercelService } from "./workspace-vercel-service";
+import {
+  updateOutdatedEveAgents,
+  WorkspaceVercelService,
+} from "./workspace-vercel-service";
 
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -62,6 +66,10 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   fetch(request: Request) {
+    if (!this.eveAgentsUpdated) {
+      this.eveAgentsUpdated = true;
+      this.ctx.waitUntil(updateOutdatedEveAgents(this.ctx.storage, this.env));
+    }
     const connectWebSocket = this.connectWebSocket.bind(this);
     const routeOperation = this.routeOperation.bind(this);
     const program = Effect.gen(function* () {
@@ -75,7 +83,13 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method === "GET" &&
         (operation === "secret-get" || operation === "secret-list");
       const readsVercel =
-        request.method === "GET" && operation === "vercel-destinations";
+        request.method === "GET" &&
+        (operation === "vercel-destinations" ||
+          operation === "vercel-deployment");
+      const readsGitHub =
+        request.method === "GET" &&
+        (operation === "github-connection" ||
+          operation === "github-repositories");
       const deletesExternalAgent =
         request.method === "DELETE" &&
         operation === "external-agent-disconnect";
@@ -83,6 +97,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method !== "POST" &&
         !readsSecret &&
         !readsVercel &&
+        !readsGitHub &&
         !deletesExternalAgent
       ) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
@@ -99,6 +114,9 @@ export class WorkspaceObject extends DurableObject<Env> {
       workflowId: request.headers.get("x-chief-workflow-id") ?? undefined,
     });
   }
+
+  // A relay deploy restarts this object, so each instance checks its Eve agents once.
+  private eveAgentsUpdated = false;
 
   async alarm() {
     await runWorkspaceAlarm(this.ctx.storage, this.env);
@@ -268,10 +286,27 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
 
+      if (operation?.startsWith("github-")) {
+        const github = new WorkspaceGitHubService(ctx.storage, env);
+        const handlers: Partial<Record<string, () => Promise<Response>>> = {
+          "github-connection": () => github.connection(request),
+          "github-setup": () => github.setup(request),
+          "github-install": () => github.install(request),
+          "github-repositories": () => github.repositories(request),
+          "github-clone-token": () => github.cloneToken(request),
+          "github-app-store": () => github.storeApp(request),
+          "github-installation-add": () => github.addInstallation(request),
+        };
+        const handler = handlers[operation];
+        if (handler) return yield* attempt(`workspace.${operation}`, handler);
+      }
+
       if (
         operation === "vercel-connect" ||
         operation === "vercel-destinations" ||
-        operation === "vercel-provision"
+        operation === "vercel-provision" ||
+        operation === "vercel-redeploy" ||
+        operation === "vercel-deployment"
       ) {
         const vercel = new WorkspaceVercelService(ctx.storage, env);
         if (operation === "vercel-connect") {
@@ -282,6 +317,16 @@ export class WorkspaceObject extends DurableObject<Env> {
         if (operation === "vercel-destinations") {
           return yield* attempt("workspace.vercel.destinations", () =>
             vercel.destinations(request),
+          );
+        }
+        if (operation === "vercel-deployment") {
+          return yield* attempt("workspace.vercel.deployment", () =>
+            vercel.deployment(request),
+          );
+        }
+        if (operation === "vercel-redeploy") {
+          return yield* attempt("workspace.vercel.redeploy", () =>
+            vercel.redeploy(request),
           );
         }
         return yield* attempt("workspace.vercel.provision", () =>

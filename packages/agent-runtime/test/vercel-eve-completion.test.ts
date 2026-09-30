@@ -34,18 +34,27 @@ interface EveDefinition {
   >;
 }
 
-void test("Eve reports turn completion even after a tool published the visible reply", async () => {
-  const requests: ReturnType<typeof externalAgentInboundMessageSchema.parse>[] =
-    [];
+interface EveRoute {
+  path: string;
+  handler: (request: Request, operations: EveOperations) => Promise<Response>;
+}
+interface EveOperations {
+  from: (address: string) => { send: () => Promise<{ id: string }> };
+}
+
+function loadChiefChannel(
+  requests: ReturnType<typeof externalAgentInboundMessageSchema.parse>[],
+) {
   const code = ts.transpileModule(chiefChannelSource, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const exported = runInNewContext(`${code}; exports.default`, {
+  return runInNewContext(`${code}; exports.default`, {
     exports: {},
     URL,
+    Response,
     console,
     process: {
       env: {
@@ -53,6 +62,7 @@ void test("Eve reports turn completion even after a tool published the visible r
         CHIEF_WORKSPACE_ID: "workspace",
         CHIEF_RELAY_URL: "https://relay.test",
         CHIEF_CHANNEL_TOKEN: "token",
+        VERCEL_DEPLOYMENT_ID: "dpl_current",
       },
     },
     require: (name: string) =>
@@ -64,7 +74,10 @@ void test("Eve reports turn completion even after a tool published the visible r
             ? {
                 defineChannel: (value: EveDefinition) => value,
                 GET: () => null,
-                POST: () => null,
+                POST: (path: string, handler: EveRoute["handler"]) => ({
+                  path,
+                  handler,
+                }),
               }
             : {
                 hasChiefMessagePosted: () => true,
@@ -78,7 +91,13 @@ void test("Eve reports turn completion even after a tool published the visible r
       );
       return Response.json({ ok: true });
     },
-  }) as EveDefinition;
+  }) as EveDefinition & { routes: (EveRoute | null)[] };
+}
+
+void test("Eve reports turn completion even after a tool published the visible reply", async () => {
+  const requests: ReturnType<typeof externalAgentInboundMessageSchema.parse>[] =
+    [];
+  const exported = loadChiefChannel(requests);
   const channel = {
     state: {
       deliveryId: "delivery",
@@ -112,4 +131,34 @@ void test("Eve reports turn completion even after a tool published the visible r
   assert.equal(receipt.publish, false);
   assert.equal(receipt.complete, true);
   assert.equal(receipt.outcome, "completed");
+});
+
+void test("Eve starts a fresh session for a conversation on each deployment", async () => {
+  const addresses: string[] = [];
+  const route = loadChiefChannel([]).routes.find(
+    (candidate) => candidate?.path === "/channels/chief/messages",
+  );
+  assert.ok(route);
+  const response = await route.handler(
+    new Request("https://eve.test/channels/chief/messages", {
+      method: "POST",
+      headers: { authorization: "Bearer token" },
+      body: JSON.stringify({
+        payload: {
+          deliveryId: "delivery",
+          sessionAddress: "chief_conversation",
+          continuation: { capability: "capability" },
+          message: { body: "Are you there?" },
+        },
+      }),
+    }),
+    {
+      from: (address) => {
+        addresses.push(address);
+        return { send: () => Promise.resolve({ id: "session" }) };
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(addresses, ["chief_conversation:dpl_current"]);
 });

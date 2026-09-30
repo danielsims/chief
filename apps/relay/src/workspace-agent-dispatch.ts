@@ -18,6 +18,7 @@ import {
   canMessageAgent,
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
+import { workspaceAgentNames } from "./workspace-agent-runtime";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
@@ -109,6 +110,7 @@ export async function dispatchWorkspaceMessage(
     ? message.mentions
     : normalizedChannelMentions({
         availableAgentIds: store.workspaceAgentIds(),
+        agentNames: workspaceAgentNames(storage),
         people,
         content: message.body,
         explicitMentions: message.mentions,
@@ -117,18 +119,22 @@ export async function dispatchWorkspaceMessage(
           !store.memberRole("agent", id) ||
           canMessageAgent(store, id, context.principal),
       );
-  await addMentionedAgentsToChannel({
-    context,
-    conversationId: message.conversationId,
-    mentions,
-    messageId: message.id,
-    store,
-  });
+  // A mention in a direct message is only a mention; it never adds anyone.
+  if (channel.kind !== "direct") {
+    await addMentionedAgentsToChannel({
+      context,
+      conversationId: message.conversationId,
+      mentions,
+      messageId: message.id,
+      store,
+    });
+  }
+  // An agent only wakes the agents it mentions, so replies cannot ping-pong.
   let agentIds = eligibleAgentIds(
     store,
     channel,
     mentions,
-    replyAgentId,
+    context.principal.kind === "agent" ? undefined : replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
   ).filter((id) => canMessageAgent(store, id, context.principal));
   if (scheduleRunId) {
@@ -318,7 +324,11 @@ function eligibleAgentIds(
           .channelMemberRows(String(channel.conversation_id))
           .filter((member) => member.kind === "agent")
           .map((member) => member.principalId)
-      : [...mentions, ...(replyAgentId ? [replyAgentId] : [])];
+      : mentions.length > 0
+        ? mentions
+        : replyAgentId
+          ? [replyAgentId]
+          : [];
   const ready: string[] = [];
   for (const value of new Set(candidates)) {
     if (value === sourceAgentId) continue;

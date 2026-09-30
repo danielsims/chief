@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Hash, ShieldCheck } from "lucide-react";
+import { Hash } from "lucide-react";
 import { Link } from "react-router";
 
 import type {
@@ -56,7 +56,7 @@ const capabilityDetails: Record<
   },
 };
 
-function SectionHeading({
+export function SectionHeading({
   title,
   description,
   trailing,
@@ -78,7 +78,7 @@ function SectionHeading({
   );
 }
 
-function SettingGroup({ children }: { children: ReactNode }) {
+export function SettingGroup({ children }: { children: ReactNode }) {
   return (
     <div className="bg-muted/25 divide-y divide-black/[0.055] overflow-hidden rounded-2xl dark:divide-white/[0.06]">
       {children}
@@ -86,13 +86,13 @@ function SettingGroup({ children }: { children: ReactNode }) {
   );
 }
 
-function SettingRow({
+export function SettingRow({
   title,
   description,
   control,
 }: {
   title: string;
-  description: string;
+  description: ReactNode;
   control: ReactNode;
 }) {
   return (
@@ -358,32 +358,10 @@ export function AgentPermissionsTab({
 }) {
   return (
     <div className="space-y-8">
-      <div className="bg-muted/25 flex items-start gap-3.5 rounded-2xl px-4 py-4">
-        <span className="bg-background/70 flex size-9 shrink-0 items-center justify-center rounded-full">
-          <ShieldCheck size={16} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-medium">Executor policy</p>
-            <span className="text-muted-foreground text-[11px] tabular-nums">
-              {permissions.length} of {agentToolPermissionDefinitions.length}{" "}
-              enabled
-            </span>
-          </div>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-[13px] leading-5 font-normal">
-            Executor remains the tool gate. Chief verifies this agent's exact
-            session identity and channel access before local work can run.
-          </p>
-        </div>
-      </div>
-
       {permissionGroups.map((group) => {
         const definitions = agentToolPermissionDefinitions.filter(
           (permission) => permission.group === group,
         );
-        const enabledCount = definitions.filter((permission) =>
-          permissions.includes(permission.id),
-        ).length;
         return (
           <section key={group}>
             <SectionHeading
@@ -392,11 +370,6 @@ export function AgentPermissionsTab({
                 group === "Advanced"
                   ? "Sensitive capabilities that expand what this agent can operate."
                   : `Control this agent's ${group.toLowerCase()} access.`
-              }
-              trailing={
-                <span className="text-muted-foreground text-[11px] tabular-nums">
-                  {enabledCount} of {definitions.length}
-                </span>
               }
             />
             <SettingGroup>

@@ -18,6 +18,7 @@ import type {
   WorkspaceAgentId,
   WorkspaceChannelId,
 } from "../lib/workspace-channels";
+import { showsUpdateCard } from "../lib/app-update";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   canDeleteChannels,
@@ -36,6 +37,7 @@ import {
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
+import { useAppUpdate } from "../lib/updater";
 import {
   directMessageChatForAgent,
   directMessageIdsForAgents,
@@ -47,6 +49,7 @@ import {
 } from "../lib/workspace-channels";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
+import { SidebarUpdateCard } from "./sidebar-update-card";
 import { WorkspaceSearch } from "./workspace-search";
 
 const PRIMARY_ITEMS = [
@@ -384,6 +387,9 @@ export function Sidebar({
     updateLeftChannels(next);
   };
 
+  const appUpdate = useAppUpdate();
+  const updateCardVisible = showsUpdateCard(appUpdate.status);
+
   return (
     <aside
       style={{ width }}
@@ -392,7 +398,12 @@ export function Sidebar({
       <div className="shrink-0 px-3 pt-3 pb-2">
         <WorkspaceSearch />
       </div>
-      <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
+      <nav
+        className={`min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 ${
+          // Leave room to scroll the last items clear of the floating update card.
+          updateCardVisible ? "pb-20" : "pb-5"
+        }`}
+      >
         <div className="space-y-0.5 px-0.5 pb-1">
           {PRIMARY_ITEMS.map((item) => (
             <NavItem
@@ -439,6 +450,7 @@ export function Sidebar({
           onPinnedChange={updatePinned}
         />
       </nav>
+      {updateCardVisible ? <SidebarUpdateCard update={appUpdate} /> : null}
       <div className="shrink-0 px-2.5 pt-1 pb-3">
         <SidebarProfileMenu />
       </div>

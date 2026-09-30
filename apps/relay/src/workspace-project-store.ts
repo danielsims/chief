@@ -32,7 +32,6 @@ import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import {
   ensureProjectRepository,
   firstRow,
-  normalizeProjectOwner,
   serveProjectGit,
 } from "./workspace-project-git";
 
@@ -107,25 +106,16 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
   for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
     storage,
   )) {
+    // Generated files belong only to an agent's own repository, which always
+    // records its agent. Repositories are never matched to agents by name.
+    if (!project.agent_id) continue;
     if (
       project.repository_files_json &&
       !hasLegacyUndefinedReadme(project.repository_files_json)
     ) {
       continue;
     }
-    const projectOwner = normalizeProjectOwner(project.name);
-    const agent = project.agent_id
-      ? agentsById.get(project.agent_id)
-      : agents.find((candidate) => {
-          const id = normalizeProjectOwner(candidate.id);
-          const name = normalizeProjectOwner(candidate.name);
-          return (
-            projectOwner === id ||
-            projectOwner === name ||
-            projectOwner === `${id}-agent` ||
-            projectOwner === `${name}-agent`
-          );
-        });
+    const agent = agentsById.get(project.agent_id);
     if (!agent) continue;
     const description = agent.description.trim();
     const instructions =
@@ -414,16 +404,9 @@ export function projectIdsOwnedByAgent(
   agentId: string,
 ) {
   migrateSnapshotProjects(storage, workspaceId);
-  const normalizedAgentId = normalizeProjectOwner(agentId);
   return projectsFindProjectIdsOwnedByAgent<
-    Pick<ProjectRow, "project_id" | "agent_id" | "name">
+    Pick<ProjectRow, "project_id" | "agent_id">
   >(storage)
-    .filter((project) => {
-      if (project.agent_id === agentId) return true;
-      const name = normalizeProjectOwner(project.name);
-      return (
-        name === normalizedAgentId || name === `${normalizedAgentId}-agent`
-      );
-    })
+    .filter((project) => project.agent_id === agentId)
     .map((project) => project.project_id);
 }

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { agentIdSchema } from "./identifiers";
+
 export const vercelTeamOptionSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -72,7 +74,25 @@ export const eveAgentProvisioningResultSchema = z.object({
   projectId: z.string().min(1),
   deploymentId: z.string().min(1),
   deploymentUrl: z.string().url(),
+  productionUrl: z.string().url(),
   inspectorUrl: z.string().url().optional(),
+});
+
+export const eveAgentRedeployCommandSchema = z.object({
+  agentId: agentIdSchema,
+  model: z.string().min(1).optional(),
+});
+
+/** Where an Eve agent runs, as Chief last deployed it. */
+export const eveAgentDeploymentSchema = z.object({
+  deployment: z
+    .object({
+      projectName: z.string().min(1),
+      model: z.string().min(1),
+      deployedAt: z.string().nullable(),
+    })
+    .nullable(),
+  issue: z.string().nullable(),
 });
 
 export const vercelDeploymentReadyStateSchema = z.enum([
@@ -147,3 +167,4 @@ export type EveAgentProvisioningProgress = z.infer<
 export type EveAgentProvisioningStreamEvent = z.infer<
   typeof eveAgentProvisioningStreamEventSchema
 >;
+export type EveAgentDeployment = z.infer<typeof eveAgentDeploymentSchema>;
