@@ -59,6 +59,8 @@ export interface EveAgentProvisioningResult {
   projectId: string;
   deploymentId: string;
   deploymentUrl: string;
+  /** The production domain, which follows every later production deployment. */
+  productionUrl: string;
   inspectorUrl?: string;
 }
 

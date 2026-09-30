@@ -290,6 +290,9 @@ async function provisionVercelEveDeploymentInternal(
       : undefined;
   if (!deploymentUrl)
     throw new Error("Vercel did not return a deployment URL.");
+  const productionDomain = ready.alias?.[0];
+  if (!productionDomain)
+    throw new Error("Vercel did not assign a production domain.");
 
   const checking: EveAgentProvisioningProgress = {
     phase: "checking",
@@ -310,6 +313,7 @@ async function provisionVercelEveDeploymentInternal(
     projectId: ready.projectId,
     deploymentId: ready.id,
     deploymentUrl,
+    productionUrl: `https://${productionDomain}`,
   };
   if (ready.inspectorUrl) result.inspectorUrl = ready.inspectorUrl;
   return result;

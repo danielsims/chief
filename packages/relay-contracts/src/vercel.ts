@@ -72,6 +72,7 @@ export const eveAgentProvisioningResultSchema = z.object({
   projectId: z.string().min(1),
   deploymentId: z.string().min(1),
   deploymentUrl: z.string().url(),
+  productionUrl: z.string().url(),
   inspectorUrl: z.string().url().optional(),
 });
 

@@ -117,6 +117,7 @@ function newEveProjectFetcher({
       projectId: "prj_new",
       readyState,
       url: "agent-build.vercel.app",
+      alias: ["agent.vercel.app"],
     });
   };
 }
@@ -231,6 +232,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
       projectId: "prj_researcher",
       readyState: "READY",
       url: "researcher-build.vercel.app",
+      alias: ["researcher.vercel.app"],
     });
   };
 
@@ -262,6 +264,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
 
   assert.equal(result.deploymentId, "dpl_researcher");
   assert.equal(result.deploymentUrl, "https://researcher-build.vercel.app");
+  assert.equal(result.productionUrl, "https://researcher.vercel.app");
   assert.equal(
     requests.filter((request) => request.url.pathname === "/v2/files").length,
     0,
