@@ -8,6 +8,7 @@ import {
   eveAgentProvisioningInputSchema,
   eveAgentProvisioningResultSchema,
   eveAgentProvisioningStreamEventSchema,
+  eveAgentRedeployCommandSchema,
   vercelDestinationCatalogSchema,
   workspaceSecretListResultSchema,
   workspaceSecretResultSchema,
@@ -83,6 +84,24 @@ export class RelayVercelProvisioning extends RelayClientBase {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(eveAgentProvisioningInputSchema.parse(input)),
+      },
+    );
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    return readEveAgentProvisioningStream(response, onProgress);
+  }
+
+  /** Redeploys an Eve agent with the settings it was last deployed with. */
+  async redeployVercelEve(
+    agentId: string,
+    onProgress?: (progress: EveAgentProvisioningProgress) => void,
+  ): Promise<EveAgentProvisioningResult> {
+    const response = await this.fetchResponse(
+      this.workspaceUrl("vercel/redeploy"),
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(eveAgentRedeployCommandSchema.parse({ agentId })),
       },
     );
     if (!response.ok) throw await RelayClientError.fromResponse(response);

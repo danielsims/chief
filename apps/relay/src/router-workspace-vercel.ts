@@ -9,9 +9,9 @@ import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const workspaceVercelRoute =
-  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision)$/u;
+  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision|redeploy)$/u;
 
-type VercelOperation = "connect" | "destinations" | "provision";
+type VercelOperation = "connect" | "destinations" | "provision" | "redeploy";
 
 export function routeWorkspaceVercel(
   env: Env,
@@ -70,7 +70,8 @@ function parseWorkspaceVercelOperation(
   if (
     value === "connect" ||
     value === "destinations" ||
-    value === "provision"
+    value === "provision" ||
+    value === "redeploy"
   ) {
     return value;
   }

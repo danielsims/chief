@@ -1,4 +1,8 @@
-import type { EveAgentProvisioningStreamEvent } from "@chief/relay-contracts";
+import type {
+  EveAgentProvisioningInput,
+  EveAgentProvisioningProgress,
+  EveAgentProvisioningStreamEvent,
+} from "@chief/relay-contracts";
 import {
   chiefGitRemoteUrl,
   chiefGitRepoSlug,
@@ -10,17 +14,25 @@ import {
 } from "@chief/agent-runtime/vercel-eve-provisioning";
 import {
   eveAgentProvisioningInputSchema,
+  eveAgentRedeployCommandSchema,
   vercelConnectCommandSchema,
 } from "@chief/relay-contracts";
 
+import { setExternalAgentEndpoint } from "./external-agent-administration";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { externalAgentRuntimesUpdateDeploymentIssue } from "./queries/external-agent-runtimes/update-deployment-issue";
+import { projectsFindSaveAgentProjectFiles } from "./queries/projects/find-save-agent-project-files";
+import { workspaceFindDrainExternalAgentOutbox } from "./queries/workspace/find-drain-external-agent-outbox";
 import { mintAiGatewayKey } from "./workspace-ai-gateway";
-import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
+import { externalAgentSnapshotRows } from "./workspace-external-agent-snapshot";
 import { saveAgentProjectFiles } from "./workspace-project-store";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 const VERCEL_DEPLOYMENT_SECRET = "vercel-deployment";
+const eveDeploymentSecret = (agentId: string) =>
+  `external-agent.${agentId}.eve-deployment`;
 
 export class WorkspaceVercelService {
   private readonly channels: WorkspaceChannelStore;
@@ -105,38 +117,63 @@ export class WorkspaceVercelService {
         "The Eve deployment belongs to a different workspace.",
       );
     }
-    const token = await this.vercelToken(context.workspaceId);
-    const sourceFiles = eveProjectFiles(input);
+    return this.deployStream(context.workspaceId, input);
+  }
+
+  /** Redeploys an agent with the settings it was last deployed with. */
+  async redeploy(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireOwner(context.principal);
+    const { agentId } = eveAgentRedeployCommandSchema.parse(
+      await parseJson(request),
+    );
+    const input = await this.deployedInput(context.workspaceId, agentId);
+    if (!input) {
+      throw new HttpError(
+        409,
+        "eve_deployment_unknown",
+        "Deploy this agent once so Chief knows its Vercel project.",
+      );
+    }
+    return this.deployStream(context.workspaceId, input);
+  }
+
+  /** Redeploys every Eve agent whose generated project differs from what is live. */
+  async updateOutdatedAgents(workspaceId: string) {
+    for (const { agent_id: agentId } of externalAgentSnapshotRows(
+      this.storage,
+    )) {
+      const input = await this.deployedInput(workspaceId, agentId);
+      if (!input) {
+        this.setDeploymentIssue(
+          agentId,
+          "This agent was deployed before Chief kept agents up to date. Redeploy it once from its settings.",
+        );
+        continue;
+      }
+      if (this.isCurrent(agentId, input)) continue;
+      await this.deploy(workspaceId, input).catch((cause: unknown) => {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        this.setDeploymentIssue(
+          agentId,
+          `Chief could not update this agent's Vercel deployment: ${reason}`,
+        );
+      });
+    }
+  }
+
+  private deployStream(workspaceId: string, input: EveAgentProvisioningInput) {
     const encoder = new TextEncoder();
-    const storage = this.storage;
-    const workspaceId = context.workspaceId;
+    const deploy = this.deploy.bind(this);
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (event: EveAgentProvisioningStreamEvent) => {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         };
         try {
-          const repo = chiefGitRepoSlug(input.project.projectName);
-          const remoteUrl = chiefGitRemoteUrl(
-            input.environment.CHIEF_RELAY_URL,
-            workspaceId,
-            repo,
+          const result = await deploy(workspaceId, input, (progress) =>
+            send({ kind: "progress", progress }),
           );
-          saveAgentProjectFiles(storage, workspaceId, {
-            agentId: input.environment.CHIEF_AGENT_ID,
-            name: input.project.projectName,
-            description: input.agent.description,
-            files: sourceFiles,
-            canonicalRemoteUrl: remoteUrl,
-          });
-          const result = await provisionVercelEveDeployment({
-            token,
-            input,
-            sourceFiles,
-            git: { remoteUrl },
-            pollIntervalMs: 8_000,
-            onProgress: (progress) => send({ kind: "progress", progress }),
-          });
           send({ kind: "complete", result });
         } catch (cause) {
           send({
@@ -158,6 +195,88 @@ export class WorkspaceVercelService {
         "content-type": "application/x-ndjson; charset=utf-8",
       },
     });
+  }
+
+  private async deploy(
+    workspaceId: string,
+    input: EveAgentProvisioningInput,
+    onProgress?: (progress: EveAgentProvisioningProgress) => void,
+  ) {
+    const token = await this.vercelToken(workspaceId);
+    const agentId = input.environment.CHIEF_AGENT_ID;
+    const sourceFiles = eveProjectFiles(input);
+    const repo = chiefGitRepoSlug(input.project.projectName);
+    const remoteUrl = chiefGitRemoteUrl(
+      input.environment.CHIEF_RELAY_URL,
+      workspaceId,
+      repo,
+    );
+    const options: Parameters<typeof provisionVercelEveDeployment>[0] = {
+      token,
+      input,
+      sourceFiles,
+      git: { remoteUrl },
+      pollIntervalMs: 8_000,
+    };
+    if (onProgress) options.onProgress = onProgress;
+    const result = await provisionVercelEveDeployment(options);
+    saveAgentProjectFiles(this.storage, workspaceId, {
+      agentId,
+      name: input.project.projectName,
+      description: input.agent.description,
+      files: sourceFiles,
+      canonicalRemoteUrl: remoteUrl,
+    });
+    const deployed: EveAgentProvisioningInput = {
+      ...input,
+      project: {
+        kind: "existing",
+        projectId: result.projectId,
+        projectName: input.project.projectName,
+      },
+    };
+    await this.secrets.set(
+      workspaceId,
+      eveDeploymentSecret(agentId),
+      JSON.stringify(deployed),
+    );
+    setExternalAgentEndpoint(
+      this.storage,
+      this.channels,
+      workspaceId,
+      agentId,
+      new URL("/channels/chief/messages", result.productionUrl).toString(),
+    );
+    this.setDeploymentIssue(agentId, null);
+    return result;
+  }
+
+  private setDeploymentIssue(agentId: string, issue: string | null) {
+    externalAgentRuntimesUpdateDeploymentIssue(this.storage, {
+      agentId,
+      issue,
+    });
+  }
+
+  private async deployedInput(workspaceId: string, agentId: string) {
+    const saved = await this.secrets.get(
+      workspaceId,
+      eveDeploymentSecret(agentId),
+    );
+    return saved
+      ? eveAgentProvisioningInputSchema.parse(JSON.parse(saved))
+      : undefined;
+  }
+
+  private isCurrent(agentId: string, input: EveAgentProvisioningInput) {
+    const project = firstRow<{ repository_files_json: string | null }>(
+      projectsFindSaveAgentProjectFiles(this.storage, agentId),
+    );
+    const generated = eveProjectFiles(input).map((file) => ({
+      path: file.path,
+      content: file.contents,
+    }));
+    return project?.repository_files_json === JSON.stringify(generated);
   }
 
   private async vercelToken(workspaceId: string) {
@@ -206,4 +325,18 @@ export class WorkspaceVercelService {
       );
     }
   }
+}
+
+/** Brings every Eve agent in this workspace up to date with Chief's current template. */
+export async function updateOutdatedEveAgents(
+  storage: DurableObjectStorage,
+  env: Env,
+) {
+  const workspace = firstRow<
+    { workspace_id: string } & Record<string, SqlStorageValue>
+  >(workspaceFindDrainExternalAgentOutbox(storage));
+  if (!workspace) return;
+  await new WorkspaceVercelService(storage, env).updateOutdatedAgents(
+    workspace.workspace_id,
+  );
 }

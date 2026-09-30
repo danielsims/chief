@@ -51,7 +51,10 @@ import {
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
-import { WorkspaceVercelService } from "./workspace-vercel-service";
+import {
+  updateOutdatedEveAgents,
+  WorkspaceVercelService,
+} from "./workspace-vercel-service";
 
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -106,8 +109,15 @@ export class WorkspaceObject extends DurableObject<Env> {
     });
   }
 
+  // A relay deploy restarts this object, so each instance checks its Eve agents once.
+  private eveAgentsUpdated = false;
+
   async alarm() {
-    await runWorkspaceAlarm(this.ctx.storage, this.env);
+    const updates = this.eveAgentsUpdated
+      ? Promise.resolve()
+      : updateOutdatedEveAgents(this.ctx.storage, this.env);
+    this.eveAgentsUpdated = true;
+    await Promise.all([runWorkspaceAlarm(this.ctx.storage, this.env), updates]);
   }
 
   private routeOperation(request: Request, operation: string | null) {
@@ -292,7 +302,8 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (
         operation === "vercel-connect" ||
         operation === "vercel-destinations" ||
-        operation === "vercel-provision"
+        operation === "vercel-provision" ||
+        operation === "vercel-redeploy"
       ) {
         const vercel = new WorkspaceVercelService(ctx.storage, env);
         if (operation === "vercel-connect") {
@@ -303,6 +314,11 @@ export class WorkspaceObject extends DurableObject<Env> {
         if (operation === "vercel-destinations") {
           return yield* attempt("workspace.vercel.destinations", () =>
             vercel.destinations(request),
+          );
+        }
+        if (operation === "vercel-redeploy") {
+          return yield* attempt("workspace.vercel.redeploy", () =>
+            vercel.redeploy(request),
           );
         }
         return yield* attempt("workspace.vercel.provision", () =>

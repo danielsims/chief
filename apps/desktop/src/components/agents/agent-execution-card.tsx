@@ -3,6 +3,7 @@ import { Users } from "lucide-react";
 
 import type { AgentDefinition } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
+import { RelayClientError } from "@chief/relay-client";
 import { Button } from "@chief/ui/components/button";
 import {
   Select,
@@ -84,7 +85,7 @@ export function AgentExecutionCard({
           agentName={agentName}
           agentId={agentId}
           connectionStatus={execution.deployment.connectionStatus}
-          client={relayClient?.externalAgents ?? null}
+          relay={relayClient ?? null}
           onChanged={onExternalAgentChanged}
           onDeploy={() => setDeployingToEve(true)}
         />
@@ -324,19 +325,46 @@ function ExternalAgentExecutionCard({
   agentId,
   agentName,
   connectionStatus,
-  client,
+  relay,
   onChanged,
   onDeploy,
 }: {
   agentId: string;
   agentName: string;
   connectionStatus: "pending_setup" | "connected" | "degraded";
-  client: RelayClient["externalAgents"] | null;
+  relay: RelayClient | null;
   onChanged?: () => Promise<void>;
   onDeploy: () => void;
 }) {
+  const client = relay?.externalAgents ?? null;
   const [working, setWorking] = useState(false);
+  const [redeploying, setRedeploying] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const redeploy = async () => {
+    if (!relay) return;
+    setRedeploying(true);
+    setActionError(null);
+    try {
+      await relay.redeployVercelEve(agentId);
+      await onChanged?.();
+    } catch (error) {
+      // Agents deployed before Chief saved their settings need one guided deploy.
+      if (
+        error instanceof RelayClientError &&
+        error.code === "eve_deployment_unknown"
+      ) {
+        onDeploy();
+        return;
+      }
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Chief could not redeploy this agent.",
+      );
+    } finally {
+      setRedeploying(false);
+    }
+  };
   const verify = async () => {
     if (!client) return;
     setWorking(true);
@@ -360,34 +388,17 @@ function ExternalAgentExecutionCard({
         <div>
           <p className="text-[13px] font-medium">Runtime</p>
           <p className="text-muted-foreground mt-0.5 text-[12px] leading-5 font-normal">
-            {agentName} runs in Vercel Eve and connects through the Chief relay.
+            {agentName} runs in Vercel Eve and updates automatically with Chief.
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          disabled={!client || working}
-          onClick={onDeploy}
+          disabled={!relay || working || redeploying}
+          onClick={() => void redeploy()}
         >
-          Update deployment
+          {redeploying ? "Redeploying…" : "Redeploy"}
         </Button>
-        <Select value="vercel-eve" disabled>
-          <SelectTrigger className="bg-background/70 h-9 w-auto min-w-36 rounded-xl px-2.5 text-xs">
-            <DeploymentOption
-              deployment={{ kind: "vercel-eve", connectionStatus }}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Runs on</SelectLabel>
-              <SelectItem value="vercel-eve">
-                <DeploymentOption
-                  deployment={{ kind: "vercel-eve", connectionStatus }}
-                />
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
       </div>
       {connectionStatus !== "connected" ? (
         <div className="mt-3">
@@ -432,6 +443,10 @@ function ExternalAgentExecutionCard({
               </div>
             </div>
           ) : null}
+        </div>
+      ) : actionError ? (
+        <div className="mt-3">
+          <AgentExecutionError message={actionError} />
         </div>
       ) : null}
     </div>
