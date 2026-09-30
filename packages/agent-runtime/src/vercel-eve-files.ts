@@ -14,6 +14,13 @@ import {
   eveSubagentToolFiles,
 } from "./vercel-eve-tool-files.js";
 
+/**
+ * The context Chief's agents work within. Eve compacts older turns at 90% of
+ * this window; the model's own window (1M tokens for some) lets a long-lived
+ * conversation grow until the model stops answering.
+ */
+const EVE_WORKING_CONTEXT_TOKENS = 128_000;
+
 export interface EveProjectFile {
   path: string;
   contents: string;
@@ -45,7 +52,7 @@ export function eveProjectFiles(
       ...eveSubagentChannelFiles(directory, subagent.id),
       {
         path: `agent/subagents/${directory}/agent.ts`,
-        contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  description: ${JSON.stringify(subagent.description)},\n  model: ${JSON.stringify(input.agent.model)},\n});\n`,
+        contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  description: ${JSON.stringify(subagent.description)},\n  model: ${JSON.stringify(input.agent.model)},\n  modelContextWindowTokens: ${EVE_WORKING_CONTEXT_TOKENS},\n});\n`,
       },
       {
         path: `agent/subagents/${directory}/instructions.md`,
@@ -122,7 +129,7 @@ export function eveProjectFiles(
     },
     {
       path: "agent/agent.ts",
-      contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  model: ${JSON.stringify(input.agent.model)},\n});\n`,
+      contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  model: ${JSON.stringify(input.agent.model)},\n  modelContextWindowTokens: ${EVE_WORKING_CONTEXT_TOKENS},\n});\n`,
     },
     {
       path: ".chief/agent.json",
