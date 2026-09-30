@@ -64,7 +64,12 @@ export function ProjectDetail({
   const [compareRef, setCompareRef] = useState(
     snapshot.checkouts[0]?.branch ?? project.defaultBranch,
   );
-  const browser = useProjectBrowser(project, selectedRef, selectedPath);
+  const browser = useProjectBrowser(
+    project,
+    selectedRef,
+    selectedPath,
+    Boolean(repositoryPath),
+  );
   const commitDetail = useProjectCommit(
     project.id,
     selectedRef,
