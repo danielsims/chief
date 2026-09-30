@@ -75,7 +75,7 @@ void test("local operations map to an exact enforceable permission", () => {
     ["POST", "/local-tools/integrations/provider/open", "integrations.manage"],
     ["POST", "/local-tools/specialists/delegate", "agents.delegate"],
     ["GET", "/local-tools/files", "workspace.read"],
-    ["POST", "/local-tools/files/write", "workspace.write"],
+    ["POST", "/local-tools/files/write", "messages.send"],
     ["GET", "/local-tools/plugins", "workspace.read"],
     [
       "POST",
