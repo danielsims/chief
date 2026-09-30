@@ -205,7 +205,10 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
         messageId,
         threadRootId,
       };
-      const session = await from(input.payload.sessionAddress).send(input.payload.message.body, {
+      // Eve keeps a session on the deployment that started it while it has pending
+      // work, so scope sessions to this deployment for every redeploy to take effect.
+      const sessionAddress = [input.payload.sessionAddress, process.env.VERCEL_DEPLOYMENT_ID].filter(Boolean).join(":");
+      const session = await from(sessionAddress).send(input.payload.message.body, {
         auth: null,
         turnPolicy: "queue",
         context: [
