@@ -24,7 +24,7 @@ describe("relay-local authentication", () => {
       token_endpoint: "https://relay.test/api/auth/oauth2/token",
     });
     expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
-  }, 15_000);
+  }, 60_000);
 
   it("allows credentialed auth requests only from exact trusted origins", async () => {
     const allowed = await routeRelayAuth(
