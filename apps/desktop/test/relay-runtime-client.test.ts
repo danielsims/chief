@@ -209,6 +209,11 @@ void test("routes createChannel through the relay and emits the created channel"
     updateWorkspaceFile() {
       throw new Error("not used in this test");
     },
+    github: {
+      cloneToken() {
+        throw new Error("not used in this test");
+      },
+    },
   } satisfies RelayRuntimeRelay;
   const client = new RelayRuntimeClient(relay, snapshot);
   const created = new Promise<
@@ -312,6 +317,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
     saveAgentConfig: unused,
     startDirectMessage: unused,
     updateWorkspaceFile: unused,
+    github: { cloneToken: unused },
   } satisfies RelayRuntimeRelay;
   const client = new RelayRuntimeClient(relay, snapshot);
   const roster = new Promise<Extract<ServerMessage, { type: "channels" }>>(

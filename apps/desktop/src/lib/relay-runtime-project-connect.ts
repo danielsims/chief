@@ -7,6 +7,7 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
+import { RelayClientError } from "@chief/relay-client";
 import { relayProjectCreateSchema } from "@chief/relay-contracts";
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
@@ -22,21 +23,30 @@ const preparedSchema = z.object({
   project: relayProjectCreateSchema,
 });
 
+/** The one GitHub capability connecting a project needs. */
+export interface ProjectGitHubAccess {
+  github: Pick<RelayClient["github"], "cloneToken">;
+}
+
 export async function connectRelayProject(
-  relay: Pick<RelayClient, "createProject" | "listProjects">,
+  relay: Pick<RelayClient, "createProject" | "listProjects"> &
+    ProjectGitHubAccess,
   workspaceId: string,
   message: Extract<ClientMessage, { type: "attachProject" | "cloneProject" }>,
 ) {
   if (!isTauri())
-    throw new Error(
-      "Open Chief on your Mac to connect a repository using your Git credentials.",
-    );
+    throw new Error("Open Chief on your Mac to connect a repository.");
   const prepared = preparedSchema.parse(
     await requestDesktopPluginHost(
       "/projects/prepare",
       message.type === "attachProject"
         ? { workspaceId, source: "attach", path: message.path }
-        : { workspaceId, source: "clone", remoteUrl: message.remoteUrl },
+        : {
+            workspaceId,
+            source: "clone",
+            remoteUrl: message.remoteUrl,
+            accessToken: await githubCloneToken(relay, message.remoteUrl),
+          },
     ),
   );
   const metadata = {
@@ -58,6 +68,39 @@ export async function connectRelayProject(
     projectId: project.id,
   });
   return project;
+}
+
+/**
+ * A short-lived token when the repository is shared with the workspace's
+ * GitHub connection. Anything else clones anonymously, which covers public
+ * repositories without connecting GitHub at all.
+ */
+async function githubCloneToken(relay: ProjectGitHubAccess, remoteUrl: string) {
+  const repository = githubRepositoryName(remoteUrl);
+  if (!repository) return undefined;
+  try {
+    return (await relay.github.cloneToken(repository)).token;
+  } catch (error) {
+    // Not shared with the workspace's GitHub connection, or a relay that
+    // predates GitHub support: either way there is no token to use.
+    if (
+      error instanceof RelayClientError &&
+      (error.code === "github_repository_not_connected" ||
+        error.code === "github_not_set_up" ||
+        error.code === "not_found")
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+export function githubRepositoryName(remoteUrl: string) {
+  const match =
+    /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/iu.exec(
+      remoteUrl.trim(),
+    );
+  return match ? `${match[1]}/${match[2]}` : undefined;
 }
 
 export async function localProjectSnapshots(

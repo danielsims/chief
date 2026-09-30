@@ -1,6 +1,7 @@
 import type { Principal } from "@chief/relay-contracts";
 import {
   conversationIdSchema,
+  reactToMessagePayloadSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
@@ -60,4 +61,33 @@ export async function requireExternalThreadRoot(
       "external_thread_root_missing",
       "The issued thread continuation no longer exists.",
     );
+}
+
+/** Shows 👀 on the message an agent is working on, until its reply lands. */
+export async function markExternalAgentWorking(
+  env: Env,
+  workspaceId: string,
+  conversationId: string,
+  messageId: string,
+  principal: Principal,
+  working: boolean,
+) {
+  const response = await externalConversationFetch(
+    env,
+    workspaceId,
+    conversationId,
+    new Request(
+      `https://relay.internal/messages/${encodeURIComponent(messageId)}/reactions`,
+      {
+        method: working ? "POST" : "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          reactToMessagePayloadSchema.parse({ messageId, emoji: "👀" }),
+        ),
+      },
+    ),
+    principal,
+    crypto.randomUUID(),
+  );
+  await releaseInternalResponse(response);
 }

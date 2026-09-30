@@ -1,7 +1,9 @@
 import type { ExternalAgentDeliveryCommand } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   externalAgentRegistrationResultSchema,
   registerExternalAgentCommandSchema,
+  workspaceIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
@@ -10,15 +12,20 @@ import {
   receiveExternalAgentMessage,
 } from "./external-agent-channel-inbound";
 import {
+  deterministicUuid,
   randomToken,
   requireVerifiedEveEndpoint,
   sha256,
 } from "./external-agent-channel-security";
 import { receiveExternalAgentTool } from "./external-agent-channel-tools";
+import { externalAgentPrincipal } from "./external-agent-continuation";
+import { externalConversationFetch } from "./external-agent-conversation";
+import { receiveExternalAgentMemory } from "./external-agent-memory";
 import { ExternalAgentOutbox } from "./external-agent-outbox";
 import { externalAgentRegistrationReplay } from "./external-agent-registration-result";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import {
   GitHubProjectRepository,
   projectRepository,
@@ -26,6 +33,7 @@ import {
 } from "./project-repository";
 import { externalAgentDefinitionsInsertRegister } from "./queries/external-agent-definitions/insert-register";
 import { externalAgentDeploymentsInsertRegister } from "./queries/external-agent-deployments/insert-register";
+import { externalAgentRuntimesFindDeploymentIssue } from "./queries/external-agent-runtimes/find-deployment-issue";
 import { externalAgentRuntimesFindRegister } from "./queries/external-agent-runtimes/find-register";
 import { externalAgentRuntimesFindRuntime } from "./queries/external-agent-runtimes/find-runtime";
 import { externalAgentRuntimesInsertRegister } from "./queries/external-agent-runtimes/insert-register";
@@ -344,13 +352,76 @@ export class ExternalAgentChannelService {
     conversationId: string,
     threadRootId?: string,
   ) {
-    return this.outbox.enqueue(
+    const queued = await this.outbox.enqueue(
       workspaceId,
       agentId,
       command,
       conversationId,
       threadRootId,
     );
+    if (queued) {
+      await this.reportDeploymentIssue(
+        workspaceId,
+        agentId,
+        command.payload.deliveryId,
+        conversationId,
+        threadRootId,
+      );
+    }
+    return queued;
+  }
+
+  /** Shows why an agent's deployment is out of date in the conversation's activity. */
+  private async reportDeploymentIssue(
+    workspaceId: string,
+    agentId: string,
+    deliveryId: string,
+    conversationId: string,
+    threadRootId?: string,
+  ) {
+    const issue = firstRow<{ deployment_issue: string | null }>(
+      externalAgentRuntimesFindDeploymentIssue(
+        this.storage,
+        externalRuntimeOwner(this.storage, agentId),
+      ),
+    )?.deployment_issue;
+    if (!issue) return;
+    const messageId = await deterministicUuid(
+      `${workspaceId}:${agentId}:external:${deliveryId}:deployment-issue`,
+    );
+    const response = await externalConversationFetch(
+      this.env,
+      workspaceId,
+      conversationId,
+      new Request(
+        `https://relay.internal/messages/${encodeURIComponent(messageId)}/activity`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            messageId,
+            conversationId,
+            ...(threadRootId ? { threadRootId } : undefined),
+            component: {
+              id: "deployment-issue",
+              kind: "error",
+              version: 1,
+              payload: {
+                code: "eve_deployment_outdated",
+                title: "Agent needs an update",
+                message: issue,
+              },
+            },
+          }),
+        },
+      ),
+      externalAgentPrincipal(
+        workspaceIdSchema.parse(workspaceId),
+        agentIdSchema.parse(agentId),
+      ),
+      crypto.randomUUID(),
+    );
+    await releaseInternalResponse(response);
   }
 
   async drain(workspaceId: string) {
@@ -371,6 +442,10 @@ export class ExternalAgentChannelService {
 
   async receiveTools(request: Request, rawAgentId: string) {
     return receiveExternalAgentTool(this.inboundHost(), request, rawAgentId);
+  }
+
+  async receiveMemory(request: Request, rawAgentId: string) {
+    return receiveExternalAgentMemory(this.inboundHost(), request, rawAgentId);
   }
 
   runtime(agentId: string) {

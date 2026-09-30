@@ -6,6 +6,11 @@ import {
   eveChiefChannelReplyGuidance,
 } from "./vercel-eve-chief-channel.js";
 import {
+  eveMemoryFiles,
+  eveMemoryInstructions,
+  eveSubagentMemoryFiles,
+} from "./vercel-eve-memory-files.js";
+import {
   eveDeliveryInstructions,
   eveSubagentChannelFiles,
 } from "./vercel-eve-subagent-channel.js";
@@ -13,6 +18,28 @@ import {
   eveChiefToolFiles,
   eveSubagentToolFiles,
 } from "./vercel-eve-tool-files.js";
+
+/**
+ * Models whose replies degrade long before their advertised context window.
+ * deepseek-v4-flash advertises 1M tokens but stopped replying at ~250k.
+ */
+const USABLE_CONTEXT_TOKENS = new Map([
+  ["deepseek/deepseek-v4-flash", 200_000],
+]);
+
+/** Eve compacts older turns at this share of the model's usable window. */
+const COMPACTION_THRESHOLD = 0.8;
+
+function agentDefinition(model: string, description?: string) {
+  const usable = USABLE_CONTEXT_TOKENS.get(model);
+  return `import { defineAgent } from "eve";
+
+export default defineAgent({
+${description ? `  description: ${JSON.stringify(description)},\n` : ""}  model: ${JSON.stringify(model)},
+${usable ? `  modelContextWindowTokens: ${usable},\n` : ""}  compaction: { thresholdPercent: ${COMPACTION_THRESHOLD} },
+});
+`;
+}
 
 export interface EveProjectFile {
   path: string;
@@ -43,13 +70,14 @@ export function eveProjectFiles(
     return [
       ...eveSubagentToolFiles(directory, subagent.id),
       ...eveSubagentChannelFiles(directory, subagent.id),
+      ...eveSubagentMemoryFiles(directory, subagent.id),
       {
         path: `agent/subagents/${directory}/agent.ts`,
-        contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  description: ${JSON.stringify(subagent.description)},\n  model: ${JSON.stringify(input.agent.model)},\n});\n`,
+        contents: agentDefinition(input.agent.model, subagent.description),
       },
       {
         path: `agent/subagents/${directory}/instructions.md`,
-        contents: `${subagent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n`,
+        contents: `${subagent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n\n${eveMemoryInstructions}\n`,
       },
     ];
   });
@@ -86,8 +114,8 @@ export function eveProjectFiles(
           },
           dependencies: {
             "@vercel/connect": "1.0.0",
-            ai: "^7.0.82",
-            eve: "0.52.2",
+            ai: "^7.0.105",
+            eve: "0.68.0",
             zod: "4.5.4",
           },
           devDependencies: {
@@ -122,7 +150,7 @@ export function eveProjectFiles(
     },
     {
       path: "agent/agent.ts",
-      contents: `import { defineAgent } from "eve";\n\nexport default defineAgent({\n  model: ${JSON.stringify(input.agent.model)},\n});\n`,
+      contents: agentDefinition(input.agent.model),
     },
     {
       path: ".chief/agent.json",
@@ -130,7 +158,7 @@ export function eveProjectFiles(
     },
     {
       path: "agent/instructions.md",
-      contents: `${input.agent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
+      contents: `${input.agent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n\n${eveMemoryInstructions}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
     },
     { path: "agent/channels/chief.ts", contents: chiefChannelSource },
     {
@@ -161,6 +189,7 @@ export default defineTool({
 });\n`,
     },
     ...eveChiefToolFiles(),
+    ...eveMemoryFiles(identity.id),
     ...subagents,
   ];
 }

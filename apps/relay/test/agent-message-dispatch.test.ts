@@ -73,6 +73,38 @@ describe("workspace agent message dispatch", () => {
     });
   });
 
+  it("never adds or wakes an agent mentioned in a direct message", async () => {
+    const ctx = await setup();
+    const engineerId = agentIdSchema.parse("engineer");
+    await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    await registerAgent(ctx, engineerId, hexKey(String(engineerId)));
+    await assignAgentProvider(ctx);
+    await assignProvider(ctx, engineerId);
+    const direct = await rpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      envelope({ participant: { kind: "agent", principalId: agentId } }),
+    );
+    const conversationId = (
+      (await direct.json()) as { conversation: { id: string } }
+    ).conversation.id;
+
+    const mention = {
+      ...testMessage(ctx, conversationId, "@Engineer might know this."),
+      mentions: [engineerId],
+    };
+    const first = await dispatchMessage(ctx, ctx.principal, mention);
+    const next = await dispatchMessage(
+      ctx,
+      ctx.principal,
+      testMessage(ctx, conversationId, "Still just you?"),
+    );
+
+    expect(await first.json()).toEqual({ agentIds: [agentId] });
+    expect(await next.json()).toEqual({ agentIds: [agentId] });
+  });
+
   it("invites and dispatches an agent mentioned outside a private channel", async () => {
     const ctx = await setup();
     await registerAgent(ctx, agentId, hexKey(String(agentId)));

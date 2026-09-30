@@ -112,13 +112,5 @@ export async function runEveAgentDeployment({
     },
     onProgress,
   });
-  const deployedEndpoint = new URL(
-    "/channels/chief/messages",
-    result.deploymentUrl,
-  );
-  await client.externalAgents.updateEndpoint(
-    agent.id,
-    deployedEndpoint.toString(),
-  );
   return result;
 }

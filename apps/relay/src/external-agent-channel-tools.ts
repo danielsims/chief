@@ -16,7 +16,10 @@ import {
 } from "@chief/relay-contracts";
 
 import type { ExternalAgentInboundHost } from "./external-agent-continuation";
-import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
+import {
+  conversationMessagesUrl,
+  dispatchAppendedMessage,
+} from "./conversation-agent-dispatch";
 import { deterministicUuid } from "./external-agent-channel-security";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import { externalConversationFetch } from "./external-agent-conversation";
@@ -255,11 +258,14 @@ async function postMessage(
       ),
     },
   });
-  const appendRequest = new Request("https://relay.internal/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(command),
-  });
+  const appendRequest = new Request(
+    conversationMessagesUrl(resolved.context.workspaceId, conversationId),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    },
+  );
   const response = await externalConversationFetch(
     host.env,
     resolved.context.workspaceId,
@@ -340,11 +346,14 @@ async function recommendProject(
       ],
     },
   });
-  const appendRequest = new Request("https://relay.internal/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(command),
-  });
+  const appendRequest = new Request(
+    conversationMessagesUrl(resolved.context.workspaceId, conversationId),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    },
+  );
   const response = await externalConversationFetch(
     host.env,
     resolved.context.workspaceId,

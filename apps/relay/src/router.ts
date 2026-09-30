@@ -37,6 +37,10 @@ import { routePublicRequest } from "./router-public";
 import { routeScheduleRunRequest } from "./router-schedule-runs";
 import { routeWorkspaceDataRequest } from "./router-workspace-data";
 import { routeWorkspaceGit } from "./router-workspace-git";
+import {
+  routeGitHubBrowser,
+  routeWorkspaceGitHub,
+} from "./router-workspace-github";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import { routeWorkspaceSettings } from "./router-workspace-settings";
 import { routeWorkspaceVercel } from "./router-workspace-vercel";
@@ -100,6 +104,10 @@ export async function routeRelayRequest(
       routePublicRequest(request, url, env),
     );
     if (publicResponse) return publicResponse;
+    const githubBrowserResponse = yield* attempt("relay.github_browser", () =>
+      routeGitHubBrowser(request, url, env, requestId),
+    );
+    if (githubBrowserResponse) return githubBrowserResponse;
     const identityResponse = yield* attempt("relay.identity", () =>
       routeIdentityAndPush(env, request),
     );
@@ -233,6 +241,8 @@ function routeWorkspaceRequest(
     if (git) return git;
     const vercel = yield* routeWorkspaceVercel(env, request, requestId);
     if (vercel) return vercel;
+    const github = yield* routeWorkspaceGitHub(env, request, requestId);
+    if (github) return github;
     if (
       url.pathname === "/v1/me/avatar" &&
       (request.method === "POST" || request.method === "DELETE")

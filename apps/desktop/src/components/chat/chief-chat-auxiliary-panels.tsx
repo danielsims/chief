@@ -190,6 +190,12 @@ export function ChiefChatAuxiliaryPanels({
           }
         : undefined;
     return mergeAgentActivityPresence(root, [
+      ...controls.workingAgents
+        .filter((agent) => agent.threadRootId === threadRootId)
+        .map((agent) => ({
+          id: agent.agentId,
+          label: activityAgentName(agent.agentId),
+        })),
       ...taskAgentActivityPresence(
         activeThreadChildSessions,
         activityAgentName,
@@ -205,6 +211,7 @@ export function ChiefChatAuxiliaryPanels({
     core.scheduleRuns,
     activeThreadChildSessions,
     controls.status,
+    controls.workingAgents,
     threadRootId,
   ]);
   const threadStatusLabel =

@@ -1,7 +1,12 @@
 import { lazy, Suspense, useCallback, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
-import { Link } from "react-router";
+import {
+  ArrowLeft,
+  ExternalLink,
+  FolderOpen,
+  RefreshCw,
+  Settings2,
+} from "lucide-react";
 
 import type {
   ProjectCommitSummary,
@@ -22,6 +27,7 @@ import { ProjectIcon } from "./project-icon";
 import { ProjectReadme } from "./project-readme";
 import { ProjectRepositorySidebar } from "./project-repository-sidebar";
 import { ProjectRepositoryToolbar } from "./project-repository-toolbar";
+import { ProjectSettings } from "./project-settings";
 
 const ProjectCommitDetailView = lazy(async () => ({
   default: (await import("./project-commit-detail")).ProjectCommitDetailView,
@@ -31,10 +37,12 @@ export function ProjectDetail({
   snapshot,
   onBack,
   onRefresh,
+  onDelete,
 }: {
   snapshot: ProjectRepositorySnapshot;
   onBack: () => void;
   onRefresh: () => void;
+  onDelete: () => Promise<void>;
 }) {
   const { project } = snapshot;
   const { user } = useAuth();
@@ -44,9 +52,9 @@ export function ProjectDetail({
     snapshot.branch ?? project.defaultBranch,
   );
   const [selectedPath, setSelectedPath] = useState("");
-  const [view, setView] = useState<"files" | "commits" | "commit" | "compare">(
-    "files",
-  );
+  const [view, setView] = useState<
+    "files" | "commits" | "commit" | "compare" | "settings"
+  >("files");
   const [selectedCommit, setSelectedCommit] =
     useState<ProjectCommitSummary | null>(null);
   const [commitBackView, setCommitBackView] = useState<"files" | "commits">(
@@ -56,7 +64,12 @@ export function ProjectDetail({
   const [compareRef, setCompareRef] = useState(
     snapshot.checkouts[0]?.branch ?? project.defaultBranch,
   );
-  const browser = useProjectBrowser(project, selectedRef, selectedPath);
+  const browser = useProjectBrowser(
+    project,
+    selectedRef,
+    selectedPath,
+    Boolean(repositoryPath),
+  );
   const commitDetail = useProjectCommit(
     project.id,
     selectedRef,
@@ -96,8 +109,10 @@ export function ProjectDetail({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Back to projects"
-            onClick={onBack}
+            aria-label={
+              view === "settings" ? "Back to files" : "Back to projects"
+            }
+            onClick={() => (view === "settings" ? setView("files") : onBack())}
           >
             <ArrowLeft size={16} />
           </Button>
@@ -107,8 +122,9 @@ export function ProjectDetail({
               {project.name}
             </h1>
             <p className="text-muted-foreground mt-1 truncate text-[13px] leading-5">
-              {repositoryPath ??
+              {repositoryWebUrl ??
                 project.canonicalRemoteUrl ??
+                repositoryPath ??
                 "Local-only repository on another runtime"}
             </p>
           </div>
@@ -116,19 +132,15 @@ export function ProjectDetail({
             <RefreshCw size={14} />
             Refresh
           </Button>
-          {project.agentId ? (
-            <Button
-              variant="outline"
-              size="sm"
-              render={
-                <Link
-                  to={`/agents?agent=${encodeURIComponent(project.agentId)}`}
-                />
-              }
-            >
-              Manage agent
-            </Button>
-          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            aria-pressed={view === "settings"}
+            onClick={() => setView(view === "settings" ? "files" : "settings")}
+          >
+            <Settings2 size={14} />
+            Manage project
+          </Button>
           {repositoryPath ? (
             <Button
               variant="outline"
@@ -153,103 +165,109 @@ export function ProjectDetail({
 
       <div className="min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 py-6">
         <div className="mx-auto w-full max-w-7xl">
-          {!snapshot.available ? (
-            <div className="border-destructive/20 bg-destructive/[0.05] text-destructive mb-5 rounded-xl border px-4 py-3 text-[13px]">
-              {snapshot.error ??
-                "This repository is unavailable on this runtime."}
-            </div>
-          ) : null}
-
-          <ProjectRepositoryToolbar
-            snapshot={snapshot}
-            selectedRef={selectedRef}
-            onSelectRef={(ref) => {
-              setSelectedRef(ref);
-              setSelectedPath("");
-              setSelectedCommit(null);
-              setView("files");
-            }}
-            onOpenHistory={() => {
-              setSelectedCommit(null);
-              setView("commits");
-            }}
-            onOpenCompare={() => openCompare()}
-          />
-
-          <div
-            className={cn(
-              "mt-7 grid items-start gap-8",
-              view === "files" && "lg:grid-cols-[minmax(0,1fr)_260px]",
-            )}
-          >
-            <main className="min-w-0">
-              {view === "compare" ? (
-                <ProjectBranchCompareView
-                  snapshot={snapshot}
-                  baseRef={compareBaseRef}
-                  compareRef={compareRef}
-                  currentUser={user}
-                  onBaseChange={setCompareBaseRef}
-                  onCompareChange={setCompareRef}
-                  onSwap={() => {
-                    setCompareBaseRef(compareRef);
-                    setCompareRef(compareBaseRef);
-                  }}
-                  onBack={() => setView("files")}
-                />
-              ) : view === "commit" && selectedCommit ? (
-                <Suspense fallback={<div className="min-h-40" />}>
-                  <ProjectCommitDetailView
-                    commit={selectedCommit}
-                    detail={commitDetail.detail}
-                    currentUser={user}
-                    loading={commitDetail.loading}
-                    error={commitDetail.error}
-                    onBack={() => setView(commitBackView)}
-                  />
-                </Suspense>
-              ) : view === "commits" ? (
-                <ProjectCommitHistory
-                  commits={browser.browser?.commits ?? []}
-                  currentUser={user}
-                  path={selectedPath}
-                  onBack={() => setView("files")}
-                  onSelect={(commit) => openCommit(commit, "commits")}
-                />
-              ) : (
-                <ProjectFileBrowser
-                  projectName={project.name}
-                  browser={browser.browser}
-                  loading={browser.loading}
-                  error={browser.error}
-                  onOpenPath={(path) => {
-                    setSelectedPath(path);
-                    setView("files");
-                  }}
-                  onOpenHistory={() => setView("commits")}
-                />
-              )}
-              {view === "files" &&
-              browser.browser?.kind === "tree" &&
-              browser.browser.readme ? (
-                <ProjectReadme
-                  readme={browser.browser.readme}
-                  onOpenPath={openReadmePath}
-                />
+          {view === "settings" ? (
+            <ProjectSettings snapshot={snapshot} onDelete={onDelete} />
+          ) : (
+            <>
+              {!snapshot.available ? (
+                <div className="border-destructive/20 bg-destructive/[0.05] text-destructive mb-5 rounded-xl border px-4 py-3 text-[13px]">
+                  {snapshot.error ??
+                    "This repository is unavailable on this runtime."}
+                </div>
               ) : null}
-            </main>
-            {view === "files" ? (
-              <ProjectRepositorySidebar
+
+              <ProjectRepositoryToolbar
                 snapshot={snapshot}
-                browser={browser.browser}
-                currentUser={user}
-                onSelectCommit={(commit) => openCommit(commit, "files")}
-                onReviewCheckout={(branch) =>
-                  openCompare(project.defaultBranch, branch)
-                }
+                selectedRef={selectedRef}
+                onSelectRef={(ref) => {
+                  setSelectedRef(ref);
+                  setSelectedPath("");
+                  setSelectedCommit(null);
+                  setView("files");
+                }}
+                onOpenHistory={() => {
+                  setSelectedCommit(null);
+                  setView("commits");
+                }}
+                onOpenCompare={() => openCompare()}
               />
-            ) : null}
-          </div>
+
+              <div
+                className={cn(
+                  "mt-7 grid items-start gap-8",
+                  view === "files" && "lg:grid-cols-[minmax(0,1fr)_260px]",
+                )}
+              >
+                <main className="min-w-0">
+                  {view === "compare" ? (
+                    <ProjectBranchCompareView
+                      snapshot={snapshot}
+                      baseRef={compareBaseRef}
+                      compareRef={compareRef}
+                      currentUser={user}
+                      onBaseChange={setCompareBaseRef}
+                      onCompareChange={setCompareRef}
+                      onSwap={() => {
+                        setCompareBaseRef(compareRef);
+                        setCompareRef(compareBaseRef);
+                      }}
+                      onBack={() => setView("files")}
+                    />
+                  ) : view === "commit" && selectedCommit ? (
+                    <Suspense fallback={<div className="min-h-40" />}>
+                      <ProjectCommitDetailView
+                        commit={selectedCommit}
+                        detail={commitDetail.detail}
+                        currentUser={user}
+                        loading={commitDetail.loading}
+                        error={commitDetail.error}
+                        onBack={() => setView(commitBackView)}
+                      />
+                    </Suspense>
+                  ) : view === "commits" ? (
+                    <ProjectCommitHistory
+                      commits={browser.browser?.commits ?? []}
+                      currentUser={user}
+                      path={selectedPath}
+                      onBack={() => setView("files")}
+                      onSelect={(commit) => openCommit(commit, "commits")}
+                    />
+                  ) : (
+                    <ProjectFileBrowser
+                      projectName={project.name}
+                      browser={browser.browser}
+                      loading={browser.loading}
+                      error={browser.error}
+                      onOpenPath={(path) => {
+                        setSelectedPath(path);
+                        setView("files");
+                      }}
+                      onOpenHistory={() => setView("commits")}
+                    />
+                  )}
+                  {view === "files" &&
+                  browser.browser?.kind === "tree" &&
+                  browser.browser.readme ? (
+                    <ProjectReadme
+                      readme={browser.browser.readme}
+                      onOpenPath={openReadmePath}
+                    />
+                  ) : null}
+                </main>
+                {view === "files" ? (
+                  <ProjectRepositorySidebar
+                    snapshot={snapshot}
+                    browser={browser.browser}
+                    currentUser={user}
+                    onSelectCommit={(commit) => openCommit(commit, "files")}
+                    onReviewCheckout={(branch) =>
+                      openCompare(project.defaultBranch, branch)
+                    }
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

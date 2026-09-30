@@ -54,14 +54,9 @@ export function chiefGitRepositoryFiles(
   const normalized = repo.replace(/\.git$/u, "").toLowerCase();
   const rows = projectsFindChiefGitRepositoryFiles<ProjectRow>(storage);
   const row = rows.find((project) => {
+    if (project.provider_id !== "chief-git") return false;
     const remote = project.canonical_remote_url?.replace(/\.git$/u, "") ?? "";
-    const identity = remote.split("/").at(-1)?.toLowerCase();
-    const name = project.name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gu, "-")
-      .replace(/^-+|-+$/gu, "");
-    return identity === normalized || name === normalized;
+    return remote.split("/").at(-1)?.toLowerCase() === normalized;
   });
   if (!row?.repository_files_json) return undefined;
   return projectRepositoryFilesSchema
@@ -89,14 +84,6 @@ export function ensureProjectRepository(
     providerRepositoryId: provider.identity,
     createdAt: project.created_at,
   });
-}
-
-export function normalizeProjectOwner(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-|-$/gu, "");
 }
 
 export function firstRow<T>(cursor: Iterable<T>): T | undefined {

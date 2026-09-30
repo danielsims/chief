@@ -245,7 +245,7 @@ export function useChiefChatComposer({
       const timer = setTimeout(() => {
         if (sentInitial.current) return;
         sendInitialPrompt();
-      }, 400);
+      }, 0);
       return () => clearTimeout(timer);
     }
   }, [initialPrompt, initialAttachments, runtimeStatus, chatReady]);

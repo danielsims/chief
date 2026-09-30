@@ -74,9 +74,7 @@ export function useChiefChatCore({
     ? { id: user.id, ...(user.image ? { image: user.image } : undefined) }
     : null;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const channelReactions = useChannelReactions(
-    channel ? (destinationChannelId ?? null) : null,
-  );
+  const channelReactions = useChannelReactions(destinationChannelId ?? null);
   const childSessions = workspaceData.activity
     .filter(
       (session) =>

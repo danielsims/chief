@@ -15,6 +15,7 @@ import type { ActivityToolCall } from "./activity-entries";
 import { activityEntries } from "./activity-entries";
 import { formatActivityValue } from "./activity-tool-details";
 import { toolPresentation, toolSummary } from "./message-blocks";
+import { relativeActivityTime } from "./relative-activity-time";
 
 function ActivityDetail({
   label,
@@ -48,9 +49,11 @@ function ActivityDetail({
 function ActivityTool({
   call,
   active,
+  at,
 }: {
   call: ActivityToolCall;
   active: boolean;
+  at?: number;
 }) {
   const { tool, result } = call;
   const running = !result && active;
@@ -66,7 +69,9 @@ function ActivityTool({
       ? "Working"
       : stopped
         ? "Stopped"
-        : "Done";
+        : at
+          ? relativeActivityTime(at)
+          : "Done";
   const [expanded, setExpanded] = useState(failed || running);
 
   return (
@@ -175,10 +180,12 @@ export function ToolActivityGroup({
   blocks,
   active,
   flat = false,
+  toolTimes,
 }: {
   flat?: boolean;
   blocks: ContentBlock[];
   active: boolean;
+  toolTimes?: ReadonlyMap<string, number>;
 }) {
   const entries = activityEntries(blocks);
   const calls = entries.flatMap((entry) =>
@@ -189,7 +196,12 @@ export function ToolActivityGroup({
   if (entries.length === 0) return null;
   const content = entries.map((entry) =>
     entry.kind === "tool" ? (
-      <ActivityTool key={entry.key} call={entry.call} active={active} />
+      <ActivityTool
+        key={entry.key}
+        call={entry.call}
+        active={active}
+        at={toolTimes?.get(entry.call.tool.id)}
+      />
     ) : (
       <ActivityReasoning key={entry.key} thought={entry.thought} />
     ),

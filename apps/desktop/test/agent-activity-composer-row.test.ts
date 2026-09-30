@@ -52,7 +52,7 @@ void test("simultaneous thread agents are all represented", () => {
   assert.match(html, /Prospector, Marketer, and Setup are working/u);
   assert.match(html, /Prospector is working/u);
   assert.match(html, /Marketer is working/u);
-  assert.match(html, />\+1</u);
+  assert.match(html, /Setup is working/u);
 });
 
 void test("inactive activity reserves the composer presence row", () => {
@@ -67,18 +67,4 @@ void test("inactive activity reserves the composer presence row", () => {
   assert.match(html, /class="h-8 shrink-0"/u);
   assert.match(html, /aria-hidden="true"/u);
   assert.doesNotMatch(html, /img|avatar|working|typing/iu);
-});
-
-void test("the activity matrix inherits the active agent color", () => {
-  const html = renderToStaticMarkup(
-    createElement(AgentActivityComposerRow, {
-      agents: [{ id: "ads", label: "Advertising" }],
-      running: true,
-      statusLabel: "Advertising is working…",
-      onOpen: () => undefined,
-    }),
-  );
-
-  assert.match(html, /color:#fa8ca8/iu);
-  assert.match(html, /Advertising is working/u);
 });

@@ -9,11 +9,15 @@ import {
 } from "@chief/relay-contracts";
 
 import type { ExternalAgentInboundHost } from "./external-agent-continuation";
-import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
+import {
+  conversationMessagesUrl,
+  dispatchAppendedMessage,
+} from "./conversation-agent-dispatch";
 import { deterministicUuid, sha256 } from "./external-agent-channel-security";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import {
   externalConversationFetch,
+  markExternalAgentWorking,
   requireExternalThreadRoot,
 } from "./external-agent-conversation";
 import { HttpError, json, parseJson } from "./http";
@@ -117,11 +121,17 @@ export async function receiveExternalAgentMessage(
         components: [],
       },
     });
-    const appendRequest = new Request("https://relay.internal/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(command),
-    });
+    const appendRequest = new Request(
+      conversationMessagesUrl(
+        context.workspaceId,
+        continuation.conversation_id,
+      ),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    );
     const response = await externalConversationFetch(
       host.env,
       context.workspaceId,
@@ -145,6 +155,21 @@ export async function receiveExternalAgentMessage(
     if (!dispatched.ok) return dispatched;
     await releaseInternalResponse(dispatched);
     duplicate = result.duplicate;
+  }
+  if (input.complete) {
+    const delivery = externalAgentDeliveryCommandSchema.parse(
+      JSON.parse(continuation.payload_json),
+    );
+    if (!delivery.payload.scheduleStepId) {
+      await markExternalAgentWorking(
+        host.env,
+        context.workspaceId,
+        continuation.conversation_id,
+        delivery.payload.message.id,
+        principal,
+        false,
+      );
+    }
   }
   // The final reply is durable before a scheduled teammate receives its turn.
   if (input.complete && continuation.thread_root_id) {
@@ -245,5 +270,19 @@ export async function receiveExternalAgentActivity(
   );
   if (!response.ok) return response;
   await releaseInternalResponse(response);
+  // 👀 once the agent's text starts streaming, never on a message it may never answer.
+  const delivery = externalAgentDeliveryCommandSchema.parse(
+    JSON.parse(continuation.payload_json),
+  );
+  if (input.component.kind === "thinking" && !delivery.payload.scheduleStepId) {
+    await markExternalAgentWorking(
+      host.env,
+      context.workspaceId,
+      continuation.conversation_id,
+      delivery.payload.message.id,
+      principal,
+      true,
+    );
+  }
   return json(externalAgentInboundActivityResultSchema.parse({ messageId }));
 }

@@ -43,8 +43,36 @@ const delivery = (context: { session: { parent?: { rootSessionId: string } } }) 
   return state?.agentId === ${JSON.stringify(agentId)} && sessionId ? { channel: { state }, sessionId } : null;
 };
 
+const reasoningText = new Map<string, string>();
+const reasoningBuckets = new Map<string, number>();
+
 export default defineHook({
   events: {
+    async "reasoning.appended"(event, context) {
+      const current = delivery(context);
+      if (!current) return;
+      const key = \`\${event.data.turnId}:\${event.data.stepIndex}\`;
+      const text = (reasoningText.get(key) ?? "") + event.data.reasoningDelta;
+      reasoningText.set(key, text);
+      const bucket = Math.floor(text.length / 500);
+      if (reasoningBuckets.get(key) === bucket) return;
+      reasoningBuckets.set(key, bucket);
+      await postActivity(current.channel, current.sessionId, {
+        id: \`reasoning:\${key}\`.slice(0, 128), kind: "thinking", version: 1,
+        payload: { text, status: "working", providerSessionId: context.session.id },
+      });
+    },
+    async "reasoning.completed"(event, context) {
+      const current = delivery(context);
+      if (!current) return;
+      const key = \`\${event.data.turnId}:\${event.data.stepIndex}\`;
+      reasoningBuckets.delete(key);
+      reasoningText.delete(key);
+      await postActivity(current.channel, current.sessionId, {
+        id: \`reasoning:\${key}\`.slice(0, 128), kind: "thinking", version: 1,
+        payload: { text: event.data.reasoning, status: "completed", providerSessionId: context.session.id },
+      });
+    },
     async "message.completed"(event, context) {
       const current = delivery(context);
       if (!current || event.data.finishReason === "tool-calls") return;

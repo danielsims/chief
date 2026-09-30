@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "@chief/relay-contracts";
-import { agentIdSchema, defaultAgentConfig } from "@chief/relay-contracts";
+import {
+  agentIdSchema,
+  defaultAgentConfig,
+  relayProjectsResultSchema,
+} from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
 import {
@@ -252,21 +256,54 @@ describe("workspace data", () => {
     expect(project).not.toHaveProperty("repositoryPath");
 
     const listed = await rpc(ctx, engineer, "data-projects-list");
-    expect(await listed.json()).toMatchObject({
-      projects: [
-        expect.objectContaining({
-          id: project.id,
-          organizationId: ctx.workspaceId,
-          canonicalRemoteUrl: "https://github.com/latent/chief.git",
-        }),
-      ],
-    });
+    const { projects } = relayProjectsResultSchema.parse(await listed.json());
+    expect(projects).toEqual([
+      expect.objectContaining({
+        id: project.id,
+        organizationId: ctx.workspaceId,
+        canonicalRemoteUrl: "https://github.com/latent/chief.git",
+      }),
+    ]);
+    // A connected repository named after an agent keeps its own content.
+    expect(projects[0]?.repositoryFiles).toBeUndefined();
+    expect(projects[0]?.agentId).toBeUndefined();
 
     const deleted = await rpc(ctx, engineer, "data-project-delete", undefined, {
       "x-chief-project-id": project.id,
     });
     expect(deleted.status).toBe(200);
     expect(await deleted.json()).toEqual({ id: project.id, deleted: true });
+  });
+
+  it("never gives a connected repository an agent's files because of its name", async () => {
+    const ctx = await setupChannelTest();
+    const engineerId = agentIdSchema.parse("engineer");
+    const pubkey = hexKey("workspace-project-name");
+    await registerTestAgent(ctx, engineerId, pubkey);
+    const engineer = {
+      kind: "agent" as const,
+      agentId: engineerId,
+      pubkey,
+      workspaceId: ctx.workspaceId,
+      role: "member" as const,
+    };
+    const created = await rpc(ctx, engineer, "data-project-create", {
+      name: "chief",
+      repositoryKind: "cloned",
+      providerId: "github",
+      canonicalRemoteUrl: "https://github.com/example-org/chief",
+      repositoryWebUrl: "https://github.com/example-org/chief",
+      defaultBranch: "main",
+    });
+    expect(created.status).toBe(201);
+
+    const listed = await rpc(ctx, engineer, "data-projects-list");
+    const { projects } = relayProjectsResultSchema.parse(await listed.json());
+    expect(projects[0]?.canonicalRemoteUrl).toBe(
+      "https://github.com/example-org/chief",
+    );
+    expect(projects[0]?.agentId).toBeUndefined();
+    expect(projects[0]?.repositoryFiles).toBeUndefined();
   });
 
   it("stores machine capabilities and agent grants in the workspace boundary", async () => {

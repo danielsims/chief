@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MessageCircle, Trash2, X } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import type {
   AgentApprovalMode,
@@ -53,10 +53,11 @@ import { AgentMessageAccess } from "./agent-message-access";
 
 export type { AgentIntegrationOption } from "./agent-detail-sections";
 
-type DetailTab = "configuration" | "channels" | "permissions";
+type DetailTab = "configuration" | "runtime" | "channels" | "permissions";
 
 const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "configuration", label: "Configuration" },
+  { id: "runtime", label: "Runtime" },
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
 ];
@@ -122,7 +123,19 @@ export function AgentDetail({
   selectedProfileId?: string;
   onSelectProfile?: (agentId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
+  // The tab lives in the URL so a remount (refocus, reconnect) keeps it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    standardDetailTabs.find((tab) => tab.id === searchParams.get("tab"))?.id ??
+    "configuration";
+  const setActiveTab = (tab: DetailTab) =>
+    setSearchParams(
+      (current) => {
+        current.set("tab", tab);
+        return current;
+      },
+      { replace: true },
+    );
   const [internalProfileId, setInternalProfileId] = useState(agent.id);
   const requestedProfileId = selectedProfileId ?? internalProfileId;
   const activeProfileId =
@@ -274,30 +287,6 @@ export function AgentDetail({
                 <p className="text-muted-foreground mt-5 max-w-3xl text-[13px] leading-6">
                   {agent.description}
                 </p>
-
-                <AgentExecutionCard
-                  agent={agent}
-                  execution={execution}
-                  ready={ready}
-                  saving={saving}
-                  error={preferenceError}
-                  relayClient={relayClient}
-                  onExternalAgentChanged={onExternalAgentChanged}
-                  onApply={(draft) =>
-                    save({
-                      deploymentTarget: relayDeploymentTarget(draft.deployment),
-                      driver: draft.provider,
-                      model: draft.model,
-                    })
-                  }
-                  onApplyToTeam={(draft) =>
-                    onApplyExecutionToTeam(
-                      relayDeploymentTarget(draft.deployment),
-                      draft.provider,
-                      draft.model,
-                    )
-                  }
-                />
               </header>
 
               <nav
@@ -360,6 +349,34 @@ export function AgentDetail({
                   </div>
                 ) : null}
 
+                {activeTab === "runtime" ? (
+                  <AgentExecutionCard
+                    agent={agent}
+                    execution={execution}
+                    ready={ready}
+                    saving={saving}
+                    error={preferenceError}
+                    relayClient={relayClient}
+                    onExternalAgentChanged={onExternalAgentChanged}
+                    onApply={(draft) =>
+                      save({
+                        deploymentTarget: relayDeploymentTarget(
+                          draft.deployment,
+                        ),
+                        driver: draft.provider,
+                        model: draft.model,
+                      })
+                    }
+                    onApplyToTeam={(draft) =>
+                      onApplyExecutionToTeam(
+                        relayDeploymentTarget(draft.deployment),
+                        draft.provider,
+                        draft.model,
+                      )
+                    }
+                  />
+                ) : null}
+
                 {activeTab === "channels" ? (
                   <AgentChannelsTab
                     agentId={agent.id}
@@ -371,10 +388,12 @@ export function AgentDetail({
 
                 {activeTab === "permissions" ? (
                   <>
-                    <AgentMessageAccess
-                      agentId={agent.id}
-                      client={relayClient}
-                    />
+                    {execution.deployment.kind === "on-device" ? (
+                      <AgentMessageAccess
+                        agentId={agent.id}
+                        client={relayClient}
+                      />
+                    ) : null}
                     <AgentPermissionsTab
                       permissions={toolPermissions}
                       ready={ready}

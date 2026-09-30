@@ -13,6 +13,7 @@ import type {
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 
+import type { ProjectGitHubAccess } from "./relay-runtime-project-connect";
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
 import {
   relayProjectRecord,
@@ -149,7 +150,8 @@ interface WorkspaceDataContext {
     | "listProspects"
     | "listWorkspaceFiles"
     | "updateWorkspaceFile"
-  >;
+  > &
+    ProjectGitHubAccess;
   snapshot: WorkspaceSnapshot;
   emit(message: ServerMessage): void;
 }

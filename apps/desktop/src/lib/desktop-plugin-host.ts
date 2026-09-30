@@ -35,7 +35,12 @@ type PluginHostRequest =
       compareRef: string;
     }
   | { workspaceId: string; source: "attach"; path: string }
-  | { workspaceId: string; source: "clone"; remoteUrl: string }
+  | {
+      workspaceId: string;
+      source: "clone";
+      remoteUrl: string;
+      accessToken?: string;
+    }
   | { workspaceId: string; connectionId: string; projectId: string }
   | { workspaceId: string; refresh: boolean }
   | { workspaceId: string; pluginId: string; trusted: boolean }

@@ -28,7 +28,9 @@ export function ProjectRepositoryToolbar({
       />
       <span className="text-muted-foreground flex items-center gap-1.5">
         <GitBranch size={14} />
-        {snapshot.branches.length} branches
+        {snapshot.branches.length === 1
+          ? "1 branch"
+          : `${snapshot.branches.length} branches`}
       </span>
       <button
         type="button"
@@ -46,13 +48,6 @@ export function ProjectRepositoryToolbar({
         <GitCompareArrows size={14} />
         Compare
       </button>
-      <span className="text-muted-foreground ml-auto">
-        {snapshot.clean
-          ? "Working tree clean"
-          : snapshot.changedFiles === undefined
-            ? "Changes unavailable"
-            : `${snapshot.changedFiles} changed files`}
-      </span>
     </div>
   );
 }

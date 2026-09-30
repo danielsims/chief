@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useId, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -51,6 +52,7 @@ export function ChatComposer({
   placeholder = "Message Chief…",
   autoFocus = false,
   className,
+  recipient,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -67,6 +69,8 @@ export function ChatComposer({
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
+  /** Shown beside Send: who the message goes to. */
+  recipient?: ReactNode;
 }) {
   const editorRef = useRef<ComposerRichTextHandle>(null);
   const imageInputId = useId();
@@ -353,6 +357,7 @@ export function ChatComposer({
             </ComposerToolbarRoot>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {recipient}
             {value.trim() ? (
               <Button
                 size="icon-xs"
