@@ -9,9 +9,10 @@ import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const workspaceVercelRoute =
-  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision|redeploy)$/u;
+  /^\/v1\/workspaces\/([^/]+)\/vercel\/(connect|destinations|provision|redeploy|deployment)$/u;
 
-type VercelOperation = "connect" | "destinations" | "provision" | "redeploy";
+type VercelOperation =
+  "connect" | "destinations" | "provision" | "redeploy" | "deployment";
 
 export function routeWorkspaceVercel(
   env: Env,
@@ -29,7 +30,10 @@ export function routeWorkspaceVercel(
     const workspaceId = yield* sync("relay.workspace_vercel.scope", () =>
       workspaceIdSchema.parse(decodeURIComponent(matched[1] ?? "")),
     );
-    const expectedMethod = operation === "destinations" ? "GET" : "POST";
+    const expectedMethod =
+      operation === "destinations" || operation === "deployment"
+        ? "GET"
+        : "POST";
     if (request.method !== expectedMethod) {
       return relayError(
         405,
@@ -71,7 +75,8 @@ function parseWorkspaceVercelOperation(
     value === "connect" ||
     value === "destinations" ||
     value === "provision" ||
-    value === "redeploy"
+    value === "redeploy" ||
+    value === "deployment"
   ) {
     return value;
   }

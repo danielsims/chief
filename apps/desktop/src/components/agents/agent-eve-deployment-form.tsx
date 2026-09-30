@@ -164,17 +164,11 @@ export function EveDestinationForm({
   onTeam: (value: string) => void;
 }) {
   return (
-    <div
-      className={
-        presentation === "detail"
-          ? "bg-muted/25 mt-3 space-y-4 rounded-2xl px-4 py-3.5"
-          : "space-y-5"
-      }
-    >
+    <div className={"space-y-5"}>
       {presentation === "detail" ? (
         <div>
-          <p className="text-[13px] font-medium">Deploy to Vercel Eve</p>
-          <p className="text-muted-foreground mt-0.5 text-[12px] leading-5">
+          <h3 className="text-sm font-medium">Deploy to Vercel Eve</h3>
+          <p className="text-muted-foreground mt-1 text-[13px] leading-5">
             Choose where {agent.name} runs. Chief keeps it up to date after
             this.
           </p>

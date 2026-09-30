@@ -5,6 +5,7 @@ import type {
   VercelDestinationCatalog,
 } from "@chief/relay-contracts";
 import {
+  eveAgentDeploymentSchema,
   eveAgentProvisioningInputSchema,
   eveAgentProvisioningResultSchema,
   eveAgentProvisioningStreamEventSchema,
@@ -90,10 +91,23 @@ export class RelayVercelProvisioning extends RelayClientBase {
     return readEveAgentProvisioningStream(response, onProgress);
   }
 
+  async vercelEveDeployment(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(
+        `vercel/deployment?agentId=${encodeURIComponent(agentId)}`,
+      ),
+      eveAgentDeploymentSchema,
+      true,
+    );
+  }
+
   /** Redeploys an Eve agent with the settings it was last deployed with. */
   async redeployVercelEve(
     agentId: string,
-    onProgress?: (progress: EveAgentProvisioningProgress) => void,
+    options: {
+      model?: string;
+      onProgress?: (progress: EveAgentProvisioningProgress) => void;
+    } = {},
   ): Promise<EveAgentProvisioningResult> {
     const response = await this.fetchResponse(
       this.workspaceUrl("vercel/redeploy"),
@@ -101,11 +115,16 @@ export class RelayVercelProvisioning extends RelayClientBase {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(eveAgentRedeployCommandSchema.parse({ agentId })),
+        body: JSON.stringify(
+          eveAgentRedeployCommandSchema.parse({
+            agentId,
+            model: options.model,
+          }),
+        ),
       },
     );
     if (!response.ok) throw await RelayClientError.fromResponse(response);
-    return readEveAgentProvisioningStream(response, onProgress);
+    return readEveAgentProvisioningStream(response, options.onProgress);
   }
 
   async setWorkspaceSecret(name: string, value: string) {

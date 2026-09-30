@@ -20,6 +20,7 @@ export const externalAgentRuntimes = sqliteTable("external_agent_runtimes", {
   replaces_native: integer("replaces_native").notNull().default(0),
   /** Why Chief cannot keep this agent's deployment current, if it cannot. */
   deployment_issue: text("deployment_issue"),
+  deployed_at: text("deployed_at"),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
 });

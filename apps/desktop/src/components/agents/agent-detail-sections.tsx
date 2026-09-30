@@ -56,7 +56,7 @@ const capabilityDetails: Record<
   },
 };
 
-function SectionHeading({
+export function SectionHeading({
   title,
   description,
   trailing,
@@ -78,7 +78,7 @@ function SectionHeading({
   );
 }
 
-function SettingGroup({ children }: { children: ReactNode }) {
+export function SettingGroup({ children }: { children: ReactNode }) {
   return (
     <div className="bg-muted/25 divide-y divide-black/[0.055] overflow-hidden rounded-2xl dark:divide-white/[0.06]">
       {children}
@@ -86,13 +86,13 @@ function SettingGroup({ children }: { children: ReactNode }) {
   );
 }
 
-function SettingRow({
+export function SettingRow({
   title,
   description,
   control,
 }: {
   title: string;
-  description: string;
+  description: ReactNode;
   control: ReactNode;
 }) {
   return (

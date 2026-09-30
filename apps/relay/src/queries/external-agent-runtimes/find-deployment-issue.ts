@@ -11,7 +11,10 @@ export function externalAgentRuntimesFindDeploymentIssue<
   return executeDatabaseQuery(() =>
     db.all<Row>(
       db
-        .select({ deployment_issue: externalAgentRuntimes.deployment_issue })
+        .select({
+          deployment_issue: externalAgentRuntimes.deployment_issue,
+          deployed_at: externalAgentRuntimes.deployed_at,
+        })
         .from(externalAgentRuntimes)
         .where(eq(externalAgentRuntimes.agent_id, agentId)),
     ),

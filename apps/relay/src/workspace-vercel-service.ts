@@ -13,6 +13,8 @@ import {
   provisionVercelEveDeployment,
 } from "@chief/agent-runtime/vercel-eve-provisioning";
 import {
+  agentIdSchema,
+  eveAgentDeploymentSchema,
   eveAgentProvisioningInputSchema,
   eveAgentRedeployCommandSchema,
   vercelConnectCommandSchema,
@@ -21,6 +23,8 @@ import {
 import { setExternalAgentEndpoint } from "./external-agent-administration";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { externalAgentRuntimesFindDeploymentIssue } from "./queries/external-agent-runtimes/find-deployment-issue";
+import { externalAgentRuntimesUpdateDeployedAt } from "./queries/external-agent-runtimes/update-deployed-at";
 import { externalAgentRuntimesUpdateDeploymentIssue } from "./queries/external-agent-runtimes/update-deployment-issue";
 import { projectsFindSaveAgentProjectFiles } from "./queries/projects/find-save-agent-project-files";
 import { workspaceFindDrainExternalAgentOutbox } from "./queries/workspace/find-drain-external-agent-outbox";
@@ -124,10 +128,11 @@ export class WorkspaceVercelService {
   async redeploy(request: Request) {
     const context = readTrustedContext(request);
     this.requireOwner(context.principal);
-    const { agentId } = eveAgentRedeployCommandSchema.parse(
+    const { agentId, model } = eveAgentRedeployCommandSchema.parse(
       await parseJson(request),
     );
     const input = await this.deployedInput(context.workspaceId, agentId);
+    if (input && model) input.agent.model = model;
     if (!input) {
       throw new HttpError(
         409,
@@ -136,6 +141,32 @@ export class WorkspaceVercelService {
       );
     }
     return this.deployStream(context.workspaceId, input);
+  }
+
+  /** Reports where an agent runs and anything stopping Chief keeping it current. */
+  async deployment(request: Request) {
+    const context = readTrustedContext(request);
+    this.channels.requirePrincipalMember(context.principal);
+    const agentId = agentIdSchema.parse(
+      new URL(request.url).searchParams.get("agentId") ?? "",
+    );
+    const input = await this.deployedInput(context.workspaceId, agentId);
+    const runtime = firstRow<{
+      deployment_issue: string | null;
+      deployed_at: string | null;
+    }>(externalAgentRuntimesFindDeploymentIssue(this.storage, agentId));
+    return json(
+      eveAgentDeploymentSchema.parse({
+        deployment: input
+          ? {
+              projectName: input.project.projectName,
+              model: input.agent.model,
+              deployedAt: runtime?.deployed_at ?? null,
+            }
+          : null,
+        issue: runtime?.deployment_issue ?? null,
+      }),
+    );
   }
 
   /** Redeploys every Eve agent whose generated project differs from what is live. */
@@ -247,7 +278,10 @@ export class WorkspaceVercelService {
       agentId,
       new URL("/channels/chief/messages", result.productionUrl).toString(),
     );
-    this.setDeploymentIssue(agentId, null);
+    externalAgentRuntimesUpdateDeployedAt(this.storage, {
+      agentId,
+      deployedAt: new Date().toISOString(),
+    });
     return result;
   }
 
