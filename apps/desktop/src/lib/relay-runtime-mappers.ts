@@ -97,6 +97,9 @@ export function agentRunEvent(message: ConversationMessage) {
       return {
         type: "error" as const,
         agentId: message.author.id,
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
         ...(isJsonString(error.payload.code)
           ? { code: error.payload.code }
           : undefined),
@@ -120,11 +123,21 @@ export function agentRunEvent(message: ConversationMessage) {
           type: "status" as const,
           status: "running" as const,
           agentId: message.author.id,
+          ...(message.threadRootId
+            ? { threadRootId: message.threadRootId }
+            : undefined),
         }
       : undefined;
   }
   return message.author.kind === "agent"
-    ? { type: "result" as const, ok: true, agentId: message.author.id }
+    ? {
+        type: "result" as const,
+        ok: true,
+        agentId: message.author.id,
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
+      }
     : undefined;
 }
 
