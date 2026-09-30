@@ -275,10 +275,10 @@ describe("workspace data", () => {
     expect(await deleted.json()).toEqual({ id: project.id, deleted: true });
   });
 
-  it("removes agent files wrongly attached to a connected repository", async () => {
+  it("never gives a connected repository an agent's files because of its name", async () => {
     const ctx = await setupChannelTest();
     const engineerId = agentIdSchema.parse("engineer");
-    const pubkey = hexKey("workspace-project-repair");
+    const pubkey = hexKey("workspace-project-name");
     await registerTestAgent(ctx, engineerId, pubkey);
     const engineer = {
       kind: "agent" as const,
@@ -294,11 +294,6 @@ describe("workspace data", () => {
       canonicalRemoteUrl: "https://github.com/example-org/chief",
       repositoryWebUrl: "https://github.com/example-org/chief",
       defaultBranch: "main",
-      repositoryFiles: [
-        { path: "README.md", content: "# Chief\n" },
-        { path: "agent/identity.json", content: "{}\n" },
-        { path: "agent/instructions.md", content: "# Chief\n" },
-      ],
     });
     expect(created.status).toBe(201);
 
@@ -307,6 +302,7 @@ describe("workspace data", () => {
     expect(projects[0]?.canonicalRemoteUrl).toBe(
       "https://github.com/example-org/chief",
     );
+    expect(projects[0]?.agentId).toBeUndefined();
     expect(projects[0]?.repositoryFiles).toBeUndefined();
   });
 

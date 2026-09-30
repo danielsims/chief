@@ -92,14 +92,6 @@ export function ensureProjectRepository(
   });
 }
 
-export function normalizeProjectOwner(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-|-$/gu, "");
-}
-
 export function firstRow<T>(cursor: Iterable<T>): T | undefined {
   const next = cursor[Symbol.iterator]().next();
   return next.done ? undefined : next.value;
