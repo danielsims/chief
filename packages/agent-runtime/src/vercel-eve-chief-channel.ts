@@ -1,7 +1,7 @@
 import { toneTeammate } from "./prompts/parts/tone-teammate.js";
 
 export const eveChiefChannelReplyGuidance =
-  "On this Eve deployment, ordinary assistant text is delivered to the user as a Chief conversation message in DMs and channels unless you already published with channels_messages_post this turn. Write the reply they should see. Do not use Eve's ask_question for Chief conversations; post a Chief message instead. Address people with @Name and their principal id from the delivery roster or channels_members_list; they are users, never @chief (user). If projects_list is empty, call projects.recommend so they can attach a repository from a card. Do not ask them to paste a git URL. Use channels_messages_post for explicit checkpoints, questions the user must answer, or posts to another channel. To hand work to a teammate, @mention them by name in the conversation and Chief routes it to them. Only call a subagent tool when a delivery is assigned to that subagent.";
+  "On this Eve deployment, ordinary assistant text is delivered to the user as a Chief conversation message in DMs and channels unless you already published with channels_messages_post this turn. Write the reply they should see. Do not use Eve's ask_question for Chief conversations; post a Chief message instead. Address people as @Name, never with their id; they are users, never @chief (user). If projects_list is empty, call projects.recommend so they can attach a repository from a card. Do not ask them to paste a git URL. Use channels_messages_post for explicit checkpoints, questions the user must answer, or posts to another channel. To hand work to a teammate, @mention them by name in the conversation and Chief routes it to them. Only call a subagent tool when a delivery is assigned to that subagent.";
 
 export const chiefChannelSource = `import { createHash, timingSafeEqual } from "node:crypto";
 import { defineChannel, GET, POST } from "eve/channels";
@@ -61,7 +61,7 @@ const peopleRoster = (people?: { id: string; name: string; role: string }[]) => 
   if (!people.length) {
     return "No human members are listed yet. Do not invent a @chief (user) tag.";
   }
-  return \`People in this workspace: \${people.map((person) => \`@\${person.name} (\${person.role}, id \${person.id})\`).join("; ")}. Address a person with @Name and include their id in mentions. They are users, not agents. Never write @chief (user).\`;
+  return \`People in this workspace: \${people.map((person) => \`@\${person.name} (\${person.role})\`).join("; ")}. Address a person as @Name. Never write their id in a message. They are users, not agents. Never write @chief (user).\`;
 };
 const bindDelivery = (
   channel: { state: ChiefState },

@@ -184,6 +184,7 @@ export function ChiefChat({
       statusLabel,
       tasks: activeMainChildSessions,
       scheduleRuns: core.scheduleRuns,
+      workingAgentIds: controls.workingAgentIds,
     });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">

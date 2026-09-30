@@ -324,6 +324,7 @@ export type AgentEvent =
       costUsd?: number;
       durationMs?: number;
       error?: string;
+      agentId?: string;
     }
   | {
       type: "permission";
@@ -348,7 +349,7 @@ export type AgentEvent =
       questions: AgentQuestion[];
     }
   | { type: "questionResolved"; requestId: string }
-  | { type: "status"; status: AgentStatus }
+  | { type: "status"; status: AgentStatus; agentId?: string }
   | {
       type: "error";
       message: string;

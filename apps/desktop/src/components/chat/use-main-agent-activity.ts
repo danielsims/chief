@@ -28,6 +28,7 @@ export function useMainAgentActivity({
   statusLabel,
   tasks,
   scheduleRuns,
+  workingAgentIds,
 }: {
   activeRootTurn: { agentId: string; threadRootId?: string } | null;
   channelAgentIds?: readonly string[];
@@ -36,6 +37,7 @@ export function useMainAgentActivity({
   statusLabel: string;
   scheduleRuns: readonly ScheduleRun[];
   tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[];
+  workingAgentIds: readonly string[];
 }) {
   const agents = useMemo(() => {
     const fallbackRootAgentId =
@@ -48,6 +50,7 @@ export function useMainAgentActivity({
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
     return mergeAgentActivityPresence(root, [
+      ...workingAgentIds.map((id) => ({ id, label: activityAgentName(id) })),
       ...taskAgentActivityPresence(tasks, activityAgentName),
       ...scheduledAgentActivityPresence(scheduleRuns, activityAgentName),
     ]);
@@ -58,6 +61,7 @@ export function useMainAgentActivity({
     running,
     tasks,
     scheduleRuns,
+    workingAgentIds,
   ]);
 
   return {

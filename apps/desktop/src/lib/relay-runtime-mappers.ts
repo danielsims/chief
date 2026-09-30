@@ -116,11 +116,15 @@ export function agentRunEvent(message: ConversationMessage) {
         component.payload.status === "working",
     );
     return working
-      ? { type: "status" as const, status: "running" as const }
+      ? {
+          type: "status" as const,
+          status: "running" as const,
+          agentId: message.author.id,
+        }
       : undefined;
   }
   return message.author.kind === "agent"
-    ? { type: "result" as const, ok: true }
+    ? { type: "result" as const, ok: true, agentId: message.author.id }
     : undefined;
 }
 

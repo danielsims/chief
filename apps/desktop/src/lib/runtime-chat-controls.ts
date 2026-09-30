@@ -23,6 +23,8 @@ export interface ChatControlState {
   /** Agent questions waiting on the user's answers. */
   questions: PendingQuestion[];
   toolProgress: Record<string, string>;
+  /** Agents with a turn in progress, so several can show as working at once. */
+  workingAgentIds: string[];
   lastCostUsd?: number;
   error?: ChatRuntimeError;
   errorAcknowledged?: boolean;
@@ -41,7 +43,18 @@ export const emptyChatControls: ChatControlState = {
   approvals: [],
   questions: [],
   toolProgress: {},
+  workingAgentIds: [],
 };
+
+function withWorkingAgent(
+  controls: ChatControlState,
+  agentId: string | undefined,
+  working: boolean,
+) {
+  if (!agentId) return controls.workingAgentIds;
+  const others = controls.workingAgentIds.filter((id) => id !== agentId);
+  return working ? [...others, agentId] : others;
+}
 
 /** Prevents process state from one conversation appearing on another while
  * React is switching the active chat and its subscription. */
@@ -98,9 +111,13 @@ export function reduceChatControls(
     case "result": {
       const message = event.ok ? undefined : visibleRuntimeError(event.error);
       const error = message ? { message } : undefined;
+      const workingAgentIds = event.agentId
+        ? withWorkingAgent(controls, event.agentId, false)
+        : [];
       return {
         ...controls,
-        status: "idle",
+        status: workingAgentIds.length > 0 ? "running" : "idle",
+        workingAgentIds,
         approvals: [],
         questions: [],
         lastCostUsd: event.costUsd ?? controls.lastCostUsd,
@@ -111,6 +128,11 @@ export function reduceChatControls(
     case "status":
       return {
         ...controls,
+        workingAgentIds: withWorkingAgent(
+          controls,
+          event.agentId,
+          event.status === "running",
+        ),
         status: event.status === "running" ? "running" : "idle",
         error: event.status === "running" ? undefined : controls.error,
         errorAcknowledged:
@@ -118,14 +140,25 @@ export function reduceChatControls(
       };
     case "error":
       if (isExpectedRuntimeStop(event.message)) {
-        return { ...controls, status: "idle", approvals: [], questions: [] };
+        return {
+          ...controls,
+          status: "idle",
+          workingAgentIds: [],
+          approvals: [],
+          questions: [],
+        };
       }
-      return withError(controls, {
-        message: visibleRuntimeError(event.message) ?? "The agent stopped.",
-        ...(event.title ? { title: event.title } : undefined),
-        ...(event.code ? { code: event.code } : undefined),
-        ...(event.agentId ? { agentId: event.agentId } : undefined),
-      });
+      return {
+        ...withError(controls, {
+          message: visibleRuntimeError(event.message) ?? "The agent stopped.",
+          ...(event.title ? { title: event.title } : undefined),
+          ...(event.code ? { code: event.code } : undefined),
+          ...(event.agentId ? { agentId: event.agentId } : undefined),
+        }),
+        workingAgentIds: event.agentId
+          ? withWorkingAgent(controls, event.agentId, false)
+          : [],
+      };
     case "exit":
       return event.code && event.code !== 0
         ? withError(controls, {
