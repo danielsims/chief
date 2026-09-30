@@ -9,20 +9,30 @@ import { HttpError } from "./http";
  * browser carries it to GitHub and back, so the relay can trust which
  * workspace and person a callback belongs to without a session.
  */
-const ticketSchema = z.object({
-  purpose: z.enum(["setup", "install"]),
-  principal: userPrincipalSchema,
-  name: z.string().optional(),
-  expiresAt: z.number(),
-});
+const ticketSchema = z.discriminatedUnion("purpose", [
+  z.object({
+    purpose: z.literal("setup"),
+    principal: userPrincipalSchema,
+    name: z.string(),
+    expiresAt: z.number(),
+  }),
+  z.object({
+    purpose: z.literal("install"),
+    principal: userPrincipalSchema,
+    expiresAt: z.number(),
+  }),
+]);
 
 export type GitHubTicket = z.infer<typeof ticketSchema>;
+type UnsignedTicket<Ticket> = Ticket extends GitHubTicket
+  ? Omit<Ticket, "expiresAt">
+  : never;
 
 const TICKET_LIFETIME_MS = 30 * 60 * 1000;
 
 export async function signGitHubTicket(
   secret: string,
-  ticket: Omit<GitHubTicket, "expiresAt">,
+  ticket: UnsignedTicket<GitHubTicket>,
   now = Date.now(),
 ) {
   const payload = encode(
@@ -33,12 +43,9 @@ export async function signGitHubTicket(
   return `${payload}.${encode(await hmac(secret, payload))}`;
 }
 
-export async function verifyGitHubTicket(
-  secret: string,
-  value: string | null,
-  purpose: GitHubTicket["purpose"],
-  now = Date.now(),
-) {
+export async function verifyGitHubTicket<
+  Purpose extends GitHubTicket["purpose"],
+>(secret: string, value: string | null, purpose: Purpose, now = Date.now()) {
   const [payload, signature] = (value ?? "").split(".");
   const expected = payload ? encode(await hmac(secret, payload)) : "";
   const parsed =
@@ -58,7 +65,8 @@ export async function verifyGitHubTicket(
       "This GitHub link has expired. Start again from Chief.",
     );
   }
-  return parsed.data;
+  // The purpose was checked above, so the ticket is that purpose's variant.
+  return parsed.data as Extract<GitHubTicket, { purpose: Purpose }>;
 }
 
 async function hmac(secret: string, payload: string) {
