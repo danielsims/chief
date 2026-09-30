@@ -96,7 +96,7 @@ export async function routeGitHubBrowser(
         "setup",
       );
       return githubSetupPage({
-        name: verified.name ?? "Chief Agents",
+        name: verified.name,
         origin: publicOrigin(env, url.toString()),
         state: ticket ?? "",
       });
