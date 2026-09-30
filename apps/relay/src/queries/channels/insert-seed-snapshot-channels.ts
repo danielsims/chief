@@ -50,6 +50,8 @@ export function channelsInsertSeedSnapshotChannels(
         .onConflictDoUpdate({
           target: [channels.conversation_id],
           set: { kind: sql`excluded.kind` },
+          // Seeding runs on every start; only a changed kind is a real write.
+          setWhere: sql`${channels.kind} <> excluded.kind`,
         }),
     ),
   );
