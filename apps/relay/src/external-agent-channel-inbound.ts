@@ -261,5 +261,19 @@ export async function receiveExternalAgentActivity(
   );
   if (!response.ok) return response;
   await releaseInternalResponse(response);
+  // 👀 once the agent's text starts streaming, never on a message it may never answer.
+  const delivery = externalAgentDeliveryCommandSchema.parse(
+    JSON.parse(continuation.payload_json),
+  );
+  if (input.component.kind === "thinking" && !delivery.payload.scheduleStepId) {
+    await markExternalAgentWorking(
+      host.env,
+      context.workspaceId,
+      continuation.conversation_id,
+      delivery.payload.message.id,
+      principal,
+      true,
+    );
+  }
   return json(externalAgentInboundActivityResultSchema.parse({ messageId }));
 }

@@ -339,7 +339,7 @@ describe("external agent channel inbound", () => {
       (await testConversationMessages(ctx, ctx.principal, conversationId))
         .find((message) => message.id === triggerId)
         ?.reactions.some((reaction) => reaction.emoji === "👀");
-    expect(await eyes()).toBe(true);
+    expect(await eyes()).toBe(false);
     const thinking = await receiveExternalActivity(
       ctx,
       "eve-dm",
@@ -366,6 +366,7 @@ describe("external agent channel inbound", () => {
       sessionId: "eve-dm-session",
       body: "Hello. What should we work on first?",
     };
+    expect(await eyes()).toBe(true);
     const accepted = await receiveExternalAgent(
       ctx,
       "eve-dm",
