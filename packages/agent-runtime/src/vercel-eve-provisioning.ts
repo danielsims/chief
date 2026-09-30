@@ -1,6 +1,5 @@
 import type { Attributes, Span } from "@opentelemetry/api";
 
-import type { GitFile } from "./git-objects.js";
 import type {
   EveAgentProvisioningInput,
   EveAgentProvisioningProgress,
@@ -11,11 +10,6 @@ import {
   recordEveDeploymentEvent,
   withEveDeploymentSpan,
 } from "./eve-deployment-telemetry.js";
-import {
-  buildGitRepository,
-  chiefGitRemoteUrl,
-  chiefGitRepoSlug,
-} from "./git-objects.js";
 import {
   deploymentSchema,
   environmentKeysSchema,
@@ -65,7 +59,6 @@ interface ProvisioningOptions {
   token: string;
   input: EveAgentProvisioningInput;
   sourceFiles?: readonly EveProjectFile[];
-  git?: { remoteUrl: string; commitSha?: string };
   fetcher?: typeof fetch;
   pollIntervalMs?: number;
   maxWaitMs?: number;
@@ -97,7 +90,6 @@ async function provisionVercelEveDeploymentInternal(
     token,
     input,
     sourceFiles,
-    git,
     fetcher = fetch,
     pollIntervalMs = 2_000,
     maxWaitMs = 180_000,
@@ -154,7 +146,6 @@ async function provisionVercelEveDeploymentInternal(
       ? sourceFiles
       : eveProjectFiles(resolvedInput);
   assertChiefChannelPackaged(files);
-  const gitMetadata = await vercelGitMetadata(resolvedInput, files, git);
   // Reserve a new project atomically before uploading source or credentials.
   // A name lookup alone races with other creators; deployments may reuse names.
   const project = await requestJson({
@@ -228,9 +219,7 @@ async function provisionVercelEveDeploymentInternal(
     init: {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(
-        deploymentRequestBody(boundInput, files, gitMetadata),
-      ),
+      body: JSON.stringify(deploymentRequestBody(boundInput, files)),
     },
     schema: deploymentSchema,
   });
@@ -325,14 +314,6 @@ async function provisionVercelEveDeploymentInternal(
 function deploymentRequestBody(
   input: EveAgentProvisioningInput,
   files: readonly EveProjectFile[],
-  gitMetadata: {
-    remoteUrl: string;
-    commitSha: string;
-    commitRef: string;
-    commitMessage: string;
-    commitAuthorName: string;
-    dirty: boolean;
-  },
 ) {
   const body = {
     name: input.project.projectName,
@@ -343,7 +324,6 @@ function deploymentRequestBody(
     })),
     target: "production",
     env: input.environment,
-    gitMetadata,
     projectSettings: {
       framework: "eve",
       buildCommand: "npm run build",
@@ -355,30 +335,6 @@ function deploymentRequestBody(
     Object.assign(body, { project: input.project.projectId });
   }
   return body;
-}
-
-async function vercelGitMetadata(
-  input: EveAgentProvisioningInput,
-  files: readonly EveProjectFile[],
-  git?: { remoteUrl: string; commitSha?: string },
-) {
-  const repository = await buildGitRepository(
-    files.map((file): GitFile => ({ path: file.path, content: file.contents })),
-  );
-  return {
-    remoteUrl:
-      git?.remoteUrl ??
-      chiefGitRemoteUrl(
-        input.environment.CHIEF_RELAY_URL,
-        input.environment.CHIEF_WORKSPACE_ID,
-        chiefGitRepoSlug(input.project.projectName),
-      ),
-    commitSha: git?.commitSha ?? repository.commitSha,
-    commitRef: "main",
-    commitMessage: "Publish Eve agent from Chief",
-    commitAuthorName: "Chief",
-    dirty: false,
-  };
 }
 
 function reportProgress(
