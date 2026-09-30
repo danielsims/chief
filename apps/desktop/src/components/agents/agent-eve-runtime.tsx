@@ -43,6 +43,7 @@ export function AgentEveRuntime({
   const [error, setError] = useState<string | null>(null);
 
   const [revision, setRevision] = useState(0);
+  const [draftModel, setDraftModel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!relay) return;
@@ -73,6 +74,7 @@ export function AgentEveRuntime({
         },
       });
       setRevision((value) => value + 1);
+      setDraftModel(null);
       await onChanged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -96,6 +98,8 @@ export function AgentEveRuntime({
   };
 
   const deployment = status?.deployment;
+  const selectedModel = draftModel ?? deployment?.model ?? "";
+  const changed = Boolean(deployment && selectedModel !== deployment.model);
   const modelLabel = (value: string) =>
     models.models.find((item) => item.value === value)?.label ?? value;
 
@@ -150,19 +154,18 @@ export function AgentEveRuntime({
             />
             <SettingRow
               title="Model"
-              description={`Changing it redeploys ${agent.name}.`}
+              description={`The model ${agent.name} runs on.`}
               control={
                 <Select
-                  value={deployment.model}
+                  value={selectedModel}
                   disabled={!relay || deploying || models.loading}
                   onValueChange={(value) => {
-                    if (value && value !== deployment.model)
-                      void redeploy(value);
+                    if (value) setDraftModel(value);
                   }}
                 >
                   <SelectTrigger className="h-8 w-52 text-xs">
                     <span className="truncate">
-                      {modelLabel(deployment.model)}
+                      {modelLabel(selectedModel)}
                     </span>
                   </SelectTrigger>
                   <SelectContent className="max-h-72">
@@ -216,6 +219,25 @@ export function AgentEveRuntime({
               </Button>
             }
           />
+        ) : null}
+        {changed ? (
+          <div className="flex items-center justify-end gap-2 px-4 py-3">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={deploying}
+              onClick={() => setDraftModel(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!relay || deploying}
+              onClick={() => void redeploy(selectedModel)}
+            >
+              {deploying ? "Redeploying…" : "Redeploy"}
+            </Button>
+          </div>
         ) : null}
       </SettingGroup>
     </section>

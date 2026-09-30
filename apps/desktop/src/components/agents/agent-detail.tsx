@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MessageCircle, Trash2, X } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import type {
   AgentApprovalMode,
@@ -123,7 +123,19 @@ export function AgentDetail({
   selectedProfileId?: string;
   onSelectProfile?: (agentId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
+  // The tab lives in the URL so a remount (refocus, reconnect) keeps it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    standardDetailTabs.find((tab) => tab.id === searchParams.get("tab"))?.id ??
+    "configuration";
+  const setActiveTab = (tab: DetailTab) =>
+    setSearchParams(
+      (current) => {
+        current.set("tab", tab);
+        return current;
+      },
+      { replace: true },
+    );
   const [internalProfileId, setInternalProfileId] = useState(agent.id);
   const requestedProfileId = selectedProfileId ?? internalProfileId;
   const activeProfileId =
