@@ -296,8 +296,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.equal(deployment.url.searchParams.get("teamId"), "team_chief");
   assert.match(deployment.body ?? "", /prj_researcher/);
   assert.match(deployment.body ?? "", /"framework":"eve"/u);
-  assert.match(deployment.body ?? "", /"gitMetadata"/u);
-  assert.match(deployment.body ?? "", /\/git\/workspace-1\/researcher\.git/u);
+  assert.doesNotMatch(deployment.body ?? "", /"gitMetadata"/u);
   assert.doesNotMatch(deployment.body ?? "", /"outputDirectory"/u);
   const environmentRequest = requests.find((request) =>
     request.url.pathname.endsWith("/env"),

@@ -249,7 +249,6 @@ export class WorkspaceVercelService {
       token,
       input,
       sourceFiles,
-      git: { remoteUrl },
       pollIntervalMs: 8_000,
     };
     if (onProgress) options.onProgress = onProgress;
