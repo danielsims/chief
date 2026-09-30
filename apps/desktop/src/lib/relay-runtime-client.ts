@@ -49,6 +49,7 @@ import {
   toChiefMessage,
 } from "./relay-runtime-mappers";
 import { appendRelayMessage } from "./relay-runtime-messages";
+import { localProjectSnapshots } from "./relay-runtime-project-connect";
 import { routeRelayWorkspaceDataCommand } from "./relay-runtime-workspace-data";
 import {
   loadWorkspaceCursor,
@@ -79,14 +80,29 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (this.snapshot === snapshot) return;
     this.snapshot = snapshot;
     this.emit({ type: "agents", agents: relayAgentDefinitions(snapshot) });
-    this.emit({
-      type: "projects",
-      workspaceId: snapshot.id,
-      projects: relayProjectSnapshots(snapshot.projects),
-    });
+    void this.emitProjects();
     void this.listChannels().catch((error: unknown) =>
       this.recordError(parseRelayError(error)),
     );
+  }
+
+  private projectsRevision = 0;
+
+  // Every project update carries this machine's local clones, so a snapshot
+  // refresh never hides a clone behind the relay's copy of the project.
+  private async emitProjects() {
+    const revision = ++this.projectsRevision;
+    const snapshot = this.snapshot;
+    try {
+      const projects = await localProjectSnapshots(
+        snapshot.id,
+        relayProjectSnapshots(snapshot.projects),
+      );
+      if (revision !== this.projectsRevision) return;
+      this.emit({ type: "projects", workspaceId: snapshot.id, projects });
+    } catch (error) {
+      this.recordError(parseRelayError(error));
+    }
   }
 
   constructor(
@@ -135,11 +151,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     await this.refreshSnapshot();
     await this.listChats();
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
-    this.emit({
-      type: "projects",
-      workspaceId: this.snapshot.id,
-      projects: relayProjectSnapshots(this.snapshot.projects),
-    });
+    await this.emitProjects();
     await this.listChannels();
   }
   async createNativeAgent(
