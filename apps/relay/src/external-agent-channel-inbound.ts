@@ -9,7 +9,10 @@ import {
 } from "@chief/relay-contracts";
 
 import type { ExternalAgentInboundHost } from "./external-agent-continuation";
-import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
+import {
+  conversationMessagesUrl,
+  dispatchAppendedMessage,
+} from "./conversation-agent-dispatch";
 import { deterministicUuid, sha256 } from "./external-agent-channel-security";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import {
@@ -118,11 +121,17 @@ export async function receiveExternalAgentMessage(
         components: [],
       },
     });
-    const appendRequest = new Request("https://relay.internal/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(command),
-    });
+    const appendRequest = new Request(
+      conversationMessagesUrl(
+        context.workspaceId,
+        continuation.conversation_id,
+      ),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    );
     const response = await externalConversationFetch(
       host.env,
       context.workspaceId,

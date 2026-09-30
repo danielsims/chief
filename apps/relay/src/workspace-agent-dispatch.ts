@@ -138,11 +138,12 @@ export async function dispatchWorkspaceMessage(
       store,
     });
   }
+  // An agent only wakes the agents it mentions, so replies cannot ping-pong.
   let agentIds = eligibleAgentIds(
     store,
     channel,
     mentions,
-    replyAgentId,
+    context.principal.kind === "agent" ? undefined : replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
   ).filter((id) => canMessageAgent(store, id, context.principal));
   if (scheduleRunId) {
