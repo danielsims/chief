@@ -333,7 +333,11 @@ function eligibleAgentIds(
           .channelMemberRows(String(channel.conversation_id))
           .filter((member) => member.kind === "agent")
           .map((member) => member.principalId)
-      : [...mentions, ...(replyAgentId ? [replyAgentId] : [])];
+      : mentions.length > 0
+        ? mentions
+        : replyAgentId
+          ? [replyAgentId]
+          : [];
   const ready: string[] = [];
   for (const value of new Set(candidates)) {
     if (value === sourceAgentId) continue;
