@@ -458,14 +458,20 @@ async function listenForJobs() {
         socket.on("message", () => {
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        const poll = setInterval(() => {
+        // The relay pushes every job that becomes claimable, including delayed
+        // jobs and expired leases, so claims follow socket messages. The slow
+        // drain only covers a push lost on a socket that died silently.
+        const keepAlive = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) socket.ping();
+        }, 30_000);
+        const fallback = setInterval(() => {
           void drain().catch((error) =>
             console.error("[cell] mailbox poll:", error),
           );
-          if (socket.readyState === WebSocket.OPEN) socket.ping();
-        }, 30_000);
+        }, 300_000);
         socket.on("close", () => {
-          clearInterval(poll);
+          clearInterval(keepAlive);
+          clearInterval(fallback);
           resolve();
         });
         socket.on("error", (error) => {
