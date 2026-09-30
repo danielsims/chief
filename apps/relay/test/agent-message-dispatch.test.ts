@@ -80,73 +80,29 @@ describe("workspace agent message dispatch", () => {
     await registerAgent(ctx, engineerId, hexKey(String(engineerId)));
     await assignAgentProvider(ctx);
     await assignProvider(ctx, engineerId);
-    const conversationId = await startDirect(ctx);
+    const direct = await rpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      envelope({ participant: { kind: "agent", principalId: agentId } }),
+    );
+    const conversationId = (
+      (await direct.json()) as { conversation: { id: string } }
+    ).conversation.id;
 
-    const response = await dispatchMessage(ctx, ctx.principal, {
+    const mention = {
       ...testMessage(ctx, conversationId, "@Engineer might know this."),
       mentions: [engineerId],
-    });
-
-    expect(await response.json()).toEqual({ agentIds: [agentId] });
-    expect(await directAgentMembers(ctx, conversationId)).toEqual([agentId]);
-  });
-
-  it("removes an agent an earlier relay wrongly added to a direct message", async () => {
-    const ctx = await setup();
-    const engineerId = agentIdSchema.parse("engineer");
-    await registerAgent(ctx, agentId, hexKey(String(agentId)));
-    await registerAgent(ctx, engineerId, hexKey(String(engineerId)));
-    await assignAgentProvider(ctx);
-    await assignProvider(ctx, engineerId);
-    const conversationId = await startDirect(ctx);
-    const added = await rpc(
+    };
+    const first = await dispatchMessage(ctx, ctx.principal, mention);
+    const next = await dispatchMessage(
       ctx,
       ctx.principal,
-      "channels-members-add",
-      envelope({ conversationId, kind: "agent", principalId: engineerId }),
-    );
-    expect(added.status).toBe(200);
-    expect(await directAgentMembers(ctx, conversationId)).toHaveLength(2);
-
-    const response = await dispatchMessage(
-      ctx,
-      ctx.principal,
-      testMessage(ctx, conversationId, "Who's answering this?"),
+      testMessage(ctx, conversationId, "Still just you?"),
     );
 
-    expect(await response.json()).toEqual({ agentIds: [agentId] });
-    expect(await directAgentMembers(ctx, conversationId)).toEqual([agentId]);
-  });
-
-  it("keeps an agent's own conversation when removing a stray agent from it", async () => {
-    const ctx = await setup();
-    const chiefId = agentIdSchema.parse("chief");
-    const engineerId = agentIdSchema.parse("engineer");
-    await registerAgent(ctx, chiefId, hexKey(String(chiefId)));
-    await registerAgent(ctx, engineerId, hexKey(String(engineerId)));
-    await assignProvider(ctx, chiefId);
-    await assignProvider(ctx, engineerId);
-    const added = await rpc(
-      ctx,
-      ctx.principal,
-      "channels-members-add",
-      envelope({
-        conversationId: "chief",
-        kind: "agent",
-        principalId: engineerId,
-      }),
-    );
-    expect(added.status).toBe(200);
-    expect(await directAgentMembers(ctx, "chief")).toHaveLength(2);
-
-    const response = await dispatchMessage(
-      ctx,
-      ctx.principal,
-      testMessage(ctx, "chief", "How about now?"),
-    );
-
-    expect(await response.json()).toEqual({ agentIds: [chiefId] });
-    expect(await directAgentMembers(ctx, "chief")).toEqual([chiefId]);
+    expect(await first.json()).toEqual({ agentIds: [agentId] });
+    expect(await next.json()).toEqual({ agentIds: [agentId] });
   });
 
   it("invites and dispatches an agent mentioned outside a private channel", async () => {
@@ -315,36 +271,6 @@ describe("workspace agent message dispatch", () => {
     });
   });
 });
-
-async function startDirect(ctx: Awaited<ReturnType<typeof setup>>) {
-  const direct = await rpc(
-    ctx,
-    ctx.principal,
-    "directs-start",
-    envelope({ participant: { kind: "agent", principalId: agentId } }),
-  );
-  return ((await direct.json()) as { conversation: { id: string } })
-    .conversation.id;
-}
-
-async function directAgentMembers(
-  ctx: Awaited<ReturnType<typeof setup>>,
-  conversationId: string,
-) {
-  const response = await rpc(
-    ctx,
-    ctx.principal,
-    "channels-members-list",
-    undefined,
-    `conversationId=${conversationId}`,
-  );
-  const { members } = (await response.json()) as {
-    members: { kind: string; principalId: string }[];
-  };
-  return members
-    .filter((member) => member.kind === "agent")
-    .map((member) => member.principalId);
-}
 
 async function assignAgentProvider(ctx: Awaited<ReturnType<typeof setup>>) {
   return assignProvider(ctx, agentId);

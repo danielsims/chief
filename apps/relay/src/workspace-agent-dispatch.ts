@@ -12,8 +12,6 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
-import { channelMembersDeleteChannelsMembersRemove } from "./queries/channel-members/delete-channels-members-remove";
-import { channelMembershipEventsDeleteChannelsMembersRemove } from "./queries/channel-membership-events/delete-channels-members-remove";
 import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
@@ -21,7 +19,6 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
-import { directConversationId } from "./workspace-channel-service";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
 import {
@@ -101,7 +98,6 @@ export async function dispatchWorkspaceMessage(
     message.conversationId,
     context.principal,
   );
-  if (channel.kind === "direct") await removeStrayDirectMembers(store, channel);
   const people = store
     .channelMemberRows(message.conversationId)
     .flatMap((member) =>
@@ -121,13 +117,16 @@ export async function dispatchWorkspaceMessage(
           !store.memberRole("agent", id) ||
           canMessageAgent(store, id, context.principal),
       );
-  await addMentionedAgentsToChannel({
-    context,
-    conversationId: message.conversationId,
-    mentions,
-    messageId: message.id,
-    store,
-  });
+  // A mention in a direct message is only a mention; it never adds anyone.
+  if (channel.kind !== "direct") {
+    await addMentionedAgentsToChannel({
+      context,
+      conversationId: message.conversationId,
+      mentions,
+      messageId: message.id,
+      store,
+    });
+  }
   let agentIds = eligibleAgentIds(
     store,
     channel,
@@ -261,10 +260,6 @@ async function addMentionedAgentsToChannel(input: {
   messageId: string;
   store: WorkspaceChannelStore;
 }) {
-  // A direct conversation only ever holds its two participants; mentioning an
-  // agent there never invites it in.
-  if (input.store.requireChannel(input.conversationId).kind === "direct")
-    return;
   const missing = input.mentions.filter(
     (agentId) =>
       input.store.memberRole("agent", agentId) &&
@@ -295,50 +290,6 @@ async function addMentionedAgentsToChannel(input: {
     input.context,
     true,
   );
-}
-
-/**
- * Earlier relays let mentions invite agents into direct conversations, where
- * every agent member answers every message. A direct conversation belongs to
- * its creator and one participant: the agent it is named after (the original
- * per-agent conversations), or the principal its dm- id was derived from.
- * Other members are removed, and only once that participant is identified.
- */
-async function removeStrayDirectMembers(
-  store: WorkspaceChannelStore,
-  channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
-) {
-  const conversationId = String(channel.conversation_id);
-  const members = store.channelMemberRows(conversationId);
-  if (members.length <= 2) return;
-  const creator = `${String(channel.created_by_kind)}:${String(channel.created_by_id)}`;
-  const participants = new Set([creator]);
-  for (const member of members) {
-    const principal = `${member.kind}:${member.principalId}`;
-    if (
-      (member.kind === "agent" && member.principalId === conversationId) ||
-      (await directConversationId(creator, principal)) === conversationId
-    ) {
-      participants.add(principal);
-    }
-  }
-  if (participants.size !== 2) return;
-  const strays = members.filter(
-    (member) => !participants.has(`${member.kind}:${member.principalId}`),
-  );
-  if (strays.length === 0) return;
-  store.storage.transactionSync(() => {
-    for (const member of strays) {
-      const target = {
-        conversationId,
-        principalKind: member.kind,
-        principalId: member.principalId,
-      };
-      channelMembersDeleteChannelsMembersRemove(store.storage, target);
-      channelMembershipEventsDeleteChannelsMembersRemove(store.storage, target);
-    }
-    store.rewriteSnapshot(() => undefined);
-  });
 }
 
 function owningThreadRoot(
