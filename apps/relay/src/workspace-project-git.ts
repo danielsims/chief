@@ -56,13 +56,7 @@ export function chiefGitRepositoryFiles(
   const row = rows.find((project) => {
     if (project.provider_id !== "chief-git") return false;
     const remote = project.canonical_remote_url?.replace(/\.git$/u, "") ?? "";
-    const identity = remote.split("/").at(-1)?.toLowerCase();
-    const name = project.name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gu, "-")
-      .replace(/^-+|-+$/gu, "");
-    return identity === normalized || name === normalized;
+    return remote.split("/").at(-1)?.toLowerCase() === normalized;
   });
   if (!row?.repository_files_json) return undefined;
   return projectRepositoryFilesSchema
