@@ -95,7 +95,8 @@ void test("packages declared specialists as native Eve subagents", () => {
     files.find((file) => file.path === "agent/instructions.md")?.contents ?? "";
   assert.match(instructions, /Chief channel replies/u);
   assert.match(instructions, /ordinary assistant text is delivered/u);
-  assert.match(instructions, /channels_reactions_add/u);
+  // The relay shows 👀 while an agent works; the model never spends a tool call on it.
+  assert.doesNotMatch(instructions, /channels_reactions_add/u);
   assert.match(instructions, /channels_messages_post/u);
   const channel =
     files.find((file) => file.path === "agent/channels/chief.ts")?.contents ??
@@ -105,7 +106,7 @@ void test("packages declared specialists as native Eve subagents", () => {
   assert.match(channel, /"session\.waiting"/u);
   assert.match(channel, /postReply/u);
   assert.match(channel, /finishReason !== "tool-calls"/u);
-  assert.match(channel, /Call channels_reactions_add/u);
+  assert.doesNotMatch(channel, /channels_reactions_add/u);
   assert.match(channel, /peopleRoster/u);
   assert.match(channel, /projects\.recommend/u);
   assert.ok(

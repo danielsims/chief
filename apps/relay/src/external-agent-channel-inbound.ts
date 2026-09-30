@@ -14,6 +14,7 @@ import { deterministicUuid, sha256 } from "./external-agent-channel-security";
 import { resolveExternalContinuation } from "./external-agent-continuation";
 import {
   externalConversationFetch,
+  markExternalAgentWorking,
   requireExternalThreadRoot,
 } from "./external-agent-conversation";
 import { HttpError, json, parseJson } from "./http";
@@ -145,6 +146,21 @@ export async function receiveExternalAgentMessage(
     if (!dispatched.ok) return dispatched;
     await releaseInternalResponse(dispatched);
     duplicate = result.duplicate;
+  }
+  if (input.complete) {
+    const delivery = externalAgentDeliveryCommandSchema.parse(
+      JSON.parse(continuation.payload_json),
+    );
+    if (!delivery.payload.scheduleStepId) {
+      await markExternalAgentWorking(
+        host.env,
+        context.workspaceId,
+        continuation.conversation_id,
+        delivery.payload.message.id,
+        principal,
+        false,
+      );
+    }
   }
   // The final reply is durable before a scheduled teammate receives its turn.
   if (input.complete && continuation.thread_root_id) {
