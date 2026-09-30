@@ -163,13 +163,16 @@ export function ProjectFileBrowser({
 }) {
   return (
     <section>
-      <div className="mb-3 min-h-5">
-        <ProjectBreadcrumbs
-          projectName={projectName}
-          path={browser?.path ?? ""}
-          onOpen={onOpenPath}
-        />
-      </div>
+      {/* At the top of the repository there is nowhere to navigate back to. */}
+      {browser?.path ? (
+        <div className="mb-3 min-h-5">
+          <ProjectBreadcrumbs
+            projectName={projectName}
+            path={browser.path}
+            onOpen={onOpenPath}
+          />
+        </div>
+      ) : null}
       {error ? (
         <div className="border-destructive/25 bg-destructive/[0.05] text-destructive rounded-xl border px-4 py-4 text-[13px]">
           {error}
