@@ -277,7 +277,7 @@ void test("uploads, deploys, configures, and checks an Eve agent in the selected
   assert.match(uploadedSources, /\[chief-message\] publish failed/u);
   assert.match(uploadedSources, /authorization/u);
   assert.match(uploadedSources, /timingSafeEqual/u);
-  assert.match(uploadedSources, /"eve": "0\.52\.2"/u);
+  assert.match(uploadedSources, /"eve": "0\.68\.0"/u);
   assert.match(uploadedSources, /"node": "24\.x"/u);
   assert.match(uploadedSources, /"typecheck": "tsc"/u);
   assert.match(uploadedSources, /eve\/workflow-modules/u);
