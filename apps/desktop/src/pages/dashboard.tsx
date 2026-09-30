@@ -34,7 +34,7 @@ export function DashboardPage() {
   const localChats = useLocalChats(cloudOrganizationId);
   const [ask, setAsk] = useState("");
   const [attachments, setAttachments] = useState<ComposerImageAttachment[]>([]);
-  const [recipientId, setRecipientId] = useState<WorkspaceAgentId>("chief");
+  const [chosenId, setChosenId] = useState<WorkspaceAgentId | null>(null);
   const recipients = useMemo(
     () =>
       directMessageIdsForAgents(agents).map((id) => ({
@@ -43,16 +43,20 @@ export function DashboardPage() {
       })),
     [agents],
   );
+  const recipient =
+    recipients.find(({ id }) => id === chosenId) ?? recipients[0];
+  const recipientId = recipient?.id;
   const [openedAt] = useState(() => Date.now());
   const { chats, loading, startDirectMessage } = localChats;
 
   // Open the chosen agent's conversation ahead of time, so sending switches
   // straight into it instead of waiting for the relay to create it.
   const recipientChatReady = Boolean(
-    directMessageChatForAgent(chats, recipientId),
+    recipientId && directMessageChatForAgent(chats, recipientId),
   );
   useEffect(() => {
-    if (loading || status !== "connected" || recipientChatReady) return;
+    if (!recipientId || loading || status !== "connected" || recipientChatReady)
+      return;
     startDirectMessage(recipientId).catch((error: unknown) => {
       // The conversation page opens it again if this attempt fails.
       console.warn("[Overview] Could not prepare the conversation:", error);
@@ -62,7 +66,7 @@ export function DashboardPage() {
 
   const submit = () => {
     const text = ask.trim();
-    if (!text && attachments.length === 0) return;
+    if (!recipientId || (!text && attachments.length === 0)) return;
     const params = new URLSearchParams({
       dm: recipientId,
       handoff: createComposerHandoff({ text, attachments }),
@@ -87,15 +91,13 @@ export function DashboardPage() {
           mentionCandidates={DASHBOARD_MENTION_CANDIDATES}
           showExecutionControls={false}
           showSuggestions={false}
-          placeholder={`Message ${
-            recipients.find(({ id }) => id === recipientId)?.name ?? "Chief"
-          }…`}
+          placeholder={recipient ? `Message ${recipient.name}…` : undefined}
           recipient={
-            recipients.length > 0 ? (
+            recipient ? (
               <ComposerRecipient
                 options={recipients}
-                value={recipientId}
-                onChange={setRecipientId}
+                value={recipient.id}
+                onChange={setChosenId}
               />
             ) : null
           }
