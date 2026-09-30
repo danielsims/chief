@@ -18,9 +18,9 @@ import {
   canMessageAgent,
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
+import { workspaceAgentNames } from "./workspace-agent-runtime";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
-import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
 import {
   readScheduleRun,
@@ -93,16 +93,7 @@ export async function dispatchWorkspaceMessage(
   }
   const store = new WorkspaceChannelStore(storage, env);
   await refreshMemberDisplayNames(storage, env);
-  const workspace = store.requireWorkspace(context.workspaceId);
-  const agentNames = new Map(
-    (workspace.snapshot_json
-      ? decodeWorkspaceSnapshot(workspace.snapshot_json).agents
-      : []
-    ).flatMap((agent) => [
-      [agent.id, agent.name] as const,
-      ...agent.subagents.map((child) => [child.id, child.name] as const),
-    ]),
-  );
+  store.requireWorkspace(context.workspaceId);
   store.requirePrincipalMember(context.principal);
   const channel = store.requireChannelVisible(
     message.conversationId,
@@ -119,7 +110,7 @@ export async function dispatchWorkspaceMessage(
     ? message.mentions
     : normalizedChannelMentions({
         availableAgentIds: store.workspaceAgentIds(),
-        agentNames,
+        agentNames: workspaceAgentNames(storage),
         people,
         content: message.body,
         explicitMentions: message.mentions,

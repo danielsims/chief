@@ -133,6 +133,18 @@ export const externalAgentDeliveryPayloadSchema = z
         createdAt: z.iso.datetime({ offset: true }),
       })
       .strict(),
+    thread: z
+      .array(
+        z
+          .object({
+            author: z.string(),
+            body: z.string().max(4_000),
+            createdAt: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      )
+      .max(100)
+      .optional(),
   })
   .strict();
 
