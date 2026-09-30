@@ -248,7 +248,6 @@ const executorToolPermissionGroups: readonly (readonly [
       "trendsSave",
       "analyticsSaveDataset",
       "contentSave",
-      "filesWrite",
       "campaignsSave",
       "actionRaise",
       "brandProfileSave",
@@ -291,6 +290,7 @@ const executorToolPermissionGroups: readonly (readonly [
       "setupStart",
     ],
   ],
+  ["messages.send", ["filesWrite"]],
   ["agents.delegate", ["specialistsDelegate"]],
 ];
 
