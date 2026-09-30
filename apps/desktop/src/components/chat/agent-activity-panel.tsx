@@ -201,6 +201,7 @@ export function AgentActivityPanel({
                   <ToolActivityGroup
                     flat
                     blocks={turn.blocks}
+                    toolTimes={turn.toolTimes}
                     active={
                       selected.running &&
                       selected.id === activeAgentId &&
