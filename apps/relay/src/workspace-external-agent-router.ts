@@ -19,6 +19,7 @@ type ExternalAgentOperation =
   | "external-agent-message"
   | "external-agent-activity"
   | "external-agent-tools"
+  | "external-agent-memory"
   | "external-agent-enqueue"
   | "external-agent-requeue"
   | "external-agent-recover"
@@ -35,6 +36,7 @@ export const externalAgentRouter = {
       value === "external-agent-message" ||
       value === "external-agent-activity" ||
       value === "external-agent-tools" ||
+      value === "external-agent-memory" ||
       value === "external-agent-enqueue" ||
       value === "external-agent-requeue" ||
       value === "external-agent-recover" ||
@@ -127,6 +129,15 @@ export const externalAgentRouter = {
         new URL(request.url).pathname,
       );
       return service.receiveActivity(
+        request,
+        decodeURIComponent(match?.[1] ?? ""),
+      );
+    }
+    if (operation === "external-agent-memory") {
+      const match = /\/agents\/([^/]+)\/channel\/memory$/u.exec(
+        new URL(request.url).pathname,
+      );
+      return service.receiveMemory(
         request,
         decodeURIComponent(match?.[1] ?? ""),
       );
