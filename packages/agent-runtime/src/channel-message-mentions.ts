@@ -41,13 +41,14 @@ export function messageMentionsPerson(input: {
  */
 export function normalizedChannelMentions(input: {
   availableAgentIds: readonly string[];
+  agentNames?: ReadonlyMap<string, string>;
   people?: readonly { id: string; name?: string }[];
   content: string;
   explicitMentions: readonly string[];
 }) {
   const mentioned = new Set(input.explicitMentions);
   for (const agentId of input.availableAgentIds) {
-    const name = getAgent(agentId)?.name;
+    const name = input.agentNames?.get(agentId) ?? getAgent(agentId)?.name;
     const aliases = [agentId, name].filter((alias): alias is string =>
       Boolean(alias?.trim()),
     );

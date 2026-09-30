@@ -461,18 +461,22 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (isChannelMembershipMessage(message)) {
       this.requestChannelRosterRefresh();
     }
-    const knownChannel = this.snapshot.conversations.some(
-      (conversation) =>
-        conversation.id === message.conversationId &&
-        conversation.kind === "channel",
+    const knownConversation = this.snapshot.conversations.find(
+      (conversation) => conversation.id === message.conversationId,
     );
+    const knownChannel = knownConversation?.kind === "channel";
+    const revised =
+      event.type === "conversation.message.reacted" ||
+      event.type === "conversation.message.edited" ||
+      event.type === "conversation.message.deleted";
+    if (!isActivity && revised && knownConversation?.kind === "direct") {
+      void this.openChannelEvents(message.conversationId).catch((error) =>
+        this.recordError(parseRelayError(error)),
+      );
+    }
     if (!isActivity && (knownChannel || isChannelMembershipMessage(message))) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
-      if (
-        event.type === "conversation.message.reacted" ||
-        event.type === "conversation.message.edited" ||
-        event.type === "conversation.message.deleted"
-      ) {
+      if (revised) {
         void this.openChannelEvents(message.conversationId).catch((error) =>
           this.recordError(parseRelayError(error)),
         );
