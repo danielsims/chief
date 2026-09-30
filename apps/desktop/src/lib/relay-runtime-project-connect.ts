@@ -7,6 +7,7 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
+import { RelayClientError } from "@chief/relay-client";
 import { relayProjectCreateSchema } from "@chief/relay-contracts";
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
@@ -79,8 +80,18 @@ async function githubCloneToken(relay: ProjectGitHubAccess, remoteUrl: string) {
   if (!repository) return undefined;
   try {
     return (await relay.github.cloneToken(repository)).token;
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Not shared with the workspace's GitHub connection, or a relay that
+    // predates GitHub support: either way there is no token to use.
+    if (
+      error instanceof RelayClientError &&
+      (error.code === "github_repository_not_connected" ||
+        error.code === "github_not_set_up" ||
+        error.code === "not_found")
+    ) {
+      return undefined;
+    }
+    throw error;
   }
 }
 

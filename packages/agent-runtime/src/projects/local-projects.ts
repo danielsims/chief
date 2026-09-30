@@ -111,7 +111,7 @@ export async function prepareLocalProject(
       throw new Error(
         parsed.accessToken
           ? "Chief couldn't clone this repository. Try again."
-          : "Chief couldn't clone this repository. Check the URL, or connect GitHub to add private repositories.",
+          : "Chief couldn't clone this repository. Check the URL, and for a private repository make sure it's shared with Chief on GitHub.",
       );
     }
     path = await repositoryRoot(destination);
