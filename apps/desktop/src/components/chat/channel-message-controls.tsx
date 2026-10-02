@@ -25,6 +25,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
 import { AttentionPill } from "../attention-pill";
+import { AvatarImage } from "../avatar-image";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
 import { relativeActivityTime } from "./relative-activity-time";
 import {
@@ -299,20 +300,16 @@ export function ChannelMessageMeta({
                   title={participant.name}
                   className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center overflow-hidden rounded-md text-[7px] font-semibold ring-2"
                 >
-                  {participant.image ? (
-                    <img
-                      src={participant.image}
-                      alt=""
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    participant.name
+                  <AvatarImage
+                    className="size-full object-cover"
+                    fallback={participant.name
                       .split(/\s+/u)
                       .map((part) => part.charAt(0))
                       .join("")
                       .slice(0, 2)
-                      .toLocaleUpperCase()
-                  )}
+                      .toLocaleUpperCase()}
+                    src={participant.image}
+                  />
                 </span>
               ),
             )}

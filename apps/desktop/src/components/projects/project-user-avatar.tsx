@@ -2,6 +2,8 @@ import { UserRound } from "lucide-react";
 
 import { cn } from "@chief/ui/lib/utils";
 
+import { AvatarImage } from "../avatar-image";
+
 export interface ProjectCurrentUser {
   name: string;
   email: string;
@@ -37,29 +39,25 @@ export function ProjectUserAvatar({
   const image = matchesCurrentUser(name, email, currentUser)
     ? currentUser?.image
     : undefined;
-  if (image) {
-    return (
-      <img
-        src={image}
-        alt=""
-        className={cn("size-8 shrink-0 rounded-full object-cover", className)}
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
   const value = name
     .split(/\s+/)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return (
-    <span
-      className={cn(
-        "bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-medium",
-        className,
-      )}
-    >
-      {value || <UserRound size={13} />}
-    </span>
+    <AvatarImage
+      className={cn("size-8 shrink-0 rounded-full object-cover", className)}
+      fallback={
+        <span
+          className={cn(
+            "bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-medium",
+            className,
+          )}
+        >
+          {value || <UserRound size={13} />}
+        </span>
+      }
+      src={image}
+    />
   );
 }
