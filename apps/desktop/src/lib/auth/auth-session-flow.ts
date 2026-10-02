@@ -59,6 +59,9 @@ export async function openRelayAuthorization(
   signInUrl.searchParams.set("code_challenge_method", "S256");
   signInUrl.searchParams.set("state", state);
   signInUrl.searchParams.set("resource", connection.authBaseUrl);
+  // Always land on the sign-in page so an existing browser session is
+  // confirmed, or swapped for another account, rather than reused silently.
+  signInUrl.searchParams.set("prompt", "login");
   await openUrl(signInUrl.toString());
 }
 
