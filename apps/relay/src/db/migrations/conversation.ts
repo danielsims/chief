@@ -60,6 +60,8 @@ export function initializeConversationStorage(storage: DurableObjectStorage) {
       "deleted",
       "ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
     ],
+    ["author_name", "ALTER TABLE messages ADD COLUMN author_name TEXT"],
+    ["author_image", "ALTER TABLE messages ADD COLUMN author_image TEXT"],
   ] as const;
   for (const [column, statement] of additions) {
     if (!columns.has(column)) storage.sql.exec(statement);

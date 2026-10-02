@@ -3,7 +3,10 @@ import type {
   ChiefMessageMetadata,
 } from "@chief/agent-runtime/types";
 import type { MessageComponent } from "@chief/relay-contracts";
-import { channelMemberAddedPayloadSchema } from "@chief/relay-contracts";
+import {
+  channelMemberAddedPayloadSchema,
+  channelMemberJoinedPayloadSchema,
+} from "@chief/relay-contracts";
 
 function commaSeparatedIds(value: string) {
   return value
@@ -26,6 +29,14 @@ export function channelActionFromComponent(
   if (component.kind !== "channel-action" || component.version !== 1) {
     return undefined;
   }
+  const joined = channelMemberJoinedPayloadSchema.safeParse(component.payload);
+  if (joined.success) {
+    return {
+      type: "member-joined",
+      actorName: joined.data.actorName,
+      agentIds: [],
+    };
+  }
   const parsed = channelMemberAddedPayloadSchema.safeParse(component.payload);
   if (!parsed.success) return undefined;
   return {
@@ -41,8 +52,19 @@ export function channelActionFromComponent(
 export function channelActionFromEvent(
   event: ChannelEvent,
 ): ChiefMessageMetadata["channelAction"] | undefined {
+  if (event.kind !== 9) return undefined;
   if (
-    event.kind !== 9 ||
+    event.actor.type === "guest" &&
+    event.tags.some((tag) => tag[0] === "action" && tag[1] === "member-joined")
+  ) {
+    return {
+      type: "member-joined",
+      actorName: event.actor.name,
+      ...(event.actor.image ? { actorImage: event.actor.image } : undefined),
+      agentIds: [],
+    };
+  }
+  if (
     !event.tags.some((tag) => tag[0] === "action" && tag[1] === "member-added")
   ) {
     return undefined;
@@ -51,7 +73,9 @@ export function channelActionFromEvent(
     type: "member-added",
     actorName: event.actor.name,
     actorId: event.actor.id,
-    actorType: event.actor.type,
+    ...(event.actor.type === "guest"
+      ? undefined
+      : { actorType: event.actor.type }),
     agentIds: event.tags.flatMap((tag) =>
       tag[0] === "agent" && tag[1] ? [tag[1]] : [],
     ),

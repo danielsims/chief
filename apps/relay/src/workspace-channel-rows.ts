@@ -11,6 +11,9 @@ export function principalKindId(principal: Principal) {
     return { kind: "user" as const, id: principal.userId };
   if (principal.kind === "agent")
     return { kind: "agent" as const, id: principal.agentId };
+  // Guests are never workspace members, so any membership lookup fails closed.
+  if (principal.kind === "guest")
+    return { kind: "guest" as const, id: principal.guestId };
   return { kind: "service" as const, id: principal.service };
 }
 

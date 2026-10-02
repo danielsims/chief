@@ -28,6 +28,7 @@ export function canMessageAgent(
   const owner = agent.ownerUserId ?? String(workspace.created_by_user_id);
   if (principal.kind === "user") return principal.userId === owner;
   if (principal.kind === "service") return principal.service === "relay";
+  if (principal.kind === "guest") return false;
   return principal.agentId === agentId;
 }
 

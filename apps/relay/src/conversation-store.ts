@@ -127,6 +127,12 @@ export class SqlConversationStore implements ConversationStore {
         threadRootId: message.threadRootId ?? null,
         authorKind: message.author.kind,
         authorId: message.author.id,
+        authorName:
+          message.author.kind === "guest" ? message.author.name : null,
+        authorImage:
+          message.author.kind === "guest"
+            ? (message.author.image ?? null)
+            : null,
         body: message.body,
         mentionsJson: JSON.stringify(message.mentions),
         componentsJson: JSON.stringify(message.components),

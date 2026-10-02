@@ -4,6 +4,8 @@ import type { channelArchiveCommandSchema } from "@chief/relay-contracts";
 import {
   channelActionResultSchema,
   channelCreateCommandSchema,
+  channelDeleteCommandSchema,
+  channelDeleteResultSchema,
   channelJoinCommandSchema,
   channelLeaveCommandSchema,
   channelListResultSchema,
@@ -17,14 +19,19 @@ import type {
   ChannelRow,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { closeExternalChannel } from "./channel-guest-lifecycle";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
 import { channelMembersDeleteChannelsMembersRemove } from "./queries/channel-members/delete-channels-members-remove";
+import { channelMembersDeleteRemove } from "./queries/channel-members/delete-remove";
 import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
 import { channelMembersInsertChannelsCreate } from "./queries/channel-members/insert-channels-create";
 import { channelMembersInsertChannelsMembersAdd } from "./queries/channel-members/insert-channels-members-add";
 import { channelMembersInsertDirectMembers } from "./queries/channel-members/insert-direct-members";
+import { channelMembershipBatchesDeleteRemove } from "./queries/channel-membership-batches/delete-remove";
+import { channelMembershipEventsDeleteRemove } from "./queries/channel-membership-events/delete-remove";
+import { channelsDeleteRemove } from "./queries/channels/delete-remove";
 import { channelsFindChannelsCreate } from "./queries/channels/find-channels-create";
 import { channelsFindDirectBetweenMembers } from "./queries/channels/find-direct-between-members";
 import { channelsInsertChannelsCreate } from "./queries/channels/insert-channels-create";
@@ -32,6 +39,7 @@ import { channelsInsertDirectsStart } from "./queries/channels/insert-directs-st
 import { channelsListVisibleChannels } from "./queries/channels/list-visible-channels";
 import { channelsUpdateChannelsArchive } from "./queries/channels/update-channels-archive";
 import { channelsUpdateChannelsUpdate } from "./queries/channels/update-channels-update";
+import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import {
   channelRecordFromRow,
@@ -304,6 +312,7 @@ export class WorkspaceChannelService {
         updatedAt: now,
         conversationId: conversationId,
       });
+      if (isPrivate) closeExternalChannel(this.store.storage, conversationId);
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -334,6 +343,7 @@ export class WorkspaceChannelService {
         updatedAt: now,
         conversationId: conversationId,
       });
+      if (archived) closeExternalChannel(this.store.storage, conversationId);
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -344,6 +354,43 @@ export class WorkspaceChannelService {
     return json(this.store.channelRecord(conversationId));
   }
 
+  /** Owners and admins can delete any channel except #general, which every
+   * invitation lands in. The caller wipes the conversation's history. */
+  async channelsDelete(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    const command = channelDeleteCommandSchema.parse(await parseJson(request));
+    const conversationId = command.payload.conversationId;
+    requireWorkspaceAdministrator(this.store, context.principal);
+    const channel = this.store.requireChannel(conversationId);
+    if (channel.kind !== "channel" || conversationId === "general") {
+      throw new HttpError(
+        409,
+        "channel_delete_denied",
+        "This channel can't be deleted.",
+      );
+    }
+    const storage = this.store.storage;
+    storage.transactionSync(() => {
+      closeExternalChannel(storage, conversationId);
+      channelMembersDeleteRemove(storage, conversationId);
+      channelMembershipEventsDeleteRemove(storage, conversationId);
+      channelMembershipBatchesDeleteRemove(storage, conversationId);
+      channelsDeleteRemove(storage, conversationId);
+      // The snapshot backfills channels, so it must forget this one too.
+      this.store.rewriteSnapshot((conversations) => {
+        const index = conversations.findIndex(
+          (conversation) => conversation.id === conversationId,
+        );
+        if (index >= 0) conversations.splice(index, 1);
+      });
+    });
+    return json(
+      channelDeleteResultSchema.parse({ deleted: true, conversationId }),
+    );
+  }
+
   async channelsJoin(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
@@ -352,7 +399,7 @@ export class WorkspaceChannelService {
     const conversationId = command.payload.conversationId;
     const channel = this.store.requireChannel(conversationId);
     const { kind, id } = principalKindId(context.principal);
-    if (kind === "service") {
+    if (kind === "service" || kind === "guest") {
       throw new HttpError(
         403,
         "principal_required",

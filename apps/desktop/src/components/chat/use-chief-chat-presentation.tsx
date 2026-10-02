@@ -168,6 +168,18 @@ export function useChiefChatPresentation({
     const specialist = activeSpecialistByThread.get(message.id);
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
+        if (reply.metadata?.guest) {
+          return [
+            {
+              id: `guest:${reply.metadata.guest.id}`,
+              kind: "user",
+              name: reply.metadata.guest.name,
+              ...(reply.metadata.guest.image
+                ? { image: reply.metadata.guest.image }
+                : undefined),
+            },
+          ];
+        }
         if (reply.role === "user") {
           return [
             {

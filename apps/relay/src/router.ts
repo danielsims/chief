@@ -28,6 +28,7 @@ import {
 } from "./request-rate-limits";
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
+import { routeChannelGuestRequest } from "./router-channel-guests";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
 import { routeMissionRequest } from "./router-missions";
@@ -104,6 +105,10 @@ export async function routeRelayRequest(
       routePublicRequest(request, url, env),
     );
     if (publicResponse) return publicResponse;
+    const guestResponse = yield* attempt("relay.channel_guests", () =>
+      routeChannelGuestRequest(env, request, requestId),
+    );
+    if (guestResponse) return guestResponse;
     const githubBrowserResponse = yield* attempt("relay.github_browser", () =>
       routeGitHubBrowser(request, url, env, requestId),
     );

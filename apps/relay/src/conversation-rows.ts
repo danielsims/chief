@@ -15,8 +15,10 @@ export interface MessageRow extends Record<string, SqlStorageValue> {
   workspace_id: string;
   conversation_id: string;
   thread_root_id: string | null;
-  author_kind: "user" | "agent" | "system";
+  author_kind: "user" | "agent" | "system" | "guest";
   author_id: string;
+  author_name: string | null;
+  author_image: string | null;
   body: string;
   mentions_json: string;
   components_json: string;
@@ -47,7 +49,15 @@ export function toMessage(row: MessageRow): ConversationMessage {
     workspaceId: row.workspace_id,
     conversationId: row.conversation_id,
     threadRootId: row.thread_root_id ?? undefined,
-    author: { kind: row.author_kind, id: row.author_id },
+    author:
+      row.author_kind === "guest"
+        ? {
+            kind: "guest",
+            id: row.author_id,
+            name: row.author_name ?? "Guest",
+            ...(row.author_image ? { image: row.author_image } : undefined),
+          }
+        : { kind: row.author_kind, id: row.author_id },
     body: row.body,
     mentions: parseStoredJson(row.mentions_json),
     components: parseStoredJson(row.components_json),
