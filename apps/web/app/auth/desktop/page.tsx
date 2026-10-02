@@ -4,7 +4,9 @@ import { Suspense, useEffect } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 
+import { buttonVariants } from "@chief/ui/components/button";
 import { SuccessCheck } from "@chief/ui/components/success-check";
+import { cn } from "@chief/ui/lib/utils";
 
 const DEEP_LINK = "chief-desktop:///auth";
 
@@ -36,7 +38,7 @@ function DesktopAuthContent() {
 
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="p-8">
+      <header className="px-6 pt-6">
         <Image
           alt="Chief"
           className="h-8 w-8"
@@ -46,13 +48,13 @@ function DesktopAuthContent() {
         />
       </header>
 
-      <div className="flex flex-1 items-center justify-center px-8 pb-24">
-        <div className="mx-auto flex w-full max-w-xs flex-col items-center text-center">
+      <div className="flex flex-1 items-center justify-center px-8 pb-20">
+        <div className="mx-auto flex w-full max-w-sm flex-col items-center text-center">
           {success ? (
             <>
-              <SuccessCheck className="mb-8" />
+              <SuccessCheck className="mb-6 size-16" />
               <div className="success-copy flex w-full flex-col items-center">
-                <h1 className="text-4xl leading-tight font-normal">
+                <h1 className="text-3xl leading-tight font-normal">
                   You&rsquo;re in.
                 </h1>
                 <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
@@ -60,7 +62,7 @@ function DesktopAuthContent() {
                 </p>
                 <a
                   href={deepLink}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 mt-12 inline-flex h-11 w-full items-center justify-center px-8 text-sm font-medium transition-colors"
+                  className={cn(buttonVariants(), "mt-8 h-11 w-full")}
                 >
                   Open Chief
                 </a>
@@ -68,7 +70,7 @@ function DesktopAuthContent() {
             </>
           ) : (
             <>
-              <h1 className="text-4xl leading-tight font-normal">
+              <h1 className="text-3xl leading-tight font-normal">
                 Sign-in didn&rsquo;t finish.
               </h1>
               <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
@@ -78,7 +80,10 @@ function DesktopAuthContent() {
               </p>
               <a
                 href={deepLink}
-                className="hover:bg-accent mt-12 inline-flex h-11 w-full items-center justify-center border text-sm font-medium transition-colors"
+                className={cn(
+                  buttonVariants({ variant: "outline" }),
+                  "mt-8 h-11 w-full",
+                )}
               >
                 Return to Chief
               </a>
