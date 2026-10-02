@@ -41,6 +41,7 @@ import {
 import { useRelaySession } from "../lib/relay-session";
 import { userStatusLabel, useUserStatus } from "../lib/user-status";
 import { pendingCreateRelayKey } from "../lib/workspace-entry";
+import { AvatarImage } from "./avatar-image";
 import { ChiefMark } from "./chief-mark";
 import { OrgLogo } from "./org-logo";
 import { RelayConnectionDialog } from "./relay-connection-control";
@@ -397,11 +398,11 @@ function ProfileImage({
     <span
       className={`bg-muted flex shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold ${className}`}
     >
-      {user?.image ? (
-        <img src={user.image} alt="" className="size-full object-cover" />
-      ) : (
-        (user?.name.trim().charAt(0) ?? "C").toLocaleUpperCase()
-      )}
+      <AvatarImage
+        className="size-full object-cover"
+        fallback={(user?.name.trim().charAt(0) ?? "C").toLocaleUpperCase()}
+        src={user?.image}
+      />
     </span>
   );
 }

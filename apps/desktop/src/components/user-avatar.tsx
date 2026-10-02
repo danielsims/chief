@@ -1,5 +1,7 @@
 import { cn } from "@chief/ui/lib/utils";
 
+import { AvatarImage } from "./avatar-image";
+
 /** A human member avatar; agents use the separate AgentAvatar treatment. */
 export function UserAvatar({
   className,
@@ -17,11 +19,11 @@ export function UserAvatar({
         className,
       )}
     >
-      {image ? (
-        <img src={image} alt="" className="size-full object-cover" />
-      ) : (
-        name.trim().charAt(0).toLocaleUpperCase() || "?"
-      )}
+      <AvatarImage
+        className="size-full object-cover"
+        fallback={name.trim().charAt(0).toLocaleUpperCase() || "?"}
+        src={image}
+      />
     </span>
   );
 }

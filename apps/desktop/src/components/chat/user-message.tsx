@@ -5,6 +5,7 @@ import type { MessageAttachment } from "@chief/agent-runtime/types";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { stripPrivateSetupInstructions } from "../../lib/integration-setup";
+import { AvatarImage } from "../avatar-image";
 import { MessageTimestamp } from "./chat-date-time";
 import { StreamingMarkdown } from "./streaming-markdown";
 
@@ -61,11 +62,11 @@ export function UserMessage({
         onClick={onOpenProfile}
         className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
       >
-        {author.image ? (
-          <img src={author.image} alt="" className="size-full object-cover" />
-        ) : (
-          initials || "Y"
-        )}
+        <AvatarImage
+          className="size-full object-cover"
+          fallback={initials || "Y"}
+          src={author.image}
+        />
       </button>
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
