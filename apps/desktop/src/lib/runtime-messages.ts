@@ -341,7 +341,7 @@ export function projectChannelTimeline(
             )
           : {
               id,
-              role: event.actor.type === "user" ? "user" : "assistant",
+              role: event.actor.type === "agent" ? "assistant" : "user",
               parts: [
                 ...(event.content.trim()
                   ? [{ type: "text" as const, text: event.content }]
@@ -351,6 +351,17 @@ export function projectChannelTimeline(
               metadata: {
                 createdAt: event.createdAt,
                 ...(agentId ? { agentId } : undefined),
+                ...(event.actor.type === "guest"
+                  ? {
+                      guest: {
+                        id: event.actor.id,
+                        name: event.actor.name,
+                        ...(event.actor.image
+                          ? { image: event.actor.image }
+                          : undefined),
+                      },
+                    }
+                  : undefined),
                 ...(threadRootId ? { threadRootId } : undefined),
                 ...(channelAction ? { channelAction } : undefined),
               },

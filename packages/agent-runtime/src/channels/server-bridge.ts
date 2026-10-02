@@ -94,7 +94,11 @@ export async function mirrorEvent(
     parts: agentEvent.content,
     sourceId: agentEvent.id,
     mentions: agentEvent.mentions,
-    channelAction: agentEvent.channelAction,
+    // Guest joins only exist on relay channels, never in the local runtime.
+    channelAction:
+      agentEvent.channelAction?.type === "member-added"
+        ? { ...agentEvent.channelAction, type: "member-added" }
+        : undefined,
     threadRootId,
   });
   await channelStore.appendEvent(workspaceId, event);

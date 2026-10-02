@@ -81,6 +81,12 @@
       "namespace_id": "23005",
       "simple": { "limit": 30, "period": 60 },
     },
+    {
+      // Push notifications from one outside guest agent.
+      "name": "GUEST_PUSH_RATE_LIMITER",
+      "namespace_id": "23006",
+      "simple": { "limit": 6, "period": 60 },
+    },
   ],
   "vars": {
     "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",

@@ -5,6 +5,14 @@ export function authorFor(principal: Principal): MessageAuthor {
   if (principal.kind === "agent") {
     return { kind: "agent", id: principal.agentId };
   }
+  if (principal.kind === "guest") {
+    return {
+      kind: "guest",
+      id: principal.guestId,
+      name: principal.name,
+      ...(principal.image ? { image: principal.image } : undefined),
+    };
+  }
   return { kind: "system", id: "relay" };
 }
 

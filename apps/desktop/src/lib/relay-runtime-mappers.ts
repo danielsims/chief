@@ -156,9 +156,23 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
     .find((action) => action !== undefined);
   return {
     id: message.id,
-    role: message.author.kind === "user" ? "user" : "assistant",
+    role:
+      message.author.kind === "user" || message.author.kind === "guest"
+        ? "user"
+        : "assistant",
     metadata: {
       createdAt: Date.parse(message.createdAt),
+      ...(message.author.kind === "guest"
+        ? {
+            guest: {
+              id: message.author.id,
+              name: message.author.name,
+              ...(message.author.image
+                ? { image: message.author.image }
+                : undefined),
+            },
+          }
+        : undefined),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
         : undefined),
@@ -168,7 +182,16 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       ...(message.mentions.length > 0
         ? { mentions: message.mentions }
         : undefined),
-      ...(channelAction ? { channelAction } : undefined),
+      ...(channelAction
+        ? {
+            channelAction:
+              channelAction.type === "member-joined" &&
+              message.author.kind === "guest" &&
+              message.author.image
+                ? { ...channelAction, actorImage: message.author.image }
+                : channelAction,
+          }
+        : undefined),
       ...(schedulePayload.success
         ? { scheduledRun: schedulePayload.data }
         : undefined),
@@ -193,11 +216,20 @@ export function toChannelMessageEvent(
             workspaceAgentById(snapshot, message.author.id)?.name ??
             message.author.id,
         }
-      : {
-          type: "user" as const,
-          id: message.author.id,
-          name: message.author.kind === "system" ? "Chief" : "You",
-        };
+      : message.author.kind === "guest"
+        ? {
+            type: "guest" as const,
+            id: message.author.id,
+            name: message.author.name,
+            ...(message.author.image
+              ? { image: message.author.image }
+              : undefined),
+          }
+        : {
+            type: "user" as const,
+            id: message.author.id,
+            name: message.author.kind === "system" ? "Chief" : "You",
+          };
   return {
     protocol: "nip29",
     id: message.id,
@@ -212,6 +244,14 @@ export function toChannelMessageEvent(
           ]
         : []),
       ...message.mentions.map((mention) => ["p", mention]),
+      ...(message.author.kind === "guest" &&
+      message.components.some(
+        (component) =>
+          component.kind === "channel-action" &&
+          component.payload.type === "member-joined",
+      )
+        ? [["action", "member-joined"]]
+        : []),
     ],
     content: message.deleted ? "" : message.body,
     parts: messageComponentParts(message),

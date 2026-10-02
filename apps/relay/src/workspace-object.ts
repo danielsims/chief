@@ -11,6 +11,8 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
+import { fenceGuestEvent } from "./channel-guest-fence";
+import { ChannelGuestService } from "./channel-guest-service";
 import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
@@ -170,6 +172,14 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "live-socket-ticket") {
         return yield* attempt("workspace.live.ticket", () =>
           createLiveSocketTicket(request),
+        );
+      }
+      if (
+        operation?.startsWith("guest-") ||
+        operation?.startsWith("channel-external-")
+      ) {
+        return yield* attempt("workspace.channel_guests", () =>
+          new ChannelGuestService(ctx.storage, env).route(request, operation),
         );
       }
       if (operation === "agent-message-dispatch") {
@@ -574,8 +584,9 @@ export class WorkspaceObject extends DurableObject<Env> {
     do {
       const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
       const page = live.list(cursor, Math.min(200, remaining), conversationIds);
+      const reader = workspaceSocketAttachment(socket).principal;
       for (const event of page.events) {
-        socket.send(JSON.stringify(event));
+        socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
         cursor = event.sequence;
         lastDeliveredCursor = event.sequence;
         delivered += 1;
@@ -600,6 +611,7 @@ export class WorkspaceObject extends DurableObject<Env> {
   private broadcastLiveEvent(event: ConversationEvent) {
     const conversationId = event.payload.message.conversationId;
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
+    // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
       try {
@@ -618,7 +630,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           socket.close(1008, "Conversation access revoked");
           continue;
         }
-        socket.send(serialized);
+        socket.send(
+          attachment.principal.kind === "user"
+            ? serialized
+            : JSON.stringify(fenceGuestEvent(attachment.principal, event)),
+        );
       } catch {
         socket.close(1011, "Delivery failed");
       }

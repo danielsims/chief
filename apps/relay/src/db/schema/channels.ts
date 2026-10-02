@@ -8,6 +8,9 @@ export const channels = sqliteTable("channels", {
   is_private: integer("is_private").notNull().default(0),
   archived: integer("archived").notNull().default(0),
   description: text("description"),
+  /** Set exactly while the channel is external: the secret in its join link.
+   * Public and private channels have none and are never reachable outside. */
+  external_link_token: text("external_link_token"),
   created_by_kind: text("created_by_kind").notNull(),
   created_by_id: text("created_by_id").notNull(),
   version: integer("version").notNull().default(1),

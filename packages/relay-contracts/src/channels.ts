@@ -53,6 +53,15 @@ export const channelUnarchiveCommandSchema = commandEnvelopeSchema(
   z.object({ conversationId: conversationIdSchema }).strict(),
 );
 
+/** Permanently removes a channel and its history. Owners and admins only. */
+export const channelDeleteCommandSchema = commandEnvelopeSchema(
+  z.object({ conversationId: conversationIdSchema }).strict(),
+);
+
+export const channelDeleteResultSchema = z
+  .object({ deleted: z.literal(true), conversationId: conversationIdSchema })
+  .strict();
+
 export const channelJoinCommandSchema = commandEnvelopeSchema(
   z.object({ conversationId: conversationIdSchema }).strict(),
 );

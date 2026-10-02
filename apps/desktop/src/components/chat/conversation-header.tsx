@@ -2,10 +2,13 @@ import { useState } from "react";
 import {
   Check,
   Copy,
+  Globe,
   Hash,
+  Info,
   ListChecks,
   Lock,
   MoreHorizontal,
+  Settings2,
   UserRound,
   X,
 } from "lucide-react";
@@ -29,7 +32,10 @@ import {
   workspaceAgentIdentity,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
+import { AvatarImage } from "../avatar-image";
+import { openChannelDetails } from "../channel-details-events";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
+import { ChannelGuestRows, useChannelExternalAccess } from "./channel-guests";
 
 interface ConversationHeaderChannel {
   id: string;
@@ -70,7 +76,10 @@ export function ConversationHeader({
   const selectedArtifact = params.get("artifact");
   const artifact = files.find((file) => file.id === selectedArtifact);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const channelAccess = useChannelExternalAccess(
+    channel.id,
+    !directIdentity && channel.visibility !== "private",
+  );
 
   return (
     <header className="border-border/60 relative shrink-0 border-b">
@@ -98,20 +107,36 @@ export function ConversationHeader({
             </button>
           ) : channel.visibility === "private" ? (
             <Lock size={17} className="text-muted-foreground shrink-0" />
+          ) : channelAccess.external ? (
+            <Globe
+              aria-label="External channel"
+              size={17}
+              className="text-muted-foreground shrink-0"
+            />
           ) : (
             <Hash size={17} className="text-muted-foreground shrink-0" />
           )}
           <div className="min-w-0">
-            <h1
-              className={cn(
-                "truncate font-semibold",
-                directIdentity
-                  ? "text-sm leading-5 tracking-[-0.015em]"
-                  : "text-[13px] leading-4",
-              )}
-            >
-              {directIdentity?.name ?? channel.label}
-            </h1>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h1
+                className={cn(
+                  "truncate font-semibold",
+                  directIdentity
+                    ? "text-sm leading-5 tracking-[-0.015em]"
+                    : "text-[13px] leading-4",
+                )}
+              >
+                {directIdentity?.name ?? channel.label}
+              </h1>
+              {channelAccess.external ? (
+                <span
+                  title="Anyone with the link can join, including people and agents outside your workspace."
+                  className="text-muted-foreground border-border/70 shrink-0 rounded-md border px-1.5 text-[10px] leading-4 font-medium"
+                >
+                  External
+                </span>
+              ) : null}
+            </div>
             {!directIdentity ? (
               <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
                 {channel.description}
@@ -142,7 +167,7 @@ export function ConversationHeader({
                 <MoreHorizontal size={15} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-48 p-1.5">
+            <PopoverContent align="end" className="w-60 p-1.5">
               {directIdentity ? (
                 <button
                   type="button"
@@ -161,6 +186,32 @@ export function ConversationHeader({
                   View profile
                 </button>
               ) : null}
+              {!directIdentity ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      openChannelDetails(channel.id, "about");
+                    }}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                  >
+                    <Info size={14} />
+                    Channel details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      openChannelDetails(channel.id, "settings");
+                    }}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                  >
+                    <Settings2 size={14} />
+                    Edit settings
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -174,21 +225,23 @@ export function ConversationHeader({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(window.location.href);
-                  setLinkCopied(true);
-                  window.setTimeout(() => setLinkCopied(false), 1600);
-                }}
+                onClick={() => void channelAccess.copyLink()}
                 className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
               >
-                {linkCopied ? <Check size={14} /> : <Copy size={14} />}
-                {linkCopied
+                {channelAccess.copyState === "copied" ? (
+                  <Check size={14} />
+                ) : (
+                  <Copy size={14} />
+                )}
+                {channelAccess.copyState === "copied"
                   ? directIdentity
                     ? "Conversation link copied"
                     : "Channel link copied"
-                  : directIdentity
-                    ? "Copy conversation link"
-                    : "Copy channel link"}
+                  : channelAccess.copyState === "failed"
+                    ? "Couldn’t copy link"
+                    : directIdentity
+                      ? "Copy conversation link"
+                      : "Copy channel link"}
               </button>
             </PopoverContent>
           </Popover>
@@ -282,10 +335,14 @@ function ChannelMembersMenu({
         >
           <span className="flex -space-x-1">
             {user?.image ? (
-              <img
-                src={user.image}
-                alt=""
+              <AvatarImage
                 className="ring-card size-4 rounded-full object-cover ring-1"
+                fallback={
+                  <span className="bg-muted ring-card flex size-4 items-center justify-center rounded-full text-[8px] font-semibold ring-1">
+                    {(user.name.charAt(0) || "Y").toLocaleUpperCase()}
+                  </span>
+                }
+                src={user.image}
               />
             ) : null}
             {channelAgents.slice(0, 3).map((agent) => (
@@ -315,15 +372,11 @@ function ChannelMembersMenu({
             className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
           >
             <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
-              {user?.image ? (
-                <img
-                  src={user.image}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : (
-                (user?.name.charAt(0) ?? "Y").toLocaleUpperCase()
-              )}
+              <AvatarImage
+                className="size-full object-cover"
+                fallback={(user?.name.charAt(0) ?? "Y").toLocaleUpperCase()}
+                src={user?.image}
+              />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-xs font-medium">
@@ -334,6 +387,9 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
+          {channel.visibility !== "private" ? (
+            <ChannelGuestRows channelId={channel.id} open={open} />
+          ) : null}
           {channelAgents.map((agent) => {
             return (
               <button

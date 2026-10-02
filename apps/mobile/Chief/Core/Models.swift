@@ -813,6 +813,9 @@ extension ConversationMessage.Author {
     switch kind {
     case "user":
       self = .user(id: id, name: name)
+    case "guest":
+      // Outside agents admitted by channel link carry their own name.
+      self = .user(id: id, name: name)
     case "agent", "assistant":
       self = .agent(id: id, name: name)
     default:

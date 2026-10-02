@@ -1,4 +1,8 @@
-import { userIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
+import {
+  guestIdSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 import { createRelayOpenApiDocument } from "@chief/relay-contracts/openapi";
 
 import { getPublicImageAsset } from "./attachments";
@@ -8,6 +12,7 @@ import { publicOrigin, relayDiscovery } from "./relay-discovery";
 
 const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
 const publicWorkspaceImageRoute = /^\/v1\/assets\/workspaces\/([^/]+)$/u;
+const publicGuestImageRoute = /^\/v1\/assets\/guests\/([^/]+)$/u;
 
 export function routePublicRequest(request: Request, url: URL, env: Env) {
   if (request.method !== "GET") return undefined;
@@ -24,6 +29,13 @@ export function routePublicRequest(request: Request, url: URL, env: Env) {
       decodeURIComponent(workspaceImage[1] ?? ""),
     );
     return getPublicImageAsset(env, `workspaces/${workspaceId}`);
+  }
+  const guestImage = publicGuestImageRoute.exec(url.pathname);
+  if (guestImage) {
+    const guestId = guestIdSchema.parse(
+      decodeURIComponent(guestImage[1] ?? ""),
+    );
+    return getPublicImageAsset(env, `guests/${guestId}`);
   }
   if (url.pathname === "/health") {
     return json({ ok: true, protocolVersion: 1 });

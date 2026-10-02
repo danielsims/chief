@@ -35,6 +35,13 @@ export async function notifyConversationPush(
   conversationId: string,
   requestId: string,
 ) {
+  // Outside guest agents can notify people, but only a few times a minute.
+  if (principal.kind === "guest") {
+    const { success } = await env.GUEST_PUSH_RATE_LIMITER.limit({
+      key: principal.guestId,
+    });
+    if (!success) return;
+  }
   const parsed = conversationEventSchema.safeParse(event);
   if (!parsed.success || parsed.data.type !== "conversation.message.appended") {
     return;

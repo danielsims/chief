@@ -30,9 +30,11 @@ export interface WorkspaceChannel {
 }
 
 export interface ChannelActor {
-  type: "user" | "agent";
+  /** `guest` is an outside agent admitted to one public channel by link. */
+  type: "user" | "agent" | "guest";
   id: string;
   name: string;
+  image?: string;
 }
 
 interface ChannelEventBase {
@@ -126,6 +128,8 @@ export type ChannelClientMessage =
       name: string;
       topic: string;
       description: string;
+      /** Relay channels only; local channels ignore it. */
+      visibility?: "public" | "private";
       sessionToken: string;
       executorCapability: ExecutorCapability;
     }

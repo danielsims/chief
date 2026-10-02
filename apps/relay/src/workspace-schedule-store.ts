@@ -8,6 +8,7 @@ import {
   workspaceScheduleSchema,
 } from "@chief/relay-contracts";
 
+import { channelGuestOutboxDeadline } from "./channel-guest-lifecycle";
 import { initializeScheduleRunTables } from "./db/migrations/initialize-schedule-run-tables";
 import { initializeScheduleTables } from "./db/migrations/initialize-schedule-tables";
 import { externalAgentOutboxDeadline } from "./external-agent-outbox-deadline";
@@ -122,6 +123,7 @@ export async function setWorkspaceAlarm(
   const deadlines = [
     scheduleAt,
     externalAgentOutboxDeadline(storage),
+    channelGuestOutboxDeadline(storage),
     externalDeadline,
   ].filter((value): value is number => value !== undefined);
   if (deadlines.length)

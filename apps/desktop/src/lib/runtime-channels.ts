@@ -364,7 +364,12 @@ export function useWorkspaceChannelsState() {
   const updateChannel = useCallback(
     (
       channelId: string,
-      input: { name: string; topic: string; description: string },
+      input: {
+        name: string;
+        topic: string;
+        description: string;
+        visibility?: "public" | "private";
+      },
     ): Promise<void> => {
       if (!cloudOrganizationId || !capability || !sessionToken) {
         return Promise.reject(
@@ -388,6 +393,7 @@ export function useWorkspaceChannelsState() {
           name: input.name,
           topic: input.topic,
           description: input.description,
+          ...(input.visibility ? { visibility: input.visibility } : undefined),
           sessionToken,
           executorCapability: capability,
         });

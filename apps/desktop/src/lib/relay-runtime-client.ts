@@ -30,6 +30,7 @@ import {
   relayAgentPreferencesMessage,
   saveRelayAgentPreference,
 } from "./relay-runtime-agents";
+import { applyRelayChannelSettings } from "./relay-runtime-channel-settings";
 import {
   createRelayWorkspaceChannel,
   loadRelayWorkspaceChannels,
@@ -260,6 +261,16 @@ export class RelayRuntimeClient implements RuntimeTransport {
         return;
       case "sendMessage":
         await this.appendMessage(message);
+        return;
+      case "updateChannel":
+      case "setChannelArchived":
+      case "deleteChannel":
+        await applyRelayChannelSettings(
+          this.relay,
+          this.snapshot,
+          message,
+          (reply) => this.emit(reply),
+        );
         return;
       default:
         this.recordError(

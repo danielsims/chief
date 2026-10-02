@@ -314,12 +314,29 @@ export function ChiefChat({
                       return (
                         <div id={`chief-message-${message.id}`}>
                           <UserMessage
-                            author={userAuthor}
+                            author={
+                              message.metadata?.guest
+                                ? {
+                                    name: message.metadata.guest.name,
+                                    ...(message.metadata.guest.image
+                                      ? { image: message.metadata.guest.image }
+                                      : undefined),
+                                  }
+                                : userAuthor
+                            }
                             attachments={imageParts(message)}
-                            metadata={channel ? null : undefined}
+                            metadata={
+                              message.metadata?.guest
+                                ? "Guest"
+                                : channel
+                                  ? null
+                                  : undefined
+                            }
                             channelReferences={channelReferences}
                             onOpenChannel={onOpenChannel}
-                            onOpenProfile={openUserProfile}
+                            {...(message.metadata?.guest
+                              ? undefined
+                              : { onOpenProfile: openUserProfile })}
                             onOpenMention={openAgentMention}
                             timestamp={message.metadata?.createdAt}
                             {...controlsForMessage(message)}

@@ -13,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
-import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceChannelId } from "../lib/workspace-channels";
@@ -23,14 +22,16 @@ import {
   ChannelAgentsPanel,
   ChannelMembersPanel,
 } from "./channel-details-people";
+import { ChannelSettingsPanel } from "./channel-settings-panel";
 
-type ChannelDetailsTab = "about" | "members" | "agents";
+export type ChannelDetailsTab = "about" | "members" | "agents" | "settings";
 type EditableField = "name" | "topic" | "description";
 
 const CHANNEL_TABS: { id: ChannelDetailsTab; label: string }[] = [
   { id: "about", label: "About" },
   { id: "members", label: "Members" },
   { id: "agents", label: "Agents and apps" },
+  { id: "settings", label: "Settings" },
 ];
 
 function cleanChannelName(value: string) {
@@ -49,7 +50,9 @@ function displayDate(timestamp?: number) {
 export function ChannelDetailsDialog({
   canManage,
   channel,
+  initialTab = "about",
   onClose,
+  onDelete,
   onLeave,
   onSetArchived,
   onSetPolicy,
@@ -57,7 +60,10 @@ export function ChannelDetailsDialog({
 }: {
   canManage: boolean;
   channel: SidebarChannel | null;
+  initialTab?: ChannelDetailsTab;
   onClose: () => void;
+  /** Hands the channel to the permanent-delete confirmation. */
+  onDelete: (channel: SidebarChannel) => void;
   onLeave: (channelId: WorkspaceChannelId) => Promise<void>;
   onSetArchived: (
     channelId: WorkspaceChannelId,
@@ -69,13 +75,18 @@ export function ChannelDetailsDialog({
   ) => Promise<void>;
   onUpdate: (
     channelId: WorkspaceChannelId,
-    input: { name: string; topic: string; description: string },
+    input: {
+      name: string;
+      topic: string;
+      description: string;
+      visibility?: "public" | "private";
+    },
   ) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [details, setDetails] = useState(channel);
-  const [activeTab, setActiveTab] = useState<ChannelDetailsTab>("about");
+  const [activeTab, setActiveTab] = useState<ChannelDetailsTab>(initialTab);
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +129,30 @@ export function ChannelDetailsDialog({
         lifecycle: archived ? "archived" : "active",
       });
       if (archived) onClose();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Chief could not update this channel.",
+      );
+    } finally {
+      setSavingLifecycle(false);
+    }
+  };
+
+  const setPrivate = async (isPrivate: boolean) => {
+    if (!details || savingLifecycle) return;
+    const visibility = isPrivate ? "private" : "public";
+    setSavingLifecycle(true);
+    setError(null);
+    try {
+      await onUpdate(details.id, {
+        name: details.label,
+        topic: details.topic,
+        description: details.description,
+        visibility,
+      });
+      setDetails({ ...details, visibility });
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -333,7 +368,6 @@ export function ChannelDetailsDialog({
           {activeTab === "about" ? (
             <div className="space-y-4">
               <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
-                {renderField("name", "Channel name", "Add a channel name")}
                 {renderField("topic", "Topic", "Add a topic")}
                 {renderField("description", "Description", "Add a description")}
                 {created ? (
@@ -343,42 +377,6 @@ export function ChannelDetailsDialog({
                       {created}
                     </p>
                   </section>
-                ) : null}
-                {canManage ? (
-                  <section className="flex items-center gap-4 px-5 py-4">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-sm font-semibold">
-                        Agent channel management
-                      </h3>
-                      <p className="text-muted-foreground mt-1 text-sm leading-5">
-                        Let agents update details, invite teammates, track
-                        feature work and archive this channel when the work is
-                        done.
-                      </p>
-                    </div>
-                    <Switch
-                      aria-label="Allow agents to manage this channel"
-                      checked={agentsCanManage}
-                      disabled={savingPolicy}
-                      onCheckedChange={(checked) =>
-                        void setAgentManagement(checked)
-                      }
-                    />
-                  </section>
-                ) : null}
-                {canManage ? (
-                  <button
-                    type="button"
-                    disabled={savingLifecycle}
-                    className="text-foreground hover:bg-foreground/[0.035] w-full px-5 py-4 text-left text-sm font-semibold disabled:opacity-50"
-                    onClick={() => void setArchived()}
-                  >
-                    {savingLifecycle
-                      ? "Updating…"
-                      : details?.lifecycle === "archived"
-                        ? "Restore channel"
-                        : "Archive channel"}
-                  </button>
                 ) : null}
                 <button
                   type="button"
@@ -400,6 +398,26 @@ export function ChannelDetailsDialog({
                 </button>
               ) : null}
             </div>
+          ) : null}
+
+          {activeTab === "settings" && details ? (
+            <ChannelSettingsPanel
+              agentsCanManage={agentsCanManage}
+              busy={savingLifecycle || savingPolicy}
+              canManage={canManage}
+              channel={details}
+              nameField={renderField(
+                "name",
+                "Channel name",
+                "Add a channel name",
+              )}
+              onArchive={() => void setArchived()}
+              onDelete={() => onDelete(details)}
+              onSetAgentManagement={(enabled) =>
+                void setAgentManagement(enabled)
+              }
+              onSetPrivate={(isPrivate) => void setPrivate(isPrivate)}
+            />
           ) : null}
 
           {activeTab === "members" ? (

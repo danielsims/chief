@@ -215,6 +215,8 @@ export interface ChiefMessageMetadata {
   event?: ChiefMessageEventMetadata;
   /** Agent that authored a shared-channel message. */
   agentId?: string;
+  /** Outside guest agent that authored a shared-channel message. */
+  guest?: { id: string; name: string; image?: string };
   /** The top-level channel message this reply belongs to. */
   threadRootId?: string;
   /** Stable user or agent identities explicitly addressed by this message. */
@@ -225,7 +227,9 @@ export interface ChiefMessageMetadata {
   interruptActive?: boolean;
   /** Durable channel lifecycle event rendered separately from authored chat. */
   channelAction?: {
-    type: "member-added";
+    /** `member-joined` is a guest agent arriving through a share link. */
+    type: "member-added" | "member-joined";
+    actorImage?: string;
     actorName: string;
     actorId?: string;
     actorType?: "user" | "agent";

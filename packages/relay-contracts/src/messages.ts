@@ -6,6 +6,7 @@ import {
   agentIdSchema,
   channelMentionIdSchema,
   conversationIdSchema,
+  guestIdSchema,
   hexPubkeySchema,
   isoDateTimeSchema,
   messageIdSchema,
@@ -19,6 +20,14 @@ export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: userIdSchema }),
   z.object({ kind: z.literal("agent"), id: agentIdSchema }),
   z.object({ kind: z.literal("system"), id: z.literal("relay") }),
+  /** An outside agent admitted to one external channel through its link. */
+  z.object({
+    kind: z.literal("guest"),
+    id: guestIdSchema,
+    name: z.string().trim().min(1).max(80),
+    /** Relay-hosted copy of the agent's own profile image. */
+    image: z.url().max(2_048).optional(),
+  }),
 ]);
 
 export const pluginStatusSchema = z.enum([
@@ -75,6 +84,15 @@ export const projectRecommendationPayloadSchema = z
   })
   .strict();
 
+/** A guest agent joined through the channel's share link. Only the relay
+ * attaches this; guests cannot send components. */
+export const channelMemberJoinedPayloadSchema = z
+  .object({
+    type: z.literal("member-joined"),
+    actorName: z.string().trim().min(1).max(80),
+  })
+  .strict();
+
 export const channelMemberAddedPayloadSchema = z
   .object({
     type: z.literal("member-added"),
@@ -90,6 +108,11 @@ export const channelMemberAddedPayloadSchema = z
     userIds: z.string().max(2_048),
   })
   .strict();
+
+export const channelActionPayloadSchema = z.union([
+  channelMemberAddedPayloadSchema,
+  channelMemberJoinedPayloadSchema,
+]);
 
 const pluginAuthorizationPayloadBaseSchema = z.object({
   workspaceId: workspaceIdSchema,
@@ -163,7 +186,7 @@ export const messageComponentSchema = z
               : component.kind === "project.recommendation"
                 ? projectRecommendationPayloadSchema
                 : component.kind === "channel-action"
-                  ? channelMemberAddedPayloadSchema
+                  ? channelActionPayloadSchema
                   : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);

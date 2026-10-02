@@ -5,6 +5,8 @@ import {
 
 import { getAttachment, uploadAttachment } from "./attachments";
 import { relayError } from "./http";
+import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { authenticateRelayRequest } from "./router-auth";
 import {
   authorizeConversation,
@@ -17,6 +19,8 @@ const channelListRoute = /^\/v1\/workspaces\/([^/]+)\/channels$/u;
 const channelItemRoute = /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)$/u;
 const channelActionRoute =
   /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/(update|archive|unarchive|join|leave)$/u;
+const channelDeleteRoute =
+  /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/delete$/u;
 const channelMembersRoute =
   /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/members$/u;
 const channelMembershipsRoute =
@@ -57,6 +61,10 @@ export async function routeChannelRequest(
       );
     }
     return routeChannel(env, request, requestId, list[1], operation);
+  }
+  const remove = channelDeleteRoute.exec(url.pathname);
+  if (remove && request.method === "POST") {
+    return deleteChannel(env, request, requestId, remove[1], remove[2]);
   }
   const action = channelActionRoute.exec(url.pathname);
   if (action && request.method === "POST") {
@@ -194,6 +202,47 @@ async function routeChannel(
     workspaceId,
     operation,
   });
+}
+
+/** The workspace authorizes and forgets the channel first; only then is the
+ * conversation's stored history wiped. */
+async function deleteChannel(
+  env: Env,
+  request: Request,
+  requestId: string,
+  rawWorkspaceId: string | undefined,
+  rawConversationId: string | undefined,
+) {
+  const workspaceId = parseWorkspaceId(rawWorkspaceId);
+  const conversationId = conversationIdSchema.parse(
+    decodeURIComponent(rawConversationId ?? ""),
+  );
+  const authenticated = await authenticateRelayRequest(request, env);
+  const principal = await authorizeWorkspace(env, {
+    identity: authenticated.identity,
+    requestId,
+    workspaceId,
+  });
+  const response = await routeChannelOperation(env, authenticated.request, {
+    principal,
+    requestId,
+    workspaceId,
+    operation: "channels-delete",
+  });
+  if (!response.ok) return response;
+  const wiped = await env.CONVERSATIONS.get(
+    env.CONVERSATIONS.idFromName(`${workspaceId}:${conversationId}`),
+  ).fetch(
+    withTrustedContext(
+      new Request("https://conversation.internal", {
+        method: "POST",
+        headers: { "x-chief-internal-operation": "delete-all" },
+      }),
+      { principal, requestId, workspaceId, conversationId },
+    ),
+  );
+  await releaseInternalResponse(wiped);
+  return response;
 }
 
 async function authorizeAttachment(

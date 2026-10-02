@@ -7,6 +7,7 @@ import {
   channelRecordSchema,
 } from "@chief/relay-contracts";
 
+import { isExternalChannel } from "./channel-guest-lifecycle";
 import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
@@ -76,6 +77,7 @@ export interface ChannelRow extends Record<string, SqlStorageValue> {
   is_private: number;
   archived: number;
   description: string | null;
+  external_link_token: string | null;
   created_by_kind: string;
   created_by_id: string;
   version: number;
@@ -216,10 +218,24 @@ export class WorkspaceChannelStore {
 
   requireChannelVisible(conversationId: string, principal: Principal) {
     const channel = this.requireChannel(conversationId);
+    // A guest is admitted to exactly one channel, never the workspace.
+    if (principal.kind === "guest") {
+      if (
+        principal.conversationId === conversationId &&
+        isExternalChannel(channel)
+      )
+        return channel;
+      throw new HttpError(
+        403,
+        "channel_access_denied",
+        "This guest is not admitted to the channel.",
+      );
+    }
     if (Number(channel.is_private) === 0) return channel;
     const { kind, id } = principalKindId(principal);
     if (
       kind !== "service" &&
+      kind !== "guest" &&
       this.channelMembership(conversationId, kind, id)
     ) {
       return channel;
@@ -258,7 +274,7 @@ export class WorkspaceChannelStore {
 
   requireChannelManager(conversationId: string, principal: Principal) {
     const { kind, id } = principalKindId(principal);
-    if (kind === "service") {
+    if (kind === "service" || kind === "guest") {
       throw new HttpError(
         403,
         "channel_manage_denied",

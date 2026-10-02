@@ -7,6 +7,7 @@ import { initializeWorkspaceData } from "../../workspace-data-store";
 import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
+import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
 export function initializeWorkspaceSchema(
@@ -49,6 +50,7 @@ export function initializeWorkspaceSchema(
       is_private INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
       description TEXT,
+      external_link_token TEXT,
       created_by_kind TEXT NOT NULL,
       created_by_id TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1,
@@ -186,9 +188,13 @@ export function initializeWorkspaceSchema(
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
+  addColumns(storage, "channels", [["external_link_token", "TEXT"]]);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
       ON channels (workspace_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS channels_external_link_token_idx
+      ON channels (external_link_token)
+      WHERE external_link_token IS NOT NULL;
     CREATE INDEX IF NOT EXISTS channel_members_ctable_idx
       ON channel_members (conversation_id);
   `);
@@ -198,6 +204,7 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
+  initializeChannelGuestTables(storage);
 }
 
 function migrateExternalAgentSchema(storage: DurableObjectStorage) {
