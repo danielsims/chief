@@ -2469,8 +2469,10 @@ final class AppModel {
     let preview = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
     mutateConversation(message.conversationID) {
       $0.lastMessage = preview.isEmpty ? "Sent an attachment" : String(preview.prefix(140))
+    let sentAt = ISO8601DateFormatter.chief().string(from: message.createdAt)
     }
   }
+      $0.lastMessageAt = max($0.lastMessageAt ?? "", sentAt)
 
   private func recomputeAllConversationPresentation() {
     guard let workspaceID = workspace?.id else { return }

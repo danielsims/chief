@@ -226,11 +226,14 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   var unreadCount: Int
   let requiresAttention: Bool
   var lastMessage: String?
+  /// ISO 8601 time of the latest message; sorts correctly as a string.
+  var lastMessageAt: String?
   /// Set on a person-to-person DM: the other participant's user id.
   var directUserID: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
+    case lastMessageAt
     case directUserID = "directUserId"
   }
 
@@ -266,6 +269,7 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     unreadCount = try values.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
     requiresAttention = try values.decodeIfPresent(Bool.self, forKey: .requiresAttention) ?? false
     lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
+    lastMessageAt = try values.decodeIfPresent(String.self, forKey: .lastMessageAt)
     directUserID = try values.decodeIfPresent(String.self, forKey: .directUserID)
   }
 }

@@ -106,15 +106,11 @@ struct DMsGroup: View {
 
   var body: some View {
     CollapsibleGroup(title: "DMs", count: rosterCount, isExpanded: $expanded) {
-      ForEach(model.workspace?.agents ?? []) { agent in
-        if let conversation = directConversation(for: agent) {
-          ConversationRow(conversation: conversation)
-        } else {
-          agentDirectRow(agent)
+      ForEach(recentFirstEntries) { entry in
+        switch entry {
+        case .conversation(let conversation): ConversationRow(conversation: conversation)
+        case .agent(let agent): agentDirectRow(agent)
         }
-      }
-      ForEach(unmatchedDirectConversations) { conversation in
-        ConversationRow(conversation: conversation)
       }
     }
     .overlay(alignment: .topTrailing) {
@@ -142,6 +138,39 @@ struct DMsGroup: View {
     } message: {
       Text("Chief couldn’t create the direct conversation on the relay. Try again.")
     }
+  }
+
+  private enum DirectEntry: Identifiable {
+    case conversation(ConversationSummary)
+    /// An agent with no direct conversation yet; tapping starts one.
+    case agent(AgentSummary)
+
+    var id: String {
+      switch self {
+      case .conversation(let conversation): conversation.id
+      case .agent(let agent): "agent:\(agent.id)"
+      }
+    }
+
+    var lastMessageAt: String {
+      if case .conversation(let conversation) = self { return conversation.lastMessageAt ?? "" }
+      return ""
+    }
+  }
+
+  /// Agents and people together, most recent message first. DMs without
+  /// messages keep their roster order below.
+  private var recentFirstEntries: [DirectEntry] {
+    let entries: [DirectEntry] =
+      (model.workspace?.agents ?? []).map { agent in
+        directConversation(for: agent).map(DirectEntry.conversation) ?? .agent(agent)
+      } + unmatchedDirectConversations.map(DirectEntry.conversation)
+    return entries.enumerated()
+      .sorted { lhs, rhs in
+        lhs.element.lastMessageAt == rhs.element.lastMessageAt
+          ? lhs.offset < rhs.offset : lhs.element.lastMessageAt > rhs.element.lastMessageAt
+      }
+      .map(\.element)
   }
 
   private var directConversations: [ConversationSummary] {
@@ -197,7 +226,7 @@ struct DMsGroup: View {
           .lineLimit(1)
         Spacer(minLength: 8)
         if startingAgentID == agent.id {
-          ProgressView().controlSize(.small).tint(.white)
+          ChiefSpinner().controlSize(.small).tint(.white)
         }
       }
       .frame(height: 38)
@@ -365,7 +394,7 @@ struct ChannelMembersSheet: View {
     NavigationStack {
       List {
         if loading {
-          ProgressView().frame(maxWidth: .infinity, alignment: .center)
+          ChiefSpinner().frame(maxWidth: .infinity, alignment: .center)
         } else if members.isEmpty {
           Text("No members yet")
             .frame(maxWidth: .infinity, alignment: .center)
