@@ -28,6 +28,7 @@ export function UserMessage({
   acknowledgedBy,
   metadata,
   timestamp,
+  continued = false,
 }: {
   text: string;
   /** An outside guest agent; replaces `author` and the identity label. */
@@ -46,6 +47,8 @@ export function UserMessage({
    * when the surrounding channel already makes authorship clear. */
   metadata?: ReactNode;
   timestamp?: number;
+  /** Follows the same person's previous message: no avatar or name. */
+  continued?: boolean;
 }) {
   const visibleText = stripPrivateSetupInstructions(text)
     .split("\n")
@@ -66,36 +69,44 @@ export function UserMessage({
       : metadata;
 
   return (
-    <div className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 items-start gap-3 py-2">
+    <div
+      className={`group/message relative mx-auto flex w-full max-w-3xl min-w-0 items-start gap-3 ${continued ? "py-0.5" : "py-2"}`}
+    >
       {actions}
-      <button
-        type="button"
-        aria-label={`Open ${author.name} profile`}
-        title={`Open ${author.name} profile`}
-        disabled={!onOpenProfile}
-        onClick={onOpenProfile}
-        className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
-      >
-        {guest ? (
-          <GuestAvatar className="size-full text-[10px]" guest={guest} />
-        ) : (
-          <AvatarImage
-            className="size-full object-cover"
-            fallback={initials || "Y"}
-            src={author.image}
-          />
-        )}
-      </button>
+      {continued ? (
+        <div className="w-8 shrink-0" aria-hidden="true" />
+      ) : (
+        <button
+          type="button"
+          aria-label={`Open ${author.name} profile`}
+          title={`Open ${author.name} profile`}
+          disabled={!onOpenProfile}
+          onClick={onOpenProfile}
+          className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
+        >
+          {guest ? (
+            <GuestAvatar className="size-full text-[10px]" guest={guest} />
+          ) : (
+            <AvatarImage
+              className="size-full object-cover"
+              fallback={initials || "Y"}
+              src={author.image}
+            />
+          )}
+        </button>
+      )}
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="mb-1 flex items-baseline gap-2">
-          <strong className="text-[13px] font-semibold">{author.name}</strong>
-          <MessageTimestamp timestamp={timestamp} />
-          {resolvedMetadata ? (
-            <span className="text-muted-foreground text-[10px]">
-              {resolvedMetadata}
-            </span>
-          ) : null}
-        </div>
+        {continued ? null : (
+          <div className="mb-1 flex items-baseline gap-2">
+            <strong className="text-[13px] font-semibold">{author.name}</strong>
+            <MessageTimestamp timestamp={timestamp} />
+            {resolvedMetadata ? (
+              <span className="text-muted-foreground text-[10px]">
+                {resolvedMetadata}
+              </span>
+            ) : null}
+          </div>
+        )}
         <div className="chat-markdown overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
           <StreamingMarkdown
             channels={channelReferences}

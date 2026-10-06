@@ -22,7 +22,10 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import { withActionTimelineEntries } from "./conversation-timeline-entries";
+import {
+  continuedMessageIds,
+  withActionTimelineEntries,
+} from "./conversation-timeline-entries";
 import { ChannelGuestMentions } from "./mention-people-context";
 import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionCard } from "./question-card";
@@ -225,6 +228,10 @@ export function ChiefChat({
     () => withActionTimelineEntries(timelineEntries, conversationActions),
     [conversationActions, timelineEntries],
   );
+  const continuedIds = useMemo(
+    () => continuedMessageIds(conversationTimelineEntries, currentUser?.id),
+    [conversationTimelineEntries, currentUser?.id],
+  );
   return (
     <ChannelGuestMentions guests={core.channelGuests}>
       <div className="relative flex h-full min-w-0 overflow-hidden">
@@ -321,6 +328,7 @@ export function ChiefChat({
                       return (
                         <div id={`chief-message-${message.id}`}>
                           <UserMessage
+                            continued={continuedIds.has(message.id)}
                             author={authorFor(message)}
                             {...(message.metadata?.guest
                               ? { guest: message.metadata.guest }
