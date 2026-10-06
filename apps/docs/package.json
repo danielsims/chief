@@ -1,7 +1,7 @@
 {
   "name": "@chief/docs",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "scripts": {
     "generate:relay-api": "tsx scripts/generate-relay-openapi.mjs",
