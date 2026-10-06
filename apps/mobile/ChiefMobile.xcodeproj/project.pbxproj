@@ -1547,7 +1547,7 @@
 			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.21.1;
+				version = 0.23.2;
 			};
 		};
 		40471D54164E45E4BA877211 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
