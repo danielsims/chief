@@ -12,7 +12,7 @@ import type {
   CreateNativeAgentCommand,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
-import { agentIdSchema } from "@chief/relay-contracts";
+import { agentIdSchema, userIdSchema } from "@chief/relay-contracts";
 
 import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import type {
@@ -30,6 +30,7 @@ import {
   relayAgentPreferencesMessage,
   saveRelayAgentPreference,
 } from "./relay-runtime-agents";
+import { applyRelayChannelSettings } from "./relay-runtime-channel-settings";
 import {
   createRelayWorkspaceChannel,
   loadRelayWorkspaceChannels,
@@ -227,6 +228,15 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "createChannel":
         await this.createChannel(message);
         return;
+      case "startUserDirect":
+        await this.startUserDirect(message);
+        return;
+      case "typing":
+        this.workspaceSubscription?.sendTyping(
+          message.channelId,
+          message.active,
+        );
+        return;
       case "listChats":
         await this.listChats();
         return;
@@ -261,6 +271,16 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "sendMessage":
         await this.appendMessage(message);
         return;
+      case "updateChannel":
+      case "setChannelArchived":
+      case "deleteChannel":
+        await applyRelayChannelSettings(
+          this.relay,
+          this.snapshot,
+          message,
+          (reply) => this.emit(reply),
+        );
+        return;
       default:
         this.recordError(
           new Error(`Relay command ${message.type} is not implemented.`),
@@ -272,6 +292,25 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private async refreshSnapshot() {
     this.snapshot = await this.relay.activeWorkspace();
   }
+  private async startUserDirect(
+    message: Extract<ClientMessage, { type: "startUserDirect" }>,
+  ) {
+    const { conversation } = await this.relay.startDirectMessage({
+      kind: "user",
+      principalId: userIdSchema.parse(message.userId),
+    });
+    this.subscribedConversationIds.add(conversation.id);
+    const channels = await this.listChannels();
+    const channel = channels.find((entry) => entry.id === conversation.id);
+    if (!channel) throw new Error("Chief couldn't open that conversation.");
+    this.emit({
+      type: "channelCreated",
+      requestId: message.requestId,
+      workspaceId: this.snapshot.id,
+      channel,
+    });
+  }
+
   private async listChannels() {
     const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
       this.relay,
@@ -291,6 +330,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       }
     }
     await this.ensureWorkspaceSubscription();
+    return channels;
   }
 
   private requestChannelRosterRefresh() {
@@ -327,7 +367,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
       type: "chats",
       workspaceId: this.snapshot.id,
       chats: this.snapshot.conversations
-        .filter((conversation) => conversation.kind === "direct")
+        // Person-to-person DMs are listed with channels, not agent chats.
+        .filter(
+          (conversation) =>
+            conversation.kind === "direct" && !conversation.directUserId,
+        )
         .map((conversation) => ({
           id: conversation.id,
           agent: agentForDirect(conversation.name, this.snapshot),
@@ -427,6 +471,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
       conversationIds: [...this.subscribedConversationIds],
       after: this.workspaceCursor,
       onEvent: (event) => this.handleWorkspaceEvent(event),
+      onTyping: (event) =>
+        this.emit({
+          type: "userTyping",
+          workspaceId: this.snapshot.id,
+          channelId: event.conversationId,
+          userId: event.userId,
+          active: event.active,
+        }),
       onError: (error) => this.recordError(parseRelayError(error)),
     });
     this.pendingWorkspaceSubscription = subscriptionPromise;

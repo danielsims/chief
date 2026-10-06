@@ -5,6 +5,7 @@ import type { ProjectGitHubAccess } from "./relay-runtime-project-connect";
 export type RelayRuntimeRelay = Pick<
   RelayClient,
   | "schedules"
+  | "channelSettings"
   | "activeWorkspace"
   | "appendMessage"
   | "createChannel"

@@ -100,7 +100,7 @@ struct WorkspaceHeader: View {
     .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52)
     .background(ChiefTheme.background)
     .sheet(isPresented: $workspaceSheet) { WorkspaceSwitcherSheet() }
-    .navigationDestination(isPresented: $profilePage) { UserProfileView() }
+    .navigationDestination(isPresented: $profilePage) { SettingsView() }
   }
 }
 
@@ -176,7 +176,7 @@ private struct WorkspaceSwitcherSheet: View {
             Label("Join workspace", systemImage: "link")
           }
           NavigationLink {
-            RelayConnectionSettingsView()
+            ConnectionSettingsView()
           } label: {
             Label("Manage relays", systemImage: "network")
           }
@@ -227,76 +227,29 @@ private struct WorkspaceAvatar: View {
   }
 }
 
-struct PersonProfileView: View {
-  @Environment(AppModel.self) private var model
-  let userID: String
-  let name: String
-
-  var body: some View {
-    List {
-      Section {
-        HStack(spacing: 14) {
-          initialsAvatar
-          VStack(alignment: .leading, spacing: 3) {
-            Text(displayName)
-              .font(.system(size: 18, weight: .semibold))
-            Text("Workspace member")
-              .font(.system(size: 13))
-              .foregroundStyle(ChiefTheme.secondary)
-            Text("Available")
-              .font(.system(size: 13))
-              .foregroundStyle(ChiefTheme.tertiary)
-          }
-        }
-        .padding(.vertical, 4)
-      }
-    }
-    .scrollContentBackground(.hidden)
-    .background(ChiefTheme.background)
-    .navigationTitle("Profile")
-    .navigationBarTitleDisplayMode(.inline)
-    .accessibilityIdentifier("person-profile-\(userID)")
-  }
-
-  private var displayName: String {
-    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? "Member" : trimmed
-  }
-
-  private var initialsAvatar: some View {
-    Circle()
-      .fill(ChiefTheme.elevated)
-      .frame(width: 52, height: 52)
-      .overlay {
-        Text(initials)
-          .font(.system(size: 18, weight: .semibold))
-      }
-      .overlay { Circle().stroke(ChiefTheme.line) }
-  }
-
-  private var initials: String {
-    let words = displayName.split(separator: " ")
-    return words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
-  }
-}
-
 struct UserAvatar: View {
   let user: ChiefUser?
   let size: CGFloat
+  /// Matches `AgentMark`'s rounded square instead of a circle.
+  var rounded = false
+
+  private var shape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: rounded ? size * 0.28 : size / 2, style: .continuous)
+  }
 
   var body: some View {
     AsyncImage(url: user?.imageURL) { image in
       image.resizable().scaledToFill()
     } placeholder: {
-      Circle().fill(ChiefTheme.elevated).overlay {
+      shape.fill(ChiefTheme.elevated).overlay {
         Text(initials)
           .font(.system(size: size * 0.34, weight: .semibold))
           .foregroundStyle(.white)
       }
     }
     .frame(width: size, height: size)
-    .clipShape(Circle())
-    .overlay { Circle().stroke(ChiefTheme.line) }
+    .clipShape(shape)
+    .overlay { shape.stroke(ChiefTheme.line) }
   }
 
   private var initials: String {
@@ -391,7 +344,7 @@ struct PluginsView: View {
           .padding(.horizontal, ChiefTheme.pagePadding)
 
           if loading && plugins.isEmpty {
-            ProgressView()
+            ChiefSpinner()
               .tint(.white)
               .frame(maxWidth: .infinity)
               .padding(.top, 36)
@@ -519,7 +472,7 @@ private struct PluginCatalogRow: View {
             .foregroundStyle(installed ? ChiefTheme.secondary : .primary)
             .opacity(busy ? 0 : 1)
           if busy {
-            ProgressView()
+            ChiefSpinner()
               .controlSize(.small)
               .tint(.white)
           }

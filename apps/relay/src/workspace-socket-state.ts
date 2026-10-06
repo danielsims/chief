@@ -14,6 +14,8 @@ export interface WorkspaceSocketAttachment {
   conversationIds: string[];
   cursor: number | null;
   subscribed: boolean;
+  /** The client understands `conversation.typing` events. */
+  typing: boolean;
   messageWindowStartedAt: number;
   messageCount: number;
   subscriptionWindowStartedAt: number;
@@ -70,6 +72,7 @@ export function workspaceSocketAttachment(
           : Number(value.cursor)
         : null,
     subscribed: value.subscribed === true,
+    typing: value.typing === true,
     messageWindowStartedAt: validTimestamp(value.messageWindowStartedAt),
     messageCount: validCount(value.messageCount),
     subscriptionWindowStartedAt: validTimestamp(

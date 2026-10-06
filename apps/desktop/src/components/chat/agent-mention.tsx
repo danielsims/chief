@@ -24,13 +24,24 @@ export function AgentMentionText({
     }
 
     const isAgent = isWorkspaceAgentId(segment.agentId);
-    const content = (
+    // Outside agents read as a plain @mention, not as a workspace member.
+    const isGuest = people.some(
+      (alias) => alias.id === segment.agentId && alias.guest,
+    );
+    const content = isGuest ? (
+      <span className="relative -top-[0.06em] whitespace-nowrap">
+        <span className="text-muted-foreground font-normal">@</span>
+        {segment.label}
+      </span>
+    ) : (
       <>
         <ChiefMark
           className="size-3"
           title={isAgent ? `${segment.label} agent` : segment.label}
         />
-        <span className="whitespace-nowrap">{segment.label}</span>
+        <span className="relative -top-[0.06em] whitespace-nowrap">
+          {segment.label}
+        </span>
       </>
     );
     const className = cn(

@@ -10,6 +10,8 @@ enum LiveEvent: Sendable {
   case reacted(ConversationMessage)
   case edited(ConversationMessage)
   case deleted(ConversationMessage)
+  /// Another person is (or stopped) typing. Ephemeral; never replayed.
+  case typing(conversationID: String, userID: String, active: Bool)
 }
 
 /// Live message delivery over the relay's WebSocket (`/v1/connect`). Replaces
@@ -159,7 +161,9 @@ actor RelayLiveClient {
         let message = try await socket.receive()
         switch message {
         case .string(let text):
-          if let decoded = Self.decodeEvent(text) {
+          if let typing = Self.decodeTyping(text) {
+            onEvent(typing)
+          } else if let decoded = Self.decodeEvent(text) {
             if decoded.sequence <= workspaceCursor { continue }
             workspaceCursor = decoded.sequence
             Self.saveCursor(decoded.sequence, workspaceID: workspaceID)
@@ -176,6 +180,36 @@ actor RelayLiveClient {
       }
     }
     liveLog.info("live stream ended for workspace")
+  }
+
+  private static func decodeTyping(_ text: String) -> LiveEvent? {
+    guard
+      let data = text.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["type"] as? String == "conversation.typing",
+      let conversationID = object["conversationId"] as? String,
+      let userID = object["userId"] as? String
+    else { return nil }
+    return .typing(
+      conversationID: conversationID,
+      userID: userID,
+      active: object["active"] as? Bool ?? true
+    )
+  }
+
+  /// Tells the other people in a conversation that this user is typing.
+  func sendTyping(conversationID: String, active: Bool) async {
+    guard let socket, conversationIDs.contains(conversationID) else { return }
+    let payload: [String: Any] = [
+      "type": "conversation.typing",
+      "conversationId": conversationID,
+      "active": active,
+    ]
+    guard
+      let data = try? JSONSerialization.data(withJSONObject: payload),
+      let text = String(data: data, encoding: .utf8)
+    else { return }
+    try? await socket.send(.string(text))
   }
 
   /// Decode a `conversation.message.appended` / `conversation.message.reacted`
@@ -245,6 +279,7 @@ actor RelayLiveClient {
       "type": "workspace.subscribe",
       "conversationIds": conversationIDs.sorted(),
       "after": workspaceCursor,
+      "typing": true,
     ]
     let data = try JSONSerialization.data(withJSONObject: payload)
     guard let text = String(data: data, encoding: .utf8) else {

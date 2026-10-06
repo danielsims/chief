@@ -5,6 +5,8 @@ import {
 } from "@chief/relay-contracts";
 
 import { initializeWorkspaceLiveTables } from "./db/migrations/initialize-workspace-live-tables";
+import { conversationActivityListAll } from "./queries/conversation-activity/list-all";
+import { conversationActivityUpsertPublish } from "./queries/conversation-activity/upsert-publish";
 import { workspaceLiveCountersFindCurrentSequence } from "./queries/workspace-live-counters/find-current-sequence";
 import { workspaceLiveCountersUpdatePublish } from "./queries/workspace-live-counters/update-publish";
 import { workspaceLiveEventsDeletePublish } from "./queries/workspace-live-events/delete-publish";
@@ -63,12 +65,28 @@ export class WorkspaceLiveStore {
         conversationId: conversationId,
         eventJson: JSON.stringify(event),
       });
+      if (event.type === "conversation.message.appended") {
+        conversationActivityUpsertPublish(this.storage, {
+          conversationId,
+          lastMessageAt: event.payload.message.createdAt,
+        });
+      }
       const pruneThrough = event.sequence - RETAINED_EVENT_COUNT;
       if (pruneThrough > 0) {
         workspaceLiveEventsDeletePublish(this.storage, pruneThrough);
       }
       return event;
     });
+  }
+
+  /** When each conversation last received a message, by conversation id. */
+  lastMessageTimes() {
+    return new Map(
+      conversationActivityListAll(this.storage).map((row) => [
+        row.conversation_id,
+        row.last_message_at,
+      ]),
+    );
   }
 
   list(after: number, limit: number, conversationIds: readonly string[]) {

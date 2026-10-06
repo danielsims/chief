@@ -50,4 +50,21 @@ describe("conversation push mentions", () => {
       },
     ]);
   });
+
+  it("names the person who sent a direct message", () => {
+    const direct = conversationMessageSchema.parse({
+      ...message("Lunch?"),
+      conversationId: "dm-0123456789abcdef0123456789abcdef",
+      author: { kind: "user", id: "coworker" },
+    });
+    const alerts = conversationPushAlerts(direct, [
+      owner,
+      { id: "coworker", name: "Workspace Member" },
+    ]);
+    expect(alerts).toContainEqual({
+      userId: "workspace-owner",
+      mentioned: false,
+      title: "Workspace Member",
+    });
+  });
 });

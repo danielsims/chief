@@ -1,0 +1,37 @@
+{
+  "name": "@chief/docs",
+  "private": true,
+  "version": "0.1.2",
+  "type": "module",
+  "scripts": {
+    "generate:relay-api": "tsx scripts/generate-relay-openapi.mjs",
+    "prebuild": "pnpm generate:relay-api",
+    "predev": "pnpm generate:relay-api",
+    "pretypecheck": "pnpm generate:relay-api",
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "clean": "git clean -xdf .cache .next .turbo node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "pnpm --dir ../.. exec oxlint apps/docs",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chief/relay-contracts": "workspace:*",
+    "next": "^15.4.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "prettier": "catalog:",
+    "tsx": "^4.23.0",
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
+}

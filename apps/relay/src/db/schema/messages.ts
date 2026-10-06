@@ -9,6 +9,9 @@ export const messages = sqliteTable("messages", {
   thread_root_id: text("thread_root_id"),
   author_kind: text("author_kind").notNull(),
   author_id: text("author_id").notNull(),
+  /** How a guest author appeared when it posted (JSON `GuestProfile`). Guests
+   * have no workspace profile to look up later. */
+  author_profile: text("author_profile"),
   body: text("body").notNull(),
   mentions_json: text("mentions_json").notNull().default("[]"),
   components_json: text("components_json").notNull(),

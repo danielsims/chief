@@ -137,10 +137,12 @@ export function ChiefChatAuxiliaryPanels({
     setActivityOpen,
     statusLabel,
     userAuthor,
+    authorFor,
   } = core;
   const {
     openAgentMention,
     openUserProfile,
+    openAuthorProfile,
     selectProfile,
     setThreadDraft,
     setThreadImageAttachments,
@@ -376,12 +378,17 @@ export function ChiefChatAuxiliaryPanels({
                   return (
                     <div id={`chief-message-${message.id}`}>
                       <UserMessage
-                        author={userAuthor}
+                        author={authorFor(message)}
+                        {...(message.metadata?.guest
+                          ? { guest: message.metadata.guest }
+                          : undefined)}
                         attachments={imageParts(message)}
                         metadata={null}
                         channelReferences={channelReferences}
                         onOpenChannel={onOpenChannel}
-                        onOpenProfile={openUserProfile}
+                        {...(message.metadata?.guest
+                          ? undefined
+                          : { onOpenProfile: openAuthorProfile(message) })}
                         onOpenMention={openAgentMention}
                         text={messageText(message)}
                         timestamp={message.metadata?.createdAt}

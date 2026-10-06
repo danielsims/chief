@@ -7,6 +7,7 @@ import { initializeWorkspaceData } from "../../workspace-data-store";
 import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
+import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
 export function initializeWorkspaceSchema(
@@ -186,6 +187,7 @@ export function initializeWorkspaceSchema(
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
+  dropPreReleaseExternalLinks(storage);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
       ON channels (workspace_id);
@@ -198,6 +200,7 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
+  initializeChannelGuestTables(storage);
 }
 
 function migrateExternalAgentSchema(storage: DurableObjectStorage) {
@@ -240,6 +243,20 @@ function addColumns(
       `ALTER TABLE ${sqliteIdentifier(table)} ADD COLUMN ${sqliteIdentifier(name)} ${definition}`,
     );
   }
+}
+
+/** Pre-release builds gave channels a public join link. Channels are only
+ * public or private now, so the column is removed once. */
+function dropPreReleaseExternalLinks(storage: DurableObjectStorage) {
+  const columns = storage.sql
+    .exec<{ name: string }>("PRAGMA table_info(channels)")
+    .toArray()
+    .map((column) => column.name);
+  if (!columns.includes("external_link_token")) return;
+  storage.sql.exec(`
+    DROP INDEX IF EXISTS channels_external_link_token_idx;
+    ALTER TABLE channels DROP COLUMN external_link_token;
+  `);
 }
 
 function migrateLegacyChannelSchema(storage: DurableObjectStorage) {

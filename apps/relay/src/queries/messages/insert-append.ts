@@ -13,6 +13,7 @@ export function messagesInsertAppend(
     threadRootId,
     authorKind,
     authorId,
+    authorProfile,
     body,
     mentionsJson,
     componentsJson,
@@ -26,6 +27,7 @@ export function messagesInsertAppend(
     threadRootId: string | null;
     authorKind: string;
     authorId: string;
+    authorProfile: string | null;
     body: string;
     mentionsJson: string;
     componentsJson: string;
@@ -44,6 +46,7 @@ export function messagesInsertAppend(
         thread_root_id: threadRootId,
         author_kind: authorKind,
         author_id: authorId,
+        author_profile: authorProfile,
         body: body,
         mentions_json: mentionsJson,
         components_json: componentsJson,

@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./cloudflare": "./src/cloudflare.ts",
     "./invitation-message": "./src/workspace-invitation-message.ts",
+    "./resend": "./src/resend.ts",
     "./render": "./src/render.ts",
     "./templates/chief-email": "./src/templates/chief-email.tsx"
   },

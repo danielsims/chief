@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-const KEYCHAIN_SERVICE: &str = "sh.heychief.desktop.auth";
-const LEGACY_KEYCHAIN_ACCOUNT: &str = "oauth-session-v1";
-const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25_300;
+use crate::secure_store;
+
+const SECURE_SERVICE: &str = "sh.heychief.desktop.auth";
+const LEGACY_ACCOUNT: &str = "oauth-session-v1";
 const OAUTH_ATTEMPT_TTL_MS: u64 = 10 * 60 * 1_000;
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -147,22 +148,11 @@ pub async fn store_oauth_attempt(attempt: DesktopOAuthAttempt) -> Result<(), Str
 
 fn store_oauth_attempt_blocking(attempt: DesktopOAuthAttempt) -> Result<(), String> {
     attempt.validate()?;
-
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::set_generic_password;
-
-        let account = attempt_account(&attempt.state)?;
-        let value = serde_json::to_vec(&attempt)
-            .map_err(|_| "Chief could not encode its sign-in attempt.".to_string())?;
-        return set_generic_password(KEYCHAIN_SERVICE, &account, &value)
-            .map_err(|_| "Chief could not save its sign-in attempt in Keychain.".to_string());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth attempts are not available on this platform yet.".to_string())
-    }
+    let account = attempt_account(&attempt.state)?;
+    let value = serde_json::to_vec(&attempt)
+        .map_err(|_| "Chief could not encode its sign-in attempt.".to_string())?;
+    secure_store::set(SECURE_SERVICE, &account, &value)
+        .map_err(|_| "Chief could not save its sign-in attempt securely.".to_string())
 }
 
 #[tauri::command]
@@ -173,32 +163,20 @@ pub async fn load_oauth_attempt(state: String) -> Result<Option<DesktopOAuthAtte
 }
 
 fn load_oauth_attempt_blocking(state: String) -> Result<Option<DesktopOAuthAttempt>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::{delete_generic_password, get_generic_password};
-
-        let account = attempt_account(&state)?;
-        let value = match get_generic_password(KEYCHAIN_SERVICE, &account) {
-            Ok(value) => value,
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => return Ok(None),
-            Err(_) => {
-                return Err("Chief could not read its sign-in attempt from Keychain.".to_string())
-            }
-        };
-        let attempt: DesktopOAuthAttempt = serde_json::from_slice(&value)
-            .map_err(|_| "Chief's saved sign-in attempt is invalid.".to_string())?;
-        attempt.validate()?;
-        if attempt.state != state || attempt.is_expired() {
-            let _ = delete_generic_password(KEYCHAIN_SERVICE, &account);
-            return Ok(None);
-        }
-        return Ok(Some(attempt));
+    let account = attempt_account(&state)?;
+    let Some(value) = secure_store::get(SECURE_SERVICE, &account)
+        .map_err(|_| "Chief could not read its sign-in attempt.".to_string())?
+    else {
+        return Ok(None);
+    };
+    let attempt: DesktopOAuthAttempt = serde_json::from_slice(&value)
+        .map_err(|_| "Chief's saved sign-in attempt is invalid.".to_string())?;
+    attempt.validate()?;
+    if attempt.state != state || attempt.is_expired() {
+        let _ = secure_store::delete(SECURE_SERVICE, &account);
+        return Ok(None);
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth attempts are not available on this platform yet.".to_string())
-    }
+    Ok(Some(attempt))
 }
 
 #[tauri::command]
@@ -209,22 +187,9 @@ pub async fn clear_oauth_attempt(state: String) -> Result<(), String> {
 }
 
 fn clear_oauth_attempt_blocking(state: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::delete_generic_password;
-
-        let account = attempt_account(&state)?;
-        return match delete_generic_password(KEYCHAIN_SERVICE, &account) {
-            Ok(()) => Ok(()),
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => Ok(()),
-            Err(_) => Err("Chief could not clear its sign-in attempt from Keychain.".to_string()),
-        };
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth attempts are not available on this platform yet.".to_string())
-    }
+    let account = attempt_account(&state)?;
+    secure_store::delete(SECURE_SERVICE, &account)
+        .map_err(|_| "Chief could not clear its sign-in attempt.".to_string())
 }
 
 #[tauri::command]
@@ -235,48 +200,24 @@ pub async fn load_oauth_session(account: String) -> Result<Option<DesktopOAuthSe
 }
 
 fn load_oauth_session_blocking(account: String) -> Result<Option<DesktopOAuthSession>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::{
-            delete_generic_password, get_generic_password, set_generic_password,
-        };
-
-        let scoped = scoped_account(&account)?;
-        let (value, migrated) = match get_generic_password(KEYCHAIN_SERVICE, &scoped) {
-            Ok(value) => (value, false),
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {
-                match get_generic_password(KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_ACCOUNT) {
-                    Ok(value) => (value, true),
-                    Err(legacy_error) if legacy_error.code() == KEYCHAIN_ITEM_NOT_FOUND => {
-                        return Ok(None)
-                    }
-                    Err(_) => {
-                        return Err(
-                            "Chief could not read its OAuth session from Keychain.".to_string()
-                        )
-                    }
-                }
-            }
-            Err(_) => {
-                return Err("Chief could not read its OAuth session from Keychain.".to_string())
-            }
-        };
-        let session: DesktopOAuthSession = serde_json::from_slice(&value)
-            .map_err(|_| "Chief's saved OAuth session is invalid.".to_string())?;
-        session.validate()?;
-        if migrated {
-            set_generic_password(KEYCHAIN_SERVICE, &scoped, &value).map_err(|_| {
-                "Chief could not migrate its OAuth session in Keychain.".to_string()
-            })?;
-            let _ = delete_generic_password(KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_ACCOUNT);
-        }
-        return Ok(Some(session));
+    let unreadable = || "Chief could not read its secure sign-in.".to_string();
+    let scoped = scoped_account(&account)?;
+    let (value, migrated) = match secure_store::get(SECURE_SERVICE, &scoped).map_err(|_| unreadable())? {
+        Some(value) => (value, false),
+        None => match secure_store::get(SECURE_SERVICE, LEGACY_ACCOUNT).map_err(|_| unreadable())? {
+            Some(value) => (value, true),
+            None => return Ok(None),
+        },
+    };
+    let session: DesktopOAuthSession = serde_json::from_slice(&value)
+        .map_err(|_| "Chief's saved OAuth session is invalid.".to_string())?;
+    session.validate()?;
+    if migrated {
+        secure_store::set(SECURE_SERVICE, &scoped, &value)
+            .map_err(|_| "Chief could not migrate its secure sign-in.".to_string())?;
+        let _ = secure_store::delete(SECURE_SERVICE, LEGACY_ACCOUNT);
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth sessions are not available on this platform yet.".to_string())
-    }
+    Ok(Some(session))
 }
 
 #[tauri::command]
@@ -294,22 +235,11 @@ fn store_oauth_session_blocking(
     session: DesktopOAuthSession,
 ) -> Result<(), String> {
     session.validate()?;
-
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::set_generic_password;
-
-        let scoped = scoped_account(&account)?;
-        let value = serde_json::to_vec(&session)
-            .map_err(|_| "Chief could not encode its OAuth session.".to_string())?;
-        return set_generic_password(KEYCHAIN_SERVICE, &scoped, &value)
-            .map_err(|_| "Chief could not save its OAuth session in Keychain.".to_string());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth sessions are not available on this platform yet.".to_string())
-    }
+    let scoped = scoped_account(&account)?;
+    let value = serde_json::to_vec(&session)
+        .map_err(|_| "Chief could not encode its OAuth session.".to_string())?;
+    secure_store::set(SECURE_SERVICE, &scoped, &value)
+        .map_err(|_| "Chief could not save its secure sign-in.".to_string())
 }
 
 #[tauri::command]
@@ -320,22 +250,9 @@ pub async fn clear_oauth_session(account: String) -> Result<(), String> {
 }
 
 fn clear_oauth_session_blocking(account: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::delete_generic_password;
-
-        let scoped = scoped_account(&account)?;
-        return match delete_generic_password(KEYCHAIN_SERVICE, &scoped) {
-            Ok(()) => Ok(()),
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => Ok(()),
-            Err(_) => Err("Chief could not clear its OAuth session from Keychain.".to_string()),
-        };
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure OAuth sessions are not available on this platform yet.".to_string())
-    }
+    let scoped = scoped_account(&account)?;
+    secure_store::delete(SECURE_SERVICE, &scoped)
+        .map_err(|_| "Chief could not clear its secure sign-in.".to_string())
 }
 
 #[cfg(test)]

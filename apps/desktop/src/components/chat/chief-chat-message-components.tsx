@@ -24,6 +24,8 @@ import {
   WORKSPACE_AGENT_IDENTITIES,
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
+import { AvatarImage } from "../avatar-image";
+import { GuestAvatar } from "../guest-avatar";
 import { MessageTimestamp } from "./chat-date-time";
 import { Blocks } from "./message-blocks";
 import {
@@ -124,14 +126,14 @@ function ConversationEmptyState({
       </p>
       <p className="text-muted-foreground max-w-md text-sm">
         {channel
-          ? channel.description
+          ? `This is the very beginning of the #${channel.label} channel.`
           : directAgent
             ? `A private conversation with ${directAgent.name}.`
             : "Your workspace lead. Ask anything, and Chief will bring in the right specialist."}
       </p>
-      {channel ? (
-        <p className="text-muted-foreground/75 text-xs">
-          {channel.agentIds.length} agents share this channel’s context.
+      {channel?.description ? (
+        <p className="text-muted-foreground/75 max-w-md text-xs">
+          {channel.description}
         </p>
       ) : null}
     </div>
@@ -309,6 +311,26 @@ function ChannelMembershipMessage({
     currentUserId,
   );
   const actorIsAgent = action.actorType === "agent";
+  if (action.type === "member-joined") {
+    return (
+      <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">
+        <GuestAvatar
+          className="size-5 rounded-md text-[8px]"
+          guest={action.actorGuest ?? { name: action.actorName }}
+        />
+        <span>
+          <strong className="text-foreground font-medium">
+            {action.actorName}
+          </strong>{" "}
+          joined the channel
+          {action.actorGuest?.operator
+            ? ` for ${action.actorGuest.operator.name}`
+            : null}
+        </span>
+        <MessageTimestamp timestamp={timestamp} />
+      </div>
+    );
+  }
   return (
     <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">
       {actorIsAgent ? (
@@ -319,11 +341,11 @@ function ChannelMembershipMessage({
         />
       ) : (
         <span className="bg-muted flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md text-[8px] font-semibold">
-          {userImage ? (
-            <img src={userImage} alt="" className="size-full object-cover" />
-          ) : (
-            action.actorName.charAt(0).toUpperCase()
-          )}
+          <AvatarImage
+            className="size-full object-cover"
+            fallback={action.actorName.charAt(0).toUpperCase()}
+            src={userImage}
+          />
         </span>
       )}
       <span>

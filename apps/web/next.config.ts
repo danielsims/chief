@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
-  transpilePackages: ["@chief/channel-api", "@chief/ui"],
+  transpilePackages: ["@chief/ui"],
   images: {
     remotePatterns: [
       {

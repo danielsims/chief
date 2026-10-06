@@ -456,11 +456,15 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
 enum OrganizationInvitationError: Error, LocalizedError {
   case network
   case rejected
+  case alreadyMember
+  case notAllowed
 
   var errorDescription: String? {
     switch self {
     case .network: "Chief couldn’t reach this workspace’s account service."
     case .rejected: "Chief couldn’t send this invitation. Check the address and try again."
+    case .alreadyMember: "That person is already a member of this workspace."
+    case .notAllowed: "Only workspace owners and admins can invite people."
     }
   }
 }

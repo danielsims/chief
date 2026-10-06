@@ -6,8 +6,12 @@ import {
   channelMemberAddCommandSchema,
   conversationMessageSchema,
   externalAgentDeliveryCommandSchema,
+  workspaceIdSchema,
 } from "@chief/relay-contracts";
 
+import { publishAgentErrorActivity } from "./agent-activity";
+import { AGENT_HOST_HEADER } from "./agent-object-values";
+import { ChannelGuestDelivery } from "./channel-guest-delivery";
 import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
@@ -16,6 +20,7 @@ import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
   canMessageAgent,
+  deviceHostedAgent,
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
@@ -49,7 +54,12 @@ export async function dispatchWorkspaceMessage(
   request: Request,
 ) {
   const context = readTrustedContext(request);
-  if (context.principal.kind === "service") {
+  // Guest messages never wake workspace agents. The guest service fans them
+  // out to other guests itself.
+  if (
+    context.principal.kind === "service" ||
+    context.principal.kind === "guest"
+  ) {
     return json({ agentIds: [] });
   }
 
@@ -159,6 +169,17 @@ export async function dispatchWorkspaceMessage(
     requireAgentMessageAccess(store, step.agentId, context.principal);
     agentIds = [step.agentId];
   }
+  if (!scheduleRunId && channel.kind === "channel") {
+    // Waking guests is best effort and must never block workspace agents.
+    await new ChannelGuestDelivery(storage, env)
+      .fanOut(message)
+      .catch((error: unknown) => {
+        console.error("relay.channel_guests.fan_out_failed", {
+          messageId: message.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
   const threadRootId = scheduleRunId
     ? workflowId
     : owningThreadRoot(channel.kind, message, mentions);
@@ -242,6 +263,7 @@ export async function dispatchWorkspaceMessage(
         ),
       );
       const accepted = response.ok;
+      const hostOffline = response.headers.get(AGENT_HOST_HEADER) === "offline";
       await releaseInternalResponse(response);
       if (!accepted) {
         throw new HttpError(
@@ -249,6 +271,36 @@ export async function dispatchWorkspaceMessage(
           "agent_enqueue_failed",
           "The addressed agent could not be queued.",
         );
+      }
+      const host = hostOffline
+        ? deviceHostedAgent(store, agentId, context.workspaceId)
+        : null;
+      if (host) {
+        // The job stays queued and runs when the device reconnects; say so
+        // instead of leaving the conversation waiting on a silent agent.
+        const names = store.principalNames();
+        const agentName = workspaceAgentNames(storage).get(agentId) ?? agentId;
+        const ownerName = displayNameOr(
+          names.get(`user:${host.ownerUserId}`),
+          "its owner",
+        );
+        await publishAgentErrorActivity(env, {
+          principal: {
+            kind: "agent",
+            agentId: agentIdSchema.parse(agentId),
+            pubkey: "0".repeat(64),
+            workspaceId: workspaceIdSchema.parse(context.workspaceId),
+            role: "member",
+          },
+          conversationId: message.conversationId,
+          ...(threadRootId ? { threadRootId } : undefined),
+          seed: `${id}:host-offline`,
+          code: "agent_host_offline",
+          title: `${agentName} is offline`,
+          message: `${agentName} runs on ${ownerName}'s ${host.device}, which is offline right now. It will reply once that ${host.device} is back online.`,
+          jobId: id,
+          retryable: false,
+        }).catch(() => undefined);
       }
     }),
   );
@@ -358,4 +410,10 @@ async function deterministicUuid(value: string) {
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
+function displayNameOr(name: string | undefined, fallback: string) {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed;
+  return fallback;
 }

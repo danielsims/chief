@@ -60,7 +60,12 @@ import {
 
 import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
-import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
+import type {
+  RelayTypingEvent,
+  RelayWorkspaceSubscription,
+} from "./relay-workspace-subscription";
+import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
+import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { RelayGitHubClient } from "./relay-github-client";
@@ -74,9 +79,12 @@ export { RelayClientError } from "./relay-client-error";
 
 export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
+export type { RelayTypingEvent };
 
 export class RelayClient extends RelayVercelProvisioning {
   readonly externalAgents: RelayExternalAgentsClient;
+  readonly channelGuests: RelayChannelGuestsClient;
+  readonly channelSettings: RelayChannelSettingsClient;
   readonly github: RelayGitHubClient;
   readonly schedules: Pick<
     RelaySchedulesClient,
@@ -95,6 +103,8 @@ export class RelayClient extends RelayVercelProvisioning {
   constructor(options: RelayClientOptions) {
     super(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
+    this.channelGuests = new RelayChannelGuestsClient(options);
+    this.channelSettings = new RelayChannelSettingsClient(options);
     this.github = new RelayGitHubClient(options);
     this.schedules = new RelaySchedulesClient(options);
   }
@@ -531,6 +541,7 @@ export class RelayClient extends RelayVercelProvisioning {
     conversationIds: readonly string[];
     after?: number;
     onEvent: (event: ConversationEvent) => void;
+    onTyping?: (event: RelayTypingEvent) => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
     const workspaceId = this.requireWorkspaceId();
@@ -550,6 +561,7 @@ export class RelayClient extends RelayVercelProvisioning {
         ),
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
+      onTyping: input.onTyping,
       onError: input.onError,
     });
   }

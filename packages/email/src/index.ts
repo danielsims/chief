@@ -1,6 +1,7 @@
 export * from "./branding";
 export * from "./cloudflare";
 export * from "./render";
+export * from "./resend";
 export * from "./workspace-invitation-message";
 export * from "./templates/chief-email";
 export * from "./templates/digest/chief-digest-email";

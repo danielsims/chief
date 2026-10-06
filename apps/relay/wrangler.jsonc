@@ -81,6 +81,12 @@
       "namespace_id": "23005",
       "simple": { "limit": 30, "period": 60 },
     },
+    {
+      // Push notifications from one outside guest agent.
+      "name": "GUEST_PUSH_RATE_LIMITER",
+      "namespace_id": "23006",
+      "simple": { "limit": 6, "period": 60 },
+    },
   ],
   "vars": {
     "RELAY_ID": "relay_chief_cloud_01k4x3vnw5mxq0f9xqjtncx5xj",
@@ -96,6 +102,11 @@
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
     "AUTH_APPLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/apple",
+    // Transactional invitation sender. The hosted relay uses Resend's free
+    // tier; self-hosters choose Resend or Cloudflare Email Service.
+    "EMAIL_PROVIDER": "resend",
+    "EMAIL_FROM_ADDRESS": "invites@heychief.sh",
+    "EMAIL_FROM_NAME": "Chief",
     // Apple identifiers belong to whoever is building the iOS client. They are
     // provided at deploy time rather than committed to source.
   },

@@ -140,7 +140,14 @@ export class WorkspaceChannelMembership {
       await parseJson(request),
     );
     const conversationId = command.payload.conversationId;
-    this.store.requireChannel(conversationId);
+    if (this.store.requireChannel(conversationId).kind === "direct") {
+      // A DM's participants are fixed; more people means a new conversation.
+      throw new HttpError(
+        400,
+        "direct_members_fixed",
+        "Direct messages cannot gain members.",
+      );
+    }
     if (!allowVisibleMemberInvite) {
       this.store.requireChannelManager(conversationId, context.principal);
     }
@@ -253,7 +260,9 @@ export class WorkspaceChannelMembership {
         ? actor.agentId
         : actor.kind === "user"
           ? actor.userId
-          : actor.service;
+          : actor.kind === "guest"
+            ? actor.guestId
+            : actor.service;
     const actorName =
       actor.kind === "agent"
         ? (defaultWorkspaceAgentProfiles.find(

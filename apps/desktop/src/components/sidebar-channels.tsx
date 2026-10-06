@@ -1,6 +1,6 @@
 import type { CollisionDetection, DragEndEvent } from "@dnd-kit/core";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   closestCenter,
   DndContext,
@@ -38,6 +38,7 @@ import type {
   WorkspaceChannelId,
 } from "../lib/workspace-channels";
 import type { SidebarChannel } from "./channel-browser-dialog";
+import type { ChannelDetailsTab } from "./channel-details-dialog";
 import {
   isSidebarPinnedItem,
   placeSidebarPinnedItem,
@@ -47,6 +48,10 @@ import {
 import { AgentAvatar } from "./agent-avatar";
 import { ChannelBrowserDialog } from "./channel-browser-dialog";
 import { ChannelDetailsDialog } from "./channel-details-dialog";
+import {
+  CHANNEL_DETAILS_EVENT,
+  channelDetailsRequest,
+} from "./channel-details-events";
 import { ChannelDeleteDialog } from "./sidebar-channel-actions";
 import { ChannelRow } from "./sidebar-channel-row";
 import {
@@ -119,6 +124,8 @@ export function SidebarChannels({
   pinnedItems,
   channelsNeedingUser,
   unreadChannelCounts,
+  lastMessageAtByAgent,
+  lastMessageAtByChannel,
   unreadDirectMessageCounts,
   agents,
   onOpen,
@@ -146,6 +153,8 @@ export function SidebarChannels({
   pinnedItems: SidebarPinnedItem[];
   channelsNeedingUser: ReadonlySet<string>;
   unreadChannelCounts: ReadonlyMap<string, number>;
+  lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
+  lastMessageAtByChannel: ReadonlyMap<string, number>;
   unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
   agents: readonly { id: string; name: string; role: string }[];
   onOpen: (
@@ -187,6 +196,21 @@ export function SidebarChannels({
   const [detailsTarget, setDetailsTarget] = useState<SidebarChannel | null>(
     null,
   );
+  const [detailsTab, setDetailsTab] = useState<ChannelDetailsTab>("about");
+  // The conversation header opens the same dialog without owning its state.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const request = channelDetailsRequest(event);
+      const channel = allChannels.find(
+        (candidate) => candidate.id === request?.channelId,
+      );
+      if (!request || !channel) return;
+      setDetailsTab(request.tab);
+      setDetailsTarget(channel);
+    };
+    window.addEventListener(CHANNEL_DETAILS_EVENT, open);
+    return () => window.removeEventListener(CHANNEL_DETAILS_EVENT, open);
+  }, [allChannels]);
   const pinnedChannels = new Set(
     pinnedItems
       .filter((item) => item.kind === "channel")
@@ -434,6 +458,8 @@ export function SidebarChannels({
       </section>
       <SidebarDirectMessages
         activeAgentId={activeAgentId}
+        activeChannelId={activeChannelId}
+        onOpenChannel={onOpen}
         attentionTargets={directMessageAttentionTargets}
         compactAttention={compactAttention}
         directMessageIds={directMessageIds}
@@ -441,6 +467,9 @@ export function SidebarChannels({
         onPinChange={setAgentPinned}
         pinnedAgentIds={pinnedAgentIds}
         unreadCounts={unreadDirectMessageCounts}
+        unreadChannelCounts={unreadChannelCounts}
+        lastMessageAtByAgent={lastMessageAtByAgent}
+        lastMessageAtByChannel={lastMessageAtByChannel}
         agents={agents}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
@@ -477,10 +506,18 @@ export function SidebarChannels({
         onDelete={onDeleteChannel}
       />
       <ChannelDetailsDialog
-        key={detailsTarget?.id ?? "closed"}
+        key={`${detailsTarget?.id ?? "closed"}:${detailsTab}`}
         canManage={canManageChannels}
         channel={detailsTarget}
-        onClose={() => setDetailsTarget(null)}
+        initialTab={detailsTab}
+        onClose={() => {
+          setDetailsTarget(null);
+          setDetailsTab("about");
+        }}
+        onDelete={(channel) => {
+          setDetailsTarget(null);
+          setDeleteTarget(channel);
+        }}
         onLeave={onLeaveChannel}
         onSetArchived={onSetChannelArchived}
         onSetPolicy={onSetChannelPolicy}

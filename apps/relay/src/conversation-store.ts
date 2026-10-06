@@ -27,6 +27,7 @@ import { upsertAgentActivity } from "./conversation-activity-store";
 import {
   escapeLike,
   firstConversationRow as firstRow,
+  guestProfileOf,
   parseReactions,
   toMessage,
 } from "./conversation-rows";
@@ -127,6 +128,10 @@ export class SqlConversationStore implements ConversationStore {
         threadRootId: message.threadRootId ?? null,
         authorKind: message.author.kind,
         authorId: message.author.id,
+        authorProfile:
+          message.author.kind === "guest"
+            ? JSON.stringify(guestProfileOf(message.author))
+            : null,
         body: message.body,
         mentionsJson: JSON.stringify(message.mentions),
         componentsJson: JSON.stringify(message.components),

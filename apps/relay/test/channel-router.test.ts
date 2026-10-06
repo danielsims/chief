@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentRuntimeDescriptorSchema,
   appendMessageCommandSchema,
+  channelGuestInviteSchema,
   createWorkspaceCommandSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
@@ -75,6 +76,41 @@ describe("channel HTTP surface", () => {
         expect.objectContaining({ id: messageId }),
       ]),
     });
+  });
+  it("lets a member invite their own agent through the signed route", async () => {
+    const workspaceId = await setupWorkspace();
+    const created = await worker.fetch(
+      signedRequest(
+        `https://relay.test/v1/workspaces/${workspaceId}/channels/general/guests/invite`,
+        "POST",
+      ),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(created.status).toBe(200);
+    const invite = channelGuestInviteSchema.parse(await created.json());
+    const page = await worker.fetch(
+      new Request(invite.url, { headers: { accept: "text/markdown" } }),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(page.status).toBe(200);
+    const joined = await worker.fetch(
+      new Request(`${invite.url}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Claude", provider: "claude" }),
+      }),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(joined.status).toBe(201);
+    const gone = await worker.fetch(
+      new Request(invite.url, { headers: { accept: "text/markdown" } }),
+      relayEnv(),
+      createExecutionContext(),
+    );
+    expect(gone.status).toBe(404);
   });
   it("exposes each agent at its workspace-scoped URL", async () => {
     const workspaceId = await setupWorkspace();

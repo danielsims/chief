@@ -17,8 +17,8 @@ export interface ChiefAuthOptions {
   sendOrganizationInvitation?: (invitation: {
     email: string;
     id: string;
-    inviter: { email: string; name: string };
-    organization: { id: string; name: string };
+    inviter: { email: string; name: string; image?: string | null };
+    organization: { id: string; name: string; logo?: string | null };
     role: string | string[];
   }) => Promise<void> | void;
 }

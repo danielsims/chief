@@ -47,6 +47,7 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
+import { useWorkspaceRole } from "../lib/workspace-role";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarUpdateCard } from "./sidebar-update-card";
@@ -141,11 +142,12 @@ export function Sidebar({
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const { cloudOrganizationId, organizationRole } = useAuth();
+  const workspaceRole = useWorkspaceRole() ?? organizationRole;
   const localChats = useLocalChats(cloudOrganizationId);
   const { agents: runtimeAgents } = useRuntime();
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const { unreadChannelCounts } = useChannelReadState();
+  const { unreadChannelCounts, lastMessageAtByChannel } = useChannelReadState();
   const location = useLocation();
   const navigate = useNavigate();
   const chiefNavigation = useChiefNavigation();
@@ -179,7 +181,10 @@ export function Sidebar({
     () =>
       workspaceChannels.channels.length > 0
         ? workspaceChannels.channels
-            .filter((channel) => channel.visibility !== "direct")
+            .filter(
+              (channel) =>
+                channel.visibility !== "direct" && !channel.directUserId,
+            )
             .map((channel) => ({
               id: channel.id,
               label: channel.name,
@@ -281,6 +286,14 @@ export function Sidebar({
       workspaceData.recurringWork,
       localChats.chats,
     ],
+  );
+  const lastMessageAtByAgent = new Map(
+    directMessageIds.map((agentId) => [
+      agentId,
+      lastMessageAtByChannel.get(
+        directMessageChatForAgent(localChats.chats, agentId)?.id ?? "",
+      ) ?? 0,
+    ]),
   );
   const unreadDirectMessageCounts = new Map(
     directMessageIds.map((agentId) => [
@@ -415,8 +428,8 @@ export function Sidebar({
         </div>
         <SidebarChannels
           compactAttention={width < 285}
-          canDeleteChannels={canDeleteChannels(organizationRole)}
-          canManageChannels={canManageChannels(organizationRole)}
+          canDeleteChannels={canDeleteChannels(workspaceRole)}
+          canManageChannels={canManageChannels(workspaceRole)}
           channels={visiblePublicChannels}
           allChannels={publicChannels}
           activeChannelId={activeChannelId}
@@ -430,6 +443,8 @@ export function Sidebar({
           pinnedItems={normalizedPinnedItems}
           channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
+          lastMessageAtByAgent={lastMessageAtByAgent}
+          lastMessageAtByChannel={lastMessageAtByChannel}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           agents={runtimeAgents}
           onOpen={openChannel}

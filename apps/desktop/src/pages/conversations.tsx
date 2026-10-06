@@ -24,6 +24,7 @@ import {
   DirectMessageOpening,
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
+import { useWorkspaceUsers } from "../components/chat/mention-people-context";
 import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
@@ -44,6 +45,7 @@ import {
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
+import { useStartDirectMessage } from "../lib/use-start-direct-message";
 import {
   channelIdFromChatId,
   directMessageChatForAgent,
@@ -111,6 +113,9 @@ export function ConversationsPage() {
         visibility: routing.channelVisibility(
           resolvedRuntimeChannel.visibility,
         ),
+        ...(resolvedRuntimeChannel.directUserId
+          ? { directUserId: resolvedRuntimeChannel.directUserId }
+          : undefined),
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
   const requestedDirect = useRequestedDirectMessage({
@@ -231,11 +236,41 @@ export function ConversationsPage() {
           description: channel.description,
         }))
     : [];
-  const userProfileOpen = profileParam === "user" && user !== null;
+  const workspaceUsers = useWorkspaceUsers();
+  const startUserDirectMessage = useStartDirectMessage();
+  const profileUserId =
+    profileParam === "user"
+      ? user?.id
+      : profileParam?.startsWith("user:")
+        ? profileParam.slice("user:".length)
+        : undefined;
+  const profileUser =
+    user && profileUserId === user.id
+      ? {
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          role: workspaceUsers.get(user.id)?.role,
+        }
+      : profileUserId
+        ? workspaceUsers.get(profileUserId)
+        : undefined;
+  const userProfileOpen = profileUser !== undefined;
   const activityOpen = params.get("activity") === "1";
+  // The signed-in user appears in channel rosters as "workspace-owner".
+  const profileMemberId =
+    profileUserId && profileUserId === user?.id
+      ? "workspace-owner"
+      : profileUserId;
   const userProfileChannels = userProfileOpen
     ? workspaceChannels.channels
-        .filter((channel) => channel.visibility !== "direct")
+        .filter(
+          (channel) =>
+            channel.visibility !== "direct" &&
+            !channel.directUserId &&
+            profileMemberId !== undefined &&
+            channel.userIds.includes(profileMemberId),
+        )
         .map((channel) => ({
           id: channel.id,
           name: channel.name,
@@ -294,7 +329,11 @@ export function ConversationsPage() {
       next.delete("child");
       next.set(
         "profile",
-        selection.kind === "user" ? "user" : selection.agentId,
+        selection.kind === "agent"
+          ? selection.agentId
+          : selection.userId && selection.userId !== user?.id
+            ? `user:${selection.userId}`
+            : "user",
       );
       return next;
     });
@@ -482,9 +521,13 @@ export function ConversationsPage() {
           ) : null}
         </div>
       </section>
-      {activeChatId && userProfileOpen ? (
+      {activeChatId && profileUser ? (
         <UserProfilePanel
-          user={user}
+          key={profileUserId}
+          user={profileUser}
+          {...(profileUserId && profileUserId !== user?.id
+            ? { onMessage: () => startUserDirectMessage(profileUserId) }
+            : undefined)}
           channels={userProfileChannels}
           onClose={closeProfile}
           sizing={panelSizing}

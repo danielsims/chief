@@ -40,7 +40,6 @@ import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
-import { AgentsSettings } from "./pages/settings/agents";
 import { AppearanceSettings } from "./pages/settings/appearance";
 import { ConnectionSettings } from "./pages/settings/connection";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
@@ -391,7 +390,6 @@ function AuthenticatedApp() {
                             path="notifications"
                             element={<NotificationsSettings />}
                           />
-                          <Route path="agents" element={<AgentsSettings />} />
                           <Route
                             path="diagnostics"
                             element={<DiagnosticsSettings />}

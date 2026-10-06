@@ -11,6 +11,13 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
+import { fenceGuestEvent } from "./channel-guest-fence";
+import {
+  guestListenerTags,
+  isGuestListener,
+  registerGuestListeners,
+} from "./channel-guest-listeners";
+import { ChannelGuestService } from "./channel-guest-service";
 import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
@@ -51,6 +58,7 @@ import {
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
+import { relayConversationTyping } from "./workspace-typing";
 import {
   updateOutdatedEveAgents,
   WorkspaceVercelService,
@@ -59,6 +67,12 @@ import {
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    registerGuestListeners(state);
+    // Keep-alive pings are answered without waking the object, so idle
+    // connections (members' and guest listeners') cost nothing.
+    state.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong"),
+    );
     void state.blockConcurrencyWhile(async () => {
       initializeWorkspaceSchema(state.storage, env);
       await ensureWorkspaceAlarm(state.storage);
@@ -172,6 +186,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           createLiveSocketTicket(request),
         );
       }
+      if (operation?.startsWith("guest-")) {
+        return yield* attempt("workspace.channel_guests", () =>
+          new ChannelGuestService(ctx.storage, env).route(request, operation),
+        );
+      }
       if (operation === "agent-message-dispatch") {
         return yield* attempt("workspace.agent.dispatch", () =>
           dispatchWorkspaceMessage(ctx.storage, env, request),
@@ -194,6 +213,11 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "member-role-set") {
         return yield* attempt("workspace.member.role", () =>
           access.memberRoleSet(request),
+        );
+      }
+      if (operation === "members-remove") {
+        return yield* attempt("workspace.members.remove", () =>
+          access.memberRemove(request),
         );
       }
       if (operation === "agent-config-get") {
@@ -478,6 +502,14 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     const principal = principalSchema.parse(JSON.parse(principalJson));
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
+    if (principal.kind === "guest") {
+      // A listener only ever hears its own guest's wake-ups. It never
+      // subscribes to the workspace feed below.
+      channels.requireChannelVisible(principal.conversationId, principal);
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1], guestListenerTags(principal.guestId));
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     channels.requirePrincipalMember(principal);
     channels.requireAgentCapability(principal, "messages.read");
     const pair = new WebSocketPair();
@@ -498,6 +530,10 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    if (isGuestListener(this.ctx, socket)) {
+      socket.close(1008, "Listeners only receive wake-ups");
+      return;
+    }
     let attachment = consumeSocketAllowance(socket, "message");
     if (!attachment) return;
     if (message === "ping") {
@@ -512,6 +548,10 @@ export class WorkspaceObject extends DurableObject<Env> {
       const input = parseJsonObject(JSON.parse(message));
       if (!input) {
         socket.close(1008, "Invalid workspace message");
+        return;
+      }
+      if (input.type === "conversation.typing") {
+        relayConversationTyping(this.ctx, this.env, socket, attachment, input);
         return;
       }
       if (input.type !== "workspace.subscribe") {
@@ -548,6 +588,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         ...attachment,
         conversationIds,
         subscribed: true,
+        typing: input.typing === true,
       });
       this.replayLiveEvents(
         socket,
@@ -574,8 +615,9 @@ export class WorkspaceObject extends DurableObject<Env> {
     do {
       const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
       const page = live.list(cursor, Math.min(200, remaining), conversationIds);
+      const reader = workspaceSocketAttachment(socket).principal;
       for (const event of page.events) {
-        socket.send(JSON.stringify(event));
+        socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
         cursor = event.sequence;
         lastDeliveredCursor = event.sequence;
         delivered += 1;
@@ -600,8 +642,11 @@ export class WorkspaceObject extends DurableObject<Env> {
   private broadcastLiveEvent(event: ConversationEvent) {
     const conversationId = event.payload.message.conversationId;
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
+    // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
+      // Guest listeners never see the workspace feed.
+      if (isGuestListener(this.ctx, socket)) continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;
@@ -618,7 +663,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           socket.close(1008, "Conversation access revoked");
           continue;
         }
-        socket.send(serialized);
+        socket.send(
+          attachment.principal.kind === "user"
+            ? serialized
+            : JSON.stringify(fenceGuestEvent(attachment.principal, event)),
+        );
       } catch {
         socket.close(1011, "Delivery failed");
       }

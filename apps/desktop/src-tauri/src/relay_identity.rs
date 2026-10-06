@@ -5,6 +5,7 @@ use k256::{
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use crate::secure_store;
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
@@ -13,7 +14,6 @@ use std::{
 const KEYCHAIN_SERVICE: &str = "sh.heychief.desktop.relay";
 const KEYCHAIN_ACCOUNT: &str = "device-nip98-private-key-v1";
 const AGENT_KEYCHAIN_SERVICE: &str = "sh.heychief.desktop.agent-identity";
-const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25_300;
 const NIP98_KIND: u32 = 27_235;
 
 #[derive(Serialize)]
@@ -33,34 +33,12 @@ fn signing_key() -> Result<SigningKey, String> {
 }
 
 fn load_signing_key() -> Result<SigningKey, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use security_framework::passwords::{get_generic_password, set_generic_password};
-
-        match get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
-            Ok(value) => {
-                return SigningKey::from_bytes(&value)
-                    .map_err(|_| "Chief's saved relay device key is invalid.".to_string())
-            }
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {}
-            Err(_) => {
-                return Err("Chief could not read its relay device key from Keychain.".to_string())
-            }
-        }
-        let generated = SigningKey::random(&mut OsRng);
-        set_generic_password(
-            KEYCHAIN_SERVICE,
-            KEYCHAIN_ACCOUNT,
-            generated.to_bytes().as_slice(),
-        )
-        .map_err(|_| "Chief could not save its relay device key in Keychain.".to_string())?;
-        return Ok(generated);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure relay device keys are not available on this platform yet.".to_string())
-    }
+    stored_or_new_key(
+        KEYCHAIN_SERVICE,
+        KEYCHAIN_ACCOUNT,
+        "Chief's saved relay device key is invalid.",
+        "Chief could not read or save its relay device key.",
+    )
 }
 
 pub(crate) fn agent_signing_key(
@@ -72,48 +50,39 @@ pub(crate) fn agent_signing_key(
     validate_identifier(workspace_id, "workspace")?;
     validate_identifier(agent_id, "agent")?;
 
-    #[cfg(target_os = "macos")]
-    {
-        static AGENT_KEYS: OnceLock<Mutex<HashMap<String, Result<SigningKey, String>>>> =
-            OnceLock::new();
-        let account = agent_keychain_account(relay_url, workspace_id, agent_id);
-        let mut keys = AGENT_KEYS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .map_err(|_| "Chief could not access its cached agent identities.".to_string())?;
-        if let Some(key) = keys.get(&account) {
-            return key.clone();
-        }
-        let key = load_agent_signing_key(&account);
-        keys.insert(account, key.clone());
-        return key;
+    static AGENT_KEYS: OnceLock<Mutex<HashMap<String, Result<SigningKey, String>>>> =
+        OnceLock::new();
+    let account = agent_keychain_account(relay_url, workspace_id, agent_id);
+    let mut keys = AGENT_KEYS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "Chief could not access its cached agent identities.".to_string())?;
+    if let Some(key) = keys.get(&account) {
+        return key.clone();
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Secure agent identities are not available on this platform yet.".to_string())
-    }
+    let key = stored_or_new_key(
+        AGENT_KEYCHAIN_SERVICE,
+        &account,
+        "Chief's saved agent identity is invalid.",
+        "Chief could not read or save the agent identity.",
+    );
+    keys.insert(account, key.clone());
+    key
 }
 
-#[cfg(target_os = "macos")]
-fn load_agent_signing_key(account: &str) -> Result<SigningKey, String> {
-    use security_framework::passwords::{get_generic_password, set_generic_password};
-
-    match get_generic_password(AGENT_KEYCHAIN_SERVICE, account) {
-        Ok(value) => {
-            return SigningKey::from_bytes(&value)
-                .map_err(|_| "Chief's saved agent identity is invalid.".to_string())
-        }
-        Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {}
-        Err(_) => return Err("Chief could not read the agent identity from Keychain.".to_string()),
+/// The key saved in this slot, or a new one saved there on first use.
+fn stored_or_new_key(
+    service: &str,
+    account: &str,
+    invalid: &str,
+    unavailable: &str,
+) -> Result<SigningKey, String> {
+    if let Some(value) = secure_store::get(service, account).map_err(|_| unavailable.to_string())? {
+        return SigningKey::from_bytes(&value).map_err(|_| invalid.to_string());
     }
     let generated = SigningKey::random(&mut OsRng);
-    set_generic_password(
-        AGENT_KEYCHAIN_SERVICE,
-        account,
-        generated.to_bytes().as_slice(),
-    )
-    .map_err(|_| "Chief could not save the agent identity in Keychain.".to_string())?;
+    secure_store::set(service, account, generated.to_bytes().as_slice())
+        .map_err(|_| unavailable.to_string())?;
     Ok(generated)
 }
 

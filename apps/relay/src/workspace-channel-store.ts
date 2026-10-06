@@ -11,12 +11,14 @@ import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
+import { channelMembersDeleteDirectBackfillOwners } from "./queries/channel-members/delete-direct-backfill-owners";
 import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
 import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
 import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
 import { channelMembersInsertSeedSnapshotChannels } from "./queries/channel-members/insert-seed-snapshot-channels";
 import { channelsFindChannelsCreate } from "./queries/channels/find-channels-create";
+import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
 import { channelsInsertSeedSnapshotChannels } from "./queries/channels/insert-seed-snapshot-channels";
 import { externalAgentRuntimesFindAgentIsLive } from "./queries/external-agent-runtimes/find-agent-is-live";
 import { membersFindAuthorize } from "./queries/members/find-authorize";
@@ -216,10 +218,25 @@ export class WorkspaceChannelStore {
 
   requireChannelVisible(conversationId: string, principal: Principal) {
     const channel = this.requireChannel(conversationId);
+    // An invited agent is admitted to exactly one channel, and only while
+    // the member who invited it can still see that channel.
+    if (principal.kind === "guest") {
+      if (
+        principal.conversationId === conversationId &&
+        this.agentMayAccess(channel, principal.operator?.id ?? null)
+      )
+        return channel;
+      throw new HttpError(
+        403,
+        "channel_access_denied",
+        "This agent is not admitted to the channel.",
+      );
+    }
     if (Number(channel.is_private) === 0) return channel;
     const { kind, id } = principalKindId(principal);
     if (
       kind !== "service" &&
+      kind !== "guest" &&
       this.channelMembership(conversationId, kind, id)
     ) {
       return channel;
@@ -228,6 +245,31 @@ export class WorkspaceChannelStore {
       403,
       "channel_access_denied",
       "This identity is not a member of the private channel.",
+    );
+  }
+
+  /**
+   * The single gate for invited agents. An agent never sees more than the
+   * member it works for: the channel must be active, and that member must
+   * still belong to the workspace and be able to see the channel. Checked on
+   * every action, so losing access takes effect at once.
+   */
+  agentMayAccess(channel: ChannelRow, operatorUserId: string | null) {
+    if (
+      !operatorUserId ||
+      channel.kind !== "channel" ||
+      Number(channel.archived) === 1 ||
+      this.memberRole("user", operatorUserId) === null
+    ) {
+      return false;
+    }
+    return (
+      Number(channel.is_private) === 0 ||
+      this.channelMembership(
+        channel.conversation_id,
+        "user",
+        operatorUserId,
+      ) !== undefined
     );
   }
 
@@ -258,7 +300,7 @@ export class WorkspaceChannelStore {
 
   requireChannelManager(conversationId: string, principal: Principal) {
     const { kind, id } = principalKindId(principal);
-    if (kind === "service") {
+    if (kind === "service" || kind === "guest") {
       throw new HttpError(
         403,
         "channel_manage_denied",
@@ -384,6 +426,7 @@ export class WorkspaceChannelStore {
       workspace.created_at,
     );
     this.seedSnapshotAgents(snapshot, workspace.created_at);
+    channelMembersDeleteDirectBackfillOwners(this.storage);
   }
 
   /** Managed agents exist independently of a device key. A phone/desktop may
@@ -409,6 +452,12 @@ export class WorkspaceChannelStore {
     createdAt: string,
   ) {
     for (const conversation of snapshot.conversations) {
+      // Only backfill membership for conversations with no channel row yet.
+      // An existing conversation owns its membership; seeding the workspace
+      // owner into it would add them to other people's direct messages.
+      const exists =
+        firstRow(channelsFindCreateChannel(this.storage, conversation.id)) !==
+        undefined;
       channelsInsertSeedSnapshotChannels(this.storage, {
         conversationId: conversation.id,
         workspaceId: snapshot.id,
@@ -420,6 +469,7 @@ export class WorkspaceChannelStore {
         createdAt: createdAt,
         updatedAt: createdAt,
       });
+      if (exists) continue;
       channelMembersInsertSeedSnapshotChannels(this.storage, {
         conversationId: conversation.id,
         principalId: ownerId,

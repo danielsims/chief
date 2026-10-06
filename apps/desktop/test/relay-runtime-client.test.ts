@@ -51,6 +51,7 @@ for (const chatId of ["channel:workspace-a:engineering", "on-device"]) {
         close,
         cursor: () => 0,
         updateConversationIds: () => undefined,
+        sendTyping: () => undefined,
       }),
     );
     const client = new RelayRuntimeClient(relay, snapshot);
@@ -151,6 +152,7 @@ void test("routes createChannel through the relay and emits the created channel"
         close: () => undefined,
         cursor: () => 0,
         updateConversationIds: () => undefined,
+        sendTyping: () => undefined,
       });
     },
     appendMessage() {
@@ -185,6 +187,10 @@ void test("routes createChannel through the relay and emits the created channel"
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).schedules,
+    channelSettings: new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: "workspace-a",
+    }).channelSettings,
     listProspects() {
       throw new Error("not used in this test");
     },
@@ -289,6 +295,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
         close: () => undefined,
         cursor: () => 0,
         updateConversationIds: () => undefined,
+        sendTyping: () => undefined,
       });
     },
     appendMessage: unused,
@@ -309,6 +316,10 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).schedules,
+    channelSettings: new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: "workspace-a",
+    }).channelSettings,
     listProspects: unused,
     listWorkspaceFiles: unused,
     reactToMessage: unused,

@@ -10,6 +10,10 @@ struct SignInView: View {
   @State private var isCheckingRelay = false
   @State private var appleNonce = ""
   @State private var connectionError: String?
+  /// The button that started the current sign-in; only it shows progress.
+  @State private var pendingMethod: SignInMethod?
+
+  private enum SignInMethod { case apple, google, relay }
 
   var body: some View {
     ZStack {
@@ -20,7 +24,7 @@ struct SignInView: View {
           .resizable()
           .scaledToFit()
           .frame(width: 58, height: 58)
-          .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: 58 * 0.2237, style: .continuous))
         Text("Your team of agents,\nalready at work.")
           .font(.system(size: 38, weight: .regular, design: .rounded))
           .tracking(-1.2)
@@ -31,29 +35,38 @@ struct SignInView: View {
           .lineSpacing(4)
           .padding(.top, 16)
         Spacer()
-        SignInWithAppleButton(.signIn) { request in
-          prepareAppleRequest(request)
-        } onCompletion: { result in
-          handleApple(result)
-        }
-        .signInWithAppleButtonStyle(.white)
-        .frame(height: 52)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .disabled(isWorking)
-        .overlay {
-          if isWorking {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .fill(.white.opacity(0.82))
-            ProgressView().tint(.black)
+        Group {
+          if isLoading(.apple) {
+            ChiefSpinner()
+              .tint(.black)
+              .frame(maxWidth: .infinity, minHeight: 52)
+              .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+          } else {
+            SignInWithAppleButton(.signIn) { request in
+              prepareAppleRequest(request)
+            } onCompletion: { result in
+              handleApple(result)
+            }
+            .signInWithAppleButtonStyle(.white)
+            .frame(height: 52)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .disabled(isWorking)
           }
         }
         .accessibilityIdentifier("sign-in-button")
         Button(action: beginGoogleSignIn) {
-          HStack(spacing: 9) {
-            if isWorking {
-              ProgressView().tint(.white)
+          Group {
+            if isLoading(.google) {
+              ChiefSpinner().tint(.white)
+            } else {
+              HStack(spacing: 10) {
+                Image("GoogleG")
+                  .resizable()
+                  .frame(width: 18, height: 18)
+                  .accessibilityHidden(true)
+                Text("Sign in with Google")
+              }
             }
-            Text("Sign in with Google")
           }
           .font(.system(size: 16, weight: .semibold))
           .frame(maxWidth: .infinity)
@@ -80,11 +93,12 @@ struct SignInView: View {
             .padding(.top, 12)
             .accessibilityIdentifier("relay-address")
           Button(action: beginRelaySignIn) {
-            HStack(spacing: 9) {
-              if isWorking {
-                ProgressView().tint(.black)
+            Group {
+              if isLoading(.relay) {
+                ChiefSpinner().tint(.black)
+              } else {
+                Text("Continue")
               }
-              Text(relayButtonTitle)
             }
             .font(.system(size: 16, weight: .semibold))
             .frame(maxWidth: .infinity)
@@ -155,10 +169,8 @@ struct SignInView: View {
     isCheckingRelay || authentication.isAuthenticating
   }
 
-  private var relayButtonTitle: String {
-    if isCheckingRelay { return "Checking relay" }
-    if authentication.isAuthenticating { return "Opening sign in" }
-    return "Continue"
+  private func isLoading(_ method: SignInMethod) -> Bool {
+    isWorking && pendingMethod == method
   }
 
   private func prepareAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
@@ -200,6 +212,7 @@ struct SignInView: View {
     credential: ASAuthorizationAppleIDCredential
   ) async {
     guard !isWorking else { return }
+    pendingMethod = .apple
     connectionError = nil
     do {
       try await activateChiefCloud()
@@ -219,6 +232,8 @@ struct SignInView: View {
   }
 
   private func beginGoogleSignIn() {
+    guard !isWorking else { return }
+    pendingMethod = .google
     let cloud = AppConfiguration.chiefCloud()
     Task {
       await beginBrowserSignIn(
@@ -233,6 +248,7 @@ struct SignInView: View {
 
   private func beginRelaySignIn() {
     guard !isWorking else { return }
+    pendingMethod = .relay
     isCheckingRelay = true
     connectionError = nil
     Task {

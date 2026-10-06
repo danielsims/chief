@@ -40,6 +40,8 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   }
 
   func requestAuthorizationIfNeeded() async {
+    // Unit tests run hosted in the app; a system prompt there blocks forever.
+    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
     let center = UNUserNotificationCenter.current()
     var settings = await center.notificationSettings()
     if settings.authorizationStatus == .notDetermined {
@@ -55,6 +57,29 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
       || settings.authorizationStatus == .provisional
     else { return }
     await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
+  }
+
+  func authorizationStatus() async -> UNAuthorizationStatus {
+    await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+  }
+
+  /// Posts a local banner so people can confirm alerts and sounds reach them.
+  /// Marked as a mention so it also shows while Chief is in the foreground.
+  func sendTestNotification() async -> Bool {
+    let content = UNMutableNotificationContent()
+    content.title = "Chief"
+    content.body = "Notifications are working."
+    content.sound = Self.configuredSound
+    content.userInfo = ["mentioned": true]
+    let request = UNNotificationRequest(
+      identifier: "test:\(UUID().uuidString)", content: content, trigger: nil)
+    do {
+      try await UNUserNotificationCenter.current().add(request)
+      return true
+    } catch {
+      print("[Chief] test notification failed: \(error)")
+      return false
+    }
   }
 
   func deliver(
@@ -116,9 +141,7 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
   ) {
     let mentioned = notification.request.content.userInfo["mentioned"] as? Bool == true
-    Task { @MainActor in
-      completionHandler(mentioned ? [.banner, .sound, .list] : [])
-    }
+    completionHandler(mentioned ? [.banner, .sound, .list] : [])
   }
 
   nonisolated func userNotificationCenter(
@@ -135,13 +158,22 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     link: ConversationDeepLink?,
     completionHandler: @escaping @Sendable () -> Void
   ) {
-    Task { @MainActor in
-      // All responses, including unrecognized/dismissed notifications, must
-      // finish on the main thread. Persist valid taps before releasing UIKit.
-      defer { completionHandler() }
-      guard let link else { return }
-      pendingOpen = link
-      NotificationCenter.default.post(name: didOpenConversation, object: nil)
+    // UIKit asserts if the completion handler runs after an async hop while it
+    // updates its state-restoration snapshot, which crashes a tapped
+    // notification on a physical device. Persist the tap and finish the
+    // response synchronously on the main thread; navigate on the next turn.
+    let finish: @MainActor () -> Void = {
+      if let link { pendingOpen = link }
+      completionHandler()
+      guard link != nil else { return }
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: didOpenConversation, object: nil)
+      }
+    }
+    if Thread.isMainThread {
+      MainActor.assumeIsolated { finish() }
+    } else {
+      DispatchQueue.main.async { MainActor.assumeIsolated { finish() } }
     }
   }
 }

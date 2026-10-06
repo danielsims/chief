@@ -194,7 +194,7 @@ private struct PluginRecommendationMessageComponent: View {
               Text("Add")
                 .opacity(busy ? 0 : 1)
               if busy {
-                ProgressView()
+                ChiefSpinner()
                   .controlSize(.small)
                   .tint(.white)
               }
@@ -341,7 +341,7 @@ private struct ReleasedAgentBrowserTakeover: View {
       .ignoresSafeArea()
 
       if isRestoring {
-        ProgressView("Restoring browser")
+        ChiefSpinner(label: "Restoring browser")
           .tint(.white)
           .foregroundStyle(.white)
           .padding(16)
@@ -398,7 +398,7 @@ extension ConversationMessage.Author {
     switch self {
     case .agent(let id, _): id
     case .system: "chief"
-    case .user: nil
+    case .user, .guest: nil
     }
   }
 }
@@ -481,7 +481,7 @@ private struct AuthenticatedRelayImage: View {
         Image(systemName: "photo.badge.exclamationmark")
           .foregroundStyle(ChiefTheme.tertiary)
       } else {
-        ProgressView().controlSize(.small)
+        ChiefSpinner().controlSize(.small)
       }
     }
     .clipped()

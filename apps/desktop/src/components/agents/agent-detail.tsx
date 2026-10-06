@@ -38,7 +38,9 @@ import {
   setAgentOverride,
   setWorkspaceProvider,
 } from "../../lib/agent-overrides";
+import { useWorkspaceRole } from "../../lib/workspace-role";
 import { AgentAvatar as ChiefAgentAvatar } from "../agent-avatar";
+import { AgentCredentialsCard } from "./agent-credentials-card";
 import {
   AgentChannelsTab,
   AgentConfigurationTab,
@@ -174,6 +176,7 @@ export function AgentDetail({
     provider: driver,
     model,
   });
+  const isOwner = useWorkspaceRole() === "owner";
 
   const save = (patch: {
     enabled?: boolean;
@@ -350,31 +353,42 @@ export function AgentDetail({
                 ) : null}
 
                 {activeTab === "runtime" ? (
-                  <AgentExecutionCard
-                    agent={agent}
-                    execution={execution}
-                    ready={ready}
-                    saving={saving}
-                    error={preferenceError}
-                    relayClient={relayClient}
-                    onExternalAgentChanged={onExternalAgentChanged}
-                    onApply={(draft) =>
-                      save({
-                        deploymentTarget: relayDeploymentTarget(
-                          draft.deployment,
-                        ),
-                        driver: draft.provider,
-                        model: draft.model,
-                      })
-                    }
-                    onApplyToTeam={(draft) =>
-                      onApplyExecutionToTeam(
-                        relayDeploymentTarget(draft.deployment),
-                        draft.provider,
-                        draft.model,
-                      )
-                    }
-                  />
+                  <>
+                    <AgentExecutionCard
+                      agent={agent}
+                      execution={execution}
+                      ready={ready}
+                      saving={saving}
+                      error={preferenceError}
+                      relayClient={relayClient}
+                      onExternalAgentChanged={onExternalAgentChanged}
+                      onApply={(draft) =>
+                        save({
+                          deploymentTarget: relayDeploymentTarget(
+                            draft.deployment,
+                          ),
+                          driver: draft.provider,
+                          model: draft.model,
+                        })
+                      }
+                      onApplyToTeam={(draft) =>
+                        onApplyExecutionToTeam(
+                          relayDeploymentTarget(draft.deployment),
+                          draft.provider,
+                          draft.model,
+                        )
+                      }
+                    />
+                    {isOwner &&
+                    relayClient &&
+                    execution.deployment.kind === "chief-cloud" &&
+                    execution.inference.kind === "configured" ? (
+                      <AgentCredentialsCard
+                        provider={execution.inference.provider}
+                        relayClient={relayClient}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
 
                 {activeTab === "channels" ? (

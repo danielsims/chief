@@ -5,6 +5,7 @@ import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 const operations = new Set([
   "members-list",
   "member-role-set",
+  "members-remove",
   "agent-config-get",
   "agent-create",
   "agent-runtime-get",
@@ -35,6 +36,8 @@ export const workspaceAccessRouter = {
         return access.membersList(request);
       case "member-role-set":
         return access.memberRoleSet(request);
+      case "members-remove":
+        return access.memberRemove(request);
       case "agent-config-get":
         return agents.configGet(request);
       case "agent-create":

@@ -38,7 +38,7 @@ struct OnboardingView: View {
             }
           } label: {
             if model.onboardingInProgress {
-              ProgressView().tint(.black)
+              ChiefSpinner().tint(.black)
             } else {
               Text(model.onboarding.step == stepCount - 1 ? "Enter workspace" : "Continue")
             }
@@ -222,6 +222,7 @@ private struct RuntimeStep: View {
               .resizable()
               .scaledToFit()
               .frame(width: 20, height: 20)
+              .clipShape(RoundedRectangle(cornerRadius: 20 * 0.2237, style: .continuous))
           } else {
             Image(systemName: "server.rack")
           }
@@ -570,7 +571,7 @@ private struct DeviceModelSheetRow: View {
         .font(.system(size: 22))
         .foregroundStyle(selected ? .white : ChiefTheme.secondary)
     } else if store.isDownloading(model.id) {
-      ProgressView()
+      ChiefSpinner()
     } else {
       Button("Download") {
         Task { await store.download(model) }

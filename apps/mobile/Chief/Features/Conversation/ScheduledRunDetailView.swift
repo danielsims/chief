@@ -56,7 +56,7 @@ struct ScheduledRunDetailView: View {
             }
           }
         } else if error == nil {
-          ProgressView()
+          ChiefSpinner()
         }
         if let error {
           Section {

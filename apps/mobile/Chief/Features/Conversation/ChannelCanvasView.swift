@@ -11,7 +11,7 @@ struct ChannelCanvasView: View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 12) {
         if loading {
-          ProgressView().frame(maxWidth: .infinity).padding(32)
+          ChiefSpinner().frame(maxWidth: .infinity).padding(32)
         } else if let error {
           Text(error).foregroundStyle(ChiefTheme.secondary)
           Button("Try again") { Task { await load() } }

@@ -80,6 +80,23 @@ export function RelayPreview({ draft }: { draft: HostSetupDraft }) {
           <Empty />
         )}
       </PreviewSection>
+
+      <PreviewSection label="Email">
+        {draft.emailProvider && draft.emailProvider !== "none" ? (
+          <div className="text-[13px] text-white">
+            <p className="font-medium">
+              {draft.emailProvider === "resend"
+                ? "Resend"
+                : "Cloudflare Email Service"}
+            </p>
+            <p className="mt-1 font-mono text-xs break-all text-white/60">
+              {draft.emailFromAddress.trim() || "from address needed"}
+            </p>
+          </div>
+        ) : (
+          <Empty />
+        )}
+      </PreviewSection>
     </div>
   );
 }

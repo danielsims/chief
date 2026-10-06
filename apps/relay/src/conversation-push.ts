@@ -35,6 +35,13 @@ export async function notifyConversationPush(
   conversationId: string,
   requestId: string,
 ) {
+  // Outside guest agents can notify people, but only a few times a minute.
+  if (principal.kind === "guest") {
+    const { success } = await env.GUEST_PUSH_RATE_LIMITER.limit({
+      key: principal.guestId,
+    });
+    if (!success) return;
+  }
   const parsed = conversationEventSchema.safeParse(event);
   if (!parsed.success || parsed.data.type !== "conversation.message.appended") {
     return;
@@ -89,7 +96,9 @@ export function conversationPushAlerts(
     return {
       userId,
       mentioned,
-      title: mentioned ? mentionPushTitle(message) : pushTitle(message),
+      title: mentioned
+        ? mentionPushTitle(message, people)
+        : pushTitle(message, people),
     };
   });
 }
@@ -103,25 +112,47 @@ function shouldNotify(message: ConversationMessage) {
   );
 }
 
-function authorDisplayName(message: ConversationMessage) {
+function authorDisplayName(
+  message: ConversationMessage,
+  people: readonly { id: string; name?: string }[],
+) {
+  if (message.author.kind === "user") {
+    const authorId = message.author.id;
+    const name = people.find((person) => person.id === authorId)?.name?.trim();
+    if (name) return name;
+    return "Someone";
+  }
   if (message.author.kind !== "agent") return "Someone";
   if (message.author.id === "chief") return "Chief";
   if (message.author.id === "brand") return "Marketer";
   return `${message.author.id.charAt(0).toUpperCase()}${message.author.id.slice(1)}`;
 }
 
-function mentionPushTitle(message: ConversationMessage) {
-  const name = authorDisplayName(message);
+/** A started DM is named by its participant hash, never shown to people. */
+function isDirectConversation(conversationId: string) {
+  return conversationId.startsWith("dm-");
+}
+
+function mentionPushTitle(
+  message: ConversationMessage,
+  people: readonly { id: string; name?: string }[],
+) {
+  const name = authorDisplayName(message, people);
   const channel = message.conversationId;
+  if (isDirectConversation(channel)) return name;
   if (/^[a-z0-9][a-z0-9-]{0,39}$/iu.test(channel)) {
     return `${name} mentioned you in #${channel}`;
   }
   return `${name} mentioned you`;
 }
 
-function pushTitle(message: ConversationMessage) {
-  const name = authorDisplayName(message);
+function pushTitle(
+  message: ConversationMessage,
+  people: readonly { id: string; name?: string }[],
+) {
+  const name = authorDisplayName(message, people);
   const channel = message.conversationId;
+  if (isDirectConversation(channel)) return name;
   if (/^[a-z0-9][a-z0-9-]{0,39}$/iu.test(channel)) {
     return `${name} in #${channel}`;
   }

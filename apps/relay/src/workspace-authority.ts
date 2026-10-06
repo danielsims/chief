@@ -10,6 +10,7 @@ import {
   organizationWorkspaceJoinResultSchema,
   parseJsonObject,
   workspaceInviteClaimResultSchema,
+  workspaceListResultSchema,
 } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "./auth";
@@ -24,6 +25,7 @@ import {
   registerWorkspaceOrganizationMember,
   removeWorkspaceOrganization,
   requireWorkspaceOrganizationMember,
+  usesOrganizationTenancy,
 } from "./organization-tenancy";
 import { recordProductEvents } from "./product-events";
 import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
@@ -330,34 +332,34 @@ export async function claimWorkspaceInvite(
   return response;
 }
 
-export async function joinOrganizationWorkspace(
+/**
+ * The single way a person becomes (or re-opens) a workspace they belong to:
+ * Better Auth already holds the membership, this seeds the workspace Durable
+ * Object and the account directory, and activates the workspace.
+ */
+async function ensureOrganizationWorkspace(
   env: Env,
-  input: {
-    identity: AuthenticatedIdentity;
-    requestId: string;
-    workspaceId: WorkspaceId;
-  },
+  identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
+  workspaceId: WorkspaceId,
 ) {
-  if (input.identity.kind !== "user") {
-    throw new AuthorizationError("A user identity is required.");
+  await requireWorkspaceOrganizationMember(env, identity, workspaceId);
+  const memberResponse = await workspaceStub(env, workspaceId).fetch(
+    withTrustedIdentity(
+      { identity, requestId: crypto.randomUUID(), workspaceId },
+      {
+        method: "POST",
+        headers: { "x-chief-internal-operation": "organization-member-join" },
+      },
+    ),
+  );
+  if (!memberResponse.ok) {
+    return { ok: false as const, response: memberResponse };
   }
-  await requireWorkspaceOrganizationMember(
-    env,
-    input.identity,
-    input.workspaceId,
-  );
-  const response = await workspaceStub(env, input.workspaceId).fetch(
-    withTrustedIdentity(input, {
-      method: "POST",
-      headers: { "x-chief-internal-operation": "organization-member-join" },
-    }),
-  );
-  if (!response.ok) return response;
   const result = organizationWorkspaceJoinResultSchema.parse(
-    await response.clone().json(),
+    await memberResponse.json(),
   );
-  const directoryResponse = await accountStub(env, input.identity.userId).fetch(
-    withTrustedAccountIdentity(input.identity, {
+  const directoryResponse = await accountStub(env, identity.userId).fetch(
+    withTrustedAccountIdentity(identity, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -369,11 +371,34 @@ export async function joinOrganizationWorkspace(
         name: result.workspaceName,
         website: result.website,
         createdAt: new Date().toISOString(),
+        activate: true,
       }),
     }),
   );
-  if (!directoryResponse.ok) return directoryResponse;
-  return response;
+  if (!directoryResponse.ok) {
+    return { ok: false as const, response: directoryResponse };
+  }
+  return { ok: true as const, result };
+}
+
+export async function joinOrganizationWorkspace(
+  env: Env,
+  input: {
+    identity: AuthenticatedIdentity;
+    requestId: string;
+    workspaceId: WorkspaceId;
+  },
+) {
+  if (input.identity.kind !== "user") {
+    throw new AuthorizationError("A user identity is required.");
+  }
+  const outcome = await ensureOrganizationWorkspace(
+    env,
+    input.identity,
+    input.workspaceId,
+  );
+  if (!outcome.ok) return outcome.response;
+  return json(outcome.result);
 }
 
 export async function listManagedWorkspaces(
@@ -383,12 +408,69 @@ export async function listManagedWorkspaces(
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
   }
-  return accountStub(env, identity.userId).fetch(
-    withTrustedAccountIdentity(identity, {
-      method: "POST",
-      headers: { "x-chief-internal-operation": "list-workspaces" },
-    }),
+  const account = accountStub(env, identity.userId);
+  const list = () =>
+    account.fetch(
+      withTrustedAccountIdentity(identity, {
+        method: "POST",
+        headers: { "x-chief-internal-operation": "list-workspaces" },
+      }),
+    );
+  const response = await list();
+  if (!response.ok || !usesOrganizationTenancy(env)) return response;
+  const { listChiefUserOrganizations } =
+    await import("@chief/auth/d1-organizations");
+  const organizations = await listChiefUserOrganizations(
+    env.AUTH_DB,
+    identity.userId,
   );
+  // Every workspace is a Better Auth organization, so the rail is exactly the
+  // set this person currently belongs to. The account directory only carries
+  // active/onboarding flags; entries for memberships they have since left are
+  // dropped from the response.
+  const memberIds = new Set(
+    organizations.map((organization) => organization.id),
+  );
+  const known = new Set<string>(
+    workspaceListResultSchema
+      .parse(await response.clone().json())
+      .workspaces.map((workspace) => workspace.id),
+  );
+  const missing = organizations.filter(
+    (organization) => !known.has(organization.id),
+  );
+  let result = workspaceListResultSchema.parse(await response.json());
+  if (missing.length > 0) {
+    // Add memberships accepted on the web that never ran a device join, without
+    // moving the person off their open workspace.
+    for (const organization of missing) {
+      await account.fetch(
+        withTrustedAccountIdentity(identity, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "join-workspace",
+          },
+          body: JSON.stringify({
+            workspaceId: organization.id,
+            operationId: crypto.randomUUID(),
+            name: organization.name,
+            website: organization.website,
+            createdAt: new Date().toISOString(),
+            activate: false,
+          }),
+        }),
+      );
+    }
+    const refreshed = await list();
+    if (!refreshed.ok) return refreshed;
+    result = workspaceListResultSchema.parse(await refreshed.json());
+  }
+  return json({
+    workspaces: result.workspaces.filter((workspace) =>
+      memberIds.has(workspace.id),
+    ),
+  });
 }
 
 export async function switchManagedWorkspace(
@@ -399,17 +481,10 @@ export async function switchManagedWorkspace(
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
   }
-  await requireWorkspaceOrganizationMember(env, identity, workspaceId);
-  return accountStub(env, identity.userId).fetch(
-    withTrustedAccountIdentity(identity, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-chief-internal-operation": "switch-workspace",
-      },
-      body: JSON.stringify({ workspaceId }),
-    }),
-  );
+  const outcome = await ensureOrganizationWorkspace(env, identity, workspaceId);
+  if (!outcome.ok) return outcome.response;
+  // Every layer is provisioned and the workspace is active; report the switch.
+  return json({ workspaceId: outcome.result.workspaceId, isActive: true });
 }
 
 export async function claimWorkspace(
