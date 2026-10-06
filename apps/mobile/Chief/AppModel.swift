@@ -482,6 +482,10 @@ final class AppModel {
     {
       return requested.id
     }
+    // Agents can't join a person-to-person DM, so nothing there gets a reply.
+    if workspace?.conversations.first(where: { $0.id == conversationID })?.directUserID != nil {
+      return nil
+    }
     if let mentioned = mentions.compactMap({ WorkspaceAgentCatalog.agent(forID: $0) }).first {
       return mentioned.id
     }
@@ -780,6 +784,8 @@ final class AppModel {
     guard
       let conversation = workspace.conversations.first(where: { $0.id == conversationID })
     else { return false }
+    // Agents can't join a person-to-person DM.
+    if conversation.directUserID != nil { return false }
     // (b) Explicit @-mention always wakes the mentioned agent.
     if mentions.contains(where: { WorkspaceAgentCatalog.agent(forID: $0) != nil }) {
       return true
@@ -2531,7 +2537,7 @@ final class AppModel {
     guard let workspace else { return [] }
     do {
       let members = try await relay.workspaceMembers(workspaceID: workspace.id)
-      let currentUserID = (try? NostrKeychainStore().load())?.publicKeyHex
+      let currentUserID = session?.user.id
       let agentNames = Dictionary(
         uniqueKeysWithValues: workspace.agents.map { ($0.id, $0.name) }
       )
@@ -2544,7 +2550,7 @@ final class AppModel {
             principalID: member.principalId,
             name: member.kind == "agent"
               ? (agentNames[member.principalId] ?? member.principalId)
-              : member.principalId,
+              : (member.name ?? member.principalId),
             role: member.role
           )
         }

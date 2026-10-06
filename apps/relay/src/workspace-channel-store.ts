@@ -11,12 +11,14 @@ import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
+import { channelMembersDeleteDirectBackfillOwners } from "./queries/channel-members/delete-direct-backfill-owners";
 import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
 import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
 import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
 import { channelMembersInsertSeedSnapshotChannels } from "./queries/channel-members/insert-seed-snapshot-channels";
 import { channelsFindChannelsCreate } from "./queries/channels/find-channels-create";
+import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
 import { channelsInsertSeedSnapshotChannels } from "./queries/channels/insert-seed-snapshot-channels";
 import { externalAgentRuntimesFindAgentIsLive } from "./queries/external-agent-runtimes/find-agent-is-live";
 import { membersFindAuthorize } from "./queries/members/find-authorize";
@@ -424,6 +426,7 @@ export class WorkspaceChannelStore {
       workspace.created_at,
     );
     this.seedSnapshotAgents(snapshot, workspace.created_at);
+    channelMembersDeleteDirectBackfillOwners(this.storage);
   }
 
   /** Managed agents exist independently of a device key. A phone/desktop may
@@ -449,6 +452,12 @@ export class WorkspaceChannelStore {
     createdAt: string,
   ) {
     for (const conversation of snapshot.conversations) {
+      // Only backfill membership for conversations with no channel row yet.
+      // An existing conversation owns its membership; seeding the workspace
+      // owner into it would add them to other people's direct messages.
+      const exists =
+        firstRow(channelsFindCreateChannel(this.storage, conversation.id)) !==
+        undefined;
       channelsInsertSeedSnapshotChannels(this.storage, {
         conversationId: conversation.id,
         workspaceId: snapshot.id,
@@ -460,6 +469,7 @@ export class WorkspaceChannelStore {
         createdAt: createdAt,
         updatedAt: createdAt,
       });
+      if (exists) continue;
       channelMembersInsertSeedSnapshotChannels(this.storage, {
         conversationId: conversation.id,
         principalId: ownerId,

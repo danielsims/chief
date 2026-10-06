@@ -102,6 +102,7 @@ struct DMsGroup: View {
   @State private var expanded = true
   @State private var startingAgentID: String?
   @State private var startFailed = false
+  @State private var showNewMessage = false
 
   var body: some View {
     CollapsibleGroup(title: "DMs", count: rosterCount, isExpanded: $expanded) {
@@ -115,6 +116,26 @@ struct DMsGroup: View {
       ForEach(unmatchedDirectConversations) { conversation in
         ConversationRow(conversation: conversation)
       }
+    }
+    .overlay(alignment: .topTrailing) {
+      Button {
+        Haptics.medium()
+        showNewMessage = true
+      } label: {
+        Image(systemName: "plus")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(ChiefTheme.secondary)
+          .frame(width: 28, height: 28)
+          .background(ChiefTheme.surface, in: Circle())
+          .overlay { Circle().stroke(ChiefTheme.line) }
+      }
+      .buttonStyle(.plain)
+      .offset(y: -2)
+      .padding(.trailing, ChiefTheme.pagePadding)
+      .accessibilityLabel("New message")
+    }
+    .fullScreenCover(isPresented: $showNewMessage) {
+      NewMessageView { conversationID in path.append(conversationID) }
     }
     .alert("Couldn’t start this message", isPresented: $startFailed) {
       Button("OK", role: .cancel) {}
@@ -140,6 +161,7 @@ struct DMsGroup: View {
 
   private func directConversation(for agent: AgentSummary) -> ConversationSummary? {
     directConversations.first { conversation in
+      guard conversation.directUserID == nil else { return false }
       let normalizedName = conversation.name.lowercased()
       return normalizedName.contains(agent.id.lowercased())
         || normalizedName.contains(agent.name.lowercased())
@@ -248,7 +270,13 @@ private struct ConversationRow: View {
   var body: some View {
     NavigationLink(value: conversation.id) {
       HStack(spacing: 9) {
-        if conversation.kind == .direct {
+        if let userID = conversation.directUserID {
+          UserAvatar(
+            user: model.person(userID: userID, fallbackName: conversation.name),
+            size: 24,
+            rounded: true
+          )
+        } else if conversation.kind == .direct {
           AgentMark(name: conversation.name, size: 24)
         } else {
           Image(systemName: conversation.isPrivate ? "lock" : "number")

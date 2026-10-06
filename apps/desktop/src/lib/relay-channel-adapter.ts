@@ -59,6 +59,9 @@ export function workspaceChannelFromRelay(
           : member.principalId,
       ),
     visibility: channel.isPrivate ? "private" : "public",
+    ...(channel.directUserId
+      ? { directUserId: channel.directUserId }
+      : undefined),
     kind: "standard",
     lifecycle: channel.archived ? "archived" : "active",
     createdBy: owner

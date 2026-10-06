@@ -454,6 +454,8 @@ export function SidebarChannels({
       </section>
       <SidebarDirectMessages
         activeAgentId={activeAgentId}
+        activeChannelId={activeChannelId}
+        onOpenChannel={onOpen}
         attentionTargets={directMessageAttentionTargets}
         compactAttention={compactAttention}
         directMessageIds={directMessageIds}

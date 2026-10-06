@@ -18,6 +18,8 @@ export const channelRecordSchema = z
     isPrivate: z.boolean(),
     archived: z.boolean(),
     createdAt: isoDateTimeSchema,
+    /** Set on a person-to-person direct message: the other participant. */
+    directUserId: z.string().trim().min(1).max(256).optional(),
   })
   .strict();
 

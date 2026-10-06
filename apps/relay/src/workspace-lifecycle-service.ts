@@ -257,6 +257,39 @@ export class WorkspaceLifecycleService {
     };
     return json({
       ...reconciled.snapshot,
+      // Each person sees only the DMs they are in. A person-to-person DM is
+      // named after the other participant, for this viewer.
+      conversations: reconciled.snapshot.conversations.flatMap(
+        (conversation) => {
+          if (conversation.kind !== "direct") return [conversation];
+          const members = this.channels.channelMemberRows(conversation.id);
+          if (
+            !members.some(
+              (member) =>
+                member.kind === "user" &&
+                member.principalId === principal.userId,
+            )
+          )
+            return [];
+          if (members.some((member) => member.kind !== "user"))
+            return [conversation];
+          const peer = members.find(
+            (member) => member.principalId !== principal.userId,
+          );
+          if (!peer) return [];
+          return [
+            {
+              ...conversation,
+              name: (
+                this.channels
+                  .principalNames()
+                  .get(`user:${peer.principalId}`) ?? conversation.name
+              ).slice(0, 120),
+              directUserId: peer.principalId,
+            },
+          ];
+        },
+      ),
       agents: reconciled.snapshot.agents.map((agent) => ({
         ...agent,
         canRunOnDevice:

@@ -299,7 +299,7 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation?.kind === "direct"
+  return conversation?.kind === "direct" && !conversation.directUserId
     ? agentForDirect(conversation.name, snapshot)
     : undefined;
 }
