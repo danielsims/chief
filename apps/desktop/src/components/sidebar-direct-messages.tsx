@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -16,6 +16,10 @@ import type {
   WorkspaceAgentId,
 } from "../lib/workspace-channels";
 import { useAuth } from "../lib/auth/auth-context";
+import {
+  readSidebarDirectMessagesCache,
+  writeSidebarDirectMessagesCache,
+} from "../lib/sidebar-direct-messages-cache";
 import {
   sidebarPinnedItemKey,
   workspaceAgentIdentity,
@@ -218,6 +222,8 @@ export function SidebarDirectMessages({
   pinnedAgentIds,
   unreadCounts,
   unreadChannelCounts,
+  lastMessageAtByAgent,
+  lastMessageAtByChannel,
   agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
@@ -238,6 +244,9 @@ export function SidebarDirectMessages({
   unreadCounts: ReadonlyMap<WorkspaceAgentId, number>;
   /** Person-to-person DMs are channels, so their unread counts key by channel. */
   unreadChannelCounts: ReadonlyMap<string, number>;
+  /** Latest message time (ms) in each agent's DM. */
+  lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
+  lastMessageAtByChannel: ReadonlyMap<string, number>;
   agents: readonly {
     id: string;
     name: string;
@@ -253,21 +262,34 @@ export function SidebarDirectMessages({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, cloudOrganizationId } = useAuth();
   const workspaceUsers = useWorkspaceUsers();
   const { channels } = useWorkspaceChannels();
-  const peopleDirects = channels.flatMap((channel) => {
-    const userId = channel.directUserId;
-    if (!userId || userId === user?.id) return [];
-    const person = workspaceUsers.get(userId);
-    return [
-      {
-        channelId: channel.id,
-        name: person?.name ?? channel.name,
-        image: person?.image,
-      },
-    ];
-  });
+  // Painted until channels, members and history arrive, so launch shows the
+  // same rows in the same order instead of filling in over a few seconds.
+  const cached = useMemo(
+    () => readSidebarDirectMessagesCache(cloudOrganizationId),
+    [cloudOrganizationId],
+  );
+  // Every workspace has channels, so an empty list means it hasn't loaded.
+  const channelsLoaded = channels.length > 0;
+  const peopleDirects = channelsLoaded
+    ? channels.flatMap((channel) => {
+        const userId = channel.directUserId;
+        if (!userId || userId === user?.id) return [];
+        const person = workspaceUsers.get(userId);
+        const previous = cached.people.find(
+          (entry) => entry.channelId === channel.id,
+        );
+        return [
+          {
+            channelId: channel.id,
+            name: person?.name ?? previous?.name ?? channel.name,
+            image: person?.image ?? previous?.image,
+          },
+        ];
+      })
+    : cached.people;
   const [collapsedTeams, setCollapsedTeams] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -288,6 +310,122 @@ export function SidebarDirectMessages({
             agent.subagents?.some((child) => child.id === agentId),
         )),
   );
+  const renderPerson = (direct: (typeof peopleDirects)[number]) => {
+    const unread = unreadChannelCounts.get(direct.channelId) ?? 0;
+    return (
+      <button
+        key={direct.channelId}
+        type="button"
+        aria-current={activeChannelId === direct.channelId ? "page" : undefined}
+        onClick={() => onOpenChannel(direct.channelId)}
+        className={cn(
+          "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+          activeChannelId === direct.channelId &&
+            "bg-sidebar-accent text-sidebar-foreground font-medium",
+          activeChannelId !== direct.channelId &&
+            unread > 0 &&
+            "text-sidebar-foreground font-semibold",
+        )}
+      >
+        <UserAvatar
+          name={direct.name}
+          image={direct.image}
+          className="size-4 text-[8px]"
+        />
+        <span className="min-w-0 flex-1 truncate">{direct.name}</span>
+        {unread > 0 ? (
+          <span
+            aria-label={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
+            className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 shrink-0 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+          >
+            {unread > 99 ? "99+" : unread}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+  const renderAgent = (agentId: WorkspaceAgentId) => {
+    const agent = allAgents.find((candidate) => candidate.id === agentId);
+    const children = (agent?.subagents ?? []).filter(
+      (child) =>
+        child.canMessage !== false && !pinnedAgentIds.includes(child.id),
+    );
+    const expanded = !collapsedTeams.has(agentId);
+    const row = (id: string, name?: string) => (
+      <DirectMessageRow
+        key={id}
+        active={activeAgentId === id}
+        agentId={id}
+        name={name}
+        compactAttention={compactAttention}
+        dragKind="source"
+        needsUser={attentionTargets.has(id)}
+        onOpen={() => onOpen(id, attentionTargets.get(id))}
+        onPinChange={(pinned) => onPinChange(id, pinned)}
+        pinned={false}
+        unreadCount={unreadCounts.get(id) ?? 0}
+        expanded={expanded}
+        onExpand={
+          id === agentId && children.length > 0
+            ? () =>
+                setCollapsedTeams((current) => {
+                  const next = new Set(current);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+            : undefined
+        }
+      />
+    );
+    return (
+      <div key={agentId}>
+        {row(agentId, agent?.name)}
+        {expanded && children.length > 0 ? (
+          <div className="before:bg-border relative mt-0.5 space-y-0.5 pl-[17px] before:absolute before:inset-y-0 before:left-4 before:w-px before:-translate-x-1/2">
+            {children.map((child) => row(child.id, child.name))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+  const messageableIds = visibleIds.filter(
+    (id) => allAgents.find((agent) => agent.id === id)?.canMessage !== false,
+  );
+  // People and agents together, most recent message first; DMs without
+  // messages keep their roster order below.
+  const recentFirst = [
+    ...peopleDirects.map((direct) => ({
+      kind: "person" as const,
+      key: `channel:${direct.channelId}`,
+      direct,
+      live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
+    })),
+    ...messageableIds.map((agentId) => ({
+      kind: "agent" as const,
+      key: `agent:${agentId}`,
+      agentId,
+      live: lastMessageAtByAgent.get(agentId) ?? 0,
+    })),
+  ]
+    .map((entry) => ({
+      ...entry,
+      at: Math.max(entry.live, cached.lastMessageAt[entry.key] ?? 0),
+    }))
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => b.at - a.at || a.index - b.index);
+  const nextCache = JSON.stringify({
+    people: peopleDirects,
+    lastMessageAt: Object.fromEntries(
+      recentFirst
+        .filter((entry) => entry.at > 0)
+        .map((entry) => [entry.key, entry.at]),
+    ),
+  });
+  useEffect(() => {
+    if (!channelsLoaded) return;
+    writeSidebarDirectMessagesCache(cloudOrganizationId, nextCache);
+  }, [channelsLoaded, cloudOrganizationId, nextCache]);
   return (
     <section className="mt-3 px-0.5">
       <div className="group/heading flex h-8 items-center px-2">
@@ -325,96 +463,11 @@ export function SidebarDirectMessages({
       />
       {!collapsed ? (
         <div className="space-y-0.5">
-          {peopleDirects.map((direct) => {
-            const unread = unreadChannelCounts.get(direct.channelId) ?? 0;
-            return (
-              <button
-                key={direct.channelId}
-                type="button"
-                aria-current={
-                  activeChannelId === direct.channelId ? "page" : undefined
-                }
-                onClick={() => onOpenChannel(direct.channelId)}
-                className={cn(
-                  "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-                  activeChannelId === direct.channelId &&
-                    "bg-sidebar-accent text-sidebar-foreground font-medium",
-                  activeChannelId !== direct.channelId &&
-                    unread > 0 &&
-                    "text-sidebar-foreground font-semibold",
-                )}
-              >
-                <UserAvatar
-                  name={direct.name}
-                  image={direct.image}
-                  className="size-4 text-[8px]"
-                />
-                <span className="min-w-0 flex-1 truncate">{direct.name}</span>
-                {unread > 0 ? (
-                  <span
-                    aria-label={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
-                    className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 shrink-0 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
-                  >
-                    {unread > 99 ? "99+" : unread}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-          {visibleIds
-            .filter(
-              (id) =>
-                allAgents.find((agent) => agent.id === id)?.canMessage !==
-                false,
-            )
-            .map((agentId) => {
-              const agent = allAgents.find(
-                (candidate) => candidate.id === agentId,
-              );
-              const children = (agent?.subagents ?? []).filter(
-                (child) =>
-                  child.canMessage !== false &&
-                  !pinnedAgentIds.includes(child.id),
-              );
-              const expanded = !collapsedTeams.has(agentId);
-              const row = (id: string, name?: string) => (
-                <DirectMessageRow
-                  key={id}
-                  active={activeAgentId === id}
-                  agentId={id}
-                  name={name}
-                  compactAttention={compactAttention}
-                  dragKind="source"
-                  needsUser={attentionTargets.has(id)}
-                  onOpen={() => onOpen(id, attentionTargets.get(id))}
-                  onPinChange={(pinned) => onPinChange(id, pinned)}
-                  pinned={false}
-                  unreadCount={unreadCounts.get(id) ?? 0}
-                  expanded={expanded}
-                  onExpand={
-                    id === agentId && children.length > 0
-                      ? () =>
-                          setCollapsedTeams((current) => {
-                            const next = new Set(current);
-                            if (next.has(id)) next.delete(id);
-                            else next.add(id);
-                            return next;
-                          })
-                      : undefined
-                  }
-                />
-              );
-              return (
-                <div key={agentId}>
-                  {row(agentId, agent?.name)}
-                  {expanded && children.length > 0 ? (
-                    <div className="before:bg-border relative mt-0.5 space-y-0.5 pl-[17px] before:absolute before:inset-y-0 before:left-4 before:w-px before:-translate-x-1/2">
-                      {children.map((child) => row(child.id, child.name))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
+          {recentFirst.map((entry) =>
+            entry.kind === "person"
+              ? renderPerson(entry.direct)
+              : renderAgent(entry.agentId),
+          )}
         </div>
       ) : null}
     </section>
