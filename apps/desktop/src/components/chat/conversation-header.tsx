@@ -351,9 +351,9 @@ function ChannelMembersMenu({
           <span className="flex -space-x-1">
             {user?.image ? (
               <AvatarImage
-                className="ring-card size-4 rounded-full object-cover ring-1"
+                className="ring-card size-4 rounded-[28%] object-cover ring-1"
                 fallback={
-                  <span className="bg-muted ring-card flex size-4 items-center justify-center rounded-full text-[8px] font-semibold ring-1">
+                  <span className="bg-muted ring-card flex size-4 items-center justify-center rounded-[28%] text-[8px] font-semibold ring-1">
                     {(user.name.charAt(0) || "Y").toLocaleUpperCase()}
                   </span>
                 }
@@ -386,7 +386,7 @@ function ChannelMembersMenu({
             onClick={() => selectProfile({ kind: "user" })}
             className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
           >
-            <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
+            <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-[9px] font-medium">
               <AvatarImage
                 className="size-full object-cover"
                 fallback={(user?.name.charAt(0) ?? "Y").toLocaleUpperCase()}

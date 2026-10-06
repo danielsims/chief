@@ -200,7 +200,7 @@ export function TeamAvatar({ agent }: { agent: SelectableAgent }) {
     <img
       src={agent.imageURL}
       alt=""
-      className="size-6 shrink-0 rounded-full object-cover"
+      className="size-6 shrink-0 rounded-[28%] object-cover"
     />
   ) : (
     <AgentAvatar agentId={agent.id} label={agent.name} className="size-6" />

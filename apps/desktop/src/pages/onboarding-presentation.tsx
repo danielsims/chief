@@ -8,6 +8,7 @@ import type { IntegrationSearchResult } from "../lib/integrations";
 import type { OnboardingDraft } from "../lib/onboarding-draft";
 import type { SocialPlatform } from "../lib/social-platforms";
 import type { StepKey } from "./onboarding-options";
+import { AvatarImage } from "../components/avatar-image";
 import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
 import { questions, socialIcons } from "./onboarding-options";
 
@@ -147,11 +148,11 @@ export function UserIndicator({
   return (
     <div className="fixed top-10 left-4 z-50 flex items-center gap-2">
       <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[11px] font-medium">
-        {user.image ? (
-          <img src={user.image} alt="" className="h-full w-full object-cover" />
-        ) : (
-          initial
-        )}
+        <AvatarImage
+          className="h-full w-full object-cover"
+          fallback={initial}
+          src={user.image}
+        />
       </span>
       <span className="text-muted-foreground max-w-[180px] truncate text-[13px]">
         {label}
