@@ -8,11 +8,10 @@ export const emailStyles = {
   },
   heading: {
     color: "#f5f5f2",
-    fontFamily: 'Georgia, "Times New Roman", serif',
-    fontSize: "38px",
-    fontWeight: "400",
-    letterSpacing: "-0.045em",
-    lineHeight: "44px",
+    fontSize: "30px",
+    fontWeight: "500",
+    letterSpacing: "-0.02em",
+    lineHeight: "36px",
     margin: 0,
   },
   intro: {

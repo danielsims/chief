@@ -336,16 +336,13 @@ function IntegrationStack({
 }
 
 const border = "1px solid #292929";
-const serifFamily =
-  '"Newsreader Variable", "Newsreader", "Iowan Old Style", Georgia, serif';
 
 const heading: CSSProperties = {
   color: "#f5f5f2",
-  fontFamily: serifFamily,
-  fontSize: "42px",
-  fontWeight: "400",
-  letterSpacing: "-0.04em",
-  lineHeight: "44px",
+  fontSize: "30px",
+  fontWeight: "500",
+  letterSpacing: "-0.02em",
+  lineHeight: "36px",
   margin: 0,
 };
 const period: CSSProperties = {
@@ -364,11 +361,10 @@ const introStyle: CSSProperties = {
 const section: CSSProperties = { marginTop: "38px" };
 const sectionHeading: CSSProperties = {
   color: "#f1f1ee",
-  fontFamily: serifFamily,
-  fontSize: "25px",
-  fontWeight: "400",
-  letterSpacing: "-0.025em",
-  lineHeight: "30px",
+  fontSize: "17px",
+  fontWeight: "600",
+  letterSpacing: "-0.01em",
+  lineHeight: "24px",
   margin: "0 0 11px",
 };
 const sectionList: CSSProperties = {
@@ -378,11 +374,9 @@ const sectionList: CSSProperties = {
 const listRow: CSSProperties = { padding: "19px 0" };
 const itemTitle: CSSProperties = {
   color: "#f1f1ee",
-  fontFamily: serifFamily,
-  fontSize: "20px",
-  fontWeight: "400",
-  letterSpacing: "-0.018em",
-  lineHeight: "25px",
+  fontSize: "15px",
+  fontWeight: "500",
+  lineHeight: "22px",
   margin: 0,
 };
 const itemDetail: CSSProperties = {
