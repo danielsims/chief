@@ -40,6 +40,8 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
   }
 
   func requestAuthorizationIfNeeded() async {
+    // Unit tests run hosted in the app; a system prompt there blocks forever.
+    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
     let center = UNUserNotificationCenter.current()
     var settings = await center.notificationSettings()
     if settings.authorizationStatus == .notDetermined {
