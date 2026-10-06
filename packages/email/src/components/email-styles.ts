@@ -33,14 +33,17 @@ export const emailStyles = {
     lineHeight: "22px",
     margin: "30px 0 0",
   },
+  /** Matches the workspace invitation's action button. */
   button: {
     backgroundColor: "#f1f1ee",
+    borderRadius: "10px",
     color: "#111111",
     display: "inline-block",
-    fontSize: "14px",
+    fontSize: "15px",
     fontWeight: "600",
+    lineHeight: "20px",
     marginTop: "30px",
-    padding: "13px 18px",
+    padding: "13px 20px",
     textDecoration: "none",
   },
   signature: {
