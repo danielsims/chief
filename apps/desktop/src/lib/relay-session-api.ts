@@ -26,6 +26,15 @@ const relayFetch: typeof fetch = (input, init) =>
   fetchWithTimeout(isTauri() ? tauriFetch : fetch, input, init);
 
 let deviceAuthorization: string | undefined;
+// The account the current device authorization belongs to. A binding is only
+// valid for the session that created it, so switching accounts must rebind
+// rather than reuse the previous account's device token.
+let boundSessionToken: string | undefined;
+
+function clearDeviceAuthorization() {
+  deviceAuthorization = undefined;
+  boundSessionToken = undefined;
+}
 
 async function signedFetch(url: URL, init: RequestInit = {}) {
   const method = init.method?.toUpperCase() ?? "GET";
@@ -69,9 +78,10 @@ export async function activeRelayWorkspace() {
 }
 
 export async function connectBoundRelayDevice(sessionToken: string) {
-  if (!deviceAuthorization) {
+  if (!deviceAuthorization || boundSessionToken !== sessionToken) {
     const bound = await bindSignedInAccount(sessionToken);
     if (!bound) return undefined;
+    boundSessionToken = sessionToken;
   }
   try {
     return await activeRelayWorkspace();
@@ -79,9 +89,10 @@ export async function connectBoundRelayDevice(sessionToken: string) {
     if (!(error instanceof RelaySessionError) || error.status !== 401)
       throw error;
   }
-  deviceAuthorization = undefined;
+  clearDeviceAuthorization();
   const bound = await bindSignedInAccount(sessionToken);
   if (!bound) return undefined;
+  boundSessionToken = sessionToken;
   return activeRelayWorkspace();
 }
 
@@ -97,6 +108,6 @@ export const relaySessionTransport = {
   fetch: relayFetch,
   getDeviceAuthorization: () => deviceAuthorization,
   resetDeviceAuthorization: () => {
-    deviceAuthorization = undefined;
+    clearDeviceAuthorization();
   },
 };

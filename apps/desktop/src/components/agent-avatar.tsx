@@ -34,7 +34,7 @@ export function AgentAvatar({
           : undefined
       }
       className={cn(
-        "bg-foreground text-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
+        "bg-foreground text-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[28%] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
         className,
       )}
     >

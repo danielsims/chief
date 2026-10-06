@@ -5,6 +5,7 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
+import { useChannelTyping } from "../../lib/use-channel-typing";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -21,7 +22,12 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import { withActionTimelineEntries } from "./conversation-timeline-entries";
+import {
+  continuedMessageIds,
+  withActionTimelineEntries,
+} from "./conversation-timeline-entries";
+import { ChannelGuestMentions } from "./mention-people-context";
+import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { ScheduledRunMessage } from "./scheduled-run-message";
@@ -80,6 +86,8 @@ export function ChiefChat({
     integrationDomain,
     onActivityOpenChange,
   });
+  const { names: typingNames, notifyTyping } =
+    useChannelTyping(destinationChannelId);
   const composerState = useChiefChatComposer({
     core,
     props: {
@@ -124,6 +132,7 @@ export function ChiefChat({
     setVisibleThread,
     statusLabel,
     userAuthor,
+    authorFor,
   } = core;
   const {
     bottomRef,
@@ -135,6 +144,7 @@ export function ChiefChat({
     mainScrollRef,
     openAgentMention,
     openUserProfile,
+    openAuthorProfile,
     optimisticInitialPrompt,
     selectProfile,
     setComposerOpen,
@@ -218,8 +228,12 @@ export function ChiefChat({
     () => withActionTimelineEntries(timelineEntries, conversationActions),
     [conversationActions, timelineEntries],
   );
+  const continuedIds = useMemo(
+    () => continuedMessageIds(conversationTimelineEntries, currentUser?.id),
+    [conversationTimelineEntries, currentUser?.id],
+  );
   return (
-    <>
+    <ChannelGuestMentions guests={core.channelGuests}>
       <div className="relative flex h-full min-w-0 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {header}
@@ -314,12 +328,18 @@ export function ChiefChat({
                       return (
                         <div id={`chief-message-${message.id}`}>
                           <UserMessage
-                            author={userAuthor}
+                            continued={continuedIds.has(message.id)}
+                            author={authorFor(message)}
+                            {...(message.metadata?.guest
+                              ? { guest: message.metadata.guest }
+                              : undefined)}
                             attachments={imageParts(message)}
                             metadata={channel ? null : undefined}
                             channelReferences={channelReferences}
                             onOpenChannel={onOpenChannel}
-                            onOpenProfile={openUserProfile}
+                            {...(message.metadata?.guest
+                              ? undefined
+                              : { onOpenProfile: openAuthorProfile(message) })}
                             onOpenMention={openAgentMention}
                             timestamp={message.metadata?.createdAt}
                             {...controlsForMessage(message)}
@@ -434,8 +454,14 @@ export function ChiefChat({
                 <ChatComposer
                   autoFocus={focusComposer}
                   value={draft}
-                  onValueChange={setDraft}
-                  onSubmit={submit}
+                  onValueChange={(value) => {
+                    setDraft(value);
+                    notifyTyping(value);
+                  }}
+                  onSubmit={() => {
+                    notifyTyping("");
+                    submit();
+                  }}
                   imageAttachments={imageAttachments}
                   onImageAttachmentsChange={setImageAttachments}
                   execution={activeExecution}
@@ -453,25 +479,29 @@ export function ChiefChat({
                         : undefined
                   }
                 />
-                <AgentActivityComposerRow
-                  agents={mainActivityAgents}
-                  agentLabel={activityAgentLabel}
-                  running={mainActivityAgents.length > 0}
-                  statusLabel={mainStatusLabel}
-                  onOpen={() => {
-                    const onlyAgent = mainActivityAgents[0];
-                    if (
-                      mainActivityAgents.length === 1 &&
-                      onlyAgent?.taskId &&
-                      onOpenChild
-                    ) {
-                      onOpenChild(onlyAgent.taskId);
-                      return;
-                    }
-                    setThreadRootId(null);
-                    setActivityOpen(true);
-                  }}
-                />
+                {mainActivityAgents.length === 0 && typingNames.length > 0 ? (
+                  <PeopleTypingRow names={typingNames} />
+                ) : (
+                  <AgentActivityComposerRow
+                    agents={mainActivityAgents}
+                    agentLabel={activityAgentLabel}
+                    running={mainActivityAgents.length > 0}
+                    statusLabel={mainStatusLabel}
+                    onOpen={() => {
+                      const onlyAgent = mainActivityAgents[0];
+                      if (
+                        mainActivityAgents.length === 1 &&
+                        onlyAgent?.taskId &&
+                        onOpenChild
+                      ) {
+                        onOpenChild(onlyAgent.taskId);
+                        return;
+                      }
+                      setThreadRootId(null);
+                      setActivityOpen(true);
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -498,6 +528,6 @@ export function ChiefChat({
           timeline={timelineState}
         />
       </div>
-    </>
+    </ChannelGuestMentions>
   );
 }

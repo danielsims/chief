@@ -98,6 +98,7 @@ private struct LaunchView: View {
         .resizable()
         .scaledToFit()
         .frame(width: 40, height: 40)
+        .clipShape(RoundedRectangle(cornerRadius: 40 * 0.2237, style: .continuous))
         .accessibilityLabel("Loading Chief")
     }
   }

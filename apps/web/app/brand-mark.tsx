@@ -12,7 +12,7 @@ export function BrandMark({ className, size, tone = "white" }: BrandMarkProps) {
       alt=""
       aria-hidden="true"
       className={className}
-      src={`/brand/chief-mark-sharp-open-${tone}.svg`}
+      src={`/brand/chief-mark-${tone}.svg`}
       width={size}
       height={size}
     />

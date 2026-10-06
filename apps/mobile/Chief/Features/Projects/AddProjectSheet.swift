@@ -42,7 +42,7 @@ struct AddProjectSheet: View {
         }
       }
       .overlay {
-        if busy { ProgressView().controlSize(.regular) }
+        if busy { ChiefSpinner().controlSize(.regular) }
       }
     }
   }

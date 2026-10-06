@@ -29,6 +29,10 @@ SELECT c.* FROM channels c
            AND EXISTS (SELECT 1 FROM channel_members b
              WHERE b.conversation_id = c.conversation_id
                AND b.principal_kind = ${secondKind} AND b.principal_id = ${secondId})
+           AND NOT EXISTS (SELECT 1 FROM channel_members x
+             WHERE x.conversation_id = c.conversation_id
+               AND NOT (x.principal_kind = ${firstKind} AND x.principal_id = ${firstId})
+               AND NOT (x.principal_kind = ${secondKind} AND x.principal_id = ${secondId}))
          ORDER BY c.created_at ASC LIMIT 1
 `),
   );

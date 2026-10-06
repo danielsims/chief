@@ -1,9 +1,15 @@
 export type HostTarget = "cloudflare";
 
+/** Who sends workspace invitation email. `none` defers setup. */
+export type HostEmailProvider = "resend" | "cloudflare" | "none";
+
 export interface HostSetupDraft {
   apple: boolean;
   appleClientId: string;
+  cloudflareAccountId: string;
   customDomain: string;
+  emailFromAddress: string;
+  emailProvider: HostEmailProvider | null;
   google: boolean;
   googleClientId: string;
   host: HostTarget | null;
@@ -13,7 +19,10 @@ export interface HostSetupDraft {
 export const defaultHostSetupDraft: HostSetupDraft = {
   apple: false,
   appleClientId: "",
+  cloudflareAccountId: "",
   customDomain: "",
+  emailFromAddress: "",
+  emailProvider: null,
   google: false,
   googleClientId: "",
   host: null,
@@ -91,8 +100,22 @@ export function providerCallbackUrl(
   return `${publicUrl.replace(/\/$/u, "")}/api/auth/callback/${provider}`;
 }
 
+/** Email is optional; a chosen provider must be complete. */
+export function emailSetupReady(draft: HostSetupDraft): boolean {
+  if (!draft.emailProvider || draft.emailProvider === "none") return true;
+  if (draft.emailFromAddress.trim() === "") return false;
+  if (
+    draft.emailProvider === "cloudflare" &&
+    draft.cloudflareAccountId.trim() === ""
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function isHostSetupReady(draft: HostSetupDraft): boolean {
   if (parseRelayName(draft.name) === null) return false;
+  if (!emailSetupReady(draft)) return false;
   if (
     draft.customDomain.trim() !== "" &&
     parsePublicHostname(draft.customDomain) === null
@@ -128,6 +151,18 @@ export function cloudflareDeployVars(
     vars.APPLE_CLIENT_ID = draft.appleClientId.trim();
     vars.AUTH_APPLE_REDIRECT_URI = providerCallbackUrl(origin, "apple");
   }
+  if (draft.emailProvider && draft.emailProvider !== "none") {
+    vars.EMAIL_PROVIDER = draft.emailProvider;
+    if (draft.emailFromAddress.trim()) {
+      vars.EMAIL_FROM_ADDRESS = draft.emailFromAddress.trim();
+    }
+    if (
+      draft.emailProvider === "cloudflare" &&
+      draft.cloudflareAccountId.trim()
+    ) {
+      vars.CLOUDFLARE_ACCOUNT_ID = draft.cloudflareAccountId.trim();
+    }
+  }
   return vars;
 }
 
@@ -137,6 +172,10 @@ export function cloudflareSecretNames(
   const names = ["BETTER_AUTH_SECRET"];
   if (draft.google) names.push("GOOGLE_CLIENT_SECRET");
   if (draft.apple) names.push("APPLE_CLIENT_SECRET");
+  if (draft.emailProvider === "resend") names.push("RESEND_API_KEY");
+  if (draft.emailProvider === "cloudflare") {
+    names.push("CLOUDFLARE_EMAIL_API_TOKEN");
+  }
   return names;
 }
 
@@ -159,6 +198,13 @@ export function hostRelayConfig(draft: HostSetupDraft) {
     name: slug,
     workerName: slug ? hostWorkerName(slug) : null,
     publicUrl: hostPublicUrl(draft) || hostAuthOrigin(draft),
+    email:
+      draft.emailProvider && draft.emailProvider !== "none"
+        ? {
+            provider: draft.emailProvider,
+            fromAddress: draft.emailFromAddress.trim(),
+          }
+        : null,
     vars: cloudflareDeployVars(draft),
     secrets: cloudflareSecretNames(draft),
     authentication: {

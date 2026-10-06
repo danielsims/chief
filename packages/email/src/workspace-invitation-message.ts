@@ -2,35 +2,84 @@ export interface WorkspaceInvitationMessageInput {
   invitationUrl: string;
   inviterEmail: string;
   inviterName: string;
+  /** Absolute https URL of the inviter's profile picture, when they have one. */
+  inviterImage?: string | null;
   relayHost: string;
   role: string;
+  /** Absolute https URL of the workspace logo, when it has one. */
+  workspaceImage?: string | null;
   workspaceName: string;
+  /** Where the Chief mark is served from; defaults to the public site. */
+  logoUrl?: string;
 }
+
+const DEFAULT_LOGO_URL = "https://heychief.sh/brand/chief-mark-white.png";
 
 export function workspaceInvitationCopy(
   input: WorkspaceInvitationMessageInput,
 ) {
+  const role = input.role.trim().toLowerCase();
+  const article = /^[aeiou]/u.test(role) ? "an" : "a";
   return {
-    preview: `${input.inviterName} invited you to ${input.workspaceName} in Chief.`,
-    intro: `${input.inviterName} invited you to work with their team of agents in Chief.`,
-    detail: `You’ll join as ${input.role}. The workspace is hosted by ${input.relayHost}; Chief will show this host again before connecting.`,
-    safety: `This invitation was sent by ${input.inviterName} (${input.inviterEmail}). Only continue if you recognize them and the relay shown above.`,
+    subject: `${input.inviterName} invited you to ${input.workspaceName}`,
+    preview: `${input.inviterName} invited you to ${input.workspaceName} on Chief.`,
+    invitedTo: "invited you to collaborate on Chief.",
+    action: `Join ${input.workspaceName}`,
+    detail: `You’ll join as ${article} ${role}, hosted on ${input.relayHost}.`,
+    expiry:
+      "This link is for your email address and expires automatically. If you weren’t expecting it, you can ignore this email.",
+    safety: `Sent by ${input.inviterName} (${input.inviterEmail}). Only continue if you recognise them and the host above.`,
   };
 }
 
+const fontStack =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Helvetica,Arial,sans-serif";
+
+function escape(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function initial(name: string) {
+  return escape(name.trim().charAt(0).toUpperCase() || "?");
+}
+
+/** A rounded-square picture, or the name's initial when there is none. */
+function picture(input: {
+  image?: string | null;
+  name: string;
+  size: number;
+  radius: number;
+  fontSize: number;
+}) {
+  const box = `width:${input.size}px;height:${input.size}px;border-radius:${input.radius}px`;
+  if (input.image?.startsWith("https://")) {
+    return `<img src="${escape(input.image)}" width="${input.size}" height="${input.size}" alt="" style="display:block;${box};object-fit:cover;border:0">`;
+  }
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate"><tr><td align="center" valign="middle" style="${box};background:#262626;color:#f5f5f2;font:500 ${input.fontSize}px/${input.size}px ${fontStack}">${initial(input.name)}</td></tr></table>`;
+}
+
+/**
+ * The workspace invitation, as both HTML and plain text. This is the email the
+ * relay sends; the React Email preview renders this same markup.
+ */
 export function createWorkspaceInvitationMessage(
   input: WorkspaceInvitationMessageInput,
 ) {
   const copy = workspaceInvitationCopy(input);
-  const escape = (value: string) =>
-    value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
-  const workspace = escape(input.workspaceName);
-  return {
-    html: `<!doctype html><html lang="en"><body style="margin:0;padding:48px 16px;background:#080808;color:#f1f1ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"><main style="box-sizing:border-box;max-width:600px;margin:0 auto;padding:42px 48px 38px;background:#111;border:1px solid #292929"><p style="margin:0 0 42px;font-size:23px;font-weight:500;letter-spacing:-.055em">Chief</p><p style="margin:0;color:#e2e2de;font-size:17px">You’re invited</p><h1 style="margin:12px 0 0;color:#f5f5f2;font:400 38px/44px Georgia,'Times New Roman',serif;letter-spacing:-.045em">Join ${workspace}</h1><p style="margin:24px 0 0;color:#e2e2de;font-size:17px;line-height:27px">${escape(copy.intro)}</p><p style="margin:16px 0 0;color:#b9b9b4;font-size:15px;line-height:24px">${escape(copy.detail)}</p><a href="${escape(input.invitationUrl)}" style="display:inline-block;margin-top:30px;padding:13px 18px;background:#f1f1ee;color:#111;font-size:14px;font-weight:600;text-decoration:none">Review invitation</a><p style="margin:24px 0 0;color:#b9b9b4;font-size:12px;line-height:20px">This link is intended for your email address and expires automatically. If you weren’t expecting it, you can ignore this message.</p><hr style="margin:42px 0 20px;border:0;border-top:1px solid #292929"><p style="margin:0 0 12px;color:#8e8e89;font-size:12px;line-height:19px">${escape(copy.safety)}</p><p style="margin:0;color:#74746f;font-size:12px">Chief</p></main></body></html>`,
-    text: `You’re invited\n\nJoin ${input.workspaceName}\n\n${copy.intro}\n\n${copy.detail}\n\nReview invitation: ${input.invitationUrl}\n\nThis link is intended for your email address and expires automatically. If you weren’t expecting it, you can ignore this message.\n\n${copy.safety}`,
-  };
+  const url = escape(input.invitationUrl);
+  const muted = "color:#8e8e89";
+  const content = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a0a0a"><tr><td align="center" style="padding:40px 16px 48px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px"><tr><td style="padding:0 0 56px"><img src="${escape(input.logoUrl ?? DEFAULT_LOGO_URL)}" width="28" height="28" alt="Chief" style="display:block;border:0"></td></tr><tr><td align="center">${picture({ image: input.workspaceImage, name: input.workspaceName, size: 64, radius: 18, fontSize: 26 })}</td></tr><tr><td align="center" style="padding:24px 0 0;font:500 28px/34px ${fontStack};letter-spacing:-0.02em;color:#f5f5f2">${escape(copy.action)}</td></tr><tr><td align="center" style="padding:14px 0 0"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td valign="middle" style="padding:0 8px 0 0">${picture({ image: input.inviterImage, name: input.inviterName, size: 20, radius: 6, fontSize: 11 })}</td><td valign="middle" style="font:400 14px/20px ${fontStack};${muted}"><span style="color:#f5f5f2">${escape(input.inviterName)}</span> ${escape(copy.invitedTo)}</td></tr></table></td></tr><tr><td style="padding:32px 0 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="border-radius:10px;background:#f1f1ee"><a href="${url}" style="display:block;padding:13px 20px;font:600 15px/20px ${fontStack};color:#111111;text-decoration:none;border-radius:10px">${escape(copy.action)}</a></td></tr></table></td></tr><tr><td align="center" style="padding:16px 0 0;font:400 13px/20px ${fontStack};${muted}">${escape(copy.detail)}</td></tr><tr><td style="padding:40px 0 0"><div style="border-top:1px solid #222222;font-size:0;line-height:0">&nbsp;</div></td></tr><tr><td align="center" style="padding:18px 0 0;font:400 12px/18px ${fontStack};color:#74746f">${escape(copy.expiry)} ${escape(copy.safety)}</td></tr></table></td></tr></table>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>${escape(copy.subject)}</title></head><body style="margin:0;padding:0;background:#0a0a0a;color:#f5f5f2;font-family:${fontStack};-webkit-font-smoothing:antialiased"><div style="display:none;max-height:0;overflow:hidden;opacity:0">${escape(copy.preview)}</div>${content}</body></html>`;
+  const text = [
+    `${input.inviterName} (${input.inviterEmail}) invited you to join ${input.workspaceName} on Chief.`,
+    `${copy.action}: ${input.invitationUrl}`,
+    copy.detail,
+    copy.expiry,
+    copy.safety,
+  ].join("\n\n");
+  return { subject: copy.subject, preview: copy.preview, content, html, text };
 }

@@ -11,8 +11,8 @@
     <rect x="1516" y="724" width="8" height="8"/>
   </g>
 
-  <g transform="translate(536 321.5) scale(2.5)" stroke="#F1F1EE" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter">
-    <path d="M29 12H12V29M35 12h17v12M29 52H12V35M35 52h17V40"/>
+  <g transform="translate(536 321.5) scale(2.5)" stroke="#F1F1EE" stroke-width="4.5" stroke-linecap="butt" stroke-linejoin="round" fill="none">
+    <path d="M29 12H19a7 7 0 0 0-7 7v10M35 12h10a7 7 0 0 1 7 7v5M29 52H19a7 7 0 0 1-7-7V35M35 52h10a7 7 0 0 0 7-7v-5"/>
   </g>
 
   <text

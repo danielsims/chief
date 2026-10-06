@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+import { guestProfileSchema } from "./guest-profile";
 import {
   agentIdSchema,
+  conversationIdSchema,
+  guestIdSchema,
   hexPubkeySchema,
   userIdSchema,
   workspaceIdSchema,
@@ -73,10 +76,21 @@ export const servicePrincipalSchema = z.object({
   workspaceId: workspaceIdSchema.optional(),
 });
 
+/** Never derived from a signed relay identity. Only the channel guest service
+ * mints it, after verifying a guest credential, and it is scoped to exactly
+ * one channel. */
+export const guestPrincipalSchema = guestProfileSchema.extend({
+  kind: z.literal("guest"),
+  guestId: guestIdSchema,
+  workspaceId: workspaceIdSchema,
+  conversationId: conversationIdSchema,
+});
+
 export const principalSchema = z.discriminatedUnion("kind", [
   userPrincipalSchema,
   agentPrincipalSchema,
   servicePrincipalSchema,
+  guestPrincipalSchema,
 ]);
 
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
@@ -84,4 +98,5 @@ export type AuthenticatedIdentity = z.infer<typeof authenticatedIdentitySchema>;
 export type UserPrincipal = z.infer<typeof userPrincipalSchema>;
 export type AgentPrincipal = z.infer<typeof agentPrincipalSchema>;
 export type ServicePrincipal = z.infer<typeof servicePrincipalSchema>;
+export type GuestPrincipal = z.infer<typeof guestPrincipalSchema>;
 export type Principal = z.infer<typeof principalSchema>;

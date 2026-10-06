@@ -118,3 +118,52 @@ export function withActionTimelineEntries(
   }
   return result;
 }
+
+/** Consecutive messages from one person within this window share a header. */
+const MESSAGE_GROUPING_WINDOW_MS = 5 * 60 * 1000;
+
+function personKey(message: ChiefUIMessage, currentUserId: string | undefined) {
+  if (message.role !== "user") return null;
+  const metadata = message.metadata;
+  if (metadata?.channelAction || metadata?.scheduledRun) return null;
+  if (metadata?.guest) return `guest:${metadata.guest.name}`;
+  const authorId = metadata?.author?.id;
+  return !authorId || authorId === currentUserId ? "self" : `user:${authorId}`;
+}
+
+/**
+ * Ids of people's messages that continue the previous message's author, on
+ * the same day and within five minutes, so they render without the avatar and
+ * name. Matches the mobile transcript.
+ */
+export function continuedMessageIds(
+  entries: readonly TimelineEntry[],
+  currentUserId: string | undefined,
+) {
+  const continued = new Set<string>();
+  let previousKey: string | null = null;
+  let previousAt: number | undefined;
+  for (const entry of entries) {
+    // Specialist cards render in their thread, not between messages.
+    if (entry.type === "specialist") continue;
+    if (entry.type !== "message") {
+      previousKey = null;
+      continue;
+    }
+    const key = personKey(entry.message, currentUserId);
+    const createdAt = entry.message.metadata?.createdAt;
+    if (
+      key &&
+      previousKey === key &&
+      createdAt !== undefined &&
+      previousAt !== undefined &&
+      createdAt - previousAt <= MESSAGE_GROUPING_WINDOW_MS &&
+      new Date(createdAt).toDateString() === new Date(previousAt).toDateString()
+    ) {
+      continued.add(entry.message.id);
+    }
+    previousKey = key;
+    previousAt = createdAt;
+  }
+  return continued;
+}

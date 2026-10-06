@@ -308,6 +308,14 @@ export function projectChannelTimeline(
     const direct = directById.get(id);
     const channelAction = channelActionFromEvent(event);
     const agentId = event.actor.type === "agent" ? event.actor.id : undefined;
+    const author =
+      event.actor.type === "user"
+        ? {
+            id: event.actor.id,
+            name: event.actor.name,
+            ...(event.actor.image ? { image: event.actor.image } : undefined),
+          }
+        : undefined;
     const protocolRootId = channelEventThreadRootId(event);
     const threadRootId = protocolRootId
       ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
@@ -317,6 +325,7 @@ export function projectChannelTimeline(
       Boolean(threadRootId && threadRootId !== direct.metadata?.threadRootId) ||
       Boolean(channelAction && !direct.metadata?.channelAction) ||
       Boolean(agentId && agentId !== direct.metadata?.agentId) ||
+      Boolean(author && author.id !== direct.metadata?.author?.id) ||
       eventParts.length > 0 ||
       direct.metadata?.createdAt !== event.createdAt;
     canonical.push(
@@ -333,6 +342,7 @@ export function projectChannelTimeline(
                   // newly published message back at its planned run time.
                   createdAt: event.createdAt,
                   ...(agentId ? { agentId } : undefined),
+                  ...(author ? { author } : undefined),
                   ...(threadRootId ? { threadRootId } : undefined),
                   ...(channelAction ? { channelAction } : undefined),
                 },
@@ -341,7 +351,7 @@ export function projectChannelTimeline(
             )
           : {
               id,
-              role: event.actor.type === "user" ? "user" : "assistant",
+              role: event.actor.type === "agent" ? "assistant" : "user",
               parts: [
                 ...(event.content.trim()
                   ? [{ type: "text" as const, text: event.content }]
@@ -351,6 +361,10 @@ export function projectChannelTimeline(
               metadata: {
                 createdAt: event.createdAt,
                 ...(agentId ? { agentId } : undefined),
+                ...(author ? { author } : undefined),
+                ...(event.actor.guest
+                  ? { guest: event.actor.guest }
+                  : undefined),
                 ...(threadRootId ? { threadRootId } : undefined),
                 ...(channelAction ? { channelAction } : undefined),
               },

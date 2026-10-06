@@ -14,12 +14,14 @@ import {
   cloudflareDeployArgs,
   cloudflareSecretNames,
   defaultHostSetupDraft,
+  emailSetupReady,
   hostAuthOrigin,
   hostPublicUrl,
   parsePublicHostname,
   parseRelayName,
   providerCallbackUrl,
 } from "../../lib/host-setup";
+import { HostEmailStep } from "./host-email-step";
 import { ProviderMark, RelayPreview } from "./host-preview";
 
 // The relay has to live in its own repository for the Cloudflare deploy flow to
@@ -47,6 +49,7 @@ const STEPS = [
   { heading: "Where should the relay run?", id: "host", label: "Host" },
   { heading: "Name your relay.", id: "name", label: "Name" },
   { heading: "How should people sign in?", id: "signin", label: "Sign-in" },
+  { heading: "Send workspace invitations.", id: "email", label: "Email" },
   { heading: "Want to use your own domain?", id: "domain", label: "Domain" },
   { heading: "Ready to deploy.", id: "deploy", label: "Deploy" },
 ] as const;
@@ -86,15 +89,18 @@ export function HostSetup() {
       ? slug !== null
       : step.id === "signin"
         ? hasProvider
-        : step.id === "domain"
-          ? !domainInvalid
-          : false;
+        : step.id === "email"
+          ? emailSetupReady(draft)
+          : step.id === "domain"
+            ? !domainInvalid
+            : false;
 
   // The host step advances on selection, and an empty domain is skipped rather
   // than confirmed, so neither shows a Continue button.
   const showContinue =
     step.id === "name" ||
     step.id === "signin" ||
+    step.id === "email" ||
     (step.id === "domain" && draft.customDomain.trim() !== "");
 
   useEffect(
@@ -251,6 +257,10 @@ export function HostSetup() {
                   value={draft.googleClientId}
                 />
               </div>
+            ) : null}
+
+            {step.id === "email" ? (
+              <HostEmailStep draft={draft} onPatch={patch} />
             ) : null}
 
             {step.id === "domain" ? (

@@ -226,9 +226,15 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   var unreadCount: Int
   let requiresAttention: Bool
   var lastMessage: String?
+  /// ISO 8601 time of the latest message; sorts correctly as a string.
+  var lastMessageAt: String?
+  /// Set on a person-to-person DM: the other participant's user id.
+  var directUserID: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
+    case lastMessageAt
+    case directUserID = "directUserId"
   }
 
   init(
@@ -239,8 +245,10 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     unreadCount: Int,
     requiresAttention: Bool,
     lastMessage: String?,
-    archived: Bool = false
+    archived: Bool = false,
+    directUserID: String? = nil
   ) {
+    self.directUserID = directUserID
     self.id = id
     self.name = name
     self.kind = kind
@@ -261,6 +269,8 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     unreadCount = try values.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
     requiresAttention = try values.decodeIfPresent(Bool.self, forKey: .requiresAttention) ?? false
     lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
+    lastMessageAt = try values.decodeIfPresent(String.self, forKey: .lastMessageAt)
+    directUserID = try values.decodeIfPresent(String.self, forKey: .directUserID)
   }
 }
 
@@ -322,7 +332,30 @@ struct WorkspaceMember: Codable, Equatable, Identifiable, Sendable {
   let principalId: String
   let role: String
   let name: String?
+  var email: String? = nil
+  var image: String? = nil
   var id: String { "\(kind):\(principalId)" }
+  var isPerson: Bool { kind == "user" }
+}
+
+/// A pending or settled invitation to a workspace (`workspaceInvitationSchema`).
+struct WorkspaceInvitation: Codable, Equatable, Identifiable, Sendable {
+  let id: String
+  let email: String
+  let role: String
+  let status: String
+  let expiresAt: String
+  let createdAt: String
+  var isPending: Bool { status == "pending" }
+  var expiresDate: Date? { WorkspaceInvitation.parseDate(expiresAt) }
+
+  private static func parseDate(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) { return date }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: value)
+  }
 }
 
 struct DirectMessageRecipient: Equatable, Identifiable, Sendable {
@@ -635,10 +668,44 @@ struct ProjectRepositorySourceFile: Codable, Equatable, Sendable {
   let content: String
 }
 
+/// An outside agent admitted to one external channel. `operatorName` is only
+/// ever present when the relay verified it through a member's personal
+/// invite, and `imageURL` is a copy the relay hosts itself.
+struct GuestAuthor: Equatable, Sendable {
+  let id: String
+  let name: String
+  let provider: String
+  let imageURL: URL?
+  let markShape: String?
+  let markColor: String?
+  let operatorName: String?
+
+  /// "Claude agent · for Daniel Sims", or just "Agent".
+  var label: String {
+    let noun = Self.providerNames[provider].map { "\($0) agent" } ?? "Agent"
+    return operatorName.map { "\(noun) · for \($0)" } ?? noun
+  }
+
+  var providerLogoURL: URL? {
+    Self.providerDomains[provider].flatMap { URL(string: "https://integrations.sh/logo/\($0)") }
+  }
+
+  private static let providerNames = [
+    "claude": "Claude", "openai": "OpenAI", "grok": "Grok", "gemini": "Gemini",
+    "opencode": "opencode", "openclaw": "OpenClaw", "hermes": "Hermes",
+  ]
+  private static let providerDomains = [
+    "claude": "claude.ai", "openai": "openai.com", "grok": "x.ai",
+    "gemini": "gemini.google.com", "opencode": "opencode.ai",
+    "openclaw": "openclaw.ai", "hermes": "nousresearch.com",
+  ]
+}
+
 struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
   enum Author: Equatable, Sendable {
     case user(id: String, name: String)
     case agent(id: String, name: String)
+    case guest(GuestAuthor)
     case system
   }
 
@@ -779,6 +846,19 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case .agent(let id, _):
       try authorEnc.encode("agent", forKey: .kind)
       try authorEnc.encode(id, forKey: .id)
+    case .guest(let guest):
+      try authorEnc.encode("guest", forKey: .kind)
+      try authorEnc.encode(guest.id, forKey: .id)
+      try authorEnc.encode(guest.name, forKey: .name)
+      try authorEnc.encode(guest.provider, forKey: .provider)
+      try authorEnc.encodeIfPresent(guest.imageURL, forKey: .image)
+      if let shape = guest.markShape, let color = guest.markColor {
+        try authorEnc.encode(
+          GuestMarkPayload(style: "grok-bot", shape: shape, color: color), forKey: .mark)
+      }
+      if let name = guest.operatorName {
+        try authorEnc.encode(GuestOperatorPayload(name: name), forKey: .operator)
+      }
     }
   }
 
@@ -786,14 +866,29 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case kind
     case id
     case name
+    case provider
+    case image
+    case mark
+    case `operator`
+  }
+
+  struct GuestMarkPayload: Codable, Sendable {
+    let style: String
+    let shape: String
+    let color: String
+  }
+
+  struct GuestOperatorPayload: Codable, Sendable {
+    let name: String
   }
 }
 
 extension ConversationMessage.Author {
   var displayName: String {
     switch self {
-    case .user(_, let name): name.isEmpty ? "You" : name
+    case .user(_, let name): name.isEmpty ? "Member" : name
     case .agent(_, let name): name.isEmpty ? "Agent" : name
+    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }
@@ -813,6 +908,22 @@ extension ConversationMessage.Author {
     switch kind {
     case "user":
       self = .user(id: id, name: name)
+    case "guest":
+      // Outside agents carry their own appearance. They are never shown as
+      // a workspace member or as Chief.
+      let mark = try? container.decodeIfPresent(
+        ConversationMessage.GuestMarkPayload.self, forKey: .mark)
+      self = .guest(
+        GuestAuthor(
+          id: id,
+          name: (try? container.decodeIfPresent(String.self, forKey: .name)) ?? "Guest",
+          provider: (try? container.decodeIfPresent(String.self, forKey: .provider)) ?? "other",
+          imageURL: try? container.decodeIfPresent(URL.self, forKey: .image),
+          markShape: mark?.shape,
+          markColor: mark?.color,
+          operatorName: (try? container.decodeIfPresent(
+            ConversationMessage.GuestOperatorPayload.self, forKey: .operator))?.name
+        ))
     case "agent", "assistant":
       self = .agent(id: id, name: name)
     default:
@@ -823,7 +934,7 @@ extension ConversationMessage.Author {
   private static func displayName(kind: String, id: String) -> String {
     let lower = id.lowercased()
     if lower == "chief" { return "Chief" }
-    if kind == "user" { return "You" }
+    if kind == "user" { return "" }
     return WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
   }
 }

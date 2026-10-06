@@ -17,11 +17,11 @@ export function ChiefMark({
       xmlns="http://www.w3.org/2000/svg"
     >
       <path
-        d="M29 12H12V29M35 12h17v12M29 52H12V35M35 52h17V40"
+        d="M29 12H19a7 7 0 0 0-7 7v10M35 12h10a7 7 0 0 1 7 7v5M29 52H19a7 7 0 0 1-7-7V35M35 52h10a7 7 0 0 0 7-7v-5"
         stroke="currentColor"
         strokeLinecap="butt"
-        strokeLinejoin="miter"
-        strokeWidth="6"
+        strokeLinejoin="round"
+        strokeWidth="4.5"
       />
     </svg>
   );

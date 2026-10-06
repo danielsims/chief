@@ -41,6 +41,7 @@ import {
 import { useRelaySession } from "../lib/relay-session";
 import { userStatusLabel, useUserStatus } from "../lib/user-status";
 import { pendingCreateRelayKey } from "../lib/workspace-entry";
+import { AvatarImage } from "./avatar-image";
 import { ChiefMark } from "./chief-mark";
 import { OrgLogo } from "./org-logo";
 import { RelayConnectionDialog } from "./relay-connection-control";
@@ -110,7 +111,7 @@ export function SidebarProfileMenu() {
             <button
               type="button"
               aria-label="Relay connections and workspaces"
-              className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold outline-none focus-visible:ring-2"
+              className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-xs font-semibold outline-none focus-visible:ring-2"
             >
               <ProfileImage user={user} />
             </button>
@@ -395,13 +396,13 @@ function ProfileImage({
 }) {
   return (
     <span
-      className={`bg-muted flex shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold ${className}`}
+      className={`bg-muted flex shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-xs font-semibold ${className}`}
     >
-      {user?.image ? (
-        <img src={user.image} alt="" className="size-full object-cover" />
-      ) : (
-        (user?.name.trim().charAt(0) ?? "C").toLocaleUpperCase()
-      )}
+      <AvatarImage
+        className="size-full object-cover"
+        fallback={(user?.name.trim().charAt(0) ?? "C").toLocaleUpperCase()}
+        src={user?.image}
+      />
     </span>
   );
 }

@@ -78,6 +78,12 @@ final class AppModel {
   /// channels. Direct messages are participants-only and do not use this set.
   private(set) var joinedConversationIDs: Set<String>?
   private var membershipWorkspaceID: String?
+  /// Workspace people by user id, for naming message authors and typists.
+  private(set) var workspacePeople: [String: WorkspaceMember] = [:]
+  private var workspacePeopleWorkspaceID: String?
+  /// Other people typing, by conversation and user id, with when they last were.
+  private(set) var typingPeople: [String: [String: Date]] = [:]
+  private var lastTypingSentAt: [String: Date] = [:]
   var homeNavigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
@@ -479,6 +485,10 @@ final class AppModel {
     {
       return requested.id
     }
+    // Agents can't join a person-to-person DM, so nothing there gets a reply.
+    if workspace?.conversations.first(where: { $0.id == conversationID })?.directUserID != nil {
+      return nil
+    }
     if let mentioned = mentions.compactMap({ WorkspaceAgentCatalog.agent(forID: $0) }).first {
       return mentioned.id
     }
@@ -777,6 +787,8 @@ final class AppModel {
     guard
       let conversation = workspace.conversations.first(where: { $0.id == conversationID })
     else { return false }
+    // Agents can't join a person-to-person DM.
+    if conversation.directUserID != nil { return false }
     // (b) Explicit @-mention always wakes the mentioned agent.
     if mentions.contains(where: { WorkspaceAgentCatalog.agent(forID: $0) != nil }) {
       return true
@@ -1446,19 +1458,21 @@ final class AppModel {
     }
   }
 
-  func inviteWorkspaceMember(email: String) async throws {
-    guard let workspaceID = workspace?.id, let session else {
-      throw OrganizationInvitationError.rejected
-    }
+  /// Sends a workspace invitation through the relay, which emails the link.
+  func inviteWorkspaceMember(email: String, role: String = "member") async throws {
+    guard let workspaceID = workspace?.id else { throw OrganizationInvitationError.rejected }
     let address = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard address.contains("@"), !address.hasPrefix("@"), !address.hasSuffix("@") else {
       throw OrganizationInvitationError.rejected
     }
-    try await authentication.inviteOrganizationMember(
-      email: address,
-      organizationID: workspaceID,
-      session: session
-    )
+    do {
+      _ = try await relay.inviteWorkspaceMember(
+        workspaceID: workspaceID, email: address, role: role)
+    } catch RelayError.httpStatus(409) {
+      throw OrganizationInvitationError.alreadyMember
+    } catch RelayError.httpStatus(403) {
+      throw OrganizationInvitationError.notAllowed
+    }
   }
 
   func completeOnboarding() async {
@@ -2001,7 +2015,12 @@ final class AppModel {
   private func handleLiveEvent(_ event: LiveEvent, expectedWorkspaceID: String) {
     guard workspace?.id == expectedWorkspaceID else { return }
     switch event {
+    case .typing(let conversationID, let userID, let active):
+      setTyping(conversationID: conversationID, userID: userID, active: active)
     case .appended(let message):
+      if case .user(let authorID, _) = message.author {
+        setTyping(conversationID: message.conversationID, userID: authorID, active: false)
+      }
       conversations.merge(message)
       if message.isAgentActivityProjection {
         recordRelayActivityReceipt(message, event: event)
@@ -2050,6 +2069,7 @@ final class AppModel {
     case .reacted: eventType = "reacted"
     case .edited: eventType = "edited"
     case .deleted: eventType = "deleted"
+    case .typing: return
     }
     activityLog.info(
       "received event=\(eventType, privacy: .public) workspace=\(message.workspaceID, privacy: .public) conversation=\(message.conversationID, privacy: .public) agent=\(agentID, privacy: .public) message=\(message.id, privacy: .public) sequence=\(message.sequence) components=\(message.components.map(\.id).joined(separator: ","), privacy: .public)"
@@ -2125,13 +2145,13 @@ final class AppModel {
     if mentioned {
       title =
         conversation?.kind == .direct
-        ? "\(message.author.displayName) mentioned you"
-        : "\(message.author.displayName) mentioned you in #\(channelName)"
+        ? "\(authorName(message.author)) mentioned you"
+        : "\(authorName(message.author)) mentioned you in #\(channelName)"
     } else {
       title =
         conversation?.kind == .direct
-        ? message.author.displayName
-        : "\(message.author.displayName) in #\(channelName)"
+        ? authorName(message.author)
+        : "\(authorName(message.author)) in #\(channelName)"
     }
 
     if mentioned {
@@ -2449,8 +2469,10 @@ final class AppModel {
   private func updateConversationPreview(with message: ConversationMessage) {
     guard !message.deleted, !message.isAgentActivityProjection else { return }
     let preview = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    let sentAt = ISO8601DateFormatter.chief().string(from: message.createdAt)
     mutateConversation(message.conversationID) {
       $0.lastMessage = preview.isEmpty ? "Sent an attachment" : String(preview.prefix(140))
+      $0.lastMessageAt = max($0.lastMessageAt ?? "", sentAt)
     }
   }
 
@@ -2528,7 +2550,7 @@ final class AppModel {
     guard let workspace else { return [] }
     do {
       let members = try await relay.workspaceMembers(workspaceID: workspace.id)
-      let currentUserID = (try? NostrKeychainStore().load())?.publicKeyHex
+      let currentUserID = session?.user.id
       let agentNames = Dictionary(
         uniqueKeysWithValues: workspace.agents.map { ($0.id, $0.name) }
       )
@@ -2541,7 +2563,7 @@ final class AppModel {
             principalID: member.principalId,
             name: member.kind == "agent"
               ? (agentNames[member.principalId] ?? member.principalId)
-              : member.principalId,
+              : (member.name ?? member.principalId),
             role: member.role
           )
         }
@@ -3115,6 +3137,7 @@ final class AppModel {
   }
 
   private func refreshCurrentChannelMemberships(for snapshot: WorkspaceSnapshot) async {
+    await refreshWorkspacePeople(for: snapshot)
     do {
       let memberships = try await relay.currentChannelMemberships(workspaceID: snapshot.id)
       guard workspace?.id == snapshot.id else { return }
@@ -3155,6 +3178,90 @@ final class AppModel {
     membershipWorkspaceID = snapshot.id
     joinedConversationIDs = Set(results.compactMap { id, joined in joined == true ? id : nil })
     syncWorkspaceLiveStreams(for: snapshot)
+  }
+}
+
+extension AppModel {
+  /// Loads workspace people once per workspace so authors resolve to names.
+  fileprivate func refreshWorkspacePeople(for snapshot: WorkspaceSnapshot) async {
+    guard workspacePeopleWorkspaceID != snapshot.id || workspacePeople.isEmpty else { return }
+    guard let members = try? await relay.workspaceMembers(workspaceID: snapshot.id) else { return }
+    guard workspace?.id == snapshot.id else { return }
+    workspacePeopleWorkspaceID = snapshot.id
+    workspacePeople = Dictionary(
+      members.filter { $0.kind == "user" }.map { ($0.principalId, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+  }
+
+  private static let typingExpiry: TimeInterval = 6
+  private static let typingSendInterval: TimeInterval = 3
+
+  fileprivate func setTyping(conversationID: String, userID: String, active: Bool) {
+    var people = typingPeople[conversationID] ?? [:]
+    guard active else {
+      guard people.removeValue(forKey: userID) != nil else { return }
+      typingPeople[conversationID] = people.isEmpty ? nil : people
+      return
+    }
+    let now = Date()
+    people[userID] = now
+    typingPeople[conversationID] = people
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(Self.typingExpiry))
+      guard let self, self.typingPeople[conversationID]?[userID] == now else { return }
+      self.setTyping(conversationID: conversationID, userID: userID, active: false)
+    }
+  }
+
+  func typingNames(conversationID: String) -> [String] {
+    (typingPeople[conversationID] ?? [:]).keys.sorted().map { person(userID: $0).name }
+  }
+
+  /// Reports the composer draft: text announces typing (throttled); an empty
+  /// draft or a send stops it.
+  func notifyTyping(conversationID: String, draft: String) {
+    let active = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let now = Date()
+    if active {
+      if let last = lastTypingSentAt[conversationID],
+        now.timeIntervalSince(last) < Self.typingSendInterval
+      {
+        return
+      }
+      lastTypingSentAt[conversationID] = now
+    } else {
+      guard lastTypingSentAt.removeValue(forKey: conversationID) != nil else { return }
+    }
+    guard let client = workspaceLiveClient else { return }
+    Task { await client.sendTyping(conversationID: conversationID, active: active) }
+  }
+
+  /// The person behind a user id: the signed-in user, or a workspace member.
+  func person(userID: String, fallbackName: String = "") -> ChiefUser {
+    // Strictly by account id: people can share a name.
+    if let user = session?.user, userID == user.id {
+      return ChiefUser(
+        id: user.id, name: user.name, imageURL: relayAssetURL(user.imageURL?.absoluteString))
+    }
+    let member = workspacePeople[userID]
+    let name = member?.name ?? (fallbackName.isEmpty ? "Member" : fallbackName)
+    return ChiefUser(id: userID, name: name, imageURL: relayAssetURL(member?.image))
+  }
+
+  func authorName(_ author: ConversationMessage.Author) -> String {
+    guard case .user(let id, let name) = author else { return author.displayName }
+    return person(userID: id, fallbackName: name).name
+  }
+
+  /// Relay avatars may carry another relay host; serve them from this relay.
+  func relayAssetURL(_ value: String?) -> URL? {
+    guard let value, !value.isEmpty else { return nil }
+    if let range = value.range(of: "/v1/assets/") {
+      return URL(string: String(value[range.lowerBound...]), relativeTo: appConfiguration.relayURL)?
+        .absoluteURL
+    }
+    return URL(string: value)
   }
 }
 

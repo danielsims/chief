@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ChatExecutionSelection,
+  ChiefUIMessage,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
 
@@ -9,6 +10,7 @@ import type { ChiefChatProps } from "./chief-chat-types";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
+import { guestLabel, guestSummaryAppearance } from "../../lib/guest-appearance";
 import {
   findPendingInputRequest,
   withoutMarkerLines,
@@ -25,10 +27,11 @@ import {
   WORKSPACE_AGENT_IDENTITIES,
 } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
+import { useChannelGuests } from "./channel-guests";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
-import { useMentionPeople } from "./mention-people-context";
+import { useMentionPeople, useWorkspaceUsers } from "./mention-people-context";
 import { useScheduledRunProgress } from "./use-scheduled-run-progress";
 
 /**
@@ -69,6 +72,19 @@ export function useChiefChatCore({
   const userAuthor = {
     name: user?.name.trim() ?? "You",
     ...(user?.image ? { image: user.image } : undefined),
+  };
+  const workspaceUsers = useWorkspaceUsers();
+  // Shared channels carry several people; a message from anyone else shows
+  // that member, never the signed-in user.
+  const authorFor = (message: ChiefUIMessage) => {
+    const author = message.metadata?.author;
+    if (!author || author.id === user?.id) return userAuthor;
+    const member = workspaceUsers.get(author.id);
+    const image = member?.image ?? author.image;
+    return {
+      name: member?.name ?? author.name,
+      ...(image ? { image } : undefined),
+    };
   };
   const currentUser = user
     ? { id: user.id, ...(user.image ? { image: user.image } : undefined) }
@@ -187,6 +203,16 @@ export function useChiefChatCore({
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
+  // Reload the channel's guests whenever another one joins, so a new agent
+  // can be mentioned without reopening the channel.
+  const guestJoins = chat.messages.filter(
+    (message) => message.metadata?.channelAction?.type === "member-joined",
+  ).length;
+  const { guests: channelGuests } = useChannelGuests(
+    destinationChannelId ?? "",
+    Boolean(channel && destinationChannelId),
+    guestJoins,
+  );
   const mentionCandidates = useMemo(() => {
     const roster = runtimeAgents.flatMap((agent) => [
       agent,
@@ -208,10 +234,28 @@ export function useChiefChatCore({
     const people = workspacePeople
       .filter((person) => person.id !== user?.id)
       .map((person) => ({ ...person, role: "Workspace member", member: true }));
-    return orderMentionCandidatesByMembership([...people, ...agents]);
+    // Agents members invited into this channel. The relay wakes them from the
+    // @handle in the text; they never route to workspace agents.
+    const guests = channelGuests.map((guest) => {
+      const appearance = guestSummaryAppearance(guest);
+      return {
+        id: `guest:${guest.id}`,
+        name: guest.name,
+        role: guestLabel(appearance),
+        member: true,
+        handle: guest.handle,
+        guest: appearance,
+      };
+    });
+    return orderMentionCandidatesByMembership([
+      ...people,
+      ...guests,
+      ...agents,
+    ]);
   }, [
     addedAgentIds,
     channel?.agentIds,
+    channelGuests,
     directAgent?.id,
     user,
     runtimeAgents,
@@ -297,6 +341,7 @@ export function useChiefChatCore({
     knownAgentIds,
     markThreadRead,
     mentionCandidates,
+    channelGuests,
     pendingInput,
     activityTurns,
     activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
@@ -308,6 +353,7 @@ export function useChiefChatCore({
     setSelectedExecution,
     setVisibleThread,
     statusLabel: currentTurn.statusLabel,
+    authorFor,
     userAuthor,
     workspaceData,
   };

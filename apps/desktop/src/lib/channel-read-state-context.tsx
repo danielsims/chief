@@ -62,6 +62,7 @@ export function ChannelReadStateProvider({
           inboxMessages: [],
           unreadChannelCounts: new Map(),
           workspaceUnreadCounts: new Map(),
+          lastMessageAtByChannel: new Map(),
           markChannelRead: () => undefined,
           markThreadRead: () => undefined,
           setVisibleThread: () => undefined,
@@ -108,6 +109,9 @@ function ScopedChannelReadStateProvider({
   const [observedByChannel, setObservedByChannel] = useState(
     new Map<string, Map<string, ObservedChannelMessage>>(),
   );
+  const [lastMessageAtByChannel, setLastMessageAtByChannel] = useState<
+    ReadonlyMap<string, number>
+  >(new Map());
   const observedRef = useRef(observedByChannel);
   const hydratedChannelsRef = useRef(new Set<string>());
   const sourceAliasesRef = useRef(new Map<string, Map<string, string>>());
@@ -345,6 +349,23 @@ function ScopedChannelReadStateProvider({
       if (message.type !== "channelEvents" && message.type !== "channelEvent")
         return;
       if (message.workspaceId !== workspaceId) return;
+      const [activityChannelId, activityEvents] =
+        message.type === "channelEvents"
+          ? [message.channelId, message.events]
+          : [message.event.channelId, [message.event]];
+      const latest = Math.max(
+        0,
+        ...activityEvents
+          .filter((event) => event.kind === 9)
+          .map((event) => event.createdAt),
+      );
+      if (latest > 0) {
+        setLastMessageAtByChannel((current) =>
+          (current.get(activityChannelId) ?? 0) >= latest
+            ? current
+            : new Map(current).set(activityChannelId, latest),
+        );
+      }
       if (message.type === "channelEvents") {
         const { channelId, events } = message;
         cache.cacheChannelEvents(workspaceId, channelId, events);
@@ -494,12 +515,14 @@ function ScopedChannelReadStateProvider({
       inboxMessages,
       unreadChannelCounts,
       workspaceUnreadCounts,
+      lastMessageAtByChannel,
       markChannelRead,
       markThreadRead,
       setVisibleThread,
     }),
     [
       inboxMessages,
+      lastMessageAtByChannel,
       markChannelRead,
       markThreadRead,
       setVisibleThread,

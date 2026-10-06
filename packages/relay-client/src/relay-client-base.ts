@@ -12,6 +12,7 @@ import type {
   RelayProjectCreate,
   WorkspaceFile,
   WorkspaceId,
+  WorkspaceInvitation,
   WorkspaceInvite,
   WorkspaceInviteClaimResult,
   WorkspaceMember,
@@ -24,6 +25,7 @@ import {
   brandProfileResultSchema,
   brandProfileSaveSchema,
   brandProfileSchema,
+  cancelWorkspaceInvitationResultSchema,
   channelActionResultSchema,
   channelCreateCommandSchema,
   channelDetailSchema,
@@ -35,7 +37,6 @@ import {
   isJsonString,
   onboardingTelemetryEventSchema,
   onboardingTelemetryReceiptSchema,
-  organizationWorkspaceJoinResultSchema,
   parseJsonValue,
   prospectSaveSchema,
   prospectSchema,
@@ -51,11 +52,14 @@ import {
   workspaceFilesResultSchema,
   workspaceFileUpdateSchema,
   workspaceIdSchema,
+  workspaceInvitationListSchema,
+  workspaceInvitationSchema,
   workspaceInviteClaimResultSchema,
   workspaceInviteSchema,
   workspaceListResultSchema,
   workspaceMediaUploadSchema,
   workspaceMemberListSchema,
+  workspaceMemberRemoveResultSchema,
   workspaceSnapshotSchema,
   workspaceSwitchResultSchema,
 } from "@chief/relay-contracts";
@@ -226,19 +230,6 @@ export class RelayClientBase {
     );
   }
 
-  async joinOrganizationWorkspace(workspaceId: WorkspaceId | string) {
-    const id = workspaceIdSchema.parse(workspaceId);
-    return await this.fetchJson(
-      new URL(
-        `/v1/workspaces/${encodeURIComponent(id)}/organization-membership`,
-        this.relayUrl,
-      ),
-      organizationWorkspaceJoinResultSchema,
-      true,
-      { method: "POST" },
-    );
-  }
-
   async listChannels(): Promise<ChannelRecord[]> {
     return (
       await this.fetchJson(
@@ -330,6 +321,61 @@ export class RelayClientBase {
         workspaceMemberListSchema,
       )
     ).members;
+  }
+
+  async removeWorkspaceMember(
+    kind: WorkspaceMember["kind"],
+    principalId: string,
+  ): Promise<void> {
+    await this.fetchJson(
+      this.workspaceUrl(
+        `members/${encodeURIComponent(kind)}/${encodeURIComponent(principalId)}/remove`,
+      ),
+      workspaceMemberRemoveResultSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+
+  async listWorkspaceInvitations(): Promise<WorkspaceInvitation[]> {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("invitations"),
+        workspaceInvitationListSchema,
+      )
+    ).invitations;
+  }
+
+  async createWorkspaceInvitation(input: {
+    email: string;
+    role: "admin" | "member";
+    resend?: boolean;
+  }): Promise<WorkspaceInvitation> {
+    return await this.fetchJson(
+      this.workspaceUrl("invitations"),
+      workspaceInvitationSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: input.email,
+          role: input.role,
+          resend: input.resend ?? false,
+        }),
+      },
+    );
+  }
+
+  async cancelWorkspaceInvitation(invitationId: string): Promise<void> {
+    await this.fetchJson(
+      this.workspaceUrl(
+        `invitations/${encodeURIComponent(invitationId)}/cancel`,
+      ),
+      cancelWorkspaceInvitationResultSchema,
+      true,
+      { method: "POST" },
+    );
   }
 
   async saveBrandProfile(input: {

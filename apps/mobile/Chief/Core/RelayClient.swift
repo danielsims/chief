@@ -142,6 +142,14 @@ protocol RelayServing: Sendable {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [WorkspaceMember]
+  func workspaceInvitations(workspaceID: String) async throws -> [WorkspaceInvitation]
+  func inviteWorkspaceMember(workspaceID: String, email: String, role: String) async throws
+    -> WorkspaceInvitation
+  func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws
+  func setWorkspaceMemberRole(
+    workspaceID: String, kind: String, principalID: String, role: String
+  ) async throws
+  func removeWorkspaceMember(workspaceID: String, kind: String, principalID: String) async throws
   func startDirectMessage(
     workspaceID: String,
     participantKind: String,
@@ -151,6 +159,15 @@ protocol RelayServing: Sendable {
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws
   func workspaceSecretNames(workspaceID: String) async throws -> [String]
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
+  func deleteWorkspaceSecret(workspaceID: String, name: String) async throws
+  func workspaceSchedules(workspaceID: String) async throws -> [WorkspaceScheduleSummary]
+  func scheduleWebhooks(workspaceID: String) async throws -> [ScheduleWebhook]
+  func createScheduleWebhook(workspaceID: String, name: String, scheduleID: String) async throws
+    -> ScheduleWebhookReveal
+  func scheduleWebhookAction(workspaceID: String, webhookID: String, action: String) async throws
+    -> ScheduleWebhookReveal
+  func workspaceMachines(workspaceID: String) async throws -> [WorkspaceMachine]
+  func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission]
   func replies(
     workspaceID: String,
     conversationID: String,
@@ -379,6 +396,23 @@ extension RelayServing {
 
   func workspaceMembers(workspaceID: String) async throws -> [WorkspaceMember] {
     try await workspaceMembers(workspaceID: workspaceID, signingIdentity: nil)
+  }
+
+  // Team management is relay-only; fixtures and test doubles don't offer it.
+  func workspaceInvitations(workspaceID: String) async throws -> [WorkspaceInvitation] {
+    throw RelayError.unavailable
+  }
+  func inviteWorkspaceMember(workspaceID: String, email: String, role: String) async throws
+    -> WorkspaceInvitation
+  { throw RelayError.unavailable }
+  func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws {
+    throw RelayError.unavailable
+  }
+  func setWorkspaceMemberRole(
+    workspaceID: String, kind: String, principalID: String, role: String
+  ) async throws { throw RelayError.unavailable }
+  func removeWorkspaceMember(workspaceID: String, kind: String, principalID: String) async throws {
+    throw RelayError.unavailable
   }
 
   func replies(
@@ -912,6 +946,50 @@ actor URLSessionRelayClient: RelayServing {
       signer: signingIdentity
     )
     return result.members
+  }
+
+  func workspaceInvitations(workspaceID: String) async throws -> [WorkspaceInvitation] {
+    struct Result: Decodable { let invitations: [WorkspaceInvitation] }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/invitations", method: "GET")
+    return result.invitations
+  }
+
+  func inviteWorkspaceMember(workspaceID: String, email: String, role: String) async throws
+    -> WorkspaceInvitation
+  {
+    struct Input: Encodable {
+      let email: String
+      let role: String
+      let resend: Bool
+    }
+    return try await request(
+      path: "/v1/workspaces/\(workspaceID)/invitations",
+      method: "POST",
+      body: try JSONEncoder().encode(Input(email: email, role: role, resend: true))
+    )
+  }
+
+  func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws {
+    let _: EmptyResponse = try await request(
+      path: "/v1/workspaces/\(workspaceID)/invitations/\(invitationID)/cancel", method: "POST")
+  }
+
+  func setWorkspaceMemberRole(
+    workspaceID: String, kind: String, principalID: String, role: String
+  ) async throws {
+    struct Input: Encodable { let role: String }
+    let _: EmptyResponse = try await request(
+      path: "/v1/workspaces/\(workspaceID)/members/\(kind)/\(principalID)/role",
+      method: "PATCH",
+      body: try JSONEncoder().encode(Input(role: role))
+    )
+  }
+
+  func removeWorkspaceMember(workspaceID: String, kind: String, principalID: String) async throws {
+    let _: EmptyResponse = try await request(
+      path: "/v1/workspaces/\(workspaceID)/members/\(kind)/\(principalID)/remove",
+      method: "POST")
   }
 
   func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {

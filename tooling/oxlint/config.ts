@@ -12,6 +12,7 @@ const sourceFiles = ["**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}"];
 const typescriptFiles = ["**/*.{cts,mts,ts,tsx}"];
 const reactFiles = [
   "apps/desktop/**/*.{ts,tsx}",
+  "apps/docs/**/*.{ts,tsx}",
   "apps/web/**/*.{ts,tsx}",
   "packages/email/**/*.{ts,tsx}",
   "packages/ui/**/*.{ts,tsx}",
@@ -42,12 +43,13 @@ export const chiefOxlintConfig: OxlintConfig = {
       rules: reactRules,
     },
     {
-      files: ["apps/web/**/*.{ts,tsx}"],
+      files: ["apps/docs/**/*.{ts,tsx}", "apps/web/**/*.{ts,tsx}"],
       rules: nextjsRules,
     },
     {
       files: [
         "apps/desktop/**/*.{js,ts,tsx}",
+        "apps/docs/**/*.{js,ts,tsx}",
         "apps/web/**/*.{js,ts,tsx}",
         "packages/backend/**/*.{js,ts,tsx}",
       ],
@@ -95,6 +97,7 @@ export const chiefIgnorePatterns = [
   "apps/mobile/Chief/Vendored/**",
   "apps/relay/.wrangler/**",
   "apps/relay/worker-configuration.d.ts",
+  "apps/docs/next-env.d.ts",
   "apps/web/next-env.d.ts",
   "packages/agent-runtime/scripts/**",
 ];

@@ -22,6 +22,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
+import { guestAppearance } from "./guest-appearance";
 
 function workspaceAgentById(snapshot: WorkspaceSnapshot, agentId: string) {
   return (
@@ -156,11 +157,23 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
     .find((action) => action !== undefined);
   return {
     id: message.id,
-    role: message.author.kind === "user" ? "user" : "assistant",
+    role:
+      message.author.kind === "user" || message.author.kind === "guest"
+        ? "user"
+        : "assistant",
     metadata: {
       createdAt: Date.parse(message.createdAt),
+      ...(message.author.kind === "guest"
+        ? {
+            guest: guestAppearance(message.author),
+          }
+        : undefined),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
+        : undefined),
+      // The sender, resolved to a workspace member by id when rendered.
+      ...(message.author.kind === "user"
+        ? { author: { id: message.author.id, name: "Member" } }
         : undefined),
       ...(message.threadRootId
         ? { threadRootId: message.threadRootId }
@@ -168,7 +181,18 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       ...(message.mentions.length > 0
         ? { mentions: message.mentions }
         : undefined),
-      ...(channelAction ? { channelAction } : undefined),
+      ...(channelAction
+        ? {
+            channelAction:
+              channelAction.type === "member-joined" &&
+              message.author.kind === "guest"
+                ? {
+                    ...channelAction,
+                    actorGuest: guestAppearance(message.author),
+                  }
+                : channelAction,
+          }
+        : undefined),
       ...(schedulePayload.success
         ? { scheduledRun: schedulePayload.data }
         : undefined),
@@ -193,11 +217,21 @@ export function toChannelMessageEvent(
             workspaceAgentById(snapshot, message.author.id)?.name ??
             message.author.id,
         }
-      : {
-          type: "user" as const,
-          id: message.author.id,
-          name: message.author.kind === "system" ? "Chief" : "You",
-        };
+      : message.author.kind === "guest"
+        ? {
+            type: "guest" as const,
+            id: message.author.id,
+            name: message.author.name,
+            ...(message.author.image
+              ? { image: message.author.image }
+              : undefined),
+            guest: guestAppearance(message.author),
+          }
+        : {
+            type: "user" as const,
+            id: message.author.id,
+            name: message.author.kind === "system" ? "Chief" : "You",
+          };
   return {
     protocol: "nip29",
     id: message.id,
@@ -212,6 +246,14 @@ export function toChannelMessageEvent(
           ]
         : []),
       ...message.mentions.map((mention) => ["p", mention]),
+      ...(message.author.kind === "guest" &&
+      message.components.some(
+        (component) =>
+          component.kind === "channel-action" &&
+          component.payload.type === "member-joined",
+      )
+        ? [["action", "member-joined"]]
+        : []),
     ],
     content: message.deleted ? "" : message.body,
     parts: messageComponentParts(message),
@@ -257,7 +299,7 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation?.kind === "direct"
+  return conversation?.kind === "direct" && !conversation.directUserId
     ? agentForDirect(conversation.name, snapshot)
     : undefined;
 }

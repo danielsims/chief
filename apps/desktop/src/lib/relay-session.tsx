@@ -9,6 +9,7 @@ import { RelayClient } from "@chief/relay-client";
 
 import type { RelayConnectionIntent } from "./relay-session-state";
 import type { RelaySessionValue } from "./relay-session-value";
+import { dispatchChiefNavigation } from "./app-navigation";
 import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
 import { RELAY_URL } from "./config";
@@ -124,12 +125,20 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
             pendingOrganizationInvitation?.relayUrl ===
             new URL(RELAY_URL).origin
           ) {
-            const joined = await accountClient.joinOrganizationWorkspace(
+            // Consume the invitation before opening it so a failed attempt
+            // cannot re-trigger this block on every reconnect. Switching
+            // provisions the membership; there is no separate join step.
+            clearPendingOrganizationInvitation();
+            await accountClient.switchWorkspace(
               pendingOrganizationInvitation.workspaceId,
             );
-            await accountClient.switchWorkspace(joined.workspaceId);
-            clearPendingOrganizationInvitation();
             snapshot = await activeRelayWorkspace();
+            if (pendingOrganizationInvitation.channelId) {
+              dispatchChiefNavigation({
+                kind: "conversation",
+                channelId: pendingOrganizationInvitation.channelId,
+              });
+            }
           }
           const pendingWorkspace = pendingWorkspaceSwitch(accountId);
           if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {

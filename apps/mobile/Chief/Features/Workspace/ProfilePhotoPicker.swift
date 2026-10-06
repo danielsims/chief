@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 struct ProfilePhotoPicker: View {
   let imageURL: URL?
   var name: String = ""
+  /// Workspace logos fall back to the website's favicon, like desktop OrgLogo.
+  var workspaceWebsite: String? = nil
+  var isWorkspace = false
   var size: CGFloat = 64
   let onChange: (Data?) async throws -> Void
   @State private var showActions = false
@@ -18,23 +21,26 @@ struct ProfilePhotoPicker: View {
     Button {
       showActions = true
     } label: {
-      UserAvatar(user: ChiefUser(id: "preview", name: name, imageURL: imageURL), size: size)
+      avatar
         .overlay(alignment: .bottomTrailing) {
           Image(systemName: "pencil")
             .font(.system(size: 10, weight: .semibold))
             .frame(width: 22, height: 22)
             .background(ChiefTheme.elevated, in: Circle())
             .overlay { Circle().stroke(ChiefTheme.background, lineWidth: 2) }
+            .offset(x: 5, y: 5)
         }
-        .overlay { if saving { ProgressView().tint(.white) } }
+        .overlay { if saving { ChiefSpinner().tint(.white) } }
     }
     .buttonStyle(.plain)
     .disabled(saving)
     .accessibilityLabel("Edit photo")
     .confirmationDialog("Photo", isPresented: $showActions, titleVisibility: .hidden) {
-      Button("Choose photo") { showPhotos = true }
+      Button(isWorkspace ? "Upload image" : "Choose photo") { showPhotos = true }
       if imageURL != nil {
-        Button("Remove photo", role: .destructive) { Task { await save(nil) } }
+        Button(isWorkspace ? "Use website icon" : "Remove photo", role: .destructive) {
+          Task { await save(nil) }
+        }
       }
       Button("Cancel", role: .cancel) {}
     }
@@ -61,6 +67,15 @@ struct ProfilePhotoPicker: View {
         saving = false
         selection = nil
       }
+    }
+  }
+
+  @ViewBuilder private var avatar: some View {
+    if isWorkspace {
+      WorkspaceIdentityAvatar(name: name, website: workspaceWebsite, imageURL: imageURL, size: size)
+    } else {
+      UserAvatar(
+        user: ChiefUser(id: "preview", name: name, imageURL: imageURL), size: size, rounded: true)
     }
   }
 

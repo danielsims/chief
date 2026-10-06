@@ -32,4 +32,5 @@ xcodebuild \
   -scheme Chief \
   -destination "platform=iOS Simulator,id=$device_id" \
   -parallel-testing-enabled NO \
+  -skipPackagePluginValidation \
   test

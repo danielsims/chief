@@ -43,7 +43,7 @@ struct ArtifactMessageComponent: View {
                 Button("Try again") { loadAttempt += 1 }
               }.padding(24)
             } else {
-              ProgressView()
+              ChiefSpinner()
             }
           }
           .navigationTitle(file?.title ?? "Canvas")

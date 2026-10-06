@@ -35,6 +35,7 @@ import {
   WORKSPACE_CHANNELS,
 } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
+import { AvatarImage } from "./avatar-image";
 
 const DESTINATIONS = [
   { label: "Overview", hint: "Workspace home", to: "/", icon: LayoutGrid },
@@ -361,16 +362,14 @@ export function WorkspaceSearch() {
                         {item.kind === "Agent" ? (
                           <AgentAvatar label={item.label} className="size-7" />
                         ) : item.kind === "Person" ? (
-                          <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold">
-                            {item.image ? (
-                              <img
-                                src={item.image}
-                                alt=""
-                                className="size-full object-cover"
-                              />
-                            ) : (
-                              item.label.charAt(0).toLocaleUpperCase()
-                            )}
+                          <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-[11px] font-semibold">
+                            <AvatarImage
+                              className="size-full object-cover"
+                              fallback={item.label
+                                .charAt(0)
+                                .toLocaleUpperCase()}
+                              src={item.image}
+                            />
                           </span>
                         ) : Icon ? (
                           <span className="text-muted-foreground flex size-7 shrink-0 items-center justify-center">

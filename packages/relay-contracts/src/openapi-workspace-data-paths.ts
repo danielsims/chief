@@ -22,8 +22,10 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/agents/{agentId}/artifacts": {
     post: {
       operationId: "publishWorkspaceAsset",
+      summary: "Publish an agent artifact",
       description:
         "Publish a file up to 8 MB as this agent. Files inherit their source conversation's access rules.",
+      tags: ["Agents"],
       parameters: [pathParameter("workspaceId"), pathParameter("agentId")],
       requestBody: {
         required: true,
@@ -48,6 +50,10 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/agents/{agentId}/artifacts/{artifactId}": {
     get: {
       operationId: "downloadWorkspaceAsset",
+      summary: "Download an agent artifact",
+      description:
+        "Returns the artifact bytes with their original content type, as an attachment.",
+      tags: ["Agents"],
       parameters: [
         pathParameter("workspaceId"),
         pathParameter("agentId"),
@@ -72,6 +78,10 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/files": {
     get: {
       operationId: "listWorkspaceFiles",
+      summary: "List workspace files",
+      description:
+        "Returns the versioned files shared through the workspace relay.",
+      tags: ["Files"],
       parameters: [pathParameter("workspaceId")],
       responses: {
         "200": jsonResponse(
@@ -84,6 +94,10 @@ export const workspaceDataOpenApiPaths = {
     },
     post: {
       operationId: "saveWorkspaceFile",
+      summary: "Save a workspace file",
+      description:
+        "Creates a file or updates an existing version when its id or path already exists.",
+      tags: ["Files"],
       parameters: [pathParameter("workspaceId")],
       requestBody: {
         required: true,
@@ -104,6 +118,10 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/files/{fileId}": {
     put: {
       operationId: "updateWorkspaceFile",
+      summary: "Update a workspace file",
+      description:
+        "Replaces a file's title and content at the given expected version.",
+      tags: ["Files"],
       parameters: [pathParameter("workspaceId"), pathParameter("fileId")],
       requestBody: {
         required: true,
@@ -126,6 +144,9 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/projects": {
     get: {
       operationId: "listProjects",
+      summary: "List projects",
+      description: "Returns the workspace's project registry metadata.",
+      tags: ["Projects"],
       parameters: [pathParameter("workspaceId")],
       responses: {
         "200": jsonResponse(
@@ -138,6 +159,9 @@ export const workspaceDataOpenApiPaths = {
     },
     post: {
       operationId: "createProject",
+      summary: "Register a project",
+      description: "Adds a project to the workspace's project registry.",
+      tags: ["Projects"],
       parameters: [pathParameter("workspaceId")],
       requestBody: {
         required: true,
@@ -157,6 +181,9 @@ export const workspaceDataOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/projects/{projectId}": {
     delete: {
       operationId: "deleteProject",
+      summary: "Delete a project",
+      description: "Removes a project from the workspace's project registry.",
+      tags: ["Projects"],
       parameters: [pathParameter("workspaceId"), pathParameter("projectId")],
       responses: {
         "200": jsonResponse(

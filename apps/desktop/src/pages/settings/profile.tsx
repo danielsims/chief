@@ -10,6 +10,7 @@ import {
 } from "@chief/ui/components/card";
 import { Input } from "@chief/ui/components/input";
 
+import { AvatarImage } from "../../components/avatar-image";
 import { useAuth } from "../../lib/auth/auth-context";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 import { useRelaySession } from "../../lib/relay-session";
@@ -93,17 +94,15 @@ export function ProfileSettings() {
       <CardContent className="space-y-5">
         <div className="flex items-center gap-4">
           <span className="bg-background flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border">
-            {user.image ? (
-              <img
-                src={user.image}
-                alt={user.name}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="translate-y-[0.055em] text-lg leading-none font-normal">
-                {(user.name || user.email).charAt(0).toUpperCase()}
-              </span>
-            )}
+            <AvatarImage
+              className="h-full w-full object-cover"
+              fallback={
+                <span className="translate-y-[0.055em] text-lg leading-none font-normal">
+                  {(user.name || user.email).charAt(0).toUpperCase()}
+                </span>
+              }
+              src={user.image}
+            />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{user.name}</p>

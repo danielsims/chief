@@ -19,6 +19,20 @@ final class ConversationDeepLinkTests: XCTestCase {
     XCTAssertEqual(MobileNotifications.pendingOpen, link)
   }
 
+  /// UIKit delivers taps on the main thread and asserts if the completion
+  /// handler runs after an async hop, so it must finish synchronously.
+  @MainActor
+  func testMainThreadTapCompletesSynchronouslyAndPersistsTap() {
+    MobileNotifications.pendingOpen = nil
+    defer { MobileNotifications.pendingOpen = nil }
+    let link = ConversationDeepLink(workspaceID: "workspace-a", conversationID: "dm-0123")
+    final class Flag: @unchecked Sendable { var value = false }
+    let completed = Flag()
+    MobileNotifications.finishNotificationResponse(link: link) { completed.value = true }
+    XCTAssertTrue(completed.value)
+    XCTAssertEqual(MobileNotifications.pendingOpen, link)
+  }
+
   func testUnrecognizedNotificationStillCompletesOnMainThread() async {
     let completed = expectation(description: "Unrecognized response completion")
     await Task.detached {

@@ -175,7 +175,7 @@ function decodeBase64Bytes(encoded: string): Uint8Array {
   return bytes;
 }
 
-function normalizedImageType(contentType: string): string | undefined {
+export function normalizedImageType(contentType: string): string | undefined {
   const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase();
   return normalized &&
     ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(normalized)
@@ -188,7 +188,7 @@ function mimeExt(contentType: string): string {
   return contentType.slice("image/".length);
 }
 
-function matchesImageSignature(bytes: Uint8Array, contentType: string) {
+export function matchesImageSignature(bytes: Uint8Array, contentType: string) {
   const starts = (...signature: number[]) =>
     signature.every((value, index) => bytes[index] === value);
   if (contentType === "image/png")

@@ -1,3 +1,4 @@
+import { ChannelGuestDelivery } from "./channel-guest-delivery";
 import { drainExternalAgentOutbox } from "./workspace-external-agent-alarm";
 import { drainWorkspaceSchedules } from "./workspace-schedule-dispatch";
 import { wakeWorkspaceSchedules } from "./workspace-schedule-store";
@@ -13,6 +14,7 @@ export async function runWorkspaceAlarm(
   try {
     try {
       await drainExternalAgentOutbox(storage, env);
+      await new ChannelGuestDelivery(storage, env).drain();
     } finally {
       // A delivery failure must not prevent due occurrences from entering run history.
       await drainWorkspaceSchedules(storage, env);

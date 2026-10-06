@@ -6,6 +6,8 @@ export interface ChannelReadStateValue {
   inboxMessages: readonly ChannelInboxMessage[];
   unreadChannelCounts: ReadonlyMap<string, number>;
   workspaceUnreadCounts: ReadonlyMap<string, number>;
+  /** Latest message time (ms) per channel, including your own messages. */
+  lastMessageAtByChannel: ReadonlyMap<string, number>;
   markChannelRead: (channelId: string) => void;
   markThreadRead: (channelId: string, rootId: string) => void;
   setVisibleThread: (channelId: string, rootId: string | null) => void;

@@ -7,6 +7,11 @@ interface Env {
   CLOUDFLARE_EMAIL_API_TOKEN: string;
   EMAIL_FROM_ADDRESS: string;
   EMAIL_FROM_NAME: string;
+  /** Explicit sender: "resend", "cloudflare", or "none". Auto-detected when
+   * unset. */
+  EMAIL_PROVIDER?: string;
+  /** Resend API key, used when EMAIL_PROVIDER is "resend" or auto-detected. */
+  RESEND_API_KEY?: string;
   /** Master key for workspace-scoped encrypted secrets. Required. */
   RELAY_SECRET_KEY: string;
   /**

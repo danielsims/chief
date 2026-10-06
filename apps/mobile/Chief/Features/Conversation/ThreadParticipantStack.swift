@@ -58,7 +58,7 @@ struct ThreadParticipantStack: View {
         AgentMark(name: name, size: 20)
       }
     case .user(_, let name):
-      Circle()
+      RoundedRectangle(cornerRadius: 5, style: .continuous)
         .fill(ChiefTheme.elevated)
         .overlay {
           Text(name.prefix(1).uppercased())
