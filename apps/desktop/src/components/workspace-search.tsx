@@ -362,7 +362,7 @@ export function WorkspaceSearch() {
                         {item.kind === "Agent" ? (
                           <AgentAvatar label={item.label} className="size-7" />
                         ) : item.kind === "Person" ? (
-                          <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold">
+                          <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-[11px] font-semibold">
                             <AvatarImage
                               className="size-full object-cover"
                               fallback={item.label

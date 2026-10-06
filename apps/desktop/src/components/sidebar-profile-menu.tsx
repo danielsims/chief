@@ -111,7 +111,7 @@ export function SidebarProfileMenu() {
             <button
               type="button"
               aria-label="Relay connections and workspaces"
-              className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold outline-none focus-visible:ring-2"
+              className="focus-visible:ring-ring/30 bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-xs font-semibold outline-none focus-visible:ring-2"
             >
               <ProfileImage user={user} />
             </button>
@@ -396,7 +396,7 @@ function ProfileImage({
 }) {
   return (
     <span
-      className={`bg-muted flex shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold ${className}`}
+      className={`bg-muted flex shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-xs font-semibold ${className}`}
     >
       <AvatarImage
         className="size-full object-cover"

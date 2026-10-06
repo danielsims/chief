@@ -283,20 +283,26 @@ struct PersonProfileView: View {
 struct UserAvatar: View {
   let user: ChiefUser?
   let size: CGFloat
+  /// Matches `AgentMark`'s rounded square instead of a circle.
+  var rounded = false
+
+  private var shape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: rounded ? size * 0.28 : size / 2, style: .continuous)
+  }
 
   var body: some View {
     AsyncImage(url: user?.imageURL) { image in
       image.resizable().scaledToFill()
     } placeholder: {
-      Circle().fill(ChiefTheme.elevated).overlay {
+      shape.fill(ChiefTheme.elevated).overlay {
         Text(initials)
           .font(.system(size: size * 0.34, weight: .semibold))
           .foregroundStyle(.white)
       }
     }
     .frame(width: size, height: size)
-    .clipShape(Circle())
-    .overlay { Circle().stroke(ChiefTheme.line) }
+    .clipShape(shape)
+    .overlay { shape.stroke(ChiefTheme.line) }
   }
 
   private var initials: String {

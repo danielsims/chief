@@ -46,11 +46,11 @@ export function ProjectUserAvatar({
     .join("");
   return (
     <AvatarImage
-      className={cn("size-8 shrink-0 rounded-full object-cover", className)}
+      className={cn("size-8 shrink-0 rounded-[28%] object-cover", className)}
       fallback={
         <span
           className={cn(
-            "bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-medium",
+            "bg-muted flex size-8 shrink-0 items-center justify-center rounded-[28%] text-[11px] font-medium",
             className,
           )}
         >
