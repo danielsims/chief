@@ -61,11 +61,7 @@ struct ConversationMessageRow: View {
         let card = model.workspace?.agentCard(for: agentID) ?? .chiefFallback(for: agentID)
         AgentDetailView(agent: card.agent, highlightedSubagentID: card.subagentID)
       case .person(let userID, let name):
-        if userID == model.session?.user.id {
-          UserProfileView()
-        } else {
-          PersonProfileView(userID: userID, name: name)
-        }
+        PersonProfileView(userID: userID, name: name)
       }
     }
     .alert("Delete this message?", isPresented: $showsDeleteConfirmation) {
