@@ -2,7 +2,6 @@ import {
   Activity,
   ArrowLeft,
   Bell,
-  Bot,
   Building2,
   KeyRound,
   MonitorCog,
@@ -39,7 +38,6 @@ const groups = [
   {
     label: "App",
     items: [
-      { to: "/settings/agents", label: "Agents", icon: Bot },
       { to: "/settings/diagnostics", label: "Diagnostics", icon: Activity },
     ],
   },
