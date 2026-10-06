@@ -15,6 +15,7 @@ import { handleGuestMcp } from "./channel-guest-mcp";
 import {
   channelLinkMissingResponse,
   channelLinkResponse,
+  memberChannelResponse,
 } from "./channel-guest-page";
 import {
   GUEST_GATEWAY_SERVICE,
@@ -26,26 +27,29 @@ import { publicOrigin } from "./relay-discovery";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
-const linkRoute = /^\/c\/([^/]+)\/([A-Za-z0-9_-]{24})(\/join)?$/u;
+/** Members' link to an internal channel: opens Chief, admits no one. */
+const memberLinkRoute = /^\/open\/channel\/([^/]+)$/u;
+/** A member's invite for their own agent. */
+const inviteRoute = /^\/agents\/([^/]+)\/([A-Za-z0-9_-]{32})(\/join)?$/u;
 const guestRoute =
-  /^\/v1\/workspaces\/([^/]+)\/guest(\/messages(?:\/([^/]+)\/thread)?|\/delivery|\/mcp(?:\/([^/]+))?)?$/u;
+  /^\/v1\/workspaces\/([^/]+)\/guest(\/messages(?:\/([^/]+)\/thread)?|\/delivery|\/listen|\/mcp(?:\/([^/]+))?)?$/u;
 const memberRoute =
-  /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/(external|external\/reset|guests|guests\/([^/]+)\/remove)$/u;
+  /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/(guests|guests\/invite|guests\/([^/]+)\/remove)$/u;
 
-const linkResolutionSchema = z.object({
+const inviteResolutionSchema = z.object({
   workspace: z.object({ id: z.string(), name: z.string() }),
   channel: z.object({
     id: z.string(),
     name: z.string(),
     description: z.string().nullable(),
   }),
-  members: z.number(),
+  invitedBy: z.string(),
 });
 
 /**
- * External channel links and the guest agent API. Guests authenticate with their
- * own bearer credential, never with a workspace identity; members manage
- * external access and guests with signed requests.
+ * Agent invites and the agent API. Invited agents authenticate with their own
+ * bearer credential, never with a workspace identity; members create invites
+ * and remove agents with signed requests.
  */
 export async function routeChannelGuestRequest(
   env: Env,
@@ -55,31 +59,42 @@ export async function routeChannelGuestRequest(
   const url = new URL(request.url);
   const origin = publicOrigin(request, url, env);
 
-  const link = linkRoute.exec(url.pathname);
-  if (link) {
+  const memberLink = memberLinkRoute.exec(url.pathname);
+  if (memberLink) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return methodNotAllowed(requestId);
+    }
+    const conversationId = conversationIdSchema.safeParse(
+      decodeURIComponent(memberLink[1] ?? ""),
+    );
+    if (!conversationId.success) return channelLinkMissingResponse(request);
+    return memberChannelResponse(request, conversationId.data);
+  }
+
+  const invite = inviteRoute.exec(url.pathname);
+  if (invite) {
     const workspaceId = workspaceIdSchema.safeParse(
-      decodeURIComponent(link[1] ?? ""),
+      decodeURIComponent(invite[1] ?? ""),
     );
     if (!workspaceId.success) return channelLinkMissingResponse(request);
-    const token = link[2] ?? "";
-    if (link[3]) {
+    const token = invite[2] ?? "";
+    if (invite[3]) {
       if (request.method !== "POST") return methodNotAllowed(requestId);
       await requireAllowance(env, request);
-      const existing = guestTokenFrom(request.headers.get("authorization"));
       return gateway(env, workspaceId.data, "guest-join", requestId, {
         origin,
         search: { token },
         body: await request.text(),
-        ...(existing ? { credential: existing } : undefined),
       });
     }
     if (request.method !== "GET" && request.method !== "HEAD") {
       return methodNotAllowed(requestId);
     }
+    await requireAllowance(env, request);
     const resolved = await gateway(
       env,
       workspaceId.data,
-      "guest-link-resolve",
+      "guest-invite-resolve",
       requestId,
       { origin, search: { token } },
     );
@@ -87,14 +102,16 @@ export async function routeChannelGuestRequest(
       await resolved.body?.cancel();
       return channelLinkMissingResponse(request);
     }
-    const view = linkResolutionSchema.parse(await resolved.json());
+    const view = inviteResolutionSchema.parse(await resolved.json());
+    const link = `${origin}/agents/${encodeURIComponent(workspaceId.data)}/${token}`;
     return channelLinkResponse(request, {
       origin,
-      link: `${origin}/c/${encodeURIComponent(workspaceId.data)}/${token}`,
+      link,
+      joinUrl: `${link}/join`,
+      invitedBy: view.invitedBy,
       workspaceId: workspaceId.data,
       workspaceName: view.workspace.name,
       channel: view.channel,
-      members: view.members,
     });
   }
 
@@ -171,8 +188,9 @@ export async function routeChannelGuestRequest(
           ? { guestId: guestIdSchema.parse(decodeURIComponent(member[4])) }
           : undefined),
       },
+      // Authentication already read the body to verify its signature.
       ...(request.method === "PUT"
-        ? { body: await request.text() }
+        ? { body: await authenticated.request.text() }
         : undefined),
     });
   }
@@ -180,15 +198,10 @@ export async function routeChannelGuestRequest(
 }
 
 function memberOperation(method: string, action: string) {
-  if (action === "external") {
-    if (method === "GET") return "channel-external-get";
-    if (method === "PUT") return "channel-external-set";
-    return undefined;
-  }
-  if (action === "external/reset") {
-    return method === "POST" ? "channel-external-reset" : undefined;
-  }
   if (action === "guests") return method === "GET" ? "guest-list" : undefined;
+  if (action === "guests/invite") {
+    return method === "POST" ? "guest-invite-create" : undefined;
+  }
   return method === "POST" ? "guest-remove" : undefined;
 }
 
@@ -202,6 +215,8 @@ function guestOperation(
     if (method === "DELETE") return "guest-leave";
     return undefined;
   }
+  if (suffix === "/listen")
+    return method === "POST" ? "guest-listen" : undefined;
   if (suffix === "/delivery") {
     return method === "PUT" || method === "POST" ? "guest-delivery" : undefined;
   }

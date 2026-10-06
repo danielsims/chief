@@ -19,7 +19,7 @@ import type {
   ChannelRow,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
-import { closeExternalChannel } from "./channel-guest-lifecycle";
+import { revokeChannelAgents } from "./channel-guest-lifecycle";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
@@ -312,7 +312,6 @@ export class WorkspaceChannelService {
         updatedAt: now,
         conversationId: conversationId,
       });
-      if (isPrivate) closeExternalChannel(this.store.storage, conversationId);
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -343,7 +342,7 @@ export class WorkspaceChannelService {
         updatedAt: now,
         conversationId: conversationId,
       });
-      if (archived) closeExternalChannel(this.store.storage, conversationId);
+      if (archived) revokeChannelAgents(this.store.storage, conversationId);
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -373,7 +372,7 @@ export class WorkspaceChannelService {
     }
     const storage = this.store.storage;
     storage.transactionSync(() => {
-      closeExternalChannel(storage, conversationId);
+      revokeChannelAgents(storage, conversationId);
       channelMembersDeleteRemove(storage, conversationId);
       channelMembershipEventsDeleteRemove(storage, conversationId);
       channelMembershipBatchesDeleteRemove(storage, conversationId);

@@ -50,7 +50,6 @@ export function initializeWorkspaceSchema(
       is_private INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
       description TEXT,
-      external_link_token TEXT,
       created_by_kind TEXT NOT NULL,
       created_by_id TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1,
@@ -188,13 +187,10 @@ export function initializeWorkspaceSchema(
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
-  addColumns(storage, "channels", [["external_link_token", "TEXT"]]);
+  dropPreReleaseExternalLinks(storage);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
       ON channels (workspace_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS channels_external_link_token_idx
-      ON channels (external_link_token)
-      WHERE external_link_token IS NOT NULL;
     CREATE INDEX IF NOT EXISTS channel_members_ctable_idx
       ON channel_members (conversation_id);
   `);
@@ -247,6 +243,20 @@ function addColumns(
       `ALTER TABLE ${sqliteIdentifier(table)} ADD COLUMN ${sqliteIdentifier(name)} ${definition}`,
     );
   }
+}
+
+/** Pre-release builds gave channels a public join link. Channels are only
+ * public or private now, so the column is removed once. */
+function dropPreReleaseExternalLinks(storage: DurableObjectStorage) {
+  const columns = storage.sql
+    .exec<{ name: string }>("PRAGMA table_info(channels)")
+    .toArray()
+    .map((column) => column.name);
+  if (!columns.includes("external_link_token")) return;
+  storage.sql.exec(`
+    DROP INDEX IF EXISTS channels_external_link_token_idx;
+    ALTER TABLE channels DROP COLUMN external_link_token;
+  `);
 }
 
 function migrateLegacyChannelSchema(storage: DurableObjectStorage) {

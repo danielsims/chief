@@ -9,7 +9,10 @@ import {
   SmilePlus,
 } from "lucide-react";
 
-import type { SessionRecord } from "@chief/agent-runtime/types";
+import type {
+  GuestAppearance,
+  SessionRecord,
+} from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverContent,
@@ -26,6 +29,7 @@ import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
 import { AttentionPill } from "../attention-pill";
 import { AvatarImage } from "../avatar-image";
+import { GuestAvatar } from "../guest-avatar";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
 import { relativeActivityTime } from "./relative-activity-time";
 import {
@@ -294,6 +298,12 @@ export function ChannelMessageMeta({
                     />
                   )}
                 </span>
+              ) : participant.kind === "guest" ? (
+                <GuestAvatar
+                  key={participant.id}
+                  className="ring-background size-5 rounded-md text-[7px] ring-2"
+                  guest={participant.guest}
+                />
               ) : (
                 <span
                   key={participant.id}
@@ -344,4 +354,10 @@ export type ThreadParticipant =
       kind: "user";
       name: string;
       image?: string;
+    }
+  | {
+      id: string;
+      kind: "guest";
+      name: string;
+      guest: GuestAppearance;
     };

@@ -114,7 +114,10 @@ export function ChatComposer({
     editorRef.current?.openMention();
   };
   const insertMention = (candidate: MentionCandidate) => {
-    editorRef.current?.insertQueryResult("mention", `@${candidate.name}`);
+    editorRef.current?.insertQueryResult(
+      "mention",
+      `@${candidate.handle ?? candidate.name}`,
+    );
     setMentionIndex(0);
     setDismissedMentionText(null);
   };

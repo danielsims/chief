@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { JsonObject } from "@chief/relay-contracts";
 import {
-  channelExternalAccessSchema,
+  channelGuestInviteSchema,
   channelGuestJoinResultSchema,
   channelGuestMessagePageSchema,
   conversationIdSchema,
@@ -23,6 +23,7 @@ import {
 import worker from "../src/index";
 import { withTrustedContext } from "../src/internal-context";
 import { channelGuestOutboxDue } from "../src/queries/channel-guests/delivery";
+import { channelGuestsUpdate } from "../src/queries/channel-guests/guests";
 import {
   agentId,
   channelEnvelope,
@@ -41,68 +42,71 @@ afterEach(() => {
 });
 
 describe("channel guests", () => {
-  it("admits nobody until an admin makes the channel external", async () => {
+  it("admits an agent only with a member's single-use invite", async () => {
     const ctx = await setupLaunchChannel();
-    expect(await externalGet(ctx, "launch")).toEqual({ external: false });
+    const forged = await gatewayOperation(ctx, "guest-join", {
+      search: { token: "A".repeat(32) },
+      body: { name: "Impostor", provider: "other" },
+    });
+    expect(forged.status).toBe(404);
 
-    const agent = await setExternal(
-      ctx,
-      "launch",
-      true,
-      testAgentPrincipal(ctx, agentId, ctx.principal.pubkey),
-    );
+    const agent = await guestOperation(ctx, "guest-invite-create", {
+      principal: testAgentPrincipal(ctx, agentId, ctx.principal.pubkey),
+      search: { conversationId: "launch" },
+    });
     expect(agent.status).toBe(403);
-    expect(await externalGet(ctx, "launch")).toEqual({ external: false });
 
-    const first = await makeExternal(ctx, "launch");
-    expect(first).toMatch(
-      new RegExp(`^${origin}/c/${ctx.workspaceId}/[A-Za-z0-9_-]{24}$`, "u"),
+    const link = await inviteLink(ctx);
+    expect(link).toMatch(
+      new RegExp(
+        `^${origin}/agents/${ctx.workspaceId}/[A-Za-z0-9_-]{32}$`,
+        "u",
+      ),
     );
-    expect(await makeExternal(ctx, "launch")).toBe(first);
+    expect(await (await resolve(ctx, link)).json()).toMatchObject({
+      channel: { id: "launch" },
+    });
+    const joined = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(link) },
+      body: { name: "Claude", provider: "claude" },
+    });
+    expect(joined.status).toBe(201);
+    const agentJoined = channelGuestJoinResultSchema.parse(await joined.json());
+    expect(agentJoined.guest.operator?.id).toBe(ctx.principal.userId);
 
-    await channelRpc(
-      ctx,
-      ctx.principal,
-      "channels-create",
-      channelEnvelope({
-        conversationId: "secret-room",
-        name: "Secret room",
-        isPrivate: true,
-      }),
-    );
-    expect((await setExternal(ctx, "secret-room", true)).status).toBe(409);
-
-    const reset = channelExternalAccessSchema.parse(
-      await (
-        await guestOperation(ctx, "channel-external-reset", {
-          principal: ctx.principal,
-          search: { conversationId: "launch" },
-        })
-      ).json(),
-    );
-    if (!reset.external) throw new Error("A reset channel stays external.");
-    expect(reset.url).not.toBe(first);
-    expect((await resolve(ctx, first)).status).toBe(404);
+    const reused = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(link) },
+      body: { name: "Second", provider: "claude" },
+    });
+    expect(reused.status).toBe(404);
+    expect((await resolve(ctx, link)).status).toBe(404);
   });
 
-  it("never admits guests to an internal channel, even with an old link", async () => {
+  it("cuts an agent off the moment its member can no longer see the channel", async () => {
     const ctx = await setupLaunchChannel();
-    const link = await makeExternal(ctx, "launch");
-    const guest = await join(ctx, "Grok");
+    const agent = await join(ctx, "Claude");
+    expect((await asGuest(ctx, agent.token, "guest-messages")).status).toBe(
+      200,
+    );
 
-    expect((await setExternal(ctx, "launch", false)).status).toBe(200);
-    expect(await externalGet(ctx, "launch")).toEqual({ external: false });
-    expect((await asGuest(ctx, guest.token, "guest-me")).status).toBe(401);
-    expect((await resolve(ctx, link)).status).toBe(404);
-    const rejoin = await gatewayOperation(ctx, "guest-join", {
-      search: { token: tokenOf(link) },
-      body: { name: "Grok again" },
+    const stub = ctx.env.WORKSPACES.get(
+      ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      channelGuestsUpdate(state.storage, agent.guest.id, {
+        operator_user_id: "user-who-left",
+      });
     });
-    expect(rejoin.status).toBe(404);
-
-    const reopened = await makeExternal(ctx, "launch");
-    expect(reopened).not.toBe(link);
-    expect((await asGuest(ctx, guest.token, "guest-me")).status).toBe(401);
+    expect((await asGuest(ctx, agent.token, "guest-messages")).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await asGuest(ctx, agent.token, "guest-post", {
+          body: { body: "Still here?" },
+        })
+      ).status,
+    ).toBe(403);
   });
 
   it("admits a guest to one channel without waking agents", async () => {
@@ -145,6 +149,8 @@ describe("channel guests", () => {
       kind: "guest" as const,
       guestId: guest.guest.id,
       name: "Grok",
+      provider: "grok" as const,
+      operator: { id: ctx.principal.userId, name: "Owner" },
       workspaceId: ctx.workspaceId,
       conversationId: conversationIdSchema.parse("launch"),
     };
@@ -265,16 +271,16 @@ describe("channel guests", () => {
     });
   });
 
-  it("serves people a page and agents the brief from the same link", async () => {
+  it("serves people an invite page and agents the brief from the same link", async () => {
     const ctx = await setupLaunchChannel();
-    const link = await makeExternal(ctx, "launch");
+    const link = await inviteLink(ctx);
 
     const page = await relay(link, { accept: "text/html" });
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
     const html = await page.text();
-    expect(html).toContain("Open in Chief");
-    expect(html).toContain("Bring an agent");
+    expect(html).toContain("Invite your agent to");
+    expect(html).not.toContain("Open in Chief");
     expect(html).toContain("Join #Launch on Chief");
     expect(html).toContain(`${link}/join`);
 
@@ -283,7 +289,7 @@ describe("channel guests", () => {
     expect(await brief.text()).toMatch(/^# Join #Launch on Chief/u);
 
     const missing = await relay(
-      `${origin}/c/${ctx.workspaceId}/AAAAAAAAAAAAAAAAAAAAAAAA`,
+      `${origin}/agents/${ctx.workspaceId}/${"A".repeat(32)}`,
       { accept: "text/html" },
     );
     expect(missing.status).toBe(404);
@@ -360,20 +366,19 @@ describe("channel guests", () => {
     expect(anonymous.status).toBe(401);
   });
 
-  it("removes every guest and the link when an external channel turns private", async () => {
+  it("removes every agent and unused invite when a channel is archived", async () => {
     const ctx = await setupLaunchChannel();
-    const link = await makeExternal(ctx, "launch");
-    const guest = await join(ctx, "Grok");
-    const updated = await channelRpc(
+    const agent = await join(ctx, "Grok");
+    const unused = await inviteLink(ctx);
+    const archived = await channelRpc(
       ctx,
       ctx.principal,
-      "channels-update",
-      channelEnvelope({ conversationId: "launch", isPrivate: true }),
+      "channels-archive",
+      channelEnvelope({ conversationId: "launch" }),
     );
-    expect(updated.status).toBe(200);
-    expect((await asGuest(ctx, guest.token, "guest-me")).status).toBe(401);
-    expect((await resolve(ctx, link)).status).toBe(404);
-    expect(await externalGet(ctx, "launch")).toEqual({ external: false });
+    expect(archived.status).toBe(200);
+    expect((await asGuest(ctx, agent.token, "guest-me")).status).toBe(401);
+    expect((await resolve(ctx, unused)).status).toBe(404);
   });
 
   it("caps how many agents can join a channel each hour", async () => {
@@ -381,10 +386,10 @@ describe("channel guests", () => {
     for (let index = 0; index < 10; index += 1) {
       await join(ctx, `Agent ${index}`);
     }
-    const link = await makeExternal(ctx, "launch");
+    const link = await inviteLink(ctx);
     const response = await gatewayOperation(ctx, "guest-join", {
       search: { token: tokenOf(link) },
-      body: { name: "Agent 10" },
+      body: { name: "Agent 10", provider: "other" },
     });
     expect(response.status).toBe(429);
   });
@@ -392,38 +397,29 @@ describe("channel guests", () => {
   it("refuses guest names that belong to the workspace", async () => {
     const ctx = await setupLaunchChannel();
     await join(ctx, "Grok");
-    const link = await makeExternal(ctx, "launch");
-    for (const name of ["grok", "Chief"]) {
+    const link = await inviteLink(ctx);
+    for (const name of ["Chief", "chief"]) {
       const response = await gatewayOperation(ctx, "guest-join", {
         search: { token: tokenOf(link) },
-        body: { name },
+        body: { name, provider: "other" },
       });
       expect(response.status, name).toBe(409);
     }
   });
 
-  it("keeps one identity when an agent joins again with its token", async () => {
+  it("announces each agent once, and a used invite admits no one else", async () => {
     const ctx = await setupLaunchChannel();
-    const first = await join(ctx, "Grok Bot");
-    const link = await makeExternal(ctx, "launch");
+    const link = await inviteLink(ctx);
+    const first = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(link) },
+      body: { name: "Grok Bot", provider: "grok" },
+    });
+    expect(first.status).toBe(201);
     const again = await gatewayOperation(ctx, "guest-join", {
       search: { token: tokenOf(link) },
-      body: { name: "Grok Bot" },
-      credential: first.token,
+      body: { name: "Grok Bot", provider: "grok" },
     });
-    expect(again.status).toBe(201);
-    const rejoined = channelGuestJoinResultSchema.parse(await again.json());
-    expect(rejoined.guest.id).toBe(first.guest.id);
-    expect(rejoined.token).toBe(first.token);
-
-    const duplicate = await gatewayOperation(ctx, "guest-join", {
-      search: { token: tokenOf(link) },
-      body: { name: "grok bot" },
-    });
-    expect(duplicate.status).toBe(409);
-    expect(await duplicate.json()).toMatchObject({
-      error: { code: "guest_already_joined" },
-    });
+    expect(again.status).toBe(404);
 
     const messages = await testConversationMessages(
       ctx,
@@ -515,6 +511,220 @@ describe("channel guests", () => {
       expect(response.status, url).toBe(400);
     }
   });
+
+  it("gives internal channels a members-only link that reveals nothing", async () => {
+    await setupLaunchChannel();
+    const brief = await (await relay(`${origin}/open/channel/launch`)).text();
+    expect(brief).toContain("internal Chief channel");
+    expect(brief).not.toContain("Launch");
+    const page = await (
+      await relay(`${origin}/open/channel/launch`, { accept: "text/html" })
+    ).text();
+    expect(page).toContain(
+      "chief-desktop://navigate/conversation?channel=launch",
+    );
+    const join = await relay(`${origin}/open/channel/launch/join`, {
+      method: "POST",
+    });
+    expect(join.status).not.toBe(201);
+  });
+
+  it("pushes only a guest's own wake-ups to its listener socket", async () => {
+    const ctx = await setupLaunchChannel();
+    const guest = await join(ctx, "opencode");
+    const ticket = (await (
+      await asGuest(ctx, guest.token, "guest-listen")
+    ).json()) as { url: string };
+    expect(ticket.url).toMatch(/^wss:\/\/relay\.test\/v1\/connect\?/u);
+    const connected = await relay(ticket.url.replace(/^wss:/u, "https:"), {
+      headers: { upgrade: "websocket" },
+    });
+    expect(connected.status).toBe(101);
+    const socket = connected.webSocket;
+    if (!socket) throw new Error("No listener socket.");
+    socket.accept();
+    const received: string[] = [];
+    socket.addEventListener("message", (event) => {
+      received.push(String(event.data));
+    });
+
+    const message = (body: string, sequence: number) => ({
+      id: crypto.randomUUID(),
+      workspaceId: ctx.workspaceId,
+      conversationId: "launch",
+      author: { kind: "user", id: ctx.principal.userId },
+      body,
+      mentions: [],
+      components: [],
+      reactions: [],
+      edited: false,
+      deleted: false,
+      createdAt: new Date().toISOString(),
+      sequence,
+    });
+    await dispatchTestMessage(
+      ctx,
+      ctx.principal,
+      message("Unrelated chatter", 21),
+    );
+    await dispatchTestMessage(
+      ctx,
+      ctx.principal,
+      message("@opencode can you look?", 22),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(JSON.parse(received[0] ?? "{}")).toMatchObject({
+      name: "channel.message",
+      data: { reason: "mention", message: { text: "@opencode can you look?" } },
+    });
+
+    socket.send("ping");
+    await vi.waitFor(() => expect(received).toContain("pong"));
+
+    // A ticket works once.
+    const reused = await relay(ticket.url.replace(/^wss:/u, "https:"), {
+      headers: { upgrade: "websocket" },
+    });
+    expect(reused.status).not.toBe(101);
+    socket.close();
+  });
+
+  it("lets agents share a name, and keeps every handle unique", async () => {
+    const ctx = await setupLaunchChannel();
+    const link = await inviteLink(ctx);
+    const first = await join(ctx, "Claude");
+    const second = await join(ctx, "Claude");
+    expect(first.guest.handle).toBe("claude");
+    expect(second.guest.handle).toBe("claude-2");
+
+    const third = await join(ctx, "Claude");
+    expect(third.guest.handle).toBe("claude-3");
+
+    // A person still cannot be impersonated.
+    const people = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(link) },
+      body: { name: "Chief", provider: "claude" },
+    });
+    expect(people.status).toBe(409);
+
+    await asGuest(ctx, second.token, "guest-delivery", {
+      body: { webhook: { url: "https://hooks.example.com/second" } },
+    });
+    await asGuest(ctx, first.token, "guest-delivery", {
+      body: { webhook: { url: "https://hooks.example.com/first" } },
+    });
+    await dispatchTestMessage(ctx, ctx.principal, {
+      id: crypto.randomUUID(),
+      workspaceId: ctx.workspaceId,
+      conversationId: "launch",
+      author: { kind: "user", id: ctx.principal.userId },
+      body: "@claude-2 just you please",
+      mentions: [],
+      components: [],
+      reactions: [],
+      edited: false,
+      deleted: false,
+      createdAt: new Date().toISOString(),
+      sequence: 31,
+    });
+    const stub = ctx.env.WORKSPACES.get(
+      ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      const due = channelGuestOutboxDue(
+        state.storage,
+        "9999-12-31T00:00:00.000Z",
+        10,
+      );
+      expect(due.map((row) => row.guest_id)).toEqual([second.guest.id]);
+    });
+  });
+
+  it("hands a joining agent the whole manual in the join response", async () => {
+    const ctx = await setupLaunchChannel();
+    const joined = await join(ctx, "Grok");
+    expect(joined.instructions).toContain("#Launch");
+    expect(joined.next.tool).toBe("read_messages");
+    const post = joined.tools.find((tool) => tool.name === "post_message");
+    expect(post).toMatchObject({
+      method: "POST",
+      url: `${joined.api.base}/messages`,
+      input: { required: ["body"] },
+    });
+    expect(joined.tools.map((tool) => tool.name)).toEqual([
+      "read_channel",
+      "read_messages",
+      "read_thread",
+      "post_message",
+      "set_delivery",
+      "leave_channel",
+    ]);
+
+    const providerless = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(await inviteLink(ctx)) },
+      body: { name: "Mystery" },
+    });
+    expect(providerless.status).toBe(400);
+    expect(joined.guest.provider).toBe("claude");
+
+    const manifest = await (
+      await relay(`${origin}/.well-known/chief-agent.json`)
+    ).json();
+    expect(manifest).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ name: "post_message" }),
+      ]),
+      join: { input: { properties: { grokProfile: expect.any(Object) } } },
+    });
+    const llms = await (await relay(`${origin}/llms.txt`)).text();
+    expect(llms).toContain("profile.json");
+    expect(llms).toContain("`post_message`");
+  });
+
+  it("draws a Grok Bot from its own profile.json and keeps nothing else", async () => {
+    const ctx = await setupLaunchChannel();
+    const link = await inviteLink(ctx);
+    const joined = channelGuestJoinResultSchema.parse(
+      await (
+        await gatewayOperation(ctx, "guest-join", {
+          search: { token: tokenOf(link) },
+          body: {
+            grokProfile: {
+              name: "Chief of Staff",
+              description: "Manages your other Bots",
+              avatarShape: "tablet",
+              avatarColor: "red",
+              serverId: "515570",
+              harness: "temporal",
+            },
+          },
+        })
+      ).json(),
+    );
+    expect(joined.guest).toMatchObject({
+      name: "Chief of Staff",
+      mark: { style: "grok-bot", shape: "tablet", color: "red" },
+      operator: { id: ctx.principal.userId },
+      handle: "chiefofstaff",
+    });
+    expect(JSON.stringify(joined)).not.toContain("515570");
+
+    const odd = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(await inviteLink(ctx)) },
+      body: {
+        grokProfile: { name: "Odd", avatarShape: "<svg>", avatarColor: "#fff" },
+      },
+    });
+    expect(
+      channelGuestJoinResultSchema.parse(await odd.json()).guest.mark,
+    ).toEqual({ style: "grok-bot", shape: "blob", color: "gray" });
+
+    const nameless = await gatewayOperation(ctx, "guest-join", {
+      search: { token: tokenOf(await inviteLink(ctx)) },
+      body: { grokProfile: { avatarShape: "hex" } },
+    });
+    expect(nameless.status).toBe(400);
+  });
 });
 
 /** The relay as its objects see it: real bindings and secrets, with the
@@ -546,57 +756,30 @@ async function setupLaunchChannel() {
   return ctx;
 }
 
-async function externalGet(ctx: ChannelTestContext, conversationId: string) {
-  const response = await guestOperation(ctx, "channel-external-get", {
+/** A fresh single-use invite from the channel owner for their own agent. */
+async function inviteLink(ctx: ChannelTestContext, conversationId = "launch") {
+  const response = await guestOperation(ctx, "guest-invite-create", {
     principal: ctx.principal,
     search: { conversationId },
   });
   expect(response.status).toBe(200);
-  return channelExternalAccessSchema.parse(await response.json());
-}
-
-function setExternal(
-  ctx: ChannelTestContext,
-  conversationId: string,
-  external: boolean,
-  principal: Parameters<
-    typeof withTrustedContext
-  >[1]["principal"] = ctx.principal,
-) {
-  return guestOperation(ctx, "channel-external-set", {
-    principal,
-    search: { conversationId },
-    body: { external },
-  });
-}
-
-async function makeExternal(ctx: ChannelTestContext, conversationId: string) {
-  const response = await setExternal(ctx, conversationId, true);
-  expect(response.status).toBe(200);
-  const access = channelExternalAccessSchema.parse(await response.json());
-  if (!access.external) throw new Error("The channel did not become external.");
-  return access.url;
+  return channelGuestInviteSchema.parse(await response.json()).url;
 }
 
 function resolve(ctx: ChannelTestContext, link: string) {
-  return gatewayOperation(ctx, "guest-link-resolve", {
+  return gatewayOperation(ctx, "guest-invite-resolve", {
     search: { token: tokenOf(link) },
   });
 }
 
 async function join(ctx: ChannelTestContext, name: string) {
-  const link = (await externalUrl(ctx)) ?? (await makeExternal(ctx, "launch"));
+  const link = await inviteLink(ctx);
   const response = await gatewayOperation(ctx, "guest-join", {
     search: { token: tokenOf(link) },
-    body: { name, about: "Test agent." },
+    body: { name, about: "Test agent.", provider: "claude" },
   });
   expect(response.status).toBe(201);
   return channelGuestJoinResultSchema.parse(await response.json());
-}
-
-async function externalUrl(ctx: ChannelTestContext) {
-  const access = await externalGet(ctx, "launch");
-  return access.external ? access.url : null;
 }
 
 function tokenOf(url: string) {

@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
 import { Archive, Hash, Lock, Trash2 } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import { Switch } from "@chief/ui/components/switch";
 
 import type { SidebarChannel } from "./channel-browser-dialog";
-import { useChannelExternalAccess } from "./chat/channel-guests";
+import { useChannelLinks } from "./chat/channel-guests";
 
 /** Channel settings, laid out like Slack's: details first, then the
  * lifecycle actions that change who can see the channel or whether it
@@ -34,89 +33,34 @@ export function ChannelSettingsPanel({
 }) {
   const isPrivate = channel.visibility === "private";
   const archived = channel.lifecycle === "archived";
-  const access = useChannelExternalAccess(channel.id, !isPrivate);
-  const [savingExternal, setSavingExternal] = useState(false);
-  const [externalError, setExternalError] = useState<string | null>(null);
-
-  const setExternal = async (external: boolean) => {
-    setSavingExternal(true);
-    setExternalError(null);
-    try {
-      await access.setExternal(external);
-    } catch {
-      setExternalError(
-        external
-          ? "Chief couldn’t make this channel external."
-          : "Chief couldn’t make this channel internal.",
-      );
-    } finally {
-      setSavingExternal(false);
-    }
-  };
+  const links = useChannelLinks(channel.id);
 
   return (
     <div className="space-y-4">
       <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
         {nameField}
-        {isPrivate ? null : (
-          <section className="px-5 py-4">
-            <div className="flex items-center gap-4">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-sm font-semibold">External channel</h3>
-                <p className="text-muted-foreground mt-1 text-sm leading-5">
-                  Invite people and agents outside your workspace with a link.
-                </p>
-              </div>
-              <Switch
-                aria-label="External channel"
-                checked={access.external}
-                disabled={
-                  !canManage ||
-                  !access.loaded ||
-                  savingExternal ||
-                  (archived && !access.external)
-                }
-                onCheckedChange={(checked) => void setExternal(checked)}
-              />
-            </div>
-            {access.external ? (
-              <>
-                <p className="text-muted-foreground mt-3 text-sm leading-5">
-                  Anyone on the internet with the link can read and post here.
-                  Don’t share secrets in this channel.
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                    onClick={() => void access.copyLink()}
-                  >
-                    {access.copyState === "copied"
-                      ? "Link copied"
-                      : access.copyState === "failed"
-                        ? "Couldn’t copy link"
-                        : "Copy link"}
-                  </Button>
-                  {canManage ? (
-                    <Button
-                      size="sm"
-                      title="The current link stops working. Guests already here stay."
-                      type="button"
-                      variant="ghost"
-                      onClick={() => void access.resetLink()}
-                    >
-                      Reset link
-                    </Button>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-            {externalError ? (
-              <p className="text-destructive mt-3 text-sm leading-5">
-                {externalError}
+        {archived ? null : (
+          <section className="flex items-center gap-4 px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold">Your agent</h3>
+              <p className="text-muted-foreground mt-1 text-sm leading-5">
+                Invite your own agent, like Claude or Grok, to read and post
+                here. It shows as working for you.
               </p>
-            ) : null}
+            </div>
+            <Button
+              size="sm"
+              title="A single-use link for your own agent. It expires in 24 hours."
+              type="button"
+              variant="outline"
+              onClick={() => void links.copyInvite()}
+            >
+              {links.inviteState === "copied"
+                ? "Invite copied"
+                : links.inviteState === "failed"
+                  ? "Couldn’t create invite"
+                  : "Copy invite"}
+            </Button>
           </section>
         )}
         {canManage ? (

@@ -351,16 +351,9 @@ export function projectChannelTimeline(
               metadata: {
                 createdAt: event.createdAt,
                 ...(agentId ? { agentId } : undefined),
-                ...(event.actor.type === "guest"
-                  ? {
-                      guest: {
-                        id: event.actor.id,
-                        name: event.actor.name,
-                        ...(event.actor.image
-                          ? { image: event.actor.image }
-                          : undefined),
-                      },
-                    }
+                ...(author ? { author } : undefined),
+                ...(event.actor.guest
+                  ? { guest: event.actor.guest }
                   : undefined),
                 ...(threadRootId ? { threadRootId } : undefined),
                 ...(channelAction ? { channelAction } : undefined),

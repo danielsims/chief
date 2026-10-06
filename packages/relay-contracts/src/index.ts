@@ -2,6 +2,7 @@ export * from "./agents";
 export * from "./attachments";
 export * from "./channels";
 export * from "./channel-guests";
+export * from "./guest-profile";
 export * from "./discovery";
 export * from "./directs";
 export * from "./device-identities";

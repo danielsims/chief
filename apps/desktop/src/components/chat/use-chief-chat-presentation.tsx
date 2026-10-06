@@ -55,7 +55,7 @@ export function useChiefChatPresentation({
   core: Core;
   timeline: Timeline;
 }) {
-  const { channelReactions, messages, userAuthor } = core;
+  const { authorFor, channelReactions, messages } = core;
   const { setThreadRootId, threadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
@@ -172,21 +172,20 @@ export function useChiefChatPresentation({
           return [
             {
               id: `guest:${reply.metadata.guest.id}`,
-              kind: "user",
+              kind: "guest",
               name: reply.metadata.guest.name,
-              ...(reply.metadata.guest.image
-                ? { image: reply.metadata.guest.image }
-                : undefined),
+              guest: reply.metadata.guest,
             },
           ];
         }
         if (reply.role === "user") {
+          const author = authorFor(reply);
           return [
             {
-              id: "current-user",
+              id: reply.metadata?.author?.id ?? "current-user",
               kind: "user",
-              name: userAuthor.name,
-              ...(userAuthor.image ? { image: userAuthor.image } : undefined),
+              name: author.name,
+              ...(author.image ? { image: author.image } : undefined),
             },
           ];
         }

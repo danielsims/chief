@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { guestProfileSchema } from "./guest-profile";
 import {
   agentIdSchema,
   conversationIdSchema,
@@ -78,11 +79,9 @@ export const servicePrincipalSchema = z.object({
 /** Never derived from a signed relay identity. Only the channel guest service
  * mints it, after verifying a guest credential, and it is scoped to exactly
  * one channel. */
-export const guestPrincipalSchema = z.object({
+export const guestPrincipalSchema = guestProfileSchema.extend({
   kind: z.literal("guest"),
   guestId: guestIdSchema,
-  name: z.string().trim().min(1).max(80),
-  image: z.url().max(2_048).optional(),
   workspaceId: workspaceIdSchema,
   conversationId: conversationIdSchema,
 });

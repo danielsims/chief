@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+  guestMarkSchema,
+  guestOperatorSchema,
+  guestProviderSchema,
+} from "./guest-profile";
+import {
   guestIdSchema,
   isoDateTimeSchema,
   messageIdSchema,
@@ -12,7 +17,7 @@ export const channelGuestWakeSchema = z.enum(["mentions", "all"]);
 
 export const channelGuestStatusSchema = z.enum(["active", "removed"]);
 
-const guestNameSchema = z
+export const guestNameSchema = z
   .string()
   .trim()
   .min(1)
@@ -32,10 +37,25 @@ export const channelGuestWebhookInputSchema = z
   })
   .strict();
 
+/**
+ * A Grok Bot's own `profile.json`, sent as it is on disk. Only `name`,
+ * `avatarShape` and `avatarColor` are read; every other field is discarded.
+ */
+export const grokBotProfileInputSchema = z.object({
+  name: z.string().trim().max(80).optional(),
+  avatarShape: z.string().trim().max(40).optional(),
+  avatarColor: z.string().trim().max(40).optional(),
+});
+
 export const channelGuestJoinInputSchema = z
   .object({
-    name: guestNameSchema,
+    /** Optional when `grokProfile` carries the name. */
+    name: guestNameSchema.optional(),
     about: z.string().trim().min(1).max(280).optional(),
+    /** What you run on. Optional when `grokProfile` says you are a Grok Bot. */
+    provider: guestProviderSchema.optional(),
+    /** The model you run, e.g. `claude-opus-5-5`. */
+    model: z.string().trim().min(1).max(80).optional(),
     wake: channelGuestWakeSchema.default("mentions"),
     webhook: channelGuestWebhookInputSchema.optional(),
     /** Public HTTPS image the relay copies once and hosts itself. */
@@ -43,8 +63,17 @@ export const channelGuestJoinInputSchema = z
       .url({ protocol: /^https$/u })
       .max(2_048)
       .optional(),
+    grokProfile: grokBotProfileInputSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((input) => input.name ?? input.grokProfile?.name, {
+    message: "Send `name`, or a `grokProfile` that has one.",
+    path: ["name"],
+  })
+  .refine((input) => input.provider ?? input.grokProfile, {
+    message: `Send \`provider\`: one of ${guestProviderSchema.options.join(", ")}.`,
+    path: ["provider"],
+  });
 
 export const channelGuestDeliveryInputSchema = z
   .object({
@@ -59,6 +88,13 @@ export const channelGuestSummarySchema = z
     name: z.string(),
     about: z.string().nullable(),
     image: z.url().nullable(),
+    provider: guestProviderSchema,
+    model: z.string().nullable(),
+    mark: guestMarkSchema.nullable(),
+    /** Set only when a member's personal invite verified who it works for. */
+    operator: guestOperatorSchema.nullable(),
+    /** What people type after @ to mention it, such as `danielsims:grokbot`. */
+    handle: z.string(),
     status: channelGuestStatusSchema,
     wake: channelGuestWakeSchema,
     delivery: z.enum(["webhook", "events", "poll"]),
@@ -71,25 +107,31 @@ export const channelGuestListSchema = z
   .object({ guests: z.array(channelGuestSummarySchema) })
   .strict();
 
-/**
- * Whether outsiders can join a channel. Only external channels have a link;
- * public and private channels are never reachable from outside.
- */
-export const channelExternalAccessSchema = z.discriminatedUnion("external", [
-  z.object({ external: z.literal(false) }).strict(),
-  z.object({ external: z.literal(true), url: z.url() }).strict(),
-]);
-
-export const channelExternalUpdateSchema = z
-  .object({ external: z.boolean() })
-  .strict();
-
 export const channelGuestRemoveResultSchema = z
   .object({ removed: z.literal(true) })
   .strict();
 
+/** One thing a guest can do, described well enough to call without docs. */
+export const guestToolSchema = z
+  .object({
+    name: z.string(),
+    description: z.string(),
+    method: z.enum(["GET", "POST", "PUT", "DELETE"]),
+    url: z.url(),
+    /** JSON Schema for the query (GET) or JSON body (everything else). */
+    input: z.record(z.string(), z.json()),
+  })
+  .strict();
+
+/** A member's single-use link that admits their own agent into a channel. */
+export const channelGuestInviteSchema = z
+  .object({ url: z.url(), expiresAt: isoDateTimeSchema })
+  .strict();
+
 export const channelGuestJoinResultSchema = z
   .object({
+    /** How to behave here. Read it before anything else. */
+    instructions: z.string(),
     guest: channelGuestSummarySchema,
     token: z.string().min(43),
     /** Verifies wake-up webhooks. Returned once, when a webhook is set. */
@@ -103,6 +145,8 @@ export const channelGuestJoinResultSchema = z
         mcpWithToken: z.url(),
       })
       .strict(),
+    tools: z.array(guestToolSchema),
+    next: z.object({ tool: z.string(), why: z.string() }).strict(),
   })
   .strict();
 
@@ -153,4 +197,5 @@ export type ChannelGuestPostInput = z.infer<typeof channelGuestPostInputSchema>;
 export type ChannelGuestDeliveryInput = z.infer<
   typeof channelGuestDeliveryInputSchema
 >;
-export type ChannelExternalAccess = z.infer<typeof channelExternalAccessSchema>;
+export type GuestTool = z.infer<typeof guestToolSchema>;
+export type ChannelGuestInvite = z.infer<typeof channelGuestInviteSchema>;
