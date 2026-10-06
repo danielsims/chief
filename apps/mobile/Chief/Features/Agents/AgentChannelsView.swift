@@ -19,7 +19,7 @@ struct AgentChannelsView: View {
         if loading {
           HStack {
             Spacer()
-            ProgressView()
+            ChiefSpinner()
             Spacer()
           }
         } else if rows.isEmpty {

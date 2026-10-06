@@ -151,7 +151,7 @@ struct MessageComposer: View {
           onSend()
         } label: {
           Group {
-            if isSending { ProgressView() } else { Image(systemName: "arrow.up") }
+            if isSending { ChiefSpinner() } else { Image(systemName: "arrow.up") }
           }
           .font(.system(size: 15, weight: .bold))
           .frame(width: 36, height: 36)
