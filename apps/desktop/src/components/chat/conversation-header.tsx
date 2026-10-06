@@ -34,8 +34,10 @@ import {
 import { AgentAvatar } from "../agent-avatar";
 import { AvatarImage } from "../avatar-image";
 import { openChannelDetails } from "../channel-details-events";
+import { UserAvatar } from "../user-avatar";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
-import { ChannelGuestRows, useChannelExternalAccess } from "./channel-guests";
+import { ChannelGuestRows, useChannelLinks } from "./channel-guests";
+import { useWorkspaceUsers } from "./mention-people-context";
 
 interface ConversationHeaderChannel {
   id: string;
@@ -43,6 +45,8 @@ interface ConversationHeaderChannel {
   description: string;
   agentIds: readonly string[];
   visibility?: "public" | "private";
+  /** Set on a person-to-person DM: the other participant. */
+  directUserId?: string;
 }
 
 interface ConversationHeaderProps {
@@ -102,21 +106,31 @@ export function ConversationHeader({
                   });
                 }
               }}
-              className="focus-visible:ring-ring/30 rounded-full transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
+              className="focus-visible:ring-ring/30 rounded-[28%] transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
             >
               <AgentPresenceAvatar
                 name={directIdentity.name}
                 presence={directPresence}
               />
             </button>
+          ) : directUser && channel.directUserId ? (
+            <button
+              type="button"
+              aria-label={`Open ${directUser.name} profile`}
+              title={`Open ${directUser.name} profile`}
+              onClick={() =>
+                onOpenProfile({ kind: "user", userId: channel.directUserId })
+              }
+              className="focus-visible:ring-ring/30 rounded-[28%] transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
+            >
+              <UserAvatar
+                name={directUser.name}
+                image={directUser.image}
+                className="size-6 text-[10px]"
+              />
+            </button>
           ) : channel.visibility === "private" ? (
             <Lock size={17} className="text-muted-foreground shrink-0" />
-          ) : channelAccess.external ? (
-            <Globe
-              aria-label="External channel"
-              size={17}
-              className="text-muted-foreground shrink-0"
-            />
           ) : (
             <Hash size={17} className="text-muted-foreground shrink-0" />
           )}

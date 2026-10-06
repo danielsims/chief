@@ -226,9 +226,12 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   var unreadCount: Int
   let requiresAttention: Bool
   var lastMessage: String?
+  /// Set on a person-to-person DM: the other participant's user id.
+  var directUserID: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
+    case directUserID = "directUserId"
   }
 
   init(
@@ -239,8 +242,10 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     unreadCount: Int,
     requiresAttention: Bool,
     lastMessage: String?,
-    archived: Bool = false
+    archived: Bool = false,
+    directUserID: String? = nil
   ) {
+    self.directUserID = directUserID
     self.id = id
     self.name = name
     self.kind = kind
@@ -261,6 +266,7 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     unreadCount = try values.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
     requiresAttention = try values.decodeIfPresent(Bool.self, forKey: .requiresAttention) ?? false
     lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
+    directUserID = try values.decodeIfPresent(String.self, forKey: .directUserID)
   }
 }
 

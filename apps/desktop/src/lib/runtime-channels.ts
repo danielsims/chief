@@ -494,9 +494,35 @@ export function useWorkspaceChannelsState() {
     [capability, client, cloudOrganizationId, sessionToken],
   );
 
+  const startUserDirect = useCallback(
+    (userId: string): Promise<string | null> => {
+      if (!cloudOrganizationId || !capability) return Promise.resolve(null);
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve) => {
+        const timeout = window.setTimeout(() => {
+          pendingCreates.current.delete(requestId);
+          resolve(null);
+          toast.error(
+            "Chief couldn't open that conversation. Please try again.",
+          );
+        }, 8_000);
+        pendingCreates.current.set(requestId, { resolve, timeout });
+        client.send({
+          type: "startUserDirect",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          userId,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId],
+  );
+
   return {
     channels: visibleChannels,
     createChannel,
+    startUserDirect,
     deleteChannel,
     setChannelArchived,
     setChannelPolicy,

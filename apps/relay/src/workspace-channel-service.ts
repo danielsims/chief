@@ -36,6 +36,7 @@ import { channelsFindChannelsCreate } from "./queries/channels/find-channels-cre
 import { channelsFindDirectBetweenMembers } from "./queries/channels/find-direct-between-members";
 import { channelsInsertChannelsCreate } from "./queries/channels/insert-channels-create";
 import { channelsInsertDirectsStart } from "./queries/channels/insert-directs-start";
+import { channelsListMemberUserDirects } from "./queries/channels/list-member-user-directs";
 import { channelsListVisibleChannels } from "./queries/channels/list-visible-channels";
 import { channelsUpdateChannelsArchive } from "./queries/channels/update-channels-archive";
 import { channelsUpdateChannelsUpdate } from "./queries/channels/update-channels-update";
@@ -143,9 +144,31 @@ export class WorkspaceChannelService {
     const rows = channelsListVisibleChannels(this.store.storage, kind, id).map(
       (row) => channelListRowSchema.parse(row),
     );
+    // Each participant sees a person-to-person DM named after the other one.
+    const directs = channelsListMemberUserDirects(
+      this.store.storage,
+      kind,
+      id,
+    ).flatMap((raw) => {
+      const row = channelListRowSchema.parse(raw);
+      const peer = this.store
+        .channelMemberRows(String(row.conversation_id))
+        .find((member) => member.principalId !== id);
+      if (!peer) return [];
+      return [
+        {
+          ...channelRecordFromRow(row),
+          name: this.principalDisplayName("user", peer.principalId).slice(
+            0,
+            120,
+          ),
+          directUserId: peer.principalId,
+        },
+      ];
+    });
     return json(
       channelListResultSchema.parse({
-        channels: rows.map(channelRecordFromRow),
+        channels: [...rows.map(channelRecordFromRow), ...directs],
       }),
     );
   }

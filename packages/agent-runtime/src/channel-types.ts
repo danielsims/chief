@@ -19,6 +19,8 @@ export interface WorkspaceChannel {
   agentIds: string[];
   userIds: string[];
   visibility?: "public" | "private" | "direct";
+  /** Set on a person-to-person DM: the other participant's user id. */
+  directUserId?: string;
   kind: ChannelKind;
   lifecycle: ChannelLifecycleState;
   archivedAt?: number;
@@ -106,6 +108,14 @@ export type ChannelClientMessage =
       type: "listChannelEvents";
       workspaceId: string;
       channelId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      /** Opens (or reuses) a person-to-person DM with a workspace member. */
+      type: "startUserDirect";
+      requestId: string;
+      workspaceId: string;
+      userId: string;
       executorCapability: ExecutorCapability;
     }
   | {

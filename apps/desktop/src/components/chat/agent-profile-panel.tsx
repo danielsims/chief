@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Hash, Settings2 } from "lucide-react";
+import { Hash, Mail, MessageCircle, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 
 import type { AgentDefinition } from "@chief/agent-runtime/types";
@@ -256,14 +256,23 @@ export function UserProfilePanel({
   user,
   channels,
   onClose,
+  onMessage,
   sizing,
 }: {
-  user: { name: string; email: string; image?: string | null };
+  user: {
+    name: string;
+    email?: string;
+    image?: string | null;
+    role?: "owner" | "admin" | "member";
+  };
   channels: readonly { id: string; name: string; description: string }[];
   onClose: () => void;
+  /** Present for other members; opens a direct message with them. */
+  onMessage?: () => Promise<boolean>;
   sizing: ConversationAuxiliaryPanelSizing;
 }) {
-  const [tab, setTab] = useState<"info" | "channels">("info");
+  const [messaging, setMessaging] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const initials = user.name
     .split(/\s+/u)
     .map((part) => part.charAt(0))
@@ -276,106 +285,84 @@ export function UserProfilePanel({
       <ConversationAuxiliaryPanelHeader title="Profile" onClose={onClose} />
 
       <ConversationAuxiliaryPanelBody>
-        <section className="flex flex-col items-center px-7 pt-8 pb-7 text-center">
-          <span className="relative size-20">
-            <span className="bg-foreground text-background flex size-full items-center justify-center overflow-hidden rounded-full text-xl font-semibold tracking-[-0.02em]">
-              {user.image ? (
-                <img
-                  src={user.image}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : (
-                initials
-              )}
-            </span>
-            <span className="ring-background absolute right-0.5 bottom-0.5 size-4 rounded-full bg-emerald-500 ring-[3px]" />
+        <section className="px-5 pt-5 pb-5">
+          <span className="bg-foreground text-background flex aspect-square w-full max-w-60 items-center justify-center overflow-hidden rounded-2xl text-5xl font-semibold tracking-[-0.03em]">
+            {user.image && !imageFailed ? (
+              <img
+                src={user.image}
+                alt=""
+                className="size-full object-cover"
+                onError={() => setImageFailed(true)}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              initials
+            )}
           </span>
-          <h2 className="mt-4 text-xl font-semibold tracking-[-0.03em]">
+          <h2 className="mt-4 truncate text-xl font-semibold tracking-[-0.03em]">
             {user.name}
           </h2>
-          <p className="text-muted-foreground mt-1 text-[13px]">{user.email}</p>
-          <div className="text-muted-foreground mt-2.5 flex items-center gap-1.5 text-xs">
-            <span className="size-1.5 rounded-full bg-emerald-500" /> Online
-          </div>
+          <p className="text-muted-foreground mt-1 text-[13px] capitalize">
+            {user.role ?? "member"}
+          </p>
+          {onMessage ? (
+            <button
+              type="button"
+              disabled={messaging}
+              onClick={() => {
+                setMessaging(true);
+                void onMessage().finally(() => setMessaging(false));
+              }}
+              className="hover:bg-muted/55 mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_14%,transparent)] transition-colors disabled:opacity-60"
+            >
+              <MessageCircle size={15} /> Message
+            </button>
+          ) : null}
         </section>
 
-        <div className="border-b px-4 pb-4">
-          <div
-            className="flex items-center justify-center gap-1.5"
-            aria-label="Profile sections"
-            role="tablist"
-          >
-            {(["info", "channels"] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setTab(item)}
-                aria-selected={tab === item}
-                role="tab"
-                className={cn(
-                  "text-muted-foreground hover:bg-muted/55 hover:text-foreground inline-flex h-8 items-center rounded-full px-3 text-xs font-medium capitalize transition-colors",
-                  tab === item &&
-                    "bg-muted text-foreground shadow-[inset_0_1px_0_color-mix(in_srgb,var(--background)_65%,transparent),0_1px_2px_color-mix(in_srgb,var(--foreground)_5%,transparent)]",
-                )}
-              >
-                {item}
-                {item === "channels" && channels.length > 0 ? (
-                  <span className="text-muted-foreground ml-1.5 text-[10px] tabular-nums">
-                    {channels.length}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        </div>
+        {user.email ? (
+          <section className="border-t px-5 py-5">
+            <h3 className="text-sm font-semibold tracking-[-0.01em]">
+              Contact information
+            </h3>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="bg-muted/55 text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-lg">
+                <Mail size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="text-muted-foreground block text-[11px] font-medium">
+                  Email address
+                </span>
+                <a
+                  href={`mailto:${user.email}`}
+                  className="block truncate text-[13px] text-sky-500 hover:underline"
+                >
+                  {user.email}
+                </a>
+              </span>
+            </div>
+          </section>
+        ) : null}
 
-        {tab === "info" ? (
-          <div className="space-y-6 px-5 py-6">
-            <section>
-              <h3 className="text-sm font-semibold tracking-[-0.01em]">
-                About
-              </h3>
-              <div className="bg-muted/30 mt-3 overflow-hidden rounded-2xl">
-                <div className="border-border/55 border-b px-4 py-3">
-                  <p className="text-muted-foreground text-[10px]">Email</p>
-                  <p className="mt-1 truncate text-[13px]">{user.email}</p>
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-muted-foreground text-[10px]">
-                    Workspace role
-                  </p>
-                  <p className="mt-1 text-[13px]">Member</p>
-                </div>
-              </div>
-            </section>
-          </div>
-        ) : (
-          <div className="px-5 py-6">
-            <div className="bg-muted/30 overflow-hidden rounded-2xl">
+        {channels.length > 0 ? (
+          <section className="border-t px-5 py-5">
+            <h3 className="text-sm font-semibold tracking-[-0.01em]">
+              Channels
+            </h3>
+            <div className="-mx-2 mt-2">
               {channels.map((channel) => (
                 <Link
                   key={channel.id}
                   to={`/conversations?channel=${encodeURIComponent(channel.id)}`}
-                  className="border-border/55 hover:bg-muted/55 flex items-start gap-3 border-b px-4 py-3.5 transition-colors last:border-b-0"
+                  className="hover:bg-muted/55 flex h-8 items-center gap-2 rounded-lg px-2 text-[13px] transition-colors"
                 >
-                  <Hash
-                    size={14}
-                    className="text-muted-foreground mt-0.5 shrink-0"
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium">
-                      {channel.name}
-                    </span>
-                    <span className="text-muted-foreground mt-1 line-clamp-2 block text-[11px] leading-4">
-                      {channel.description}
-                    </span>
-                  </span>
+                  <Hash size={14} className="text-muted-foreground shrink-0" />
+                  <span className="truncate">{channel.name}</span>
                 </Link>
               ))}
             </div>
-          </div>
-        )}
+          </section>
+        ) : null}
       </ConversationAuxiliaryPanelBody>
     </ConversationAuxiliaryPanel>
   );

@@ -181,7 +181,10 @@ export function Sidebar({
     () =>
       workspaceChannels.channels.length > 0
         ? workspaceChannels.channels
-            .filter((channel) => channel.visibility !== "direct")
+            .filter(
+              (channel) =>
+                channel.visibility !== "direct" && !channel.directUserId,
+            )
             .map((channel) => ({
               id: channel.id,
               label: channel.name,
