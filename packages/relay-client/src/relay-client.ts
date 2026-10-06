@@ -60,7 +60,10 @@ import {
 
 import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
-import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
+import type {
+  RelayTypingEvent,
+  RelayWorkspaceSubscription,
+} from "./relay-workspace-subscription";
 import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
@@ -76,6 +79,7 @@ export { RelayClientError } from "./relay-client-error";
 
 export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
+export type { RelayTypingEvent };
 
 export class RelayClient extends RelayVercelProvisioning {
   readonly externalAgents: RelayExternalAgentsClient;
@@ -537,6 +541,7 @@ export class RelayClient extends RelayVercelProvisioning {
     conversationIds: readonly string[];
     after?: number;
     onEvent: (event: ConversationEvent) => void;
+    onTyping?: (event: RelayTypingEvent) => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
     const workspaceId = this.requireWorkspaceId();
@@ -556,6 +561,7 @@ export class RelayClient extends RelayVercelProvisioning {
         ),
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
+      onTyping: input.onTyping,
       onError: input.onError,
     });
   }

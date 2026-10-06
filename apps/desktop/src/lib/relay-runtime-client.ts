@@ -231,6 +231,12 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "startUserDirect":
         await this.startUserDirect(message);
         return;
+      case "typing":
+        this.workspaceSubscription?.sendTyping(
+          message.channelId,
+          message.active,
+        );
+        return;
       case "listChats":
         await this.listChats();
         return;
@@ -465,6 +471,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
       conversationIds: [...this.subscribedConversationIds],
       after: this.workspaceCursor,
       onEvent: (event) => this.handleWorkspaceEvent(event),
+      onTyping: (event) =>
+        this.emit({
+          type: "userTyping",
+          workspaceId: this.snapshot.id,
+          channelId: event.conversationId,
+          userId: event.userId,
+          active: event.active,
+        }),
       onError: (error) => this.recordError(parseRelayError(error)),
     });
     this.pendingWorkspaceSubscription = subscriptionPromise;

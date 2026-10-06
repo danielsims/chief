@@ -5,6 +5,7 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
+import { useChannelTyping } from "../../lib/use-channel-typing";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -23,6 +24,7 @@ import {
 } from "./chief-chat-message-components";
 import { withActionTimelineEntries } from "./conversation-timeline-entries";
 import { ChannelGuestMentions } from "./mention-people-context";
+import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { ScheduledRunMessage } from "./scheduled-run-message";
@@ -81,6 +83,8 @@ export function ChiefChat({
     integrationDomain,
     onActivityOpenChange,
   });
+  const { names: typingNames, notifyTyping } =
+    useChannelTyping(destinationChannelId);
   const composerState = useChiefChatComposer({
     core,
     props: {
@@ -442,8 +446,14 @@ export function ChiefChat({
                 <ChatComposer
                   autoFocus={focusComposer}
                   value={draft}
-                  onValueChange={setDraft}
-                  onSubmit={submit}
+                  onValueChange={(value) => {
+                    setDraft(value);
+                    notifyTyping(value);
+                  }}
+                  onSubmit={() => {
+                    notifyTyping("");
+                    submit();
+                  }}
                   imageAttachments={imageAttachments}
                   onImageAttachmentsChange={setImageAttachments}
                   execution={activeExecution}
@@ -461,25 +471,29 @@ export function ChiefChat({
                         : undefined
                   }
                 />
-                <AgentActivityComposerRow
-                  agents={mainActivityAgents}
-                  agentLabel={activityAgentLabel}
-                  running={mainActivityAgents.length > 0}
-                  statusLabel={mainStatusLabel}
-                  onOpen={() => {
-                    const onlyAgent = mainActivityAgents[0];
-                    if (
-                      mainActivityAgents.length === 1 &&
-                      onlyAgent?.taskId &&
-                      onOpenChild
-                    ) {
-                      onOpenChild(onlyAgent.taskId);
-                      return;
-                    }
-                    setThreadRootId(null);
-                    setActivityOpen(true);
-                  }}
-                />
+                {mainActivityAgents.length === 0 && typingNames.length > 0 ? (
+                  <PeopleTypingRow names={typingNames} />
+                ) : (
+                  <AgentActivityComposerRow
+                    agents={mainActivityAgents}
+                    agentLabel={activityAgentLabel}
+                    running={mainActivityAgents.length > 0}
+                    statusLabel={mainStatusLabel}
+                    onOpen={() => {
+                      const onlyAgent = mainActivityAgents[0];
+                      if (
+                        mainActivityAgents.length === 1 &&
+                        onlyAgent?.taskId &&
+                        onOpenChild
+                      ) {
+                        onOpenChild(onlyAgent.taskId);
+                        return;
+                      }
+                      setThreadRootId(null);
+                      setActivityOpen(true);
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>

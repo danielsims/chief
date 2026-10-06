@@ -29,6 +29,32 @@ struct ConversationActivityFooter: View {
   }
 }
 
+/// "Daniel is typing…" above the composer while other people type.
+struct PeopleTypingRow: View {
+  let names: [String]
+
+  var body: some View {
+    HStack {
+      Text(statusText)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(ChiefTheme.secondary)
+        .lineLimit(1)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, ChiefTheme.pagePadding)
+    .padding(.vertical, 7)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var statusText: String {
+    switch names.count {
+    case 1: "\(names[0]) is typing…"
+    case 2: "\(names[0]) and \(names[1]) are typing…"
+    default: "Several people are typing…"
+    }
+  }
+}
+
 struct AgentTypingRow: View {
   let agents: [AgentActivityPresence]
   let openActivity: () -> Void
