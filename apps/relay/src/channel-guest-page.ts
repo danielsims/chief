@@ -171,7 +171,7 @@ ${body}
 </html>`;
 }
 
-const mark = `<svg width="24" height="24" viewBox="0 0 64 64" fill="none" aria-label="Chief" role="img"><path d="M29 12H12V29M35 12h17v12M29 52H12V35M35 52h17V40" stroke="currentColor" stroke-width="6"/></svg>`;
+const mark = `<svg width="24" height="24" viewBox="0 0 64 64" fill="none" aria-label="Chief" role="img"><path d="M29 12H19a7 7 0 0 0-7 7v10M35 12h10a7 7 0 0 1 7 7v5M29 52H19a7 7 0 0 1-7-7V35M35 52h10a7 7 0 0 0 7-7v-5" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round"/></svg>`;
 
 const styles = `
 :root{--bg:#fff;--fg:#121212;--muted:#666;--line:#dcdad5;--field:#f4f3f0;--primary:#18181b;--on-primary:#fafafa;--hover:#f0efec}

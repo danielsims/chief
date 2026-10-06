@@ -239,7 +239,7 @@ export function SignInContent({ initial }: { initial: SignInContext }) {
         <Image
           alt="Chief"
           className="h-8 w-8"
-          src="/brand/chief-mark-sharp-open-white.svg"
+          src="/brand/chief-mark-white.svg"
           width={32}
           height={32}
         />
