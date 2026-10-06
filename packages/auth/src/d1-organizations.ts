@@ -180,7 +180,12 @@ export async function getChiefUserIdentity(
   userId: string,
 ) {
   const rows = await drizzle(database)
-    .select({ id: user.id, name: user.name, email: user.email })
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+    })
     .from(user)
     .where(eq(user.id, userId))
     .limit(1);

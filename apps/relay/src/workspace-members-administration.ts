@@ -102,7 +102,11 @@ export async function createWorkspaceInvitation(
   const delivery = sendWorkspaceInvitationEmail(env, {
     email: result.invitation.email,
     id: result.invitation.id,
-    inviter: { email: inviter.email, name: inviter.name },
+    inviter: {
+      email: inviter.email,
+      name: inviter.name,
+      image: inviter.image,
+    },
     organization: { id: organization.id, name: organization.name },
     role: result.invitation.role,
   });

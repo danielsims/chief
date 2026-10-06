@@ -5,7 +5,7 @@ import { createResendEmailClient } from "@chief/email/resend";
 export interface WorkspaceInvitationEmail {
   email: string;
   id: string;
-  inviter: { email: string; name: string };
+  inviter: { email: string; name: string; image?: string | null };
   organization: { id: string; name: string };
   role: string | string[];
 }
@@ -37,11 +37,12 @@ export async function sendWorkspaceInvitationEmail(
     invitationUrl: invitationUrl.toString(),
     inviterEmail: invitation.inviter.email,
     inviterName: invitation.inviter.name,
+    inviterImage: relayHostedImage(invitation.inviter.image, relay),
     relayHost: relay.host,
     role,
     workspaceName: invitation.organization.name,
   });
-  const subject = `${invitation.inviter.name} invited you to ${invitation.organization.name}`;
+  const subject = message.subject;
   const fromName = env.EMAIL_FROM_NAME || "Chief";
   const provider = configuredEmailProvider(env);
 
@@ -127,6 +128,22 @@ export async function sendWorkspaceInvitationEmail(
   throw new Error(
     "Transactional email delivery is not configured for this relay. Set EMAIL_PROVIDER and its credentials.",
   );
+}
+
+/**
+ * Profile pictures uploaded to a relay are stored with the host they were
+ * uploaded through, which may since have changed. Serve them from this relay.
+ */
+function relayHostedImage(image: string | null | undefined, relay: URL) {
+  if (!image) return null;
+  try {
+    const url = new URL(image);
+    if (url.pathname.startsWith("/v1/assets/"))
+      return new URL(`${url.pathname}${url.search}`, relay.origin).toString();
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The configured sender, or null to auto-detect. */
