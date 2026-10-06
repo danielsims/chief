@@ -109,7 +109,7 @@ struct AgentTypingRow: View {
 struct ConversationLoadingView: View {
   var body: some View {
     VStack(spacing: 12) {
-      ProgressView().controlSize(.regular)
+      ChiefSpinner().controlSize(.regular)
       Text("Loading conversation…")
         .font(.system(size: 14))
         .foregroundStyle(ChiefTheme.secondary)

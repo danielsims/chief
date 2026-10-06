@@ -160,7 +160,7 @@ struct NewMessageView: View {
   @ViewBuilder private var recipientList: some View {
     if loading {
       Spacer()
-      ProgressView().tint(.white)
+      ChiefSpinner().tint(.white)
       Spacer()
     } else if filteredRecipients.isEmpty {
       ContentUnavailableView(
@@ -230,7 +230,7 @@ struct NewMessageView: View {
         }
         Spacer()
         if startingID == recipient.id {
-          ProgressView().tint(.white)
+          ChiefSpinner().tint(.white)
         } else {
           Circle()
             .stroke(ChiefTheme.secondary.opacity(0.65), lineWidth: 1.5)

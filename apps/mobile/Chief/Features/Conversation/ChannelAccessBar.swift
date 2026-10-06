@@ -38,7 +38,7 @@ struct ChannelAccessBar: View {
           Button(action: onJoin) {
             Group {
               if isJoining {
-                ProgressView().controlSize(.small)
+                ChiefSpinner().controlSize(.small)
               } else {
                 Text("Join")
                   .font(.system(size: 13, weight: .semibold))

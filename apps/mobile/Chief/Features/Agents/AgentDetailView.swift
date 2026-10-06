@@ -80,7 +80,7 @@ struct AgentDetailView: View {
     .toolbar {
       if saving || loadingConfig {
         ToolbarItem(placement: .topBarTrailing) {
-          ProgressView().controlSize(.small)
+          ChiefSpinner().controlSize(.small)
         }
       }
     }
