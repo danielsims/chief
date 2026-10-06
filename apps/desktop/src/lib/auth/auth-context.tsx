@@ -21,6 +21,7 @@ import {
   CHIEF_CLOUD_RELAY_URL,
   RELAY_URL,
 } from "../config";
+import { relayAvatarUrl } from "../relay-avatar";
 import {
   activateKnownRelay,
   forgetRelayConnection,
@@ -444,7 +445,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             name: user.name,
             email: user.email,
             emailVerified: user.emailVerified,
-            image: user.image ?? undefined,
+            // Stored URLs can point at a retired relay host.
+            image: relayAvatarUrl(user.image ?? undefined),
           }
         : null,
       cloudOrganizationId: storedSession?.organizationId ?? null,
