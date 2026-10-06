@@ -12,6 +12,7 @@ import {
 } from "@react-email/components";
 
 import { getEmailBranding } from "../branding";
+import { emailStyles } from "../components/email-styles";
 
 export interface ChiefEmailProps {
   preview: string;
@@ -98,15 +99,6 @@ const copy = {
   lineHeight: "24px",
   margin: "20px 0 0",
 };
-const button = {
-  backgroundColor: "#ededeb",
-  color: "#111",
-  display: "inline-block",
-  fontSize: "14px",
-  fontWeight: "600",
-  marginTop: "28px",
-  padding: "12px 18px",
-  textDecoration: "none",
-};
+const button = { ...emailStyles.button, marginTop: "28px" };
 const rule = { borderColor: "#242424", margin: "28px 0 18px" };
 const footer = { color: "#777773", fontSize: "12px", margin: 0 };
