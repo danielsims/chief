@@ -7,6 +7,7 @@ mod oauth_loopback;
 mod plugin_host;
 mod plugin_runtime;
 mod relay_identity;
+mod secure_store;
 
 use auth_session::{
     clear_oauth_attempt, clear_oauth_session, load_oauth_attempt, load_oauth_session,
