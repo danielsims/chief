@@ -46,6 +46,52 @@ export function createRelayOpenApiDocument(origin: string) {
         "The versioned protocol used by Chief clients, durable agents, and relay deployments.",
     },
     servers: [{ url: baseUrl.toString().replace(/\/$/u, "") }],
+    tags: [
+      {
+        name: "Health & discovery",
+        description: "Liveness and protocol metadata.",
+      },
+      {
+        name: "Workspaces",
+        description: "Provision, select and bootstrap a workspace.",
+      },
+      {
+        name: "Invites & members",
+        description: "Invite people and manage workspace membership.",
+      },
+      {
+        name: "Channels",
+        description: "Create, join and administer workspace channels.",
+      },
+      {
+        name: "Messages",
+        description: "Read, send, edit and delete durable messages.",
+      },
+      {
+        name: "Reactions",
+        description: "Add, list and remove message reactions.",
+      },
+      {
+        name: "Attachments",
+        description: "Store and fetch message attachments.",
+      },
+      {
+        name: "Files",
+        description: "Versioned files shared through the workspace.",
+      },
+      {
+        name: "Projects",
+        description: "Workspace project registry metadata.",
+      },
+      {
+        name: "Logs",
+        description: "Retained, redacted operational logs.",
+      },
+      {
+        name: "Agents",
+        description: "Files published by workspace agents.",
+      },
+    ],
     security: [{ nostrNip98: [] }],
     paths: {
       ...coreOpenApiPaths,
@@ -53,6 +99,10 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/invites": {
         post: {
           operationId: "createWorkspaceInvite",
+          summary: "Create an invite link",
+          description:
+            "Mints a single-use invite secret for the workspace, optionally scoped to a channel.",
+          tags: ["Invites & members"],
           parameters: [pathParameter("workspaceId")],
           requestBody: {
             required: true,
@@ -76,6 +126,10 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/invites/preview": {
         post: {
           operationId: "previewWorkspaceInvite",
+          summary: "Preview an invite",
+          description:
+            "Returns the workspace and channel an invite reveals, without claiming it.",
+          tags: ["Invites & members"],
           security: [],
           parameters: [pathParameter("workspaceId")],
           requestBody: {
@@ -99,6 +153,10 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/invites/claim": {
         post: {
           operationId: "claimWorkspaceInvite",
+          summary: "Claim an invite",
+          description:
+            "Redeems an invite secret and joins the authenticated account to the workspace.",
+          tags: ["Invites & members"],
           parameters: [pathParameter("workspaceId")],
           requestBody: {
             required: true,
@@ -123,6 +181,10 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/members": {
         get: {
           operationId: "listWorkspaceMembers",
+          summary: "List workspace members",
+          description:
+            "Returns the human, agent and service members of the workspace with their roles.",
+          tags: ["Invites & members"],
           parameters: [pathParameter("workspaceId")],
           responses: {
             "200": jsonResponse(
@@ -178,6 +240,8 @@ export function createRelayOpenApiDocument(origin: string) {
         },
         post: {
           operationId: "createChannel",
+          summary: "Create a channel",
+          tags: ["Channels"],
           parameters: [pathParameter("workspaceId")],
           requestBody: {
             required: true,
@@ -202,6 +266,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}": {
         get: {
           operationId: "getChannel",
+          summary: "Get a channel",
+          description: "Returns the channel and its members.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -220,6 +287,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/update": {
         post: {
           operationId: "updateChannel",
+          summary: "Update a channel",
+          description: "Renames a channel or changes its visibility.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -247,6 +317,8 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/archive": {
         post: {
           operationId: "archiveChannel",
+          summary: "Archive a channel",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -270,6 +342,8 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/unarchive": {
         post: {
           operationId: "unarchiveChannel",
+          summary: "Restore a channel",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -293,6 +367,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/join": {
         post: {
           operationId: "joinChannel",
+          summary: "Join a channel",
+          description: "Adds the calling principal to the channel.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -319,6 +396,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/leave": {
         post: {
           operationId: "leaveChannel",
+          summary: "Leave a channel",
+          description: "Removes the calling principal from the channel.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -345,6 +425,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/members": {
         get: {
           operationId: "listChannelMembers",
+          summary: "List channel members",
+          description: "Returns the channel membership with best-effort names.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -363,6 +446,9 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/members/add": {
         post: {
           operationId: "addChannelMember",
+          summary: "Add channel members",
+          description: "Adds one or more workspace members to the channel.",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),
@@ -389,6 +475,8 @@ export function createRelayOpenApiDocument(origin: string) {
       "/v1/workspaces/{workspaceId}/channels/{conversationId}/members/remove": {
         post: {
           operationId: "removeChannelMember",
+          summary: "Remove a channel member",
+          tags: ["Channels"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("conversationId"),

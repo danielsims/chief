@@ -33,6 +33,10 @@ export const coreOpenApiPaths = {
   "/health": {
     get: {
       operationId: "relayHealth",
+      summary: "Check relay health",
+      description:
+        "Liveness probe used by clients and deployments before issuing requests.",
+      tags: ["Health & discovery"],
       security: [],
       responses: {
         "200": {
@@ -56,6 +60,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces": {
     post: {
       operationId: "createWorkspace",
+      summary: "Create a workspace",
+      description:
+        "Provisions a workspace owned by the authenticated account and enqueues its initial setup.",
+      tags: ["Workspaces"],
       requestBody: {
         required: true,
         content: {
@@ -78,6 +86,10 @@ export const coreOpenApiPaths = {
   "/v1/me/workspace": {
     get: {
       operationId: "getActiveWorkspace",
+      summary: "Get the active workspace",
+      description:
+        "Returns the caller's active workspace snapshot, or 204 when none is selected.",
+      tags: ["Workspaces"],
       responses: {
         "200": jsonResponse(
           "The user's active workspace.",
@@ -91,6 +103,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/conversations/{conversationId}/messages": {
     get: {
       operationId: "listConversationMessages",
+      summary: "List messages",
+      description:
+        "Returns a page of durable messages after an optional sequence cursor.",
+      tags: ["Messages"],
       parameters: [
         pathParameter("workspaceId"),
         pathParameter("conversationId"),
@@ -113,6 +129,10 @@ export const coreOpenApiPaths = {
     },
     post: {
       operationId: "appendConversationMessage",
+      summary: "Send a message",
+      description:
+        "Appends a message with the given command id. Replaying the same command id returns the original result.",
+      tags: ["Messages"],
       parameters: [
         pathParameter("workspaceId"),
         pathParameter("conversationId"),
@@ -140,6 +160,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/bootstrap/claim": {
     post: {
       operationId: "claimWorkspace",
+      summary: "Claim a workspace",
+      description:
+        "Claims an unclaimed relay workspace for its first owner using the bootstrap token.",
+      tags: ["Workspaces"],
       parameters: [pathParameter("workspaceId")],
       requestBody: {
         required: true,
@@ -164,6 +188,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/logs": {
     get: {
       operationId: "listWorkspaceLogs",
+      summary: "List workspace logs",
+      description:
+        "Returns a cursor-paged slice of retained, redacted workspace logs.",
+      tags: ["Logs"],
       parameters: [
         pathParameter("workspaceId"),
         {
@@ -185,6 +213,10 @@ export const coreOpenApiPaths = {
     },
     post: {
       operationId: "recordWorkspaceLogs",
+      summary: "Record workspace logs",
+      description:
+        "Stores a batch of redacted log records. Duplicate command ids are accepted idempotently.",
+      tags: ["Logs"],
       parameters: [pathParameter("workspaceId")],
       requestBody: {
         required: true,
@@ -207,8 +239,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/conversations/{conversationId}/events": {
     get: {
       operationId: "listConversationEvents",
+      summary: "Catch up on conversation events",
       description:
         "Catch up from the last durable sequence before opening the live WebSocket stream.",
+      tags: ["Messages"],
       parameters: [
         pathParameter("workspaceId"),
         pathParameter("conversationId"),
@@ -237,8 +271,10 @@ export const coreOpenApiPaths = {
     {
       post: {
         operationId: "createConversationSocketTicket",
+        summary: "Mint a live socket ticket",
         description:
           "Mints a short-lived, one-use ticket for the live WebSocket endpoint without placing an access token in its URL.",
+        tags: ["Messages"],
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
@@ -257,11 +293,13 @@ export const coreOpenApiPaths = {
     {
       post: {
         operationId: "editConversationMessage",
+        summary: "Edit a message",
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
           pathParameter("messageId"),
         ],
+        tags: ["Messages"],
         requestBody: {
           required: true,
           content: {
@@ -287,6 +325,9 @@ export const coreOpenApiPaths = {
     {
       delete: {
         operationId: "deleteConversationMessage",
+        summary: "Delete a message",
+        description: "Soft-deletes the message and returns its tombstone.",
+        tags: ["Messages"],
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
@@ -307,6 +348,9 @@ export const coreOpenApiPaths = {
     {
       get: {
         operationId: "listMessageReactions",
+        summary: "List reactions",
+        description: "Returns the durable reactions folded onto this message.",
+        tags: ["Reactions"],
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
@@ -324,6 +368,8 @@ export const coreOpenApiPaths = {
       },
       post: {
         operationId: "addMessageReaction",
+        summary: "Add a reaction",
+        tags: ["Reactions"],
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
@@ -351,6 +397,8 @@ export const coreOpenApiPaths = {
       },
       delete: {
         operationId: "removeMessageReaction",
+        summary: "Remove a reaction",
+        tags: ["Reactions"],
         parameters: [
           pathParameter("workspaceId"),
           pathParameter("conversationId"),
@@ -380,6 +428,10 @@ export const coreOpenApiPaths = {
   "/v1/workspaces/{workspaceId}/conversations/{conversationId}/attachments": {
     post: {
       operationId: "uploadAttachment",
+      summary: "Upload an attachment",
+      description:
+        "Stores base64 file bytes in the conversation and returns their public URL and key.",
+      tags: ["Attachments"],
       parameters: [
         pathParameter("workspaceId"),
         pathParameter("conversationId"),
@@ -408,6 +460,10 @@ export const coreOpenApiPaths = {
   "/v1/attachments/{key}": {
     get: {
       operationId: "getAttachment",
+      summary: "Download an attachment",
+      description:
+        "Returns the stored attachment bytes with their content type.",
+      tags: ["Attachments"],
       security: [],
       parameters: [pathParameter("key")],
       responses: {

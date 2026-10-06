@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
-import type { ChannelDocsModel, DocField, DocOperation } from "./docs-model";
-import { BrandMark } from "../../../brand-mark";
+import type { DocField, DocOperation, DocsModel } from "./docs-model";
+import { BrandMark } from "../../brand-mark";
 import { CodeBlock } from "./code-block";
 import styles from "./page.module.css";
 
@@ -50,17 +50,15 @@ function OperationSection({ operation }: { operation: DocOperation }) {
   return (
     <section className={styles.operation} id={operation.id}>
       <div className={styles.operationGrid}>
-        <div className={styles.operationCopy}>
+        <div>
           <div className={styles.endpoint}>
             <MethodBadge method={operation.method} />
             <code>{operation.path}</code>
           </div>
           <h3>{operation.summary}</h3>
-          <p className={styles.description}>{operation.description}</p>
-          <div className={styles.permissionRow}>
-            <span>{operation.permission}</span>
-            <span>{operation.reversible ? "Reversible" : "Durable write"}</span>
-          </div>
+          {operation.description ? (
+            <p className={styles.description}>{operation.description}</p>
+          ) : null}
           <FieldTable fields={operation.params} title="Parameters" />
           <FieldTable fields={operation.bodyFields} title="Body" />
           <div className={styles.fieldGroup}>
@@ -88,11 +86,13 @@ function OperationSection({ operation }: { operation: DocOperation }) {
             label="Request"
             language="bash"
           />
-          <CodeBlock
-            code={operation.responseSample}
-            label="Response"
-            language="json"
-          />
+          {operation.responseSample ? (
+            <CodeBlock
+              code={operation.responseSample}
+              label="Response"
+              language="json"
+            />
+          ) : null}
         </div>
       </div>
     </section>
@@ -149,7 +149,7 @@ function NavLink({
   );
 }
 
-export function DocsShell({ model }: { model: ChannelDocsModel }) {
+export function DocsShell({ model }: { model: DocsModel }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const sectionIds = useMemo(
     () => [
@@ -166,7 +166,7 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
   const active = useScrollSpy(sectionIds);
   const closeMenu = () => setMenuOpen(false);
   const navigation = (
-    <nav className={styles.nav} aria-label="Agent CLI sections">
+    <nav className={styles.nav} aria-label="Relay API sections">
       <NavLink
         active={active === "introduction"}
         id="introduction"
@@ -179,14 +179,14 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
         id="security"
         onSelect={closeMenu}
       >
-        Security
+        Authentication
       </NavLink>
       <NavLink active={active === "errors"} id="errors" onSelect={closeMenu}>
         Errors
       </NavLink>
       {model.groups.map((group) => (
-        <div className={styles.navGroup} key={group.name}>
-          <p>{group.name}</p>
+        <div className={styles.navGroup} key={group.tag}>
+          <p>{group.tag}</p>
           {group.operations.map((operation) => (
             <NavLink
               active={active === operation.id}
@@ -214,7 +214,7 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
         <Link href="/" className={styles.brand}>
           <BrandMark size={19} />
           <strong>Chief</strong>
-          <span>Agent CLI</span>
+          <span>Relay API</span>
         </Link>
         <button
           aria-label="Toggle documentation menu"
@@ -229,74 +229,73 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
           <Link href="/" className={styles.brand}>
             <BrandMark size={20} />
             <strong>Chief</strong>
-            <span>Agent CLI</span>
+            <span>Relay API</span>
           </Link>
           <div className={styles.navScroll}>{navigation}</div>
           <div className={styles.sidebarFooter}>
-            <Link href="/">← Back to Chief</Link>
-            <Link href="/docs/agent-api/openapi.json">OpenAPI JSON</Link>
+            <a href="https://heychief.sh">← Back to Chief</a>
+            <Link href="/docs/agent-cli">Agent CLI</Link>
+            <Link href="/docs/relay-api/openapi.json">OpenAPI JSON</Link>
           </div>
         </aside>
         <article className={styles.main}>
           <section className={styles.introduction} id="introduction">
-            <div className={styles.badges}>
-              <span>Internal</span>
-              <span>Nostr-backed</span>
-              <span>Local-first</span>
-            </div>
-            <h1>Chief Agent CLI</h1>
-            <p className={styles.lede}>
-              The internal commands Chief agents use to manage channels,
-              messages and proactive work.
-            </p>
+            <h1>{model.title}</h1>
+            <p className={styles.lede}>{model.description}</p>
             <div className={styles.introGrid}>
               <div>
-                <p className={styles.miniLabel}>Local runtime</p>
-                <code className={styles.baseUrl}>http://127.0.0.1:4318</code>
+                <p className={styles.miniLabel}>Base URL</p>
+                <code className={styles.baseUrl}>{model.baseUrl}</code>
                 <p className={styles.introBody}>
-                  Loopback only. Agents reach it through Executor with a fresh,
-                  session-bound Chief credential.
+                  Every endpoint speaks JSON. Requests are signed with a NIP-98
+                  Nostr event and answered with one consistent error envelope.
+                  This reference renders from the OpenAPI document the relay
+                  serves at /v1/openapi.json.
                 </p>
               </div>
               <CodeBlock
-                label="Quickstart — create a feature channel"
+                label="Quickstart — check health"
                 language="bash"
-                code={`chief-agent channels create --json '{
-    "name": "Feature sharing",
-    "kind": "feature",
-    "operationKey": "feature-sharing-work",
-    "members": [
-      { "type": "agent", "id": "engineer" },
-      { "type": "agent", "id": "researcher" }
-    ]
-  }'`}
+                code={`curl ${model.baseUrl}/health`}
               />
             </div>
           </section>
 
           <section className={styles.guideSection} id="security">
-            <h2>Security</h2>
+            <h2>Authentication</h2>
+            <div className={styles.guideGrid}>
+              <div className={styles.guideCopy}>
+                <p>
+                  Every request carries a NIP-98 Nostr event in the{" "}
+                  <code>Authorization</code> header. The event is bound to the
+                  request URL, method and body hash, and expires shortly after
+                  it is signed.
+                </p>
+                <CodeBlock
+                  label="Authorization header"
+                  language="bash"
+                  code={`curl ${model.baseUrl}/v1/me/workspace \\
+  -H "Authorization: Nostr $CHIEF_RELAY_AUTH"`}
+                />
+              </div>
+            </div>
             <div className={styles.principles}>
               {[
                 [
                   "Identity",
-                  "Every call resolves to one agent, workspace and live session.",
-                ],
-                [
-                  "Executor",
-                  "Executor allows, pauses or blocks the tool before it runs.",
+                  "The signed key resolves to one device, user or agent identity.",
                 ],
                 [
                   "Access",
-                  "Agent grants, membership and owner channel locks must all pass.",
+                  "The identity must be a workspace member with permission for the operation.",
                 ],
                 [
-                  "Credentials",
-                  "Agent credentials expire after 12 hours and stop working when the session is inactive.",
+                  "Idempotency",
+                  "Commands carry a commandId; a retry with the same id returns the original result.",
                 ],
                 [
-                  "Writes",
-                  "Retries use operation keys; updates use versions; management actions keep a hash-chained audit record.",
+                  "Live updates",
+                  "WebSocket access uses short-lived, single-use tickets minted per conversation.",
                 ],
               ].map(([label, description]) => (
                 <div key={label}>
@@ -312,30 +311,30 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
             <div className={styles.guideGrid}>
               <div>
                 <p className={styles.sectionIntro}>
-                  Stable codes tell the agent whether to refresh, request owner
-                  input or stop.
+                  Every non-2xx response carries the same envelope. The code is
+                  machine-readable; the message says what happened.
                 </p>
                 <div className={styles.errorList}>
                   {[
                     [
-                      "invalid_input",
-                      "A field is missing, malformed or too long.",
+                      "unauthenticated",
+                      "The Nostr Authorization header is missing or invalid.",
                     ],
                     [
-                      "channel_not_found",
-                      "The room is absent or private to somebody else.",
+                      "forbidden",
+                      "The signed identity cannot perform this operation.",
                     ],
                     [
-                      "channel_management_locked",
-                      "The owner disabled this kind of agent edit.",
+                      "invalid_request",
+                      "The request could not be parsed or validated.",
                     ],
                     [
-                      "write_conflict",
-                      "Refresh the channel and retry against its current version.",
+                      "not_found",
+                      "The workspace, conversation or resource is missing or not visible.",
                     ],
                     [
-                      "channel_archived",
-                      "Restore the room before posting or changing membership.",
+                      "method_not_allowed",
+                      "The route exists but not for this HTTP method.",
                     ],
                   ].map(([code, description]) => (
                     <div key={code}>
@@ -349,18 +348,21 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
                 label="Error envelope"
                 language="json"
                 code={`{
-  "error": "Refresh the channel before retrying.",
-  "code": "write_conflict"
+  "error": {
+    "code": "forbidden",
+    "message": "Only workspace owners and admins can change its image.",
+    "requestId": "01J..."
+  }
 }`}
               />
             </div>
           </section>
 
           {model.groups.map((group) => (
-            <div className={styles.operationGroup} key={group.name}>
+            <div className={styles.operationGroup} key={group.tag}>
               <header>
-                <h2>{group.name}</h2>
-                <p>{group.description}</p>
+                <h2>{group.tag}</h2>
+                {group.description ? <p>{group.description}</p> : null}
               </header>
               {group.operations.map((operation) => (
                 <OperationSection key={operation.id} operation={operation} />
@@ -377,7 +379,11 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
               <div className={styles.model} key={modelItem.name}>
                 <div>
                   <h3>{modelItem.name}</h3>
-                  <p className={styles.description}>{modelItem.description}</p>
+                  {modelItem.description ? (
+                    <p className={styles.description}>
+                      {modelItem.description}
+                    </p>
+                  ) : null}
                   <FieldTable fields={modelItem.fields} title="Fields" />
                 </div>
                 <CodeBlock

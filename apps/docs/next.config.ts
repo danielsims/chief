@@ -4,16 +4,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
-  transpilePackages: ["@chief/ui"],
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "integrations.sh",
-        pathname: "/logo/**",
-      },
-    ],
-  },
 };
 
 export default nextConfig;

@@ -16,7 +16,12 @@
     ),
     var(--docs-bg);
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    var(--font-geist),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
 }
 
 .page *,
@@ -105,8 +110,9 @@
 
 .navGroup a span:last-child {
   overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -119,7 +125,7 @@
 }
 
 .nav .navActive {
-  font-weight: 550;
+  font-weight: 500;
 }
 
 .navGroup {
@@ -131,7 +137,7 @@
   padding: 0 10px 5px;
   color: #65645f;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .sidebarFooter {
@@ -174,13 +180,6 @@
   scroll-margin-top: 80px;
 }
 
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.badges span,
 .permissionRow span {
   color: #878680;
   border: 1px solid #2b2a28;
@@ -189,12 +188,8 @@
   font-weight: 520;
 }
 
-.badges span {
-  padding: 4px 8px;
-}
-
 .introduction h1 {
-  margin: 18px 0 0;
+  margin: 0;
   font-size: clamp(34px, 5vw, 52px);
   font-weight: 460;
   letter-spacing: -0.045em;
@@ -418,10 +413,10 @@
   flex: 0 0 auto;
   padding: 3px 6px;
   border-radius: 5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-geist), system-ui, sans-serif;
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
 .methodSmall {
@@ -445,6 +440,11 @@
   background: rgba(183, 135, 42, 0.12);
 }
 
+.methodPUT {
+  color: #d9aa55;
+  background: rgba(183, 135, 42, 0.12);
+}
+
 .methodDELETE {
   color: #e78484;
   background: rgba(239, 68, 68, 0.11);
@@ -454,7 +454,7 @@
 .model h3 {
   margin: 14px 0 0;
   font-size: 18px;
-  font-weight: 510;
+  font-weight: 450;
   letter-spacing: -0.015em;
 }
 
