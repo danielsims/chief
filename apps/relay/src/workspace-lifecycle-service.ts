@@ -44,6 +44,7 @@ import {
   matchesBootstrapToken,
   workspaceInference,
 } from "./workspace-lifecycle-support";
+import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -247,7 +248,19 @@ export class WorkspaceLifecycleService {
     ) {
       workspaceUpdateVerifyConnection(this.storage, nextSnapshot);
     }
-    if (context.identity.kind !== "user") return json(reconciled.snapshot);
+    const lastMessageTimes = new WorkspaceLiveStore(
+      this.storage,
+    ).lastMessageTimes();
+    const conversations = reconciled.snapshot.conversations.map(
+      (conversation) => {
+        const lastMessageAt = lastMessageTimes.get(conversation.id);
+        return lastMessageAt
+          ? { ...conversation, lastMessageAt }
+          : conversation;
+      },
+    );
+    if (context.identity.kind !== "user")
+      return json({ ...reconciled.snapshot, conversations });
     const principal: UserPrincipal = {
       role: "member",
       kind: "user",
@@ -259,37 +272,33 @@ export class WorkspaceLifecycleService {
       ...reconciled.snapshot,
       // Each person sees only the DMs they are in. A person-to-person DM is
       // named after the other participant, for this viewer.
-      conversations: reconciled.snapshot.conversations.flatMap(
-        (conversation) => {
-          if (conversation.kind !== "direct") return [conversation];
-          const members = this.channels.channelMemberRows(conversation.id);
-          if (
-            !members.some(
-              (member) =>
-                member.kind === "user" &&
-                member.principalId === principal.userId,
-            )
+      conversations: conversations.flatMap((conversation) => {
+        if (conversation.kind !== "direct") return [conversation];
+        const members = this.channels.channelMemberRows(conversation.id);
+        if (
+          !members.some(
+            (member) =>
+              member.kind === "user" && member.principalId === principal.userId,
           )
-            return [];
-          if (members.some((member) => member.kind !== "user"))
-            return [conversation];
-          const peer = members.find(
-            (member) => member.principalId !== principal.userId,
-          );
-          if (!peer) return [];
-          return [
-            {
-              ...conversation,
-              name: (
-                this.channels
-                  .principalNames()
-                  .get(`user:${peer.principalId}`) ?? conversation.name
-              ).slice(0, 120),
-              directUserId: peer.principalId,
-            },
-          ];
-        },
-      ),
+        )
+          return [];
+        if (members.some((member) => member.kind !== "user"))
+          return [conversation];
+        const peer = members.find(
+          (member) => member.principalId !== principal.userId,
+        );
+        if (!peer) return [];
+        return [
+          {
+            ...conversation,
+            name: (
+              this.channels.principalNames().get(`user:${peer.principalId}`) ??
+              conversation.name
+            ).slice(0, 120),
+            directUserId: peer.principalId,
+          },
+        ];
+      }),
       agents: reconciled.snapshot.agents.map((agent) => ({
         ...agent,
         canRunOnDevice:

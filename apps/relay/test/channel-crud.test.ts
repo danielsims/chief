@@ -469,6 +469,7 @@ describe("workspace channels", () => {
       unreadCount: 0,
       requiresAttention: false,
       lastMessage: null,
+      lastMessageAt: expect.any(String),
     });
   });
 });

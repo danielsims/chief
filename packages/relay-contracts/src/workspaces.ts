@@ -266,6 +266,8 @@ export const conversationSummarySchema = z.object({
   unreadCount: z.int().nonnegative(),
   requiresAttention: z.boolean(),
   lastMessage: z.string().max(4_000).nullable(),
+  /** When the conversation last received a message, for recency ordering. */
+  lastMessageAt: isoDateTimeSchema.optional(),
   /** Set on a person-to-person DM: the other participant, for this viewer. */
   directUserId: z.string().trim().min(1).max(256).optional(),
 });
