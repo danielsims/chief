@@ -10,6 +10,7 @@ import {
 } from "@react-email/components";
 
 import { EmailShell } from "../../components/email-shell";
+import { emailStyles } from "../../components/email-styles";
 import { digestPreviewProps } from "./chief-digest-email-preview";
 
 export { digestPreviewProps } from "./chief-digest-email-preview";
@@ -441,14 +442,8 @@ const textAction: CSSProperties = {
   textUnderlineOffset: "3px",
 };
 const primaryButton: CSSProperties = {
-  backgroundColor: "#f1f1ee",
-  color: "#111111",
-  display: "inline-block",
-  fontSize: "14px",
-  fontWeight: "600",
+  ...emailStyles.button,
   marginTop: "36px",
-  padding: "13px 18px",
-  textDecoration: "none",
 };
 
 ChiefDigestEmail.PreviewProps = digestPreviewProps;
