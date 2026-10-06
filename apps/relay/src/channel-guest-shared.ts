@@ -14,6 +14,13 @@ import {
 } from "./channel-guest-crypto";
 import { ChannelGuestDelivery } from "./channel-guest-delivery";
 import { revokeGuest } from "./channel-guest-lifecycle";
+import {
+  guestHandle,
+  guestOperator,
+  guestProfile,
+  storedGuestMark,
+  storedGuestProvider,
+} from "./channel-guest-profile";
 import { HttpError } from "./http";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
@@ -60,11 +67,17 @@ export class ChannelGuestBase {
   }
 
   protected summary(guest: ChannelGuestRow) {
+    const operator = guestOperator(this.storage, guest);
     return channelGuestSummarySchema.parse({
       id: guest.guest_id,
       name: guest.name,
       about: guest.about,
       image: guest.avatar_url,
+      provider: storedGuestProvider(guest),
+      model: guest.model,
+      mark: storedGuestMark(guest) ?? null,
+      operator: operator ?? null,
+      handle: guestHandle(this.storage, guest),
       status: guest.status,
       wake: guest.wake,
       delivery: guest.webhook_url
@@ -92,10 +105,9 @@ export class ChannelGuestBase {
       this.workspace().id,
     );
     const principal: GuestPrincipal = {
+      ...guestProfile(this.storage, guest),
       kind: "guest",
       guestId: guestIdSchema.parse(guest.guest_id),
-      name: guest.name,
-      ...(guest.avatar_url ? { image: guest.avatar_url } : undefined),
       workspaceId,
       conversationId: conversationIdSchema.parse(guest.conversation_id),
     };
@@ -122,8 +134,6 @@ export class ChannelGuestBase {
     };
   }
 }
-
-export { isExternalChannel } from "./channel-guest-lifecycle";
 
 export function clampInteger(
   value: string | null,

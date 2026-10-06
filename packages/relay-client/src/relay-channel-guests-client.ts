@@ -1,5 +1,5 @@
 import {
-  channelExternalAccessSchema,
+  channelGuestInviteSchema,
   channelGuestListSchema,
   channelGuestRemoveResultSchema,
   conversationIdSchema,
@@ -7,35 +7,13 @@ import {
 
 import { RelayClientBase } from "./relay-client-base";
 
-/** External channel access and the guest agents it admits. */
+/** Agents members invite into channels. */
 export class RelayChannelGuestsClient extends RelayClientBase {
-  /** Whether the channel is external, and its join link when it is. */
-  async external(conversationId: string) {
+  /** A single-use link for your own agent: it joins verified as yours. */
+  async invite(conversationId: string) {
     return await this.fetchJson(
-      this.channelUrl(conversationId, "external"),
-      channelExternalAccessSchema,
-    );
-  }
-
-  /** Makes the channel external, or internal again (removing every guest). */
-  async setExternal(conversationId: string, external: boolean) {
-    return await this.fetchJson(
-      this.channelUrl(conversationId, "external"),
-      channelExternalAccessSchema,
-      true,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ external }),
-      },
-    );
-  }
-
-  /** Replaces the link. The old one stops working; guests stay. */
-  async resetLink(conversationId: string) {
-    return await this.fetchJson(
-      this.channelUrl(conversationId, "external/reset"),
-      channelExternalAccessSchema,
+      this.channelUrl(conversationId, "guests/invite"),
+      channelGuestInviteSchema,
       true,
       { method: "POST" },
     );

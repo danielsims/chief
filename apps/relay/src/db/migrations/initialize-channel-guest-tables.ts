@@ -7,6 +7,12 @@ export function initializeChannelGuestTables(storage: DurableObjectStorage) {
       name TEXT NOT NULL,
       about TEXT,
       avatar_url TEXT,
+      handle TEXT,
+      provider TEXT,
+      model TEXT,
+      mark_shape TEXT,
+      mark_color TEXT,
+      operator_user_id TEXT,
       token_hash TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL,
       wake TEXT NOT NULL,
@@ -21,6 +27,13 @@ export function initializeChannelGuestTables(storage: DurableObjectStorage) {
     );
     CREATE INDEX IF NOT EXISTS channel_guests_conversation_idx
       ON channel_guests (conversation_id, status);
+    CREATE TABLE IF NOT EXISTS channel_guest_invites (
+      token_hash TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      operator_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS channel_guest_threads (
       guest_id TEXT NOT NULL,
       thread_root_id TEXT NOT NULL,
@@ -48,6 +61,41 @@ export function initializeChannelGuestTables(storage: DurableObjectStorage) {
     );
     CREATE INDEX IF NOT EXISTS channel_guest_outbox_due_idx
       ON channel_guest_outbox (next_attempt_at);
+  `);
+  const columns = new Set(
+    storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(channel_guests)")
+      .toArray()
+      .map((column) => column.name),
+  );
+  for (const name of [
+    "handle",
+    "provider",
+    "model",
+    "mark_shape",
+    "mark_color",
+    "operator_user_id",
+  ]) {
+    if (!columns.has(name)) {
+      storage.sql.exec(`ALTER TABLE channel_guests ADD COLUMN ${name} TEXT`);
+    }
+  }
+  // Every agent now works for a member. Ones admitted anonymously by
+  // pre-release public links have no one vouching for them, so they go.
+  storage.sql.exec(`
+    DELETE FROM channel_guest_subscriptions WHERE guest_id IN (
+      SELECT guest_id FROM channel_guests WHERE operator_user_id IS NULL
+    );
+    DELETE FROM channel_guest_outbox WHERE guest_id IN (
+      SELECT guest_id FROM channel_guests WHERE operator_user_id IS NULL
+    );
+    UPDATE channel_guests
+       SET status = 'removed',
+           removed_at = COALESCE(removed_at, datetime('now')),
+           webhook_url = NULL,
+           webhook_authorization = NULL,
+           webhook_secret = NULL
+     WHERE operator_user_id IS NULL AND status = 'active';
   `);
 }
 

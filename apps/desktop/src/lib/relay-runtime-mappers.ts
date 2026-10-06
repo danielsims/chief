@@ -22,6 +22,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
+import { guestAppearance } from "./guest-appearance";
 
 function workspaceAgentById(snapshot: WorkspaceSnapshot, agentId: string) {
   return (
@@ -164,17 +165,15 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       createdAt: Date.parse(message.createdAt),
       ...(message.author.kind === "guest"
         ? {
-            guest: {
-              id: message.author.id,
-              name: message.author.name,
-              ...(message.author.image
-                ? { image: message.author.image }
-                : undefined),
-            },
+            guest: guestAppearance(message.author),
           }
         : undefined),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
+        : undefined),
+      // The sender, resolved to a workspace member by id when rendered.
+      ...(message.author.kind === "user"
+        ? { author: { id: message.author.id, name: "Member" } }
         : undefined),
       ...(message.threadRootId
         ? { threadRootId: message.threadRootId }
@@ -186,9 +185,11 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         ? {
             channelAction:
               channelAction.type === "member-joined" &&
-              message.author.kind === "guest" &&
-              message.author.image
-                ? { ...channelAction, actorImage: message.author.image }
+              message.author.kind === "guest"
+                ? {
+                    ...channelAction,
+                    actorGuest: guestAppearance(message.author),
+                  }
                 : channelAction,
           }
         : undefined),
@@ -224,6 +225,7 @@ export function toChannelMessageEvent(
             ...(message.author.image
               ? { image: message.author.image }
               : undefined),
+            guest: guestAppearance(message.author),
           }
         : {
             type: "user" as const,

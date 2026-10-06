@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import type { GuestAppearance } from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverAnchor,
@@ -8,12 +9,17 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import { AgentAvatar } from "../agent-avatar";
+import { GuestAvatar } from "../guest-avatar";
 
 export interface MentionCandidate {
   id: string;
   name: string;
   role: string;
   member: boolean;
+  /** Typed after @ instead of the name, e.g. a guest's `danielsims:grok`. */
+  handle?: string;
+  /** Present for outside guest agents. */
+  guest?: GuestAppearance;
 }
 
 export function ComposerMentionPopover({
@@ -67,11 +73,18 @@ export function ComposerMentionPopover({
                 selected && "bg-accent",
               )}
             >
-              <AgentAvatar
-                agentId={candidate.id}
-                label={candidate.name}
-                className="size-7"
-              />
+              {candidate.guest ? (
+                <GuestAvatar
+                  className="size-7 rounded-lg text-[10px]"
+                  guest={candidate.guest}
+                />
+              ) : (
+                <AgentAvatar
+                  agentId={candidate.id}
+                  label={candidate.name}
+                  className="size-7"
+                />
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm leading-5 font-medium tracking-[-0.01em]">
                   {candidate.name}
@@ -80,6 +93,11 @@ export function ComposerMentionPopover({
                   <span className="truncate">{candidate.role}</span>
                 </span>
               </span>
+              {candidate.guest && candidate.handle ? (
+                <span className="text-muted-foreground/80 shrink-0 font-mono text-[11px] leading-4">
+                  @{candidate.handle}
+                </span>
+              ) : null}
               {!candidate.member ? (
                 <span className="text-muted-foreground/80 shrink-0 text-xs leading-4 font-normal">
                   Add to channel

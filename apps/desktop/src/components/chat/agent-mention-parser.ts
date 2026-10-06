@@ -1,3 +1,5 @@
+import type { GuestAppearance } from "@chief/agent-runtime/types";
+
 import type { StaticWorkspaceAgentId } from "../../lib/workspace-channels";
 import {
   isWorkspaceAgentId,
@@ -25,6 +27,10 @@ export interface AgentMentionRemoval {
 export interface MentionAlias {
   id: string;
   name: string;
+  /** Shown on the chip when the typed name differs, e.g. a guest's handle. */
+  label?: string;
+  /** Present for outside guest agents. */
+  guest?: GuestAppearance;
 }
 
 const AGENT_IDS_BY_NAME = new Map(
@@ -93,6 +99,7 @@ export function splitAgentMentions(
         agentId,
         token: match[0],
         label:
+          extra.find((alias) => alias.id === agentId && alias.label)?.label ??
           extra
             .filter((alias) => alias.id === agentId)
             .sort((left, right) => right.name.length - left.name.length)[0]

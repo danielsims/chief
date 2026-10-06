@@ -768,6 +768,8 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  packages/chief-listen: {}
+
   packages/email:
     dependencies:
       '@react-email/components':

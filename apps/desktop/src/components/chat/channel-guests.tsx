@@ -1,127 +1,104 @@
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { z } from "zod";
 
-import type {
-  ChannelExternalAccess,
-  ChannelGuestSummary,
-} from "@chief/relay-contracts";
-import { channelExternalAccessSchema } from "@chief/relay-contracts";
+import type { ChannelGuestSummary } from "@chief/relay-contracts";
 
+import { RELAY_URL } from "../../lib/config";
+import { guestLabel, guestSummaryAppearance } from "../../lib/guest-appearance";
 import { useRelaySession } from "../../lib/relay-session";
-import { AvatarImage } from "../avatar-image";
+import { GuestAvatar } from "../guest-avatar";
 
 type CopyState = "idle" | "copied" | "failed";
 
-const EXTERNAL_CHANGED_EVENT = "chief:channel-external-changed";
-
-const externalChangeSchema = z.object({
-  channelId: z.string().min(1),
-  access: channelExternalAccessSchema,
-});
-
 /**
- * Whether outsiders can join the channel, shared by everything that shows it.
- * Only workspace owners and admins can change it; the relay enforces that.
+ * The two links a channel hands out. The channel link opens it in Chief for
+ * members and admits no one. The invite admits the member's own agent, once,
+ * within 24 hours.
  */
-export function useChannelExternalAccess(channelId: string, enabled: boolean) {
+export function useChannelLinks(channelId: string) {
   const { client } = useRelaySession();
-  // Keyed by channel so switching channels never shows the previous state.
+  const [copyState, setCopyState] = useState<CopyState>("idle");
+  const [inviteState, setInviteState] = useState<CopyState>("idle");
+
+  const settle = useCallback(
+    (set: (state: CopyState) => void, next: CopyState) => {
+      set(next);
+      window.setTimeout(() => set("idle"), 1600);
+    },
+    [],
+  );
+
+  const copyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(
+        new URL(
+          `/open/channel/${encodeURIComponent(channelId)}`,
+          RELAY_URL,
+        ).toString(),
+      );
+      settle(setCopyState, "copied");
+    } catch {
+      settle(setCopyState, "failed");
+    }
+  }, [channelId, settle]);
+
+  const copyInvite = useCallback(async () => {
+    if (!client) return;
+    try {
+      const invite = await client.channelGuests.invite(channelId);
+      await navigator.clipboard.writeText(invite.url);
+      settle(setInviteState, "copied");
+    } catch {
+      settle(setInviteState, "failed");
+    }
+  }, [channelId, client, settle]);
+
+  return { copyState, copyLink, inviteState, copyInvite };
+}
+
+/** The guest agents in a channel, while `enabled`. Changing `revision`
+ * (e.g. the number of "joined the channel" lines) reloads them. */
+export function useChannelGuests(
+  channelId: string,
+  enabled: boolean,
+  revision = 0,
+) {
+  const { client } = useRelaySession();
   const [loaded, setLoaded] = useState<{
     channelId: string;
-    access: ChannelExternalAccess;
+    guests: ChannelGuestSummary[];
   } | null>(null);
-  const access =
-    enabled && loaded?.channelId === channelId ? loaded.access : null;
-  const [copyState, setCopyState] = useState<CopyState>("idle");
 
   useEffect(() => {
     if (!enabled || !client) return;
     let cancelled = false;
     void client.channelGuests
-      .external(channelId)
-      .then((next) => {
-        if (!cancelled) setLoaded({ channelId, access: next });
+      .list(channelId)
+      .then((guests) => {
+        if (!cancelled) setLoaded({ channelId, guests });
       })
       .catch(() => {
-        if (!cancelled) setLoaded({ channelId, access: { external: false } });
+        if (!cancelled) setLoaded({ channelId, guests: [] });
       });
-    const onChange = (event: Event) => {
-      const change =
-        event instanceof CustomEvent
-          ? externalChangeSchema.safeParse(event.detail)
-          : null;
-      if (change?.success && change.data.channelId === channelId) {
-        setLoaded(change.data);
-      }
-    };
-    window.addEventListener(EXTERNAL_CHANGED_EVENT, onChange);
     return () => {
       cancelled = true;
-      window.removeEventListener(EXTERNAL_CHANGED_EVENT, onChange);
     };
-  }, [channelId, client, enabled]);
+  }, [channelId, client, enabled, revision]);
 
-  const settle = useCallback((next: CopyState) => {
-    setCopyState(next);
-    window.setTimeout(() => setCopyState("idle"), 1600);
-  }, []);
-
-  const publish = useCallback(
-    (next: ChannelExternalAccess) => {
-      window.dispatchEvent(
-        new CustomEvent(EXTERNAL_CHANGED_EVENT, {
-          detail: { channelId, access: next },
-        }),
-      );
-    },
+  const guests =
+    enabled && loaded?.channelId === channelId ? loaded.guests : [];
+  const setGuests = useCallback(
+    (next: (current: ChannelGuestSummary[]) => ChannelGuestSummary[]) =>
+      setLoaded((current) => ({
+        channelId,
+        guests: next(current?.channelId === channelId ? current.guests : []),
+      })),
     [channelId],
   );
-
-  const setExternal = useCallback(
-    async (external: boolean) => {
-      if (!client) return;
-      publish(await client.channelGuests.setExternal(channelId, external));
-    },
-    [channelId, client, publish],
-  );
-
-  /** External channels copy their join link; every other conversation keeps
-   * its in-app link. */
-  const copyLink = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(
-        access?.external ? access.url : window.location.href,
-      );
-      settle("copied");
-    } catch {
-      settle("failed");
-    }
-  }, [access, settle]);
-
-  const resetLink = useCallback(async () => {
-    if (!client) return;
-    try {
-      const next = await client.channelGuests.resetLink(channelId);
-      publish(next);
-      if (next.external) await navigator.clipboard.writeText(next.url);
-      settle("copied");
-    } catch {
-      settle("failed");
-    }
-  }, [channelId, client, publish, settle]);
-
-  return {
-    external: access?.external === true,
-    loaded: access !== null,
-    copyState,
-    copyLink,
-    resetLink,
-    setExternal,
-  };
+  return { guests, setGuests };
 }
 
-/** Guest agents admitted to the channel through its link. */
+/** Agents members invited into the channel. */
 export function ChannelGuestRows({
   channelId,
   open,
@@ -130,29 +107,15 @@ export function ChannelGuestRows({
   open: boolean;
 }) {
   const { client } = useRelaySession();
-  const [guests, setGuests] = useState<ChannelGuestSummary[]>([]);
-
-  useEffect(() => {
-    if (!open || !client) return;
-    let cancelled = false;
-    void client.channelGuests
-      .list(channelId)
-      .then((next) => {
-        if (!cancelled) setGuests(next);
-      })
-      .catch(() => {
-        if (!cancelled) setGuests([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [channelId, client, open]);
+  const { guests, setGuests } = useChannelGuests(channelId, open);
 
   const remove = async (guestId: string) => {
     if (!client) return;
     setGuests((current) => current.filter((guest) => guest.id !== guestId));
     await client.channelGuests.remove(channelId, guestId).catch(() => {
-      void client.channelGuests.list(channelId).then(setGuests);
+      void client.channelGuests.list(channelId).then((next) => {
+        setGuests(() => next);
+      });
     });
   };
 
@@ -161,17 +124,14 @@ export function ChannelGuestRows({
       key={guest.id}
       className="group/guest hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors"
     >
-      <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[9px] font-semibold">
-        <AvatarImage
-          className="size-full object-cover"
-          fallback={guest.name.charAt(0).toLocaleUpperCase()}
-          src={guest.image}
-        />
-      </span>
+      <GuestAvatar
+        className="size-7 rounded-lg text-[9px]"
+        guest={guestSummaryAppearance(guest)}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{guest.name}</span>
         <span className="text-muted-foreground block truncate text-[10px]">
-          Guest agent
+          {guestLabel(guestSummaryAppearance(guest))}
         </span>
       </span>
       <button

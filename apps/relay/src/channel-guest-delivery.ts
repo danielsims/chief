@@ -12,7 +12,8 @@ import {
   signStandardWebhook,
   unseal,
 } from "./channel-guest-crypto";
-import { isExternalChannel } from "./channel-guest-lifecycle";
+import { pushToGuestListeners } from "./channel-guest-listeners";
+import { guestHandle } from "./channel-guest-profile";
 import { HttpError } from "./http";
 import {
   channelGuestOutboxCountForGuest,
@@ -117,15 +118,13 @@ export class ChannelGuestDelivery {
       ["active"],
     );
     if (guests.length === 0) return;
-    const channel = new WorkspaceChannelStore(
-      this.storage,
-      this.env,
-    ).requireChannel(message.conversationId);
-    // Guests only ever hear about external channels.
-    if (!isExternalChannel(channel)) return;
+    const channels = new WorkspaceChannelStore(this.storage, this.env);
+    const channel = channels.requireChannel(message.conversationId);
     const author = this.authorOf(message);
     let queued = false;
     for (const guest of guests) {
+      // An agent only hears what its member could still see.
+      if (!channels.agentMayAccess(channel, guest.operator_user_id)) continue;
       if (
         message.author.kind === "guest" &&
         message.author.id === guest.guest_id
@@ -133,6 +132,35 @@ export class ChannelGuestDelivery {
         continue;
       const reason = this.wakeReason(guest, message);
       if (!reason) continue;
+      const text = message.body.slice(0, 4_000);
+      const payload = (eventId: string): Payload => ({
+        eventId,
+        name: CHANNEL_MESSAGE_EVENT,
+        timestamp: message.createdAt,
+        data: {
+          channel: { name: String(channel.name) },
+          reason,
+          message: {
+            id: message.id,
+            threadRootId: message.threadRootId ?? null,
+            author,
+            text,
+            truncated: text.length < message.body.length,
+          },
+          reply: { threadRootId: message.threadRootId ?? message.id },
+        },
+        cursor: String(message.sequence),
+      });
+      const now = new Date().toISOString();
+      pushToGuestListeners(
+        this.storage,
+        guest.guest_id,
+        JSON.stringify(
+          payload(
+            `evt_${(await sha256Hex(`${guest.guest_id}:listener:${message.id}`)).slice(0, 32)}`,
+          ),
+        ),
+      );
       const targets: (string | null)[] = [
         ...(guest.webhook_url ? [null] : []),
         ...channelGuestSubscriptionsList(this.storage, guest.guest_id).map(
@@ -147,35 +175,15 @@ export class ChannelGuestDelivery {
           maximumQueuedPerGuest
       )
         continue;
-      const text = message.body.slice(0, 4_000);
       for (const subscriptionId of targets) {
         const eventId = `evt_${(
           await sha256Hex(`${guest.guest_id}:${subscriptionId}:${message.id}`)
         ).slice(0, 32)}`;
-        const payload: Payload = {
-          eventId,
-          name: CHANNEL_MESSAGE_EVENT,
-          timestamp: message.createdAt,
-          data: {
-            channel: { name: String(channel.name) },
-            reason,
-            message: {
-              id: message.id,
-              threadRootId: message.threadRootId ?? null,
-              author,
-              text,
-              truncated: text.length < message.body.length,
-            },
-            reply: { threadRootId: message.threadRootId ?? message.id },
-          },
-          cursor: String(message.sequence),
-        };
-        const now = new Date().toISOString();
         channelGuestOutboxInsert(this.storage, {
           delivery_id: eventId,
           guest_id: guest.guest_id,
           subscription_id: subscriptionId,
-          payload_json: JSON.stringify(payload),
+          payload_json: JSON.stringify(payload(eventId)),
           attempts: 0,
           next_attempt_at: now,
           created_at: now,
@@ -190,7 +198,12 @@ export class ChannelGuestDelivery {
    * Guests only wake each other by explicit mention, so two agents cannot
    * loop on a thread. */
   private wakeReason(guest: ChannelGuestRow, message: ConversationMessage) {
-    if (mentions(message.body, guest.name)) return "mention" as const;
+    if (
+      mentions(message.body, guest.name) ||
+      mentions(message.body, guestHandle(this.storage, guest))
+    ) {
+      return "mention" as const;
+    }
     if (message.author.kind === "guest") return null;
     if (
       message.threadRootId &&
@@ -345,7 +358,10 @@ export class ChannelGuestDelivery {
         : guest?.webhook_secret;
       const channelOpen =
         guest !== undefined &&
-        isExternalChannel(channels.requireChannel(guest.conversation_id));
+        channels.agentMayAccess(
+          channels.requireChannel(guest.conversation_id),
+          guest.operator_user_id,
+        );
       if (guest?.status !== "active" || !channelOpen || !url || !sealedSecret) {
         channelGuestOutboxDelete(this.storage, row.delivery_id);
         continue;
@@ -441,7 +457,8 @@ export class ChannelGuestDelivery {
 function mentions(body: string, name: string) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return new RegExp(
-    `(^|[^\\p{L}\\p{N}_])@${escaped}(?![\\p{L}\\p{N}_])`,
+    // A handle can continue with "-2" or ":name", so neither ends a match.
+    `(^|[^\\p{L}\\p{N}_])@${escaped}(?![\\p{L}\\p{N}_:-])`,
     "iu",
   ).test(body);
 }

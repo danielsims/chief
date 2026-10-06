@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { artifactReferencePayloadSchema } from "./artifacts";
 import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
+import { guestProfileSchema } from "./guest-profile";
 import {
   agentIdSchema,
   channelMentionIdSchema,
@@ -24,9 +25,7 @@ export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("guest"),
     id: guestIdSchema,
-    name: z.string().trim().min(1).max(80),
-    /** Relay-hosted copy of the agent's own profile image. */
-    image: z.url().max(2_048).optional(),
+    ...guestProfileSchema.shape,
   }),
 ]);
 

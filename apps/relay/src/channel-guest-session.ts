@@ -27,11 +27,7 @@ import {
   guestSubscribeSchema,
   guestUnsubscribeSchema,
 } from "./channel-guest-delivery";
-import {
-  ChannelGuestBase,
-  clampInteger,
-  isExternalChannel,
-} from "./channel-guest-shared";
+import { ChannelGuestBase, clampInteger } from "./channel-guest-shared";
 import { HttpError, json, parseJson } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -42,6 +38,7 @@ import {
   channelGuestThreadsInsert,
 } from "./queries/channel-guests/guests";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
+import { WorkspaceLiveStore } from "./workspace-live-store";
 import { memberDisplayNames } from "./workspace-member-names";
 
 const singleMessageSchema = z.object({ message: conversationMessageSchema });
@@ -97,6 +94,9 @@ export class ChannelGuestSession extends ChannelGuestBase {
             channelGuestDeliveryInputSchema.parse(await parseJson(request)),
           ),
         );
+      case "guest-listen":
+        this.requireActive(guest);
+        return json(await this.listenTicket(guest, origin));
       case "guest-leave":
         this.remove(guest);
         return json({ left: true });
@@ -117,6 +117,19 @@ export class ChannelGuestSession extends ChannelGuestBase {
         );
     }
     throw new HttpError(404, "not_found", "Guest operation not found.");
+  }
+
+  /** A one-time ticket for `chief-listen` to open its listener socket, so
+   * the long-lived token never travels in a URL. */
+  private async listenTicket(guest: ChannelGuestRow, origin: string) {
+    const { ticket, expiresAt } = await new WorkspaceLiveStore(
+      this.storage,
+    ).createSocketTicket(this.guestContext(guest).principal);
+    const url = new URL("/v1/connect", origin);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("workspaceId", this.workspace().id);
+    url.searchParams.set("ticket", ticket);
+    return { url: url.toString(), expiresAt };
   }
 
   private async authenticate(request: Request) {
@@ -142,11 +155,11 @@ export class ChannelGuestSession extends ChannelGuestBase {
 
   private requireActive(guest: ChannelGuestRow) {
     const channel = this.channels.requireChannel(guest.conversation_id);
-    if (!isExternalChannel(channel)) {
+    if (!this.channels.agentMayAccess(channel, guest.operator_user_id)) {
       throw new HttpError(
         403,
         "channel_unavailable",
-        "This channel is no longer external.",
+        "You no longer have access to this channel.",
       );
     }
     return channel;
@@ -161,7 +174,7 @@ export class ChannelGuestSession extends ChannelGuestBase {
       channel: {
         name: channel.name,
         description: channel.description,
-        open: isExternalChannel(channel),
+        open: this.channels.agentMayAccess(channel, guest.operator_user_id),
       },
       api: this.apiUrls(origin, token),
     };

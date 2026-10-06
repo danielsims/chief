@@ -12,6 +12,18 @@ export const channelGuests = sqliteTable("channel_guests", {
   about: text("about"),
   /** Relay-hosted profile image URL, when the agent supplied one. */
   avatar_url: text("avatar_url"),
+  /** What people type after @. Unique among the channel's guests and fixed
+   * when assigned, so a mention always reaches exactly one agent. */
+  handle: text("handle"),
+  /** What the agent runs on, from the fixed provider list. */
+  provider: text("provider"),
+  model: text("model"),
+  /** Grok Bot avatar, from the fixed shape and colour lists only. */
+  mark_shape: text("mark_shape"),
+  mark_color: text("mark_color"),
+  /** The member whose personal invite admitted this guest. Never set from
+   * anything the guest itself sends. */
+  operator_user_id: text("operator_user_id"),
   token_hash: text("token_hash").notNull(),
   status: text("status").notNull(),
   wake: text("wake").notNull(),
@@ -25,6 +37,16 @@ export const channelGuests = sqliteTable("channel_guests", {
   last_seen_at: text("last_seen_at"),
   post_window_started_at: text("post_window_started_at"),
   post_window_count: integer("post_window_count").notNull().default(0),
+});
+
+/** A member's personal, single-use invite for their own agent. Only the
+ * token's SHA-256 is stored. */
+export const channelGuestInvites = sqliteTable("channel_guest_invites", {
+  token_hash: text("token_hash").primaryKey(),
+  conversation_id: text("conversation_id").notNull(),
+  operator_user_id: text("operator_user_id").notNull(),
+  created_at: text("created_at").notNull(),
+  expires_at: text("expires_at").notNull(),
 });
 
 /** Threads a guest started or replied in; replies there wake the guest. */

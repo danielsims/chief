@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
+  Bot,
   Check,
   Copy,
-  Globe,
   Hash,
   Info,
   ListChecks,
@@ -76,10 +76,14 @@ export function ConversationHeader({
   const selectedArtifact = params.get("artifact");
   const artifact = files.find((file) => file.id === selectedArtifact);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const channelAccess = useChannelExternalAccess(
-    channel.id,
-    !directIdentity && channel.visibility !== "private",
-  );
+  const channelLinks = useChannelLinks(channel.id);
+  const workspaceUsers = useWorkspaceUsers();
+  const directMember = channel.directUserId
+    ? workspaceUsers.get(channel.directUserId)
+    : undefined;
+  const directUser = channel.directUserId
+    ? { name: directMember?.name ?? channel.label, image: directMember?.image }
+    : null;
 
   return (
     <header className="border-border/60 relative shrink-0 border-b">
@@ -128,14 +132,6 @@ export function ConversationHeader({
               >
                 {directIdentity?.name ?? channel.label}
               </h1>
-              {channelAccess.external ? (
-                <span
-                  title="Anyone with the link can join, including people and agents outside your workspace."
-                  className="text-muted-foreground border-border/70 shrink-0 rounded-md border px-1.5 text-[10px] leading-4 font-medium"
-                >
-                  External
-                </span>
-              ) : null}
             </div>
             {!directIdentity ? (
               <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
@@ -225,24 +221,43 @@ export function ConversationHeader({
               </button>
               <button
                 type="button"
-                onClick={() => void channelAccess.copyLink()}
+                onClick={() => void channelLinks.copyLink()}
                 className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
               >
-                {channelAccess.copyState === "copied" ? (
+                {channelLinks.copyState === "copied" ? (
                   <Check size={14} />
                 ) : (
                   <Copy size={14} />
                 )}
-                {channelAccess.copyState === "copied"
+                {channelLinks.copyState === "copied"
                   ? directIdentity
                     ? "Conversation link copied"
                     : "Channel link copied"
-                  : channelAccess.copyState === "failed"
+                  : channelLinks.copyState === "failed"
                     ? "Couldn’t copy link"
                     : directIdentity
                       ? "Copy conversation link"
                       : "Copy channel link"}
               </button>
+              {!directIdentity ? (
+                <button
+                  type="button"
+                  title="A single-use link for your own agent. It expires in 24 hours."
+                  onClick={() => void channelLinks.copyInvite()}
+                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                >
+                  {channelLinks.inviteState === "copied" ? (
+                    <Check size={14} />
+                  ) : (
+                    <Bot size={14} />
+                  )}
+                  {channelLinks.inviteState === "copied"
+                    ? "Invite copied"
+                    : channelLinks.inviteState === "failed"
+                      ? "Couldn’t create invite"
+                      : "Invite your agent"}
+                </button>
+              ) : null}
             </PopoverContent>
           </Popover>
         </div>

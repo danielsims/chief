@@ -1,10 +1,12 @@
 import type {
   ConversationMessage,
+  GuestProfile,
   JsonValue,
   MessageReaction,
 } from "@chief/relay-contracts";
 import {
   conversationMessageSchema,
+  guestProfileSchema,
   messageReactionSchema,
   parseJsonValue,
 } from "@chief/relay-contracts";
@@ -17,8 +19,7 @@ export interface MessageRow extends Record<string, SqlStorageValue> {
   thread_root_id: string | null;
   author_kind: "user" | "agent" | "system" | "guest";
   author_id: string;
-  author_name: string | null;
-  author_image: string | null;
+  author_profile: string | null;
   body: string;
   mentions_json: string;
   components_json: string;
@@ -42,6 +43,30 @@ function parseStoredJson(json: string): JsonValue {
   return parsed;
 }
 
+/** The appearance a guest author had when it posted. A missing or unreadable
+ * snapshot shows a plain "Guest" rather than failing the whole page. */
+function storedGuestProfile(json: string | null): GuestProfile {
+  try {
+    const parsed = guestProfileSchema.safeParse(JSON.parse(json ?? "null"));
+    if (parsed.success) return parsed.data;
+  } catch {
+    // Unreadable snapshots fall through to the plain label.
+  }
+  return { name: "Guest", provider: "other" };
+}
+
+/** Only the appearance fields of a guest author, for storing with a message. */
+export function guestProfileOf(author: GuestProfile): GuestProfile {
+  return guestProfileSchema.parse({
+    name: author.name,
+    provider: author.provider,
+    model: author.model,
+    image: author.image,
+    mark: author.mark,
+    operator: author.operator,
+  });
+}
+
 export function toMessage(row: MessageRow): ConversationMessage {
   return conversationMessageSchema.parse({
     id: row.message_id,
@@ -54,8 +79,7 @@ export function toMessage(row: MessageRow): ConversationMessage {
         ? {
             kind: "guest",
             id: row.author_id,
-            name: row.author_name ?? "Guest",
-            ...(row.author_image ? { image: row.author_image } : undefined),
+            ...storedGuestProfile(row.author_profile),
           }
         : { kind: row.author_kind, id: row.author_id },
     body: row.body,

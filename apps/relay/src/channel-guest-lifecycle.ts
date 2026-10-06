@@ -1,5 +1,4 @@
 import type { ChannelGuestRow } from "./queries/channel-guests/guests";
-import type { ChannelRow } from "./workspace-channel-store";
 import {
   channelGuestOutboxDeleteForGuest,
   channelGuestOutboxNext,
@@ -9,7 +8,7 @@ import {
   channelGuestsListForConversation,
   channelGuestsUpdate,
 } from "./queries/channel-guests/guests";
-import { channelsUpdateChannelsExternal } from "./queries/channels/update-channels-external";
+import { channelGuestInvitesDeleteForConversation } from "./queries/channel-guests/invites";
 
 /** Ends a guest for good: credential, webhook, subscriptions and queue. */
 export function revokeGuest(
@@ -29,19 +28,15 @@ export function revokeGuest(
 }
 
 /**
- * Makes a channel internal: its link is deleted and every guest is removed for
- * good, so making it external again later never quietly readmits anyone. Call
- * inside the caller's transaction.
+ * Removes every agent from a channel for good, with any unused invites to
+ * it. Called when the channel is archived or deleted. Call inside the
+ * caller's transaction.
  */
-export function closeExternalChannel(
+export function revokeChannelAgents(
   storage: DurableObjectStorage,
   conversationId: string,
 ) {
-  channelsUpdateChannelsExternal(storage, {
-    externalLinkToken: null,
-    updatedAt: new Date().toISOString(),
-    conversationId,
-  });
+  channelGuestInvitesDeleteForConversation(storage, conversationId);
   for (const guest of channelGuestsListForConversation(
     storage,
     conversationId,
@@ -49,20 +44,6 @@ export function closeExternalChannel(
   )) {
     revokeGuest(storage, guest);
   }
-}
-
-/**
- * The single gate for anything a guest can do. Only a channel explicitly made
- * external admits guests; public and private channels never do. Private and
- * archived channels are closed when they change, and are refused here too.
- */
-export function isExternalChannel(channel: ChannelRow) {
-  return (
-    channel.kind === "channel" &&
-    Number(channel.is_private) === 0 &&
-    Number(channel.archived) === 0 &&
-    channel.external_link_token !== null
-  );
 }
 
 /** When the next guest wake-up or retry is due, so the workspace alarm never

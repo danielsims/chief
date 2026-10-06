@@ -60,10 +60,19 @@ export function initializeConversationStorage(storage: DurableObjectStorage) {
       "deleted",
       "ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
     ],
-    ["author_name", "ALTER TABLE messages ADD COLUMN author_name TEXT"],
-    ["author_image", "ALTER TABLE messages ADD COLUMN author_image TEXT"],
+    ["author_profile", "ALTER TABLE messages ADD COLUMN author_profile TEXT"],
   ] as const;
   for (const [column, statement] of additions) {
     if (!columns.has(column)) storage.sql.exec(statement);
+  }
+  // Pre-release builds kept a guest's name and image in two columns.
+  if (columns.has("author_name")) {
+    storage.sql.exec(`
+      UPDATE messages
+         SET author_profile = json_object('name', author_name)
+       WHERE author_name IS NOT NULL AND author_profile IS NULL;
+      ALTER TABLE messages DROP COLUMN author_name;
+      ALTER TABLE messages DROP COLUMN author_image;
+    `);
   }
 }

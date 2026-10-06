@@ -1,35 +1,40 @@
 import type { ChannelGuestJoinInput, Principal } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
-  channelExternalAccessSchema,
-  channelExternalUpdateSchema,
+  channelGuestInviteSchema,
   channelGuestJoinInputSchema,
   channelGuestJoinResultSchema,
   channelGuestListSchema,
   channelMemberJoinedPayloadSchema,
   conversationIdSchema,
   guestIdSchema,
+  guestNameSchema,
 } from "@chief/relay-contracts";
 
 import type { ChannelGuestRow } from "./queries/channel-guests/guests";
 import type { ChannelRow } from "./workspace-channel-store";
 import { storeGuestAvatar } from "./channel-guest-avatar";
 import {
-  GUEST_CREDENTIAL_HEADER,
-  guestTokenFrom,
   newGuestId,
   newGuestToken,
   randomBase64Url,
   sha256Hex,
 } from "./channel-guest-crypto";
-import { closeExternalChannel } from "./channel-guest-lifecycle";
+import {
+  guestHttpTools,
+  guestInstructions,
+  guestNextStep,
+} from "./channel-guest-manual";
+import {
+  grokBotMark,
+  preferredGuestHandle,
+  uniqueGuestHandle,
+} from "./channel-guest-profile";
 import { ChannelGuestSession } from "./channel-guest-session";
 import {
   ChannelGuestBase,
   GUEST_GATEWAY_SERVICE,
-  isExternalChannel,
   linkDenied,
-  linkNotFound,
   PUBLIC_ORIGIN_HEADER,
 } from "./channel-guest-shared";
 import { HttpError, json, parseJson } from "./http";
@@ -38,30 +43,59 @@ import { releaseInternalResponse } from "./internal-response";
 import {
   channelGuestsCountJoinedSince,
   channelGuestsFind,
-  channelGuestsFindByTokenHash,
   channelGuestsInsert,
   channelGuestsListForConversation,
-  channelGuestsUpdate,
 } from "./queries/channel-guests/guests";
-import { channelsFindExternalChannel } from "./queries/channels/find-external-channel";
-import { channelsUpdateChannelsExternal } from "./queries/channels/update-channels-external";
-import { requireWorkspaceAdministrator } from "./workspace-administration";
+import {
+  channelGuestInvitesDelete,
+  channelGuestInvitesDeleteExpired,
+  channelGuestInvitesFind,
+  channelGuestInvitesInsert,
+} from "./queries/channel-guests/invites";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
-import { firstRow } from "./workspace-channel-rows";
 import { memberDisplayNames } from "./workspace-member-names";
 
 const maximumGuestsPerChannel = 25;
 const joinWindowMs = 60 * 60 * 1_000;
 const maximumJoinsPerWindow = 10;
+const inviteLifetimeMs = 24 * 60 * 60 * 1_000;
+
+function inviteInvalid() {
+  return new HttpError(
+    404,
+    "agent_invite_invalid",
+    "This invite has expired or was already used. Ask the person you work for to send a new one.",
+  );
+}
+
+/** Invite tokens are 32 URL-safe characters. */
+export function isInviteToken(value: string) {
+  return /^[A-Za-z0-9_-]{32}$/u.test(value);
+}
+
+/** The name the agent asked for, or the one in its Grok Bot profile. */
+function joinName(input: ChannelGuestJoinInput) {
+  const parsed = guestNameSchema.safeParse(
+    input.name ?? input.grokProfile?.name,
+  );
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      "guest_name_invalid",
+      "Send a `name` (or a `grokProfile` with one) of letters, numbers, spaces, dots, apostrophes, underscores or hyphens.",
+    );
+  }
+  return parsed.data;
+}
 /**
- * External channels and the outside agents admitted through their links.
+ * Agents that members invite into channels.
  *
- * Only a channel a workspace owner or admin explicitly made external has a
- * link. A guest is bound to exactly one external channel. It can read and
- * post there and nothing else: no other channels, files, members' ids,
- * secrets or tools. Anyone holding the link can join instantly, so joins are
- * capped, any member can remove a guest, and guest messages never wake
- * workspace agents.
+ * There is no public way in. A member who can see a channel creates a
+ * single-use invite for their own agent; the agent that joins with it works
+ * for that member, is shown that way, and can only ever reach that one
+ * channel, and only while its member still can. It can read and post there
+ * and nothing else: no other channels, files, members' ids, secrets or tools.
+ * Agent messages never wake workspace agents.
  */
 export class ChannelGuestService extends ChannelGuestBase {
   async route(request: Request, operation: string) {
@@ -69,36 +103,25 @@ export class ChannelGuestService extends ChannelGuestBase {
     const origin = request.headers.get(PUBLIC_ORIGIN_HEADER) ?? "";
     const url = new URL(request.url);
     switch (operation) {
-      case "channel-external-get":
-        return json(this.externalGet(context.principal, url, origin));
-      case "channel-external-set":
-        return json(
-          this.externalSet(
-            context.principal,
-            url,
-            origin,
-            channelExternalUpdateSchema.parse(await parseJson(request))
-              .external,
-          ),
-        );
-      case "channel-external-reset":
-        return json(this.externalReset(context.principal, url, origin));
       case "guest-list":
         return json(this.guestList(context.principal, url));
       case "guest-remove":
         return json(this.guestRemove(context.principal, url));
+      case "guest-invite-create":
+        return json(await this.inviteCreate(context.principal, url, origin));
     }
     this.requireGateway(context.principal);
     switch (operation) {
-      case "guest-link-resolve":
-        return json(this.linkResolve(url.searchParams.get("token") ?? ""));
+      case "guest-invite-resolve":
+        return json(
+          await this.inviteResolve(url.searchParams.get("token") ?? ""),
+        );
       case "guest-join":
         return json(
           await this.join(
             url.searchParams.get("token") ?? "",
             channelGuestJoinInputSchema.parse(await parseJson(request)),
             origin,
-            guestTokenFrom(request.headers.get(GUEST_CREDENTIAL_HEADER)),
           ),
           { status: 201 },
         );
@@ -110,157 +133,23 @@ export class ChannelGuestService extends ChannelGuestBase {
     );
   }
 
-  // External access -----------------------------------------------------
-
-  private externalGet(principal: Principal, url: URL, origin: string) {
-    if (principal.kind !== "user") throw linkDenied();
-    this.channels.requirePrincipalMember(principal);
-    const channel = this.channels.requireChannelVisible(
-      this.conversationParam(url),
-      principal,
-    );
-    return this.describeExternal(channel, origin);
-  }
-
-  /** Only workspace owners and admins decide who outside can get in. */
-  private externalSet(
-    principal: Principal,
-    url: URL,
-    origin: string,
-    external: boolean,
-  ) {
-    const channel = this.requireAdministeredChannel(principal, url);
-    if (!external) {
-      this.storage.transactionSync(() =>
-        closeExternalChannel(this.storage, channel.conversation_id),
-      );
-    } else if (channel.external_link_token === null) {
-      if (
-        channel.kind !== "channel" ||
-        Number(channel.is_private) === 1 ||
-        Number(channel.archived) === 1
-      ) {
-        throw new HttpError(
-          409,
-          "channel_not_externalizable",
-          "Only active channels that aren't private can be made external.",
-        );
-      }
-      this.setLinkToken(channel.conversation_id, randomBase64Url(18));
-    }
-    return this.externalGet(principal, url, origin);
-  }
-
-  /** Replaces the link. The old one stops working; guests stay. */
-  private externalReset(principal: Principal, url: URL, origin: string) {
-    const channel = this.requireAdministeredChannel(principal, url);
-    if (!isExternalChannel(channel)) {
-      throw new HttpError(
-        409,
-        "channel_not_external",
-        "Only external channels have a link.",
-      );
-    }
-    this.setLinkToken(channel.conversation_id, randomBase64Url(18));
-    return this.externalGet(principal, url, origin);
-  }
-
-  private requireAdministeredChannel(principal: Principal, url: URL) {
-    if (principal.kind !== "user") throw linkDenied();
-    requireWorkspaceAdministrator(this.channels, principal);
-    return this.channels.requireChannelVisible(
-      this.conversationParam(url),
-      principal,
-    );
-  }
-
-  private setLinkToken(conversationId: string, token: string) {
-    channelsUpdateChannelsExternal(this.storage, {
-      externalLinkToken: token,
-      updatedAt: new Date().toISOString(),
-      conversationId,
-    });
-  }
-
-  private describeExternal(channel: ChannelRow, origin: string) {
-    return channelExternalAccessSchema.parse(
-      isExternalChannel(channel) && channel.external_link_token !== null
-        ? {
-            external: true,
-            url: `${origin}/c/${encodeURIComponent(this.workspace().id)}/${channel.external_link_token}`,
-          }
-        : { external: false },
-    );
-  }
-
-  private linkResolve(token: string) {
-    const { channel } = this.requireOpenLink(token);
-    const workspace = this.workspace();
-    return {
-      workspace: { id: workspace.id, name: workspace.name },
-      channel: {
-        id: channel.conversation_id,
-        name: channel.name,
-        description: channel.description,
-      },
-      members: this.channels.channelMemberRows(channel.conversation_id).length,
-    };
-  }
-
-  private requireOpenLink(token: string) {
-    const channel = /^[A-Za-z0-9_-]{24}$/u.test(token)
-      ? firstRow<ChannelRow>(channelsFindExternalChannel(this.storage, token))
-      : undefined;
-    if (!channel || !isExternalChannel(channel)) throw linkNotFound();
-    return { channel };
-  }
-
   // Joining ---------------------------------------------------------------
 
   private async join(
-    token: string,
+    inviteToken: string,
     input: ChannelGuestJoinInput,
     origin: string,
-    existingCredential: string | null,
   ) {
-    const { channel } = this.requireOpenLink(token);
-    // Joining again with a saved token is harmless: it returns the same
-    // identity, so an agent that repeats the join never splits into two.
-    const existing = existingCredential
-      ? channelGuestsFindByTokenHash(
-          this.storage,
-          await sha256Hex(existingCredential),
-        )
-      : undefined;
-    if (
-      existingCredential &&
-      existing?.status === "active" &&
-      existing.conversation_id === channel.conversation_id
-    ) {
-      if (input.avatarUrl) {
-        const avatar = await storeGuestAvatar(
-          this.env,
-          origin,
-          existing.guest_id,
-          input.avatarUrl,
-        );
-        if (avatar) {
-          channelGuestsUpdate(this.storage, existing.guest_id, {
-            avatar_url: avatar,
-          });
-          existing.avatar_url = avatar;
-        }
-      }
-      return channelGuestJoinResultSchema.parse({
-        guest: this.summary(existing),
-        token: existingCredential,
-        api: this.apiUrls(origin, existingCredential),
-      });
-    }
+    const { channel, tokenHash } = await this.requireInvite(inviteToken);
+    const conversationId = channel.conversation_id;
+    const name = joinName(input);
+    const mark = input.grokProfile ? grokBotMark(input.grokProfile) : undefined;
+    const provider = input.provider ?? (input.grokProfile ? "grok" : undefined);
+
     const now = new Date();
     const recentJoins = channelGuestsCountJoinedSince(
       this.storage,
-      channel.conversation_id,
+      conversationId,
       new Date(now.getTime() - joinWindowMs).toISOString(),
     );
     if (recentJoins >= maximumJoinsPerWindow) {
@@ -272,7 +161,7 @@ export class ChannelGuestService extends ChannelGuestBase {
     }
     const active = channelGuestsListForConversation(
       this.storage,
-      channel.conversation_id,
+      conversationId,
       ["active"],
     );
     if (active.length >= maximumGuestsPerChannel) {
@@ -282,17 +171,27 @@ export class ChannelGuestService extends ChannelGuestBase {
         "This channel already has the maximum number of guest agents.",
       );
     }
-    this.requireAvailableName(channel.conversation_id, input.name);
+    this.requireAvailableName(name);
     const credential = newGuestToken();
     const guestId = newGuestId();
+    const image = input.avatarUrl
+      ? await storeGuestAvatar(this.env, origin, guestId, input.avatarUrl)
+      : null;
+    const webhook = input.webhook
+      ? await this.sealedWebhook(input.webhook)
+      : undefined;
     const row: ChannelGuestRow = {
       guest_id: guestId,
-      conversation_id: channel.conversation_id,
-      name: input.name,
+      conversation_id: conversationId,
+      name,
       about: input.about ?? null,
-      avatar_url: input.avatarUrl
-        ? await storeGuestAvatar(this.env, origin, guestId, input.avatarUrl)
-        : null,
+      avatar_url: image,
+      provider: provider ?? "other",
+      model: input.model ?? null,
+      handle: null,
+      mark_shape: mark?.shape ?? null,
+      mark_color: mark?.color ?? null,
+      operator_user_id: null,
       token_hash: await sha256Hex(credential),
       status: "active",
       wake: input.wake,
@@ -304,38 +203,141 @@ export class ChannelGuestService extends ChannelGuestBase {
       last_seen_at: null,
       post_window_started_at: null,
       post_window_count: 0,
+      ...webhook?.columns,
     };
-    const webhook = input.webhook
-      ? await this.sealedWebhook(input.webhook)
-      : undefined;
-    if (webhook) Object.assign(row, webhook.columns);
-    channelGuestsInsert(this.storage, row);
+    // Nothing awaits between taking the invite and inserting the agent, so a
+    // single-use invite admits exactly one.
+    this.storage.transactionSync(() => {
+      row.operator_user_id = this.takeInvite(tokenHash);
+      row.handle = this.assignHandle(row);
+      channelGuestsInsert(this.storage, row);
+    });
     await this.announce(row);
+    return this.joinResult(
+      channel,
+      row,
+      credential,
+      origin,
+      webhook?.signingSecret,
+    );
+  }
+
+  /** The join response carries the whole manual, so an agent that joins
+   * cannot miss how to take part. */
+  private joinResult(
+    channel: ChannelRow,
+    guest: ChannelGuestRow,
+    credential: string,
+    origin: string,
+    webhookSigningSecret?: string,
+  ) {
+    const api = this.apiUrls(origin, credential);
     return channelGuestJoinResultSchema.parse({
-      guest: this.summary(row),
+      instructions: guestInstructions(`#${channel.name}`),
+      guest: this.summary(guest),
       token: credential,
-      webhookSigningSecret: webhook?.signingSecret,
-      api: this.apiUrls(origin, credential),
+      webhookSigningSecret,
+      api,
+      tools: guestHttpTools(api.base),
+      next: guestNextStep,
     });
   }
 
-  /** A guest cannot borrow the name of a person, a workspace agent or another
-   * guest in the channel, so it can never pass as one of them. */
-  private requireAvailableName(conversationId: string, name: string) {
+  /** A handle no other guest in the channel has. */
+  private assignHandle(guest: ChannelGuestRow) {
+    return uniqueGuestHandle(
+      this.storage,
+      channelGuestsListForConversation(this.storage, guest.conversation_id, [
+        "active",
+      ]).filter((other) => other.guest_id !== guest.guest_id),
+      preferredGuestHandle(this.storage, guest),
+    );
+  }
+
+  // Invites ---------------------------------------------------------------
+
+  /** A member's single-use link for their own agent. The agent that joins
+   * with it works for that member, because the member made it. */
+  private async inviteCreate(principal: Principal, url: URL, origin: string) {
+    if (principal.kind !== "user") throw linkDenied();
+    this.channels.requirePrincipalMember(principal);
+    const channel = this.channels.requireChannelVisible(
+      this.conversationParam(url),
+      principal,
+    );
+    if (!this.channels.agentMayAccess(channel, principal.userId)) {
+      throw new HttpError(
+        409,
+        "channel_not_open_to_agents",
+        "Agents can only be invited into active channels.",
+      );
+    }
+    const token = randomBase64Url(24);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + inviteLifetimeMs).toISOString();
+    channelGuestInvitesDeleteExpired(this.storage, now.toISOString());
+    channelGuestInvitesInsert(this.storage, {
+      token_hash: await sha256Hex(token),
+      conversation_id: channel.conversation_id,
+      operator_user_id: principal.userId,
+      created_at: now.toISOString(),
+      expires_at: expiresAt,
+    });
+    return channelGuestInviteSchema.parse({
+      url: `${origin}/agents/${encodeURIComponent(this.workspace().id)}/${token}`,
+      expiresAt,
+    });
+  }
+
+  /** What the invite page shows: the channel and who sent it. */
+  private async inviteResolve(token: string) {
+    const { channel, invite } = await this.requireInvite(token);
+    return {
+      workspace: { id: this.workspace().id, name: this.workspace().name },
+      channel: {
+        id: channel.conversation_id,
+        name: channel.name,
+        description: channel.description,
+      },
+      invitedBy:
+        memberDisplayNames(this.storage).get(
+          `user:${invite.operator_user_id}`,
+        ) ?? "A workspace member",
+    };
+  }
+
+  /** A live invite to a channel its member can still reach. */
+  private async requireInvite(token: string) {
+    if (!isInviteToken(token)) throw inviteInvalid();
+    const tokenHash = await sha256Hex(token);
+    const invite = channelGuestInvitesFind(this.storage, tokenHash);
+    if (!invite || Date.parse(invite.expires_at) <= Date.now()) {
+      throw inviteInvalid();
+    }
+    const channel = this.channels.requireChannel(invite.conversation_id);
+    if (!this.channels.agentMayAccess(channel, invite.operator_user_id)) {
+      throw inviteInvalid();
+    }
+    return { channel, invite, tokenHash };
+  }
+
+  /** Uses up the invite and returns the member it belongs to. */
+  private takeInvite(tokenHash: string) {
+    const invite = channelGuestInvitesFind(this.storage, tokenHash);
+    if (!invite || Date.parse(invite.expires_at) <= Date.now()) {
+      throw inviteInvalid();
+    }
+    channelGuestInvitesDelete(this.storage, tokenHash);
+    return invite.operator_user_id;
+  }
+
+  /** An agent cannot borrow the name of a person or a workspace agent, so it
+   * can never pass as one of them. Agents may share names with each other:
+   * their handles tell them apart. */
+  private requireAvailableName(name: string) {
     const wanted = name.trim().toLocaleLowerCase();
     const matches = (existing: string) =>
       existing.trim().toLocaleLowerCase() === wanted;
-    if (
-      channelGuestsListForConversation(this.storage, conversationId, [
-        "active",
-      ]).some((guest) => matches(guest.name))
-    ) {
-      throw new HttpError(
-        409,
-        "guest_already_joined",
-        "A guest with this name is already in the channel. If that is you, you have already joined: keep using the token from that join. Calling join again with it as `Authorization: Bearer <token>` returns the same identity. Do not join under a new name.",
-      );
-    }
     if (
       [
         ...memberDisplayNames(this.storage).values(),
@@ -373,7 +375,7 @@ export class ChannelGuestService extends ChannelGuestBase {
     if (!guest || guest.conversation_id !== this.conversationParam(url)) {
       throw new HttpError(404, "guest_not_found", "This guest was not found.");
     }
-    // Any member can show a guest out of a channel they can see.
+    // Any member who can see the channel can show an agent out of it.
     this.channels.requireChannelVisible(guest.conversation_id, principal);
     this.remove(guest);
     return { removed: true };

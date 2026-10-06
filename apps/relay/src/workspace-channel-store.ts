@@ -7,7 +7,6 @@ import {
   channelRecordSchema,
 } from "@chief/relay-contracts";
 
-import { isExternalChannel } from "./channel-guest-lifecycle";
 import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
@@ -77,7 +76,6 @@ export interface ChannelRow extends Record<string, SqlStorageValue> {
   is_private: number;
   archived: number;
   description: string | null;
-  external_link_token: string | null;
   created_by_kind: string;
   created_by_id: string;
   version: number;
@@ -218,17 +216,18 @@ export class WorkspaceChannelStore {
 
   requireChannelVisible(conversationId: string, principal: Principal) {
     const channel = this.requireChannel(conversationId);
-    // A guest is admitted to exactly one channel, never the workspace.
+    // An invited agent is admitted to exactly one channel, and only while
+    // the member who invited it can still see that channel.
     if (principal.kind === "guest") {
       if (
         principal.conversationId === conversationId &&
-        isExternalChannel(channel)
+        this.agentMayAccess(channel, principal.operator?.id ?? null)
       )
         return channel;
       throw new HttpError(
         403,
         "channel_access_denied",
-        "This guest is not admitted to the channel.",
+        "This agent is not admitted to the channel.",
       );
     }
     if (Number(channel.is_private) === 0) return channel;
@@ -244,6 +243,31 @@ export class WorkspaceChannelStore {
       403,
       "channel_access_denied",
       "This identity is not a member of the private channel.",
+    );
+  }
+
+  /**
+   * The single gate for invited agents. An agent never sees more than the
+   * member it works for: the channel must be active, and that member must
+   * still belong to the workspace and be able to see the channel. Checked on
+   * every action, so losing access takes effect at once.
+   */
+  agentMayAccess(channel: ChannelRow, operatorUserId: string | null) {
+    if (
+      !operatorUserId ||
+      channel.kind !== "channel" ||
+      Number(channel.archived) === 1 ||
+      this.memberRole("user", operatorUserId) === null
+    ) {
+      return false;
+    }
+    return (
+      Number(channel.is_private) === 0 ||
+      this.channelMembership(
+        channel.conversation_id,
+        "user",
+        operatorUserId,
+      ) !== undefined
     );
   }
 

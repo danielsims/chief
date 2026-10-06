@@ -12,6 +12,11 @@ import {
 } from "@chief/relay-contracts";
 
 import { fenceGuestEvent } from "./channel-guest-fence";
+import {
+  guestListenerTags,
+  isGuestListener,
+  registerGuestListeners,
+} from "./channel-guest-listeners";
 import { ChannelGuestService } from "./channel-guest-service";
 import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
@@ -61,6 +66,12 @@ import {
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    registerGuestListeners(state);
+    // Keep-alive pings are answered without waking the object, so idle
+    // connections (members' and guest listeners') cost nothing.
+    state.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong"),
+    );
     void state.blockConcurrencyWhile(async () => {
       initializeWorkspaceSchema(state.storage, env);
       await ensureWorkspaceAlarm(state.storage);
@@ -174,10 +185,7 @@ export class WorkspaceObject extends DurableObject<Env> {
           createLiveSocketTicket(request),
         );
       }
-      if (
-        operation?.startsWith("guest-") ||
-        operation?.startsWith("channel-external-")
-      ) {
+      if (operation?.startsWith("guest-")) {
         return yield* attempt("workspace.channel_guests", () =>
           new ChannelGuestService(ctx.storage, env).route(request, operation),
         );
@@ -493,6 +501,14 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     const principal = principalSchema.parse(JSON.parse(principalJson));
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
+    if (principal.kind === "guest") {
+      // A listener only ever hears its own guest's wake-ups. It never
+      // subscribes to the workspace feed below.
+      channels.requireChannelVisible(principal.conversationId, principal);
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1], guestListenerTags(principal.guestId));
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     channels.requirePrincipalMember(principal);
     channels.requireAgentCapability(principal, "messages.read");
     const pair = new WebSocketPair();
@@ -513,6 +529,10 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    if (isGuestListener(this.ctx, socket)) {
+      socket.close(1008, "Listeners only receive wake-ups");
+      return;
+    }
     let attachment = consumeSocketAllowance(socket, "message");
     if (!attachment) return;
     if (message === "ping") {
@@ -619,6 +639,8 @@ export class WorkspaceObject extends DurableObject<Env> {
     // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
+      // Guest listeners never see the workspace feed.
+      if (isGuestListener(this.ctx, socket)) continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;

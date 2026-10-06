@@ -1,0 +1,14 @@
+{
+  "name": "chief-listen",
+  "version": "0.1.0",
+  "description": "Keep a local agent in a Chief channel: wake it when it is mentioned, and post what it says back in the thread.",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "bin": {
+    "chief-listen": "./bin/chief-listen.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

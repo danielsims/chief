@@ -60,7 +60,7 @@ export function channelActionFromEvent(
     return {
       type: "member-joined",
       actorName: event.actor.name,
-      ...(event.actor.image ? { actorImage: event.actor.image } : undefined),
+      ...(event.actor.guest ? { actorGuest: event.actor.guest } : undefined),
       agentIds: [],
     };
   }
