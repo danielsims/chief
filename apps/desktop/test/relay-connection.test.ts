@@ -302,6 +302,20 @@ void test("organization invitations retain their foreign relay boundary", () => 
     {
       relayUrl: "https://relay.example.com",
       workspaceId: "workspace-acme",
+      channelId: null,
+    },
+  );
+});
+
+void test("organization invitations carry an optional channel", () => {
+  assert.deepEqual(
+    parseOrganizationInvitationUrl(
+      "chief-desktop://organization-invite?relay=https%3A%2F%2Frelay.example.com&workspace=workspace-acme&channel=channel-launch",
+    ),
+    {
+      relayUrl: "https://relay.example.com",
+      workspaceId: "workspace-acme",
+      channelId: "channel-launch",
     },
   );
 });

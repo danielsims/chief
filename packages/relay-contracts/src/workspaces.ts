@@ -95,6 +95,8 @@ export const workspaceMemberSchema = z
     principalId: z.string().trim().min(1).max(256),
     role: workspaceRoleSchema,
     name: z.string().trim().min(1).max(120).optional(),
+    email: z.string().trim().max(320).optional(),
+    image: z.string().trim().max(2_048).optional(),
   })
   .strict();
 
@@ -108,6 +110,10 @@ export const updateWorkspaceMemberRoleCommandSchema = z
 
 export const updateWorkspaceMemberRoleResultSchema = z
   .object({ member: workspaceMemberSchema })
+  .strict();
+
+export const workspaceMemberRemoveResultSchema = z
+  .object({ removed: z.literal(true) })
   .strict();
 
 export const workspaceDeleteResultSchema = z
@@ -154,6 +160,47 @@ export const previewWorkspaceInviteCommandSchema = z
 export const workspaceInviteClaimResultSchema = workspaceInviteSchema
   .extend({
     alreadyMember: z.boolean(),
+  })
+  .strict();
+
+/** A role a workspace owner or admin may grant through an invitation. */
+export const workspaceInvitationRoleSchema = z.enum(["admin", "member"]);
+
+export const workspaceInvitationStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "rejected",
+  "canceled",
+]);
+
+export const workspaceInvitationSchema = z
+  .object({
+    id: z.string().trim().min(1).max(128),
+    email: z.email(),
+    role: z.string().trim().min(1).max(64),
+    status: workspaceInvitationStatusSchema,
+    expiresAt: isoDateTimeSchema,
+    createdAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const workspaceInvitationListSchema = z
+  .object({ invitations: z.array(workspaceInvitationSchema).max(500) })
+  .strict();
+
+export const createWorkspaceInvitationCommandSchema = z
+  .object({
+    email: z.email(),
+    role: workspaceInvitationRoleSchema,
+    /** Extend an existing pending invitation instead of failing. */
+    resend: z.boolean().default(false),
+  })
+  .strict();
+
+export const cancelWorkspaceInvitationResultSchema = z
+  .object({
+    invitationId: z.string().trim().min(1).max(128),
+    canceled: z.literal(true),
   })
   .strict();
 
@@ -374,6 +421,19 @@ export type OrganizationWorkspaceJoinResult = z.infer<
   typeof organizationWorkspaceJoinResultSchema
 >;
 export type WorkspaceMember = z.infer<typeof workspaceMemberSchema>;
+export type WorkspaceMemberRemoveResult = z.infer<
+  typeof workspaceMemberRemoveResultSchema
+>;
+export type WorkspaceInvitation = z.infer<typeof workspaceInvitationSchema>;
+export type WorkspaceInvitationListResult = z.infer<
+  typeof workspaceInvitationListSchema
+>;
+export type WorkspaceInvitationRole = z.infer<
+  typeof workspaceInvitationRoleSchema
+>;
+export type CreateWorkspaceInvitationCommand = z.infer<
+  typeof createWorkspaceInvitationCommandSchema
+>;
 export type CreateWorkspaceInviteCommand = z.infer<
   typeof createWorkspaceInviteCommandSchema
 >;

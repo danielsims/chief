@@ -7,7 +7,6 @@ import {
   createWorkspaceCommandSchema,
   isJsonObject,
   isJsonString,
-  switchWorkspaceCommandSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
@@ -62,7 +61,6 @@ export class AccountObject extends DurableObject<Env> {
     const create = this.create.bind(this);
     const active = this.active.bind(this);
     const list = this.list.bind(this);
-    const switchWorkspace = this.switchWorkspace.bind(this);
     const join = this.join.bind(this);
     const remove = this.remove.bind(this);
     const storage = this.ctx.storage;
@@ -108,11 +106,6 @@ export class AccountObject extends DurableObject<Env> {
       }
       if (operation === "list-workspaces") {
         return yield* attempt("account.workspace.list", () => list(identity));
-      }
-      if (operation === "switch-workspace") {
-        return yield* attempt("account.workspace.switch", () =>
-          switchWorkspace(request, identity),
-        );
       }
       if (operation === "join-workspace") {
         return yield* attempt("account.workspace.join", () =>
@@ -224,32 +217,6 @@ export class AccountObject extends DurableObject<Env> {
     }
   }
 
-  private async switchWorkspace(
-    request: Request,
-    identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
-  ) {
-    const command = switchWorkspaceCommandSchema.parse(
-      await parseJson(request),
-    );
-    const target = workspaceIdSchema.parse(command.workspaceId);
-    const existing = firstRow<DirectoryRow>(
-      workspaceDirectoryV2FindSwitchWorkspace(this.ctx.storage, target),
-    );
-    if (!existing) {
-      return relayError(
-        404,
-        "workspace_not_found",
-        "This account does not have that workspace.",
-      );
-    }
-    const current = this.activeDirectoryRow(identity.pubkey);
-    if (current?.workspace_id !== target) {
-      this.setActiveWorkspace(identity.pubkey, target);
-    }
-    void this.maybeRecordProductEvents();
-    return json({ workspaceId: target, isActive: true });
-  }
-
   private async join(
     request: Request,
     identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
@@ -264,6 +231,9 @@ export class AccountObject extends DurableObject<Env> {
     const name = isJsonString(body.name) ? body.name.trim() : "";
     const website = isJsonString(body.website) ? body.website.trim() : "";
     const createdAt = isJsonString(body.createdAt) ? body.createdAt : "";
+    // Reconciliation adds workspaces without disturbing the open one; an
+    // explicit join or switch activates.
+    const activate = body.activate !== false;
     if (!name || name.length > 120 || website.length > 2_048) {
       return relayError(
         400,
@@ -290,7 +260,9 @@ export class AccountObject extends DurableObject<Env> {
           createdAt: createdAt,
         });
       }
-      this.setActiveWorkspace(identity.pubkey, workspaceId);
+      if (activate) {
+        this.setActiveWorkspace(identity.pubkey, workspaceId);
+      }
     });
     return json({ workspaceId, isActive: true });
   }

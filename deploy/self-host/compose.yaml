@@ -23,6 +23,8 @@ x-relay-environment: &relay-environment
   APPLE_APP_BUNDLE_IDENTIFIER: ${APPLE_APP_BUNDLE_IDENTIFIER:-}
   CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
   CLOUDFLARE_EMAIL_API_TOKEN: ${CLOUDFLARE_EMAIL_API_TOKEN:-}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
   EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
   EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Chief}
   MINIFLARE_CACHE_DIR: /run/chief/miniflare
@@ -167,6 +169,11 @@ services:
       context: ../..
       dockerfile: apps/web/Dockerfile
     image: ${CHIEF_WEB_IMAGE:-chief-web:local}
+    environment:
+      # Server-rendered session reads reach the relay directly on the internal
+      # network. The public origin scopes invitations to this relay.
+      CHIEF_RELAY_URL: http://relay:8787
+      CHIEF_PUBLIC_RELAY_URL: ${CHIEF_PUBLIC_URL:?Set CHIEF_PUBLIC_URL in deploy/self-host/.env}
     depends_on:
       relay:
         condition: service_healthy

@@ -1,104 +1,120 @@
-"use client";
+import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  isChannelId,
+  isWorkspaceId,
+  safeRelayOrigin,
+} from "../../../lib/invitation-links";
+import {
+  publicRelayOrigin,
+  readInvitationContext,
+} from "../../../lib/invitation-server";
+import { InvitationAccept } from "./invitation-accept";
 
-import { Button } from "@chief/ui/components/button";
+export const dynamic = "force-dynamic";
 
-import { authClient } from "../../../lib/auth-client";
+const invitationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
-export default function InvitationPage() {
-  const params = useParams<{ id: string }>();
-  const search = useSearchParams();
-  const router = useRouter();
-  const session = authClient.useSession();
-  const [working, setWorking] = useState(false);
-  const [accepted, setAccepted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const relay = search.get("relay") ?? "";
-  const workspace = search.get("workspace") ?? "";
-  const safeRelay = useMemo(() => {
-    try {
-      const url = new URL(relay);
-      const local =
-        url.hostname === "localhost" || url.hostname === "127.0.0.1";
-      return !url.username &&
-        !url.password &&
-        (url.protocol === "https:" || (local && url.protocol === "http:"))
-        ? url.origin
-        : null;
-    } catch {
-      return null;
-    }
-  }, [relay]);
+function first(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+}
 
-  useEffect(() => {
-    if (session.isPending || session.data || !safeRelay) return;
-    const callbackUrl = `/invitations/${encodeURIComponent(params.id)}?${search.toString()}`;
-    router.replace(`/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
-  }, [params.id, router, safeRelay, search, session.data, session.isPending]);
+function safeEmail(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(trimmed)
+    ? trimmed
+    : null;
+}
 
-  const accept = async () => {
-    if (!safeRelay || !workspace || working) return;
-    setWorking(true);
-    setError(null);
-    const result = await authClient.organization.acceptInvitation({
-      invitationId: params.id,
-    });
-    if (result.error) {
-      setError(
-        result.error.message ?? "Chief couldn’t accept this invitation.",
-      );
-      setWorking(false);
-      return;
-    }
-    setAccepted(true);
-    setWorking(false);
-  };
+export default async function InvitationPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { id } = await params;
+  const search = await searchParams;
+  const relay = safeRelayOrigin(first(search.relay));
+  const workspace = first(search.workspace);
+  const channel = first(search.channel);
+  const invitedEmail = safeEmail(first(search.email));
 
-  const query = new URLSearchParams({ relay: safeRelay ?? "", workspace });
-  const mobile = `chief-mobile://organization-invite?${query}`;
-  const desktop = `chief-desktop://organization-invite?${query}`;
+  // An invitation is only ever accepted against the relay this deployment
+  // fronts. A link carrying another relay's origin is not ours to act on.
+  if (
+    !invitationIdPattern.test(id) ||
+    !relay ||
+    relay !== publicRelayOrigin() ||
+    !isWorkspaceId(workspace)
+  ) {
+    return <InvitationUnavailable />;
+  }
+
+  const callbackParams = new URLSearchParams({ relay, workspace });
+  if (channel && isChannelId(channel)) callbackParams.set("channel", channel);
+  if (invitedEmail) callbackParams.set("email", invitedEmail);
+  const callbackUrl = `/invitations/${encodeURIComponent(id)}?${callbackParams.toString()}`;
+
+  const context = await readInvitationContext(id);
+  if (context.account === null) {
+    redirect(`/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+  }
+  if (context.account === undefined) {
+    return <InvitationUnavailable relayReachable={false} />;
+  }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#080808] px-5 text-white">
-      <section className="w-full max-w-md rounded-3xl border border-white/10 bg-[#111] p-8">
-        <p className="text-sm text-white/50">Chief invitation</p>
-        <h1 className="mt-3 text-3xl font-medium tracking-tight">
-          {accepted ? "You’re in" : "Join this workspace?"}
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-white/60">
-          {accepted
-            ? "Open Chief to finish adding the workspace to this device."
-            : "Your account will join this workspace. Check the relay before continuing."}
-        </p>
-        <p className="mt-6 truncate rounded-xl bg-white/5 px-3 py-3 font-mono text-xs text-white/70">
-          {safeRelay ? new URL(safeRelay).host : "Invalid relay"}
-        </p>
-        {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
-        {accepted ? (
-          <div className="mt-7 space-y-2">
-            <Button render={<a href={mobile} />} className="w-full">
-              Open Chief
-            </Button>
-            <Button
-              render={<a href={desktop} />}
-              variant="secondary"
-              className="w-full"
-            >
-              Open Chief for desktop
-            </Button>
-          </div>
-        ) : (
-          <Button
-            className="mt-7 w-full"
-            disabled={!session.data || !safeRelay || !workspace || working}
-            onClick={() => void accept()}
+    <InvitationAccept
+      invitationId={id}
+      account={context.account}
+      workspaceName={context.workspaceName}
+      invitationEmail={context.invitationEmail}
+      invitedEmail={invitedEmail}
+      relay={relay}
+      workspace={workspace}
+      channel={channel && isChannelId(channel) ? channel : null}
+      callbackUrl={callbackUrl}
+    />
+  );
+}
+
+function InvitationUnavailable({
+  relayReachable = true,
+}: {
+  relayReachable?: boolean;
+}) {
+  return (
+    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
+      <header className="px-6 pt-6">
+        <Image
+          alt="Chief"
+          className="h-8 w-8"
+          src="/brand/chief-mark-sharp-open-white.svg"
+          width={32}
+          height={32}
+        />
+      </header>
+      <div className="flex flex-1 items-center justify-center px-8 pb-20">
+        <div className="mx-auto flex w-full max-w-sm flex-col text-center">
+          <h1 className="text-3xl leading-tight font-normal">
+            This invitation isn’t available.
+          </h1>
+          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
+            {relayReachable
+              ? "It may have expired, been cancelled, or belong to a different Chief relay. Ask the person who invited you for a new link."
+              : "Chief couldn’t reach this workspace’s relay. Try again in a moment."}
+          </p>
+          <Link
+            className="text-muted-foreground hover:text-foreground mt-8 text-sm"
+            href="/"
           >
-            {working ? "Joining…" : "Join workspace"}
-          </Button>
-        )}
-      </section>
+            Back to Chief
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

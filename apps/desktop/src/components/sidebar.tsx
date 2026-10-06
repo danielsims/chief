@@ -47,6 +47,7 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
+import { useWorkspaceRole } from "../lib/workspace-role";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarUpdateCard } from "./sidebar-update-card";
@@ -141,6 +142,7 @@ export function Sidebar({
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const { cloudOrganizationId, organizationRole } = useAuth();
+  const workspaceRole = useWorkspaceRole() ?? organizationRole;
   const localChats = useLocalChats(cloudOrganizationId);
   const { agents: runtimeAgents } = useRuntime();
   const workspaceChannels = useWorkspaceChannels();
@@ -415,8 +417,8 @@ export function Sidebar({
         </div>
         <SidebarChannels
           compactAttention={width < 285}
-          canDeleteChannels={canDeleteChannels(organizationRole)}
-          canManageChannels={canManageChannels(organizationRole)}
+          canDeleteChannels={canDeleteChannels(workspaceRole)}
+          canManageChannels={canManageChannels(workspaceRole)}
           channels={visiblePublicChannels}
           allChannels={publicChannels}
           activeChannelId={activeChannelId}

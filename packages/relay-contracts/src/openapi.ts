@@ -23,14 +23,19 @@ import {
 } from "./openapi-helpers";
 import { workspaceDataOpenApiPaths } from "./openapi-workspace-data-paths";
 import {
+  cancelWorkspaceInvitationResultSchema,
   claimWorkspaceInviteCommandSchema,
+  createWorkspaceInvitationCommandSchema,
   createWorkspaceInviteCommandSchema,
   previewWorkspaceInviteCommandSchema,
   updateWorkspaceMemberRoleCommandSchema,
   updateWorkspaceMemberRoleResultSchema,
+  workspaceInvitationListSchema,
+  workspaceInvitationSchema,
   workspaceInviteClaimResultSchema,
   workspaceInviteSchema,
   workspaceMemberListSchema,
+  workspaceMemberRemoveResultSchema,
 } from "./workspaces";
 
 export function createRelayOpenApiDocument(origin: string) {
@@ -196,9 +201,73 @@ export function createRelayOpenApiDocument(origin: string) {
           },
         },
       },
+      "/v1/workspaces/{workspaceId}/invitations": {
+        get: {
+          operationId: "listWorkspaceInvitations",
+          summary: "List workspace invitations",
+          tags: ["Invites & members"],
+          parameters: [pathParameter("workspaceId")],
+          responses: {
+            "200": jsonResponse(
+              "Every invitation for the workspace, pending and resolved.",
+              workspaceInvitationListSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+          },
+        },
+        post: {
+          operationId: "createWorkspaceInvitation",
+          summary: "Invite someone by email",
+          description:
+            "Creates or extends a pending invitation and emails the invitee an acceptance link. Only workspace owners and admins may invite.",
+          tags: ["Invites & members"],
+          parameters: [pathParameter("workspaceId")],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(createWorkspaceInvitationCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "201": jsonResponse(
+              "The pending invitation. The invitee is emailed a link.",
+              workspaceInvitationSchema,
+            ),
+            "400": errorResponse,
+            "403": errorResponse,
+            "409": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/invitations/{invitationId}/cancel": {
+        post: {
+          operationId: "cancelWorkspaceInvitation",
+          summary: "Cancel a pending invitation",
+          tags: ["Invites & members"],
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("invitationId"),
+          ],
+          responses: {
+            "200": jsonResponse(
+              "The canceled invitation id.",
+              cancelWorkspaceInvitationResultSchema,
+            ),
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
       "/v1/workspaces/{workspaceId}/members/{kind}/{principalId}/role": {
         patch: {
           operationId: "updateWorkspaceMemberRole",
+          summary: "Update a member's role",
+          description:
+            "Sets the workspace role for a user, agent or service member. Owners and admins only.",
+          tags: ["Invites & members"],
           parameters: [
             pathParameter("workspaceId"),
             pathParameter("kind"),
@@ -225,9 +294,37 @@ export function createRelayOpenApiDocument(origin: string) {
           },
         },
       },
+      "/v1/workspaces/{workspaceId}/members/{kind}/{principalId}/remove": {
+        post: {
+          operationId: "removeWorkspaceMember",
+          summary: "Remove a member",
+          description:
+            "Removes a user, agent or service member from the workspace, revoking their access. Owners and admins only; the last human owner cannot be removed.",
+          tags: ["Invites & members"],
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("kind"),
+            pathParameter("principalId"),
+          ],
+          responses: {
+            "200": jsonResponse(
+              "The member was removed from the workspace.",
+              workspaceMemberRemoveResultSchema,
+            ),
+            "400": errorResponse,
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+            "409": errorResponse,
+          },
+        },
+      },
       "/v1/workspaces/{workspaceId}/channels": {
         get: {
           operationId: "listChannels",
+          summary: "List channels",
+          description: "Returns the workspace channels, non-archived first.",
+          tags: ["Channels"],
           parameters: [pathParameter("workspaceId")],
           responses: {
             "200": jsonResponse(

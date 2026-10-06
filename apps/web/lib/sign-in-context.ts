@@ -47,6 +47,20 @@ const organizationsSchema = z.array(
  * here is cached or persisted, and any failure degrades to client resolution.
  */
 export async function readSignInContext(): Promise<SignInContext> {
+  const forwarded = await forwardedRelayHeaders();
+  const [account, methods] = await Promise.all([
+    readRelayAccount(forwarded),
+    readMethods(),
+  ]);
+  const workspace = account ? await readWorkspace(forwarded) : null;
+  return { account, workspace, methods };
+}
+
+/**
+ * The browser's own request headers, forwarded to the fixed relay origin. Only
+ * the cookie and host surface are copied; nothing is cached or persisted.
+ */
+export async function forwardedRelayHeaders(): Promise<Headers> {
   const incoming = await headers();
   const cookie = incoming.get("cookie");
   const host = incoming.get("x-forwarded-host") ?? incoming.get("host");
@@ -57,13 +71,15 @@ export async function readSignInContext(): Promise<SignInContext> {
     forwarded.set("x-forwarded-host", host);
     forwarded.set("x-forwarded-proto", proto);
   }
+  return forwarded;
+}
 
-  const [account, methods] = await Promise.all([
-    cookie ? readAccount(forwarded) : Promise.resolve(null),
-    readMethods(),
-  ]);
-  const workspace = account ? await readWorkspace(forwarded) : null;
-  return { account, workspace, methods };
+/** The signed-in relay account, or null when signed out. */
+export async function readRelayAccount(
+  forwarded: Headers,
+): Promise<SignInAccount | null | undefined> {
+  if (!forwarded.get("cookie")) return null;
+  return readAccount(forwarded);
 }
 
 async function readAccount(
@@ -112,7 +128,7 @@ async function readMethods(): Promise<AuthenticationMethod[] | null> {
   }
 }
 
-async function relayJson(path: string, forwarded: Headers) {
+export async function relayJson(path: string, forwarded: Headers) {
   try {
     const response = await fetch(new URL(path, env.CHIEF_RELAY_URL), {
       headers: forwarded,
