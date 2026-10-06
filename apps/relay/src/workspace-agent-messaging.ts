@@ -32,6 +32,30 @@ export function canMessageAgent(
   return principal.agentId === agentId;
 }
 
+/** Whether the agent runs on its owner's own computer or phone. */
+export function deviceHostedAgent(
+  store: WorkspaceChannelStore,
+  agentId: string,
+  workspaceId: string,
+) {
+  let agent;
+  try {
+    agent = workspaceAgent(store.storage, agentId);
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.status !== 404) throw error;
+    agent = requireNativeAgent(store.storage, agentId);
+  }
+  if (agent.runtime.kind !== "native-cell") return null;
+  const target = store.agentConfiguration(agentId).deploymentTarget;
+  if (target === "cloud") return null;
+  return {
+    ownerUserId:
+      agent.ownerUserId ??
+      String(store.requireWorkspace(workspaceId).created_by_user_id),
+    device: target === "phone" ? ("phone" as const) : ("computer" as const),
+  };
+}
+
 export function requireAgentMessageAccess(
   store: WorkspaceChannelStore,
   agentId: string,

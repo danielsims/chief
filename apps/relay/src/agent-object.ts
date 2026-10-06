@@ -24,7 +24,7 @@ import {
   connectAgentMailboxWebSocket,
   createAgentMailboxSocketTicket,
 } from "./agent-mailbox";
-import { parseStoredJson } from "./agent-object-values";
+import { AGENT_HOST_HEADER, parseStoredJson } from "./agent-object-values";
 import { AgentRuntime } from "./agent-runtime";
 import { agentTelemetryAttributes } from "./agent-tracing";
 import { CloudflareAgentComputer } from "./cloudflare-agent-computer";
@@ -162,7 +162,17 @@ export class AgentObject extends DurableObject<Env> {
           event: "agent.job.enqueued",
           ...agentTelemetryAttributes(job),
         });
-        return response;
+        // A device-hosted agent's computer holds a mailbox socket while it is
+        // online; tell the dispatcher so a member isn't left waiting silently.
+        const headers = new Headers(response.headers);
+        headers.set(
+          AGENT_HOST_HEADER,
+          ctx.getWebSockets().length > 0 ? "online" : "offline",
+        );
+        return new Response(response.body, {
+          status: response.status,
+          headers,
+        });
       }
       if (request.method === "POST" && path.endsWith("/claim")) {
         return yield* attempt("agent.job.claim", () =>

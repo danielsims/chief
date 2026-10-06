@@ -30,3 +30,6 @@ export function safeJsonArray(value: string): JsonValue[] {
   const parsed = parseStoredJson(value);
   return Array.isArray(parsed) ? parsed : [];
 }
+
+/** Set on enqueue responses: whether the agent's own device is connected. */
+export const AGENT_HOST_HEADER = "x-chief-agent-host";
