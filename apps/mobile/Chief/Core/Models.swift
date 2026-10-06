@@ -332,8 +332,30 @@ struct WorkspaceMember: Codable, Equatable, Identifiable, Sendable {
   let principalId: String
   let role: String
   let name: String?
+  var email: String? = nil
   var image: String? = nil
   var id: String { "\(kind):\(principalId)" }
+  var isPerson: Bool { kind == "user" }
+}
+
+/// A pending or settled invitation to a workspace (`workspaceInvitationSchema`).
+struct WorkspaceInvitation: Codable, Equatable, Identifiable, Sendable {
+  let id: String
+  let email: String
+  let role: String
+  let status: String
+  let expiresAt: String
+  let createdAt: String
+  var isPending: Bool { status == "pending" }
+  var expiresDate: Date? { WorkspaceInvitation.parseDate(expiresAt) }
+
+  private static func parseDate(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) { return date }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: value)
+  }
 }
 
 struct DirectMessageRecipient: Equatable, Identifiable, Sendable {

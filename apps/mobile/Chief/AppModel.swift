@@ -1458,19 +1458,21 @@ final class AppModel {
     }
   }
 
-  func inviteWorkspaceMember(email: String) async throws {
-    guard let workspaceID = workspace?.id, let session else {
-      throw OrganizationInvitationError.rejected
-    }
+  /// Sends a workspace invitation through the relay, which emails the link.
+  func inviteWorkspaceMember(email: String, role: String = "member") async throws {
+    guard let workspaceID = workspace?.id else { throw OrganizationInvitationError.rejected }
     let address = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard address.contains("@"), !address.hasPrefix("@"), !address.hasSuffix("@") else {
       throw OrganizationInvitationError.rejected
     }
-    try await authentication.inviteOrganizationMember(
-      email: address,
-      organizationID: workspaceID,
-      session: session
-    )
+    do {
+      _ = try await relay.inviteWorkspaceMember(
+        workspaceID: workspaceID, email: address, role: role)
+    } catch RelayError.httpStatus(409) {
+      throw OrganizationInvitationError.alreadyMember
+    } catch RelayError.httpStatus(403) {
+      throw OrganizationInvitationError.notAllowed
+    }
   }
 
   func completeOnboarding() async {
@@ -2467,12 +2469,12 @@ final class AppModel {
   private func updateConversationPreview(with message: ConversationMessage) {
     guard !message.deleted, !message.isAgentActivityProjection else { return }
     let preview = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    let sentAt = ISO8601DateFormatter.chief().string(from: message.createdAt)
     mutateConversation(message.conversationID) {
       $0.lastMessage = preview.isEmpty ? "Sent an attachment" : String(preview.prefix(140))
-    let sentAt = ISO8601DateFormatter.chief().string(from: message.createdAt)
+      $0.lastMessageAt = max($0.lastMessageAt ?? "", sentAt)
     }
   }
-      $0.lastMessageAt = max($0.lastMessageAt ?? "", sentAt)
 
   private func recomputeAllConversationPresentation() {
     guard let workspaceID = workspace?.id else { return }
@@ -3253,7 +3255,7 @@ extension AppModel {
   }
 
   /// Relay avatars may carry another relay host; serve them from this relay.
-  private func relayAssetURL(_ value: String?) -> URL? {
+  func relayAssetURL(_ value: String?) -> URL? {
     guard let value, !value.isEmpty else { return nil }
     if let range = value.range(of: "/v1/assets/") {
       return URL(string: String(value[range.lowerBound...]), relativeTo: appConfiguration.relayURL)?

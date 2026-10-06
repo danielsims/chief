@@ -59,6 +59,29 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
   }
 
+  func authorizationStatus() async -> UNAuthorizationStatus {
+    await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+  }
+
+  /// Posts a local banner so people can confirm alerts and sounds reach them.
+  /// Marked as a mention so it also shows while Chief is in the foreground.
+  func sendTestNotification() async -> Bool {
+    let content = UNMutableNotificationContent()
+    content.title = "Chief"
+    content.body = "Notifications are working."
+    content.sound = Self.configuredSound
+    content.userInfo = ["mentioned": true]
+    let request = UNNotificationRequest(
+      identifier: "test:\(UUID().uuidString)", content: content, trigger: nil)
+    do {
+      try await UNUserNotificationCenter.current().add(request)
+      return true
+    } catch {
+      print("[Chief] test notification failed: \(error)")
+      return false
+    }
+  }
+
   func deliver(
     title: String,
     body: String,
