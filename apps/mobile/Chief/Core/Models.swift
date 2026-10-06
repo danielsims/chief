@@ -635,10 +635,44 @@ struct ProjectRepositorySourceFile: Codable, Equatable, Sendable {
   let content: String
 }
 
+/// An outside agent admitted to one external channel. `operatorName` is only
+/// ever present when the relay verified it through a member's personal
+/// invite, and `imageURL` is a copy the relay hosts itself.
+struct GuestAuthor: Equatable, Sendable {
+  let id: String
+  let name: String
+  let provider: String
+  let imageURL: URL?
+  let markShape: String?
+  let markColor: String?
+  let operatorName: String?
+
+  /// "Claude agent · for Daniel Sims", or just "Agent".
+  var label: String {
+    let noun = Self.providerNames[provider].map { "\($0) agent" } ?? "Agent"
+    return operatorName.map { "\(noun) · for \($0)" } ?? noun
+  }
+
+  var providerLogoURL: URL? {
+    Self.providerDomains[provider].flatMap { URL(string: "https://integrations.sh/logo/\($0)") }
+  }
+
+  private static let providerNames = [
+    "claude": "Claude", "openai": "OpenAI", "grok": "Grok", "gemini": "Gemini",
+    "opencode": "opencode", "openclaw": "OpenClaw", "hermes": "Hermes",
+  ]
+  private static let providerDomains = [
+    "claude": "claude.ai", "openai": "openai.com", "grok": "x.ai",
+    "gemini": "gemini.google.com", "opencode": "opencode.ai",
+    "openclaw": "openclaw.ai", "hermes": "nousresearch.com",
+  ]
+}
+
 struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
   enum Author: Equatable, Sendable {
     case user(id: String, name: String)
     case agent(id: String, name: String)
+    case guest(GuestAuthor)
     case system
   }
 
@@ -779,6 +813,19 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case .agent(let id, _):
       try authorEnc.encode("agent", forKey: .kind)
       try authorEnc.encode(id, forKey: .id)
+    case .guest(let guest):
+      try authorEnc.encode("guest", forKey: .kind)
+      try authorEnc.encode(guest.id, forKey: .id)
+      try authorEnc.encode(guest.name, forKey: .name)
+      try authorEnc.encode(guest.provider, forKey: .provider)
+      try authorEnc.encodeIfPresent(guest.imageURL, forKey: .image)
+      if let shape = guest.markShape, let color = guest.markColor {
+        try authorEnc.encode(
+          GuestMarkPayload(style: "grok-bot", shape: shape, color: color), forKey: .mark)
+      }
+      if let name = guest.operatorName {
+        try authorEnc.encode(GuestOperatorPayload(name: name), forKey: .operator)
+      }
     }
   }
 
@@ -786,14 +833,29 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case kind
     case id
     case name
+    case provider
+    case image
+    case mark
+    case `operator`
+  }
+
+  struct GuestMarkPayload: Codable, Sendable {
+    let style: String
+    let shape: String
+    let color: String
+  }
+
+  struct GuestOperatorPayload: Codable, Sendable {
+    let name: String
   }
 }
 
 extension ConversationMessage.Author {
   var displayName: String {
     switch self {
-    case .user(_, let name): name.isEmpty ? "You" : name
+    case .user(_, let name): name.isEmpty ? "Member" : name
     case .agent(_, let name): name.isEmpty ? "Agent" : name
+    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }
@@ -814,8 +876,21 @@ extension ConversationMessage.Author {
     case "user":
       self = .user(id: id, name: name)
     case "guest":
-      // Outside agents admitted by channel link carry their own name.
-      self = .user(id: id, name: name)
+      // Outside agents carry their own appearance. They are never shown as
+      // a workspace member or as Chief.
+      let mark = try? container.decodeIfPresent(
+        ConversationMessage.GuestMarkPayload.self, forKey: .mark)
+      self = .guest(
+        GuestAuthor(
+          id: id,
+          name: (try? container.decodeIfPresent(String.self, forKey: .name)) ?? "Guest",
+          provider: (try? container.decodeIfPresent(String.self, forKey: .provider)) ?? "other",
+          imageURL: try? container.decodeIfPresent(URL.self, forKey: .image),
+          markShape: mark?.shape,
+          markColor: mark?.color,
+          operatorName: (try? container.decodeIfPresent(
+            ConversationMessage.GuestOperatorPayload.self, forKey: .operator))?.name
+        ))
     case "agent", "assistant":
       self = .agent(id: id, name: name)
     default:

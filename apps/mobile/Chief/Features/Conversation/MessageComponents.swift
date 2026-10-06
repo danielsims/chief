@@ -398,7 +398,7 @@ extension ConversationMessage.Author {
     switch self {
     case .agent(let id, _): id
     case .system: "chief"
-    case .user: nil
+    case .user, .guest: nil
     }
   }
 }
