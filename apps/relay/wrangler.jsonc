@@ -102,6 +102,11 @@
     "AUTH_UI_ORIGIN": "https://heychief.sh",
     "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
     "AUTH_APPLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/apple",
+    // Transactional invitation sender. The hosted relay uses Resend's free
+    // tier; self-hosters choose Resend or Cloudflare Email Service.
+    "EMAIL_PROVIDER": "resend",
+    "EMAIL_FROM_ADDRESS": "invites@heychief.sh",
+    "EMAIL_FROM_NAME": "Chief",
     // Apple identifiers belong to whoever is building the iOS client. They are
     // provided at deploy time rather than committed to source.
   },

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { WorkspaceId, WorkspaceMember } from "@chief/relay-contracts";
 import {
   agentRemovalResultSchema,
   agentSummarySchema,
@@ -7,6 +8,7 @@ import {
   invokeAgentSchema,
   jobIdSchema,
   updateWorkspaceMemberRoleResultSchema,
+  workspaceMemberListSchema,
 } from "@chief/relay-contracts";
 
 import { getAgentArtifact } from "./agent-artifacts";
@@ -16,7 +18,10 @@ import { AuthorizationError } from "./auth";
 import { json, relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
-import { updateWorkspaceOrganizationMemberRole } from "./organization-tenancy";
+import {
+  updateWorkspaceOrganizationMemberRole,
+  usesOrganizationTenancy,
+} from "./organization-tenancy";
 import {
   authorizeNativeAgent,
   deterministicUuid,
@@ -38,6 +43,7 @@ import {
   parseWorkspaceMediaUpload,
   saveWorkspaceMedia,
 } from "./workspace-media";
+import { removeWorkspaceMember } from "./workspace-members-administration";
 
 const internalAgentRemovalResultSchema = agentRemovalResultSchema.extend({
   directConversationIds: z.array(z.string()),
@@ -64,6 +70,8 @@ const agentArtifactRoute =
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
 const workspaceMemberRoleRoute =
   /^\/v1\/workspaces\/([^/]+)\/members\/(user|agent|service)\/([^/]+)\/role$/u;
+const workspaceMemberRemoveRoute =
+  /^\/v1\/workspaces\/([^/]+)\/members\/(user|agent|service)\/([^/]+)\/remove$/u;
 
 export async function routeAgentRequest(
   env: Env,
@@ -151,6 +159,32 @@ export async function routeAgentRequest(
       }
     }
     return response;
+  }
+
+  const memberRemove = workspaceMemberRemoveRoute.exec(url.pathname);
+  if (memberRemove && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(memberRemove[1] ?? "");
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    const kind = memberRemove[2];
+    if (kind !== "user" && kind !== "agent" && kind !== "service") {
+      return relayError(
+        400,
+        "invalid_workspace_member",
+        "A valid team member kind is required.",
+      );
+    }
+    return removeWorkspaceMember(env, {
+      principal,
+      requestId,
+      workspaceId,
+      kind,
+      principalId: decodeURIComponent(memberRemove[3] ?? ""),
+    });
   }
 
   const agentKeys = agentKeysRoute.exec(url.pathname);
@@ -470,7 +504,7 @@ export async function routeAgentRequest(
     const workspace = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(workspaceId),
     );
-    return workspace.fetch(
+    const response = await workspace.fetch(
       withTrustedContext(
         new Request("https://workspace.internal/members", {
           method: "POST",
@@ -479,6 +513,14 @@ export async function routeAgentRequest(
         { principal, requestId, workspaceId },
       ),
     );
+    if (!response.ok) return response;
+    const relayMembers = workspaceMemberListSchema.parse(await response.json());
+    const merged = await mergeOrganizationMembers(
+      env,
+      workspaceId,
+      relayMembers.members,
+    );
+    return json(workspaceMemberListSchema.parse({ members: merged }));
   }
 
   const job = agentJobsRoute.exec(url.pathname);
@@ -563,4 +605,63 @@ export async function routeAgentRequest(
     });
   }
   return undefined;
+}
+
+/**
+ * The workspace Durable Object only knows principals that have joined the
+ * relay workspace. Better Auth organization members exist as soon as they
+ * accept an invitation, so merge them in for the owner's member list. The
+ * Durable Object stays authoritative whenever a principal exists in both.
+ */
+async function mergeOrganizationMembers(
+  env: Env,
+  workspaceId: WorkspaceId,
+  relayMembers: readonly WorkspaceMember[],
+): Promise<WorkspaceMember[]> {
+  if (!usesOrganizationTenancy(env)) return [...relayMembers];
+  const { listChiefOrganizationMembers } =
+    await import("@chief/auth/d1-organizations");
+  const organizationMembers = await listChiefOrganizationMembers(
+    env.AUTH_DB,
+    workspaceId,
+  );
+  const merged = new Map<string, WorkspaceMember>();
+  for (const member of relayMembers) {
+    merged.set(member.principalId, member);
+  }
+  for (const member of organizationMembers) {
+    const image = member.image?.trim() ?? "";
+    const imageField =
+      image.length > 0 && image.length <= 2_048 ? { image } : undefined;
+    const name = member.name.trim();
+    const nameField =
+      name.length > 0 && name.length <= 120 ? { name } : undefined;
+    const email = member.email.trim();
+    const emailField =
+      email.length > 0 && email.length <= 320 ? { email } : undefined;
+    const existing = merged.get(member.userId);
+    if (existing) {
+      // The relay principal owns the role; fill in the profile it lacks.
+      merged.set(member.userId, {
+        ...nameField,
+        ...emailField,
+        ...imageField,
+        ...existing,
+      });
+      continue;
+    }
+    const role =
+      member.role === "owner" || member.role === "admin"
+        ? member.role
+        : "member";
+    merged.set(member.userId, {
+      kind: "user",
+      principalId: member.userId,
+      role,
+      ...nameField,
+      ...emailField,
+      ...imageField,
+    });
+  }
+  return [...merged.values()];
 }

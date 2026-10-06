@@ -9,6 +9,7 @@ import {
   updateWorkspaceMemberRoleResultSchema,
   workspaceIdSchema,
   workspaceMemberListSchema,
+  workspaceMemberRemoveResultSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedIdentity } from "./internal-context";
@@ -16,20 +17,28 @@ import type { MemberRow, WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
+import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
+import { agentKeysDeleteRemove } from "./queries/agent-keys/delete-remove";
 import { agentKeysFindAgentKeys } from "./queries/agent-keys/find-agent-keys";
 import { agentKeysFindAuthorize } from "./queries/agent-keys/find-authorize";
 import { agentKeysFindRegisterAgentKey } from "./queries/agent-keys/find-register-agent-key";
 import { agentKeysInsertRegisterAgentKey } from "./queries/agent-keys/insert-register-agent-key";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
+import { channelMembersDeleteRemovePrincipal } from "./queries/channel-members/delete-remove-principal";
+import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
 import { channelMembersInsertRegisterAgentKey } from "./queries/channel-members/insert-register-agent-key";
+import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
+import { membersDeleteRemove } from "./queries/members/delete-remove";
 import { membersFindAuthorize } from "./queries/members/find-authorize";
 import { membersFindHumanOwnerCount } from "./queries/members/find-human-owner-count";
 import { membersFindMembersList } from "./queries/members/find-members-list";
 import { membersInsertRegisterAgentKey } from "./queries/members/insert-register-agent-key";
 import { membersUpdateMemberRoleSet } from "./queries/members/update-member-role-set";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
+import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { requireNativeAgent } from "./workspace-agent-runtime";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
+import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -253,6 +262,93 @@ export class WorkspaceAccessService {
       membersFindHumanOwnerCount(this.storage),
     );
     return Number(row?.count ?? 0);
+  }
+
+  memberRemove(request: Request) {
+    const context = readTrustedContext(request);
+    const actor = this.channels.requirePrincipalMember(context.principal);
+    if (
+      context.principal.kind !== "user" ||
+      (actor.role !== "owner" && actor.role !== "admin")
+    ) {
+      throw new HttpError(
+        403,
+        "workspace_member_manage_denied",
+        "Only a workspace owner or admin can remove team members.",
+      );
+    }
+
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    const principalId = url.searchParams.get("principalId")?.trim();
+    if (
+      (kind !== "user" && kind !== "agent" && kind !== "service") ||
+      !principalId
+    ) {
+      throw new HttpError(
+        400,
+        "invalid_workspace_member",
+        "A valid team member kind and principal ID are required.",
+      );
+    }
+    if (kind === "user" && principalId === context.principal.userId) {
+      throw new HttpError(
+        409,
+        "cannot_remove_self",
+        "You cannot remove yourself from the workspace.",
+      );
+    }
+    const target = this.channels.requireWorkspaceMember(kind, principalId);
+    if (
+      kind === "user" &&
+      target.role === "owner" &&
+      this.humanOwnerCount() === 1
+    ) {
+      throw new HttpError(
+        409,
+        "last_workspace_owner",
+        "A workspace must retain at least one owner.",
+      );
+    }
+
+    this.storage.transactionSync(() => {
+      membersDeleteRemove(this.storage, kind, principalId);
+      channelMembersDeleteRemovePrincipal(this.storage, kind, principalId);
+      if (kind === "user") this.revokeAgentsOwnedBy(principalId);
+    });
+    return json(workspaceMemberRemoveResultSchema.parse({ removed: true }));
+  }
+
+  private revokeAgentsOwnedBy(userId: string) {
+    const workspace = firstRow<WorkspaceRow>(
+      workspaceFindAuthorize(this.storage),
+    );
+    if (!workspace?.snapshot_json) return;
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const owned = snapshot.agents.filter(
+      (agent) => (agent.ownerUserId ?? workspace.created_by_user_id) === userId,
+    );
+    if (owned.length === 0) return;
+    const ownedRootIds = new Set(owned.map((agent) => agent.id));
+    const ownedAgentIds = new Set(
+      owned.flatMap((agent) => [
+        agent.id,
+        ...agent.subagents.map((subagent) => subagent.id),
+      ]),
+    );
+    for (const agentId of ownedAgentIds) {
+      channelMembersDeleteRemoveRow(this.storage, agentId);
+      agentKeysDeleteRemove(this.storage, agentId);
+      agentConfigsDeleteRemove(this.storage, agentId);
+      membersDeleteDisconnect(this.storage, agentId);
+    }
+    workspaceUpdateVerifyConnection(
+      this.storage,
+      JSON.stringify({
+        ...snapshot,
+        agents: snapshot.agents.filter((agent) => !ownedRootIds.has(agent.id)),
+      }),
+    );
   }
 }
 

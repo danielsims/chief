@@ -60,6 +60,11 @@ import {
   routeWorkspaceLogs,
   switchManagedWorkspace,
 } from "./workspace-authority";
+import {
+  cancelWorkspaceInvitation,
+  createWorkspaceInvitation,
+  listWorkspaceInvitations,
+} from "./workspace-members-administration";
 
 const messageRoute =
   /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/messages(?:$|\/)/u;
@@ -78,6 +83,9 @@ const workspaceInvitePreviewRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/preview$/u;
 const workspaceInviteClaimRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/claim$/u;
+const workspaceInvitationsRoute = /^\/v1\/workspaces\/([^/]+)\/invitations$/u;
+const workspaceInvitationCancelRoute =
+  /^\/v1\/workspaces\/([^/]+)\/invitations\/([^/]+)\/cancel$/u;
 const orgJoinRoute = /^\/v1\/workspaces\/([^/]+)\/organization-membership$/u;
 const workspaceLogoRoute = /^\/v1\/workspaces\/([^/]+)\/logo$/u;
 const workspaceSecretsRoute = /^\/v1\/workspaces\/([^/]+)\/secrets$/u;
@@ -398,6 +406,57 @@ function routeWorkspaceRequest(
           principal,
           requestId,
           workspaceId,
+        }),
+      );
+    }
+    const invitations = workspaceInvitationsRoute.exec(url.pathname);
+    if (invitations) {
+      const workspaceId = yield* parseId(invitations[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      if (request.method === "GET") {
+        return yield* attempt("relay.workspace_invitation.list", () =>
+          listWorkspaceInvitations(env, { principal, workspaceId }),
+        );
+      }
+      if (request.method === "POST") {
+        return yield* attempt("relay.workspace_invitation.create", () =>
+          createWorkspaceInvitation(env, authenticated.request, {
+            principal,
+            requestId,
+            workspaceId,
+            context,
+          }),
+        );
+      }
+    }
+    const invitationCancel = workspaceInvitationCancelRoute.exec(url.pathname);
+    if (invitationCancel && request.method === "POST") {
+      const workspaceId = yield* parseId(invitationCancel[1]);
+      const invitationId = yield* sync("relay.workspace_invitation.scope", () =>
+        decodeURIComponent(invitationCancel[2] ?? ""),
+      );
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_invitation.cancel", () =>
+        cancelWorkspaceInvitation(env, {
+          principal,
+          workspaceId,
+          invitationId,
         }),
       );
     }

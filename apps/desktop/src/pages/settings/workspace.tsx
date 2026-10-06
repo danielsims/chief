@@ -1,5 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
+import type { RelayClient } from "@chief/relay-client";
+import type {
+  WorkspaceInvitation,
+  WorkspaceMember,
+} from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -18,17 +23,22 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
+import { Skeleton } from "@chief/ui/components/skeleton";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
-import { InviteWorkspaceMemberCard } from "../../components/invite-workspace-member-card";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
+import { WorkspaceInvitationsCard } from "../../components/workspace-invitations-card";
+import { WorkspaceMembersCard } from "../../components/workspace-members-card";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
-import { workspaceRoleForUser } from "../../lib/auth/organization-role";
+import {
+  canManageChannels,
+  workspaceRoleForUser,
+} from "../../lib/auth/organization-role";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 import { useRelaySession } from "../../lib/relay-session";
 
@@ -40,6 +50,52 @@ const DevelopmentOnboardingReplay = import.meta.hot
       })),
     )
   : null;
+
+interface WorkspaceDirectory {
+  members: WorkspaceMember[];
+  invitations: WorkspaceInvitation[];
+  membersError: string | null;
+  invitationsError: string | null;
+}
+
+async function settle<T>(
+  promise: Promise<T[]>,
+  fallback: string,
+): Promise<{ value: T[]; error: string | null }> {
+  try {
+    return { value: await promise, error: null };
+  } catch (error) {
+    return {
+      value: [],
+      error: error instanceof Error ? error.message : fallback,
+    };
+  }
+}
+
+/**
+ * Loads everything the members and invitations cards need in one pass so the
+ * page can render its cards together instead of popping them in one by one.
+ */
+async function loadWorkspaceDirectory(
+  client: RelayClient,
+): Promise<WorkspaceDirectory> {
+  const [members, invitations] = await Promise.all([
+    settle(
+      client.listWorkspaceMembers(),
+      "Chief couldn’t load this workspace’s members.",
+    ),
+    settle(
+      client.listWorkspaceInvitations(),
+      "Chief couldn’t load pending invitations.",
+    ),
+  ]);
+  return {
+    members: members.value,
+    membersError: members.error,
+    invitations: invitations.value,
+    invitationsError: invitations.error,
+  };
+}
 
 function LogoPreview({
   logo,
@@ -148,12 +204,63 @@ function DeleteWorkspaceCard({
   );
 }
 
+/**
+ * Placeholder shown while the page resolves its organization and workspace
+ * directory. The cards below occupy the same slots once ready, so nothing pops
+ * in after the first paint.
+ */
+function WorkspaceSettingsSkeleton() {
+  return (
+    <div className="space-y-8" aria-busy="true">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-4 w-72" />
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-8 w-36" />
+          </div>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <div className="flex justify-end border-t pt-4">
+            <Skeleton className="h-8 w-20" />
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-24" />
+          <Skeleton className="h-4 w-56" />
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-4 w-64" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function WorkspaceSettings() {
   const { client, snapshot } = useRelaySession();
   const { cloudOrganizationId, user } = useAuth();
   const userId = user?.id;
 
   const [org, setOrg] = useState<AuthOrganization | null>(null);
+  const [orgLoaded, setOrgLoaded] = useState(false);
+  const [directory, setDirectory] = useState<WorkspaceDirectory | null>(null);
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
   const [logo, setLogo] = useState<string | null>(null);
@@ -161,66 +268,58 @@ export function WorkspaceSettings() {
   const [processingLogo, setProcessingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [deletionPermission, setDeletionPermission] = useState<{
-    workspaceId: string;
-    allowed: boolean;
-  } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">(
     "idle",
   );
 
   useEffect(() => {
     let cancelled = false;
-    void listAuthOrganizations().then((orgs) => {
-      if (cancelled) return;
-      const active =
-        orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
-        orgs[0] ??
-        null;
-      setOrg(active);
-      if (active) {
-        setName(active.name);
-        const metadata = parseOrganizationMetadata(active);
-        setWebsite(
-          isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : "",
-        );
-        setLogo(active.logo ?? null);
-        setLogoSource(metadata.logoSource === "upload" ? "upload" : "favicon");
-      }
-    });
+    void listAuthOrganizations()
+      .then((orgs) => {
+        if (cancelled) return;
+        const active =
+          orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
+          orgs[0] ??
+          null;
+        setOrg(active);
+        if (active) {
+          setName(active.name);
+          const metadata = parseOrganizationMetadata(active);
+          setWebsite(
+            isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : "",
+          );
+          setLogo(active.logo ?? null);
+          setLogoSource(
+            metadata.logoSource === "upload" ? "upload" : "favicon",
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("[Workspace] Could not load the organization:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setOrgLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [cloudOrganizationId]);
 
+  const refreshDirectory = useCallback(async () => {
+    if (!client) return;
+    setDirectory(await loadWorkspaceDirectory(client));
+  }, [client]);
+
   useEffect(() => {
-    if (!client || !snapshot || !userId) return;
+    if (!client) return;
     let cancelled = false;
-    const workspaceId = snapshot.id;
-    void client
-      .listWorkspaceMembers()
-      .then((members) => {
-        if (!cancelled) {
-          setDeletionPermission({
-            workspaceId,
-            allowed: workspaceRoleForUser(members, userId) === "owner",
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn(
-          "[Workspace] Could not resolve deletion permission:",
-          error,
-        );
-      });
+    void loadWorkspaceDirectory(client).then((next) => {
+      if (!cancelled) setDirectory(next);
+    });
     return () => {
       cancelled = true;
     };
-  }, [client, snapshot, userId]);
-
-  const canDeleteWorkspace =
-    deletionPermission?.workspaceId === snapshot?.id &&
-    deletionPermission?.allowed === true;
+  }, [client]);
 
   const handleSave = async () => {
     if (!org) return;
@@ -317,6 +416,15 @@ export function WorkspaceSettings() {
       setProcessingLogo(false);
     }
   };
+
+  if (!orgLoaded || !client || !snapshot || !directory) {
+    return <WorkspaceSettingsSkeleton />;
+  }
+
+  const viewerRole = workspaceRoleForUser(directory.members, userId);
+  const canManage = canManageChannels(viewerRole);
+  const canDeleteWorkspace = viewerRole === "owner";
+  const workspaceName = snapshot.name;
 
   return (
     <>
@@ -418,18 +526,35 @@ export function WorkspaceSettings() {
         </CardContent>
       </Card>
 
-      {org && <InviteWorkspaceMemberCard organization={org} />}
-
       {org && DevelopmentOnboardingReplay ? (
         <Suspense fallback={null}>
           <DevelopmentOnboardingReplay organization={org} />
         </Suspense>
       ) : null}
 
-      {snapshot && canDeleteWorkspace ? (
+      <WorkspaceMembersCard
+        members={directory.members}
+        error={directory.membersError}
+        workspaceName={workspaceName}
+        canManage={canManage}
+        currentUserId={userId}
+        onChanged={refreshDirectory}
+      />
+
+      {canManage ? (
+        <WorkspaceInvitationsCard
+          workspaceId={snapshot.id}
+          workspaceName={workspaceName}
+          invitations={directory.invitations}
+          error={directory.invitationsError}
+          onChanged={refreshDirectory}
+        />
+      ) : null}
+
+      {canDeleteWorkspace ? (
         <DeleteWorkspaceCard
           workspaceId={snapshot.id}
-          workspaceName={snapshot.name}
+          workspaceName={workspaceName}
         />
       ) : null}
     </>

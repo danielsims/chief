@@ -82,6 +82,19 @@ export async function updateWorkspaceOrganizationMemberRole(
   });
 }
 
+export async function removeWorkspaceOrganizationMember(
+  env: Env,
+  input: { userId: string; workspaceId: WorkspaceId },
+) {
+  if (!usesOrganizationTenancy(env)) return;
+  const { removeChiefOrganizationMember } =
+    await import("@chief/auth/d1-organizations");
+  await removeChiefOrganizationMember(env.AUTH_DB, {
+    organizationId: input.workspaceId,
+    userId: input.userId,
+  });
+}
+
 export async function removeWorkspaceOrganization(
   env: Env,
   workspaceId: WorkspaceId,

@@ -6,7 +6,10 @@ export const pendingOrganizationInvitationKey =
 export interface PendingOrganizationInvitation {
   relayUrl: string;
   workspaceId: string;
+  channelId: string | null;
 }
+
+const channelIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function parseOrganizationInvitationUrl(
   value: string,
@@ -24,7 +27,12 @@ export function parseOrganizationInvitationUrl(
   if (!workspaceId.startsWith("workspace-")) {
     throw new Error("This workspace invitation is not valid.");
   }
-  return { relayUrl: relay.origin, workspaceId };
+  const channel = url.searchParams.get("channel") ?? "";
+  return {
+    relayUrl: relay.origin,
+    workspaceId,
+    channelId: channelIdPattern.test(channel) ? channel : null,
+  };
 }
 
 export function storePendingOrganizationInvitation(
@@ -54,7 +62,13 @@ export function readPendingOrganizationInvitation() {
     const relay = new URL(parsed.relayUrl);
     assertSafeRelayOrigin(relay);
     if (!parsed.workspaceId.startsWith("workspace-")) return null;
-    return { relayUrl: relay.origin, workspaceId: parsed.workspaceId };
+    const channelId = isJsonString(parsed.channelId) ? parsed.channelId : null;
+    return {
+      relayUrl: relay.origin,
+      workspaceId: parsed.workspaceId,
+      channelId:
+        channelId && channelIdPattern.test(channelId) ? channelId : null,
+    };
   } catch {
     window.sessionStorage.removeItem(pendingOrganizationInvitationKey);
     return null;
