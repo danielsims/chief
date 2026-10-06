@@ -107,7 +107,7 @@ export async function createWorkspaceInvitation(
       name: inviter.name,
       image: inviter.image,
     },
-    organization: { id: organization.id, name: organization.name },
+    organization,
     role: result.invitation.role,
   });
   if (input.context) {

@@ -6,7 +6,12 @@ export interface WorkspaceInvitationEmail {
   email: string;
   id: string;
   inviter: { email: string; name: string; image?: string | null };
-  organization: { id: string; name: string };
+  organization: {
+    id: string;
+    name: string;
+    logo?: string | null;
+    website?: string | null;
+  };
   role: string | string[];
 }
 
@@ -40,6 +45,9 @@ export async function sendWorkspaceInvitationEmail(
     inviterImage: relayHostedImage(invitation.inviter.image, relay),
     relayHost: relay.host,
     role,
+    workspaceImage:
+      relayHostedImage(invitation.organization.logo, relay) ??
+      websiteIcon(invitation.organization.website),
     workspaceName: invitation.organization.name,
   });
   const subject = message.subject;
@@ -141,6 +149,22 @@ function relayHostedImage(image: string | null | undefined, relay: URL) {
     if (url.pathname.startsWith("/v1/assets/"))
       return new URL(`${url.pathname}${url.search}`, relay.origin).toString();
     return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Workspaces without an uploaded logo show their website's icon in Chief.
+ * Email clients can't fetch .ico or SVG reliably, so use Google's PNG proxy.
+ */
+function websiteIcon(website: string | null | undefined) {
+  if (!website) return null;
+  try {
+    const { hostname } = new URL(
+      /^https?:\/\//iu.test(website) ? website : `https://${website}`,
+    );
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=128`;
   } catch {
     return null;
   }

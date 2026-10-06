@@ -168,11 +168,23 @@ export async function getChiefOrganizationSummary(
   organizationId: string,
 ) {
   const rows = await drizzle(database)
-    .select({ id: organization.id, name: organization.name })
+    .select({
+      id: organization.id,
+      name: organization.name,
+      logo: organization.logo,
+      metadata: organization.metadata,
+    })
     .from(organization)
     .where(eq(organization.id, organizationId))
     .limit(1);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    logo: row.logo,
+    website: parseOrganizationWebsite(row.metadata) || null,
+  };
 }
 
 export async function getChiefUserIdentity(

@@ -89,10 +89,12 @@ export function createChiefAuth(
                 inviter: {
                   email: invitation.inviter.user.email,
                   name: invitation.inviter.user.name,
+                  image: invitation.inviter.user.image,
                 },
                 organization: {
                   id: invitation.organization.id,
                   name: invitation.organization.name,
+                  logo: invitation.organization.logo,
                 },
                 role: invitation.role,
               });
