@@ -6,9 +6,11 @@ final class MobileSettingsUITests: XCTestCase {
     let app = launch()
     app.buttons["Open profile"].tap()
     XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["Delete account"].waitForExistence(timeout: 3))
-    XCTAssertFalse(app.staticTexts["Profile photo"].exists)
     attach("Settings overview", app)
+
+    open("Profile", in: app)
+    XCTAssertTrue(app.buttons["Delete account"].waitForExistence(timeout: 3))
+    attach("Profile", app)
     app.buttons["Edit photo"].tap()
     XCTAssertTrue(app.buttons["Choose photo"].waitForExistence(timeout: 3))
     if app.buttons["Cancel"].exists {
@@ -16,17 +18,35 @@ final class MobileSettingsUITests: XCTestCase {
     } else {
       app.otherElements["PopoverDismissRegion"].tap()
     }
-    app.buttons.matching(NSPredicate(format: "label == %@", "Connection")).firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["Connection"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.staticTexts["Agent provider"].waitForExistence(timeout: 5))
-    attach("Connection settings", app)
+    back(app)
+
+    for page in [
+      "Notifications", "Workspace", "Connection", "Missions", "Webhooks", "Environment",
+      "Machines",
+    ] {
+      open(page, in: app)
+      XCTAssertTrue(app.navigationBars[page].waitForExistence(timeout: 5))
+      sleep(2)
+      attach(page, app)
+      if page == "Workspace" {
+        app.buttons["Invite people"].tap()
+        XCTAssertTrue(app.buttons["Send invite"].waitForExistence(timeout: 3))
+        attach("Invite people", app)
+        app.buttons["Done"].tap()
+      }
+      back(app)
+    }
+  }
+
+  private func open(_ page: String, in app: XCUIApplication) {
+    let row = app.scrollViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", page)).firstMatch
+    if !row.isHittable { app.swipeUp() }
+    row.tap()
+  }
+
+  private func back(_ app: XCUIApplication) {
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Workspace settings")).firstMatch
-      .tap()
-    XCTAssertTrue(app.textFields["Name"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.textFields["Website"].exists)
-    XCTAssertTrue(app.buttons["Edit photo"].exists)
-    attach("Workspace settings", app)
+    XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3))
   }
 
   func testSubagentsCollapseAndPushIndependentDetails() {

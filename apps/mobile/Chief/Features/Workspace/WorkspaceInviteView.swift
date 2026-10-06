@@ -53,7 +53,7 @@ struct WorkspaceInviteRelayConfirmationSheet: View {
       } label: {
         Group {
           if model.workspaceInviteInProgress {
-            ProgressView().tint(.black)
+            ChiefSpinner().tint(.black)
           } else {
             Text("Continue")
           }
@@ -118,7 +118,7 @@ struct WorkspaceInviteConfirmationSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ProgressView().tint(.black)
+              ChiefSpinner().tint(.black)
             } else {
               Text("Join workspace")
             }
@@ -184,7 +184,7 @@ struct JoinWorkspaceSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ProgressView().tint(.black)
+              ChiefSpinner().tint(.black)
             } else {
               Text("Continue")
             }
@@ -205,117 +205,257 @@ struct JoinWorkspaceSheet: View {
   }
 }
 
+/// Invite someone by email with a role, or hand out a link that expires in
+/// seven days. Mirrors desktop's invitations card.
 struct InvitePeopleSheet: View {
+  enum Role: String, CaseIterable, Identifiable {
+    case member, admin
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var detail: String {
+      switch self {
+      case .member: "Works in channels with your agents."
+      case .admin: "Can also manage people, invitations and webhooks."
+      }
+    }
+  }
+
   @Environment(AppModel.self) private var model
-  @State private var link: WorkspaceInviteLink?
-  @State private var loading = true
+  @FocusState private var emailFocused: Bool
+  var onInvited: () async -> Void = {}
   @State private var email = ""
-  @State private var sendingEmail = false
-  @State private var emailSent = false
+  @State private var role = Role.member
+  @State private var sending = false
+  @State private var sentTo: String?
   @State private var emailError: String?
+  @State private var link: WorkspaceInviteLink?
+  @State private var creatingLink = false
+  @State private var linkError: String?
+  @State private var copied = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Invite people")
-          .font(.system(size: 24, weight: .semibold, design: .rounded))
-        Text("Add a teammate by email, or share a single-use link.")
-          .font(.system(size: 14))
-          .foregroundStyle(ChiefTheme.secondary)
+    VStack(spacing: 0) {
+      ChiefSheetHeader(title: "Invite people")
+      ScrollView {
+        VStack(alignment: .leading, spacing: 26) {
+          identity
+          emailForm
+          linkSection
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 28)
       }
+      .scrollDismissesKeyboard(.interactively)
+    }
+    .chiefSheet([.large])
+    .onAppear { emailFocused = true }
+  }
 
-      VStack(alignment: .leading, spacing: 10) {
-        TextField("Email address", text: $email)
+  private var identity: some View {
+    HStack(spacing: 14) {
+      WorkspaceIdentityAvatar(
+        name: model.workspace?.name ?? "Chief",
+        website: model.workspace?.website,
+        imageURL: model.workspace?.imageURL,
+        size: 48
+      )
+      VStack(alignment: .leading, spacing: 3) {
+        Text(model.workspace?.name ?? "Your workspace")
+          .font(.system(size: 20, weight: .semibold, design: .rounded))
+          .lineLimit(1)
+        Text("They receive an email and join once they accept it.")
+          .font(.system(size: 13))
+          .foregroundStyle(ChiefSheetPalette.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private var emailForm: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Image(systemName: "envelope")
+          .font(.system(size: 15))
+          .foregroundStyle(ChiefSheetPalette.secondary)
+        TextField("teammate@company.com", text: $email)
+          .font(.system(size: 16))
           .textInputAutocapitalization(.never)
           .keyboardType(.emailAddress)
           .textContentType(.emailAddress)
           .autocorrectionDisabled()
-          .padding(.horizontal, 14)
-          .frame(height: 48)
-          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-          .onChange(of: email) {
-            emailSent = false
-            emailError = nil
+          .submitLabel(.send)
+          .focused($emailFocused)
+          .onSubmit { Task { await send() } }
+          .accessibilityLabel("Email")
+      }
+      .padding(.horizontal, 15)
+      .frame(height: 52)
+      .background(ChiefSheetPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .onChange(of: email) {
+        sentTo = nil
+        emailError = nil
+      }
+
+      Picker("Role", selection: $role) {
+        ForEach(Role.allCases) { Text($0.title).tag($0) }
+      }
+      .pickerStyle(.segmented)
+      .onChange(of: role) { Haptics.selection() }
+
+      Text(role.detail)
+        .font(.system(size: 12))
+        .foregroundStyle(ChiefSheetPalette.secondary)
+        .padding(.horizontal, 2)
+
+      Button {
+        Haptics.heavy()
+        Task { await send() }
+      } label: {
+        Group {
+          if sending {
+            ChiefSpinner().tint(.black)
+          } else {
+            Text("Send invite")
           }
-
-        Button {
-          Haptics.heavy()
-          Task { await sendEmailInvitation() }
-        } label: {
-          Group {
-            if sendingEmail {
-              ProgressView().tint(.black)
-            } else if emailSent {
-              Label("Invitation sent", systemImage: "checkmark")
-            } else {
-              Text("Send invitation")
-            }
-          }
-          .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(PrimaryButtonStyle())
-        .disabled(sendingEmail || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-        if let emailError {
-          Text(emailError)
-            .font(.system(size: 13))
-            .foregroundStyle(ChiefTheme.secondary)
         }
       }
+      .buttonStyle(PrimaryButtonStyle())
+      .disabled(sending || trimmedEmail.isEmpty)
+      .padding(.top, 4)
 
-      HStack(spacing: 12) {
-        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 0.5)
-        Text("or share a link")
-          .font(.system(size: 12))
-          .foregroundStyle(ChiefTheme.secondary)
-        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 0.5)
+      if let sentTo {
+        SettingsNote(text: "Invitation sent to \(sentTo).", tone: .success)
+      } else if let emailError {
+        SettingsNote(text: emailError, tone: .failure)
       }
-
-      if loading {
-        ProgressView().tint(.white)
-          .frame(maxWidth: .infinity, minHeight: 100)
-      } else if let link {
-        Text(link.url.absoluteString)
-          .font(.system(size: 13, design: .monospaced))
-          .foregroundStyle(ChiefTheme.secondary)
-          .lineLimit(3)
-          .textSelection(.enabled)
-          .padding(14)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-
-        ShareLink(item: link.url) {
-          Label("Share invitation", systemImage: "square.and.arrow.up")
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(PrimaryButtonStyle())
-        .simultaneousGesture(TapGesture().onEnded { Haptics.heavy() })
-      } else {
-        Text(model.workspaceInviteError ?? "Chief couldn’t create an invitation.")
-          .font(.system(size: 14))
-          .foregroundStyle(ChiefTheme.secondary)
-      }
-      Spacer()
     }
-    .padding(ChiefTheme.pagePadding)
-    .background(ChiefSheetPalette.background.ignoresSafeArea())
-    .task {
-      link = await model.createWorkspaceInvite()
-      loading = false
-    }
-    .chiefSheet([.height(620), .large])
   }
 
-  private func sendEmailInvitation() async {
-    guard !sendingEmail else { return }
-    sendingEmail = true
-    emailError = nil
-    do {
-      try await model.inviteWorkspaceMember(email: email)
-      emailSent = true
-    } catch {
-      emailError = error.localizedDescription
+  private var linkSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 12) {
+        Rectangle().fill(ChiefSheetPalette.separator).frame(height: 0.5)
+        Text("or share a link")
+          .font(.system(size: 12))
+          .foregroundStyle(ChiefSheetPalette.secondary)
+          .fixedSize()
+        Rectangle().fill(ChiefSheetPalette.separator).frame(height: 0.5)
+      }
+      .padding(.bottom, 4)
+
+      if let link {
+        HStack(spacing: 10) {
+          Image(systemName: "link")
+            .font(.system(size: 14))
+            .foregroundStyle(ChiefSheetPalette.secondary)
+          Text(link.url.absoluteString)
+            .font(.system(size: 13, design: .monospaced))
+            .foregroundStyle(ChiefSheetPalette.primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+          Spacer(minLength: 4)
+          Button {
+            UIPasteboard.general.url = link.url
+            copied = true
+            Haptics.light()
+          } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+              .font(.system(size: 14, weight: .medium))
+              .frame(width: 36, height: 36)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(copied ? "Invite link copied" : "Copy invite link")
+        }
+        .padding(.leading, 15)
+        .padding(.trailing, 6)
+        .frame(height: 52)
+        .background(
+          ChiefSheetPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+        ShareLink(item: link.url) {
+          Label("Share invite link", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(SecondarySheetButtonStyle())
+        .simultaneousGesture(TapGesture().onEnded { Haptics.heavy() })
+      } else {
+        Button {
+          Haptics.medium()
+          Task { await createLink() }
+        } label: {
+          Group {
+            if creatingLink {
+              ChiefSpinner()
+            } else {
+              Label("Create invite link", systemImage: "link")
+            }
+          }
+        }
+        .buttonStyle(SecondarySheetButtonStyle())
+        .disabled(creatingLink)
+      }
+
+      Text(linkError ?? "Anyone with the link can join. It expires in 7 days.")
+        .font(.system(size: 12))
+        .foregroundStyle(linkError == nil ? ChiefSheetPalette.secondary : .red.opacity(0.9))
+        .padding(.horizontal, 2)
     }
-    sendingEmail = false
+  }
+
+  private var trimmedEmail: String {
+    email.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func send() async {
+    guard !sending, !trimmedEmail.isEmpty else { return }
+    sending = true
+    emailError = nil
+    defer { sending = false }
+    do {
+      let address = trimmedEmail.lowercased()
+      try await model.inviteWorkspaceMember(email: address, role: role.rawValue)
+      Haptics.success()
+      email = ""
+      sentTo = address
+      await onInvited()
+    } catch {
+      Haptics.error()
+      emailError = SettingsFailure.message(
+        error, fallback: "Chief couldn’t send this invitation. Check the address and try again.")
+    }
+  }
+
+  private func createLink() async {
+    guard !creatingLink else { return }
+    creatingLink = true
+    linkError = nil
+    defer { creatingLink = false }
+    if let created = await model.createWorkspaceInvite() {
+      link = created
+      UIPasteboard.general.url = created.url
+      copied = true
+      Haptics.success()
+    } else {
+      linkError = "Chief couldn’t create an invite link. Try again."
+      Haptics.error()
+    }
+  }
+}
+
+/// The quieter companion to `PrimaryButtonStyle` on sheet surfaces.
+struct SecondarySheetButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 15, weight: .semibold))
+      .frame(maxWidth: .infinity)
+      .frame(height: 50)
+      .foregroundStyle(ChiefSheetPalette.primary.opacity(isEnabled ? 1 : 0.4))
+      .background(
+        ChiefSheetPalette.surface.opacity(configuration.isPressed ? 0.6 : 1),
+        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+      )
   }
 }
