@@ -22,7 +22,7 @@ export function FounderWelcomeEmail({
     <EmailShell
       footerNote="You’re receiving this because you created a Chief account. Reply any time."
       logoUrl={logoUrl}
-      preview="Why I’m building Chief, and what comes next."
+      preview="Why I’m building Chief, and where to start."
     >
       <Text style={emailStyles.greeting}>{greeting}</Text>
       <Text style={emailStyles.copy}>
@@ -51,65 +51,35 @@ function FounderWelcomeCopy() {
     <>
       <Text style={sectionHeading}>Why I’m building Chief</Text>
       <Text style={emailStyles.copy}>
-        I’ve spent years building software, and the last few really diving deep
-        into AI agents and this new way of building.
+        I’ve spent years building software, and the last few working closely
+        with AI agents. They’re now capable of real work, but most of them still
+        wait for you to prompt them, and their output ends up scattered across
+        chats, terminals and tabs.
       </Text>
       <Text style={emailStyles.copy}>
-        With the state of AI today, it feels possible to build almost anything
-        you can imagine. It’s one of the most exciting times to be a builder.
-        I’ve been having so much fun being able to take an idea and bring it to
-        life in the span of a day or two.
+        I wanted one place where a team of agents could work alongside the
+        people they work for: in shared channels and direct messages, on their
+        own schedules, picking up work in the background and reporting back when
+        it’s done. That’s Chief.
       </Text>
       <Text style={emailStyles.copy}>
-        But even if it’s now possible to build your killer app in a weekend,
-        getting it into the hands of users is still hard. Distribution, finding
-        the right audience and getting useful feedback are arguably more
-        important than ever.
-      </Text>
-      <Text style={emailStyles.copy}>
-        At the same time, I’ve been really interested in building proactive
-        agents that can keep working in the background without me constantly
-        managing them. I want to be able to step away, come back and find useful
-        work already completed on my behalf.
-      </Text>
-      <Text style={emailStyles.copy}>
-        I’m building Chief to be the place where I can create, deploy and manage
-        my team of agents, as well as a place to receive updates from the team,
-        keep me in the loop and drive direction from a top level.
+        Your agents can run in Chief Cloud, on your Mac or on your phone. You
+        decide what they can access, and your team sees the same workspace from
+        every device.
       </Text>
 
-      <Text style={sectionHeading}>Tips and tricks coming your way</Text>
+      <Text style={sectionHeading}>Where to start</Text>
       <Text style={emailStyles.copy}>
-        Over the next week, I’ll be sending you a daily email with guides and
-        information to help you get up and running with Chief. Best practices
-        and guides to really help you squeeze some extra juice out of your
-        agents.
+        Give one agent a job you repeat every week and let it run on a schedule.
+        Then invite a teammate, so the work and the conversations about it live
+        in the same place.
       </Text>
 
-      <Text style={sectionHeading}>We’re just getting started</Text>
+      <Text style={sectionHeading}>Tell me what you think</Text>
       <Text style={emailStyles.copy}>
-        There are so many other avenues that I see would be excellent for
-        proactive agents, and marketing is a first step towards having a fleet
-        of self-operating, self-improving, self-replicating agents that carry
-        forward meaningful work for me every day.
-      </Text>
-      <Text style={emailStyles.copy}>
-        I chose marketing as an early avenue to explore because it solves a
-        meaningful problem for me that actually provides value in my day to day.
-        But this is only the starting point. I’m looking forward to steadily
-        increasing the scope of work Chief can take on for you, across more of
-        your business and eventually well beyond marketing.
-      </Text>
-
-      <Text style={sectionHeading}>Get in touch!</Text>
-      <Text style={emailStyles.copy}>
-        I’d love to hear any early results, papercuts, feature requests or
-        critique that you have! The product is in its early stages and I’ll be
-        working to improve it every day.
-      </Text>
-      <Text style={emailStyles.copy}>
-        If you want to get in touch, just reply to this email! I love talking to
-        users. My agents forward every single piece of user feedback that I get.
+        Chief is early, and I’m improving it every day. Results, papercuts,
+        feature requests and blunt critique are all welcome. Just reply to this
+        email; I read every one.
       </Text>
     </>
   );
