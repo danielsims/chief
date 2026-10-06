@@ -147,7 +147,7 @@ export function Sidebar({
   const { agents: runtimeAgents } = useRuntime();
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const { unreadChannelCounts } = useChannelReadState();
+  const { unreadChannelCounts, lastMessageAtByChannel } = useChannelReadState();
   const location = useLocation();
   const navigate = useNavigate();
   const chiefNavigation = useChiefNavigation();
@@ -286,6 +286,14 @@ export function Sidebar({
       workspaceData.recurringWork,
       localChats.chats,
     ],
+  );
+  const lastMessageAtByAgent = new Map(
+    directMessageIds.map((agentId) => [
+      agentId,
+      lastMessageAtByChannel.get(
+        directMessageChatForAgent(localChats.chats, agentId)?.id ?? "",
+      ) ?? 0,
+    ]),
   );
   const unreadDirectMessageCounts = new Map(
     directMessageIds.map((agentId) => [
@@ -435,6 +443,8 @@ export function Sidebar({
           pinnedItems={normalizedPinnedItems}
           channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
+          lastMessageAtByAgent={lastMessageAtByAgent}
+          lastMessageAtByChannel={lastMessageAtByChannel}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           agents={runtimeAgents}
           onOpen={openChannel}

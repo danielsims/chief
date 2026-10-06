@@ -124,6 +124,8 @@ export function SidebarChannels({
   pinnedItems,
   channelsNeedingUser,
   unreadChannelCounts,
+  lastMessageAtByAgent,
+  lastMessageAtByChannel,
   unreadDirectMessageCounts,
   agents,
   onOpen,
@@ -151,6 +153,8 @@ export function SidebarChannels({
   pinnedItems: SidebarPinnedItem[];
   channelsNeedingUser: ReadonlySet<string>;
   unreadChannelCounts: ReadonlyMap<string, number>;
+  lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
+  lastMessageAtByChannel: ReadonlyMap<string, number>;
   unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
   agents: readonly { id: string; name: string; role: string }[];
   onOpen: (
@@ -464,6 +468,8 @@ export function SidebarChannels({
         pinnedAgentIds={pinnedAgentIds}
         unreadCounts={unreadDirectMessageCounts}
         unreadChannelCounts={unreadChannelCounts}
+        lastMessageAtByAgent={lastMessageAtByAgent}
+        lastMessageAtByChannel={lastMessageAtByChannel}
         agents={agents}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
