@@ -32,10 +32,15 @@ struct ConversationView: View {
         )
       }
       if isMember {
-        ConversationActivityFooter(
-          agents: workingAgents,
-          openActivity: { showsActivity = true }
-        )
+        let typists = model.typingNames(conversationID: conversationID)
+        if workingAgents.isEmpty, !typists.isEmpty {
+          PeopleTypingRow(names: typists).transition(.opacity)
+        } else {
+          ConversationActivityFooter(
+            agents: workingAgents,
+            openActivity: { showsActivity = true }
+          )
+        }
       }
       participationFooter
     }
@@ -79,6 +84,9 @@ struct ConversationView: View {
       model.markChannelRead(conversationID: conversationID)
     }
     .refreshable { await load() }
+    .onChange(of: draft) { _, value in
+      model.notifyTyping(conversationID: conversationID, draft: value)
+    }
     .onDisappear {
       model.clearVisibleConversation(conversationID)
     }
@@ -200,6 +208,7 @@ struct ConversationView: View {
 
   private func send() {
     guard canParticipate else { return }
+    model.notifyTyping(conversationID: conversationID, draft: "")
     let pendingText = draft
     let body = MessageReferenceSerializer.body(
       text: draft,

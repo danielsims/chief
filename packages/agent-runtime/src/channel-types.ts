@@ -111,6 +111,13 @@ export type ChannelClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      /** Tells the other people in a channel that this user is typing. */
+      type: "typing";
+      workspaceId: string;
+      channelId: string;
+      active: boolean;
+    }
+  | {
       /** Opens (or reuses) a person-to-person DM with a workspace member. */
       type: "startUserDirect";
       requestId: string;
@@ -164,6 +171,14 @@ export type ChannelClientMessage =
     };
 
 export type ChannelServerMessage =
+  | {
+      /** Another person is typing in a channel. Expires on the client. */
+      type: "userTyping";
+      workspaceId: string;
+      channelId: string;
+      userId: string;
+      active: boolean;
+    }
   | {
       type: "channels";
       workspaceId: string;

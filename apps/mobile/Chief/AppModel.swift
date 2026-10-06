@@ -81,6 +81,9 @@ final class AppModel {
   /// Workspace people by user id, for naming message authors and typists.
   private(set) var workspacePeople: [String: WorkspaceMember] = [:]
   private var workspacePeopleWorkspaceID: String?
+  /// Other people typing, by conversation and user id, with when they last were.
+  private(set) var typingPeople: [String: [String: Date]] = [:]
+  private var lastTypingSentAt: [String: Date] = [:]
   var homeNavigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
@@ -2010,7 +2013,12 @@ final class AppModel {
   private func handleLiveEvent(_ event: LiveEvent, expectedWorkspaceID: String) {
     guard workspace?.id == expectedWorkspaceID else { return }
     switch event {
+    case .typing(let conversationID, let userID, let active):
+      setTyping(conversationID: conversationID, userID: userID, active: active)
     case .appended(let message):
+      if case .user(let authorID, _) = message.author {
+        setTyping(conversationID: message.conversationID, userID: authorID, active: false)
+      }
       conversations.merge(message)
       if message.isAgentActivityProjection {
         recordRelayActivityReceipt(message, event: event)
@@ -2059,6 +2067,7 @@ final class AppModel {
     case .reacted: eventType = "reacted"
     case .edited: eventType = "edited"
     case .deleted: eventType = "deleted"
+    case .typing: return
     }
     activityLog.info(
       "received event=\(eventType, privacy: .public) workspace=\(message.workspaceID, privacy: .public) conversation=\(message.conversationID, privacy: .public) agent=\(agentID, privacy: .public) message=\(message.id, privacy: .public) sequence=\(message.sequence) components=\(message.components.map(\.id).joined(separator: ","), privacy: .public)"
@@ -3179,6 +3188,49 @@ extension AppModel {
       members.filter { $0.kind == "user" }.map { ($0.principalId, $0) },
       uniquingKeysWith: { first, _ in first }
     )
+  }
+
+  private static let typingExpiry: TimeInterval = 6
+  private static let typingSendInterval: TimeInterval = 3
+
+  fileprivate func setTyping(conversationID: String, userID: String, active: Bool) {
+    var people = typingPeople[conversationID] ?? [:]
+    guard active else {
+      guard people.removeValue(forKey: userID) != nil else { return }
+      typingPeople[conversationID] = people.isEmpty ? nil : people
+      return
+    }
+    let now = Date()
+    people[userID] = now
+    typingPeople[conversationID] = people
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(Self.typingExpiry))
+      guard let self, self.typingPeople[conversationID]?[userID] == now else { return }
+      self.setTyping(conversationID: conversationID, userID: userID, active: false)
+    }
+  }
+
+  func typingNames(conversationID: String) -> [String] {
+    (typingPeople[conversationID] ?? [:]).keys.sorted().map { person(userID: $0).name }
+  }
+
+  /// Reports the composer draft: text announces typing (throttled); an empty
+  /// draft or a send stops it.
+  func notifyTyping(conversationID: String, draft: String) {
+    let active = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let now = Date()
+    if active {
+      if let last = lastTypingSentAt[conversationID],
+        now.timeIntervalSince(last) < Self.typingSendInterval
+      {
+        return
+      }
+      lastTypingSentAt[conversationID] = now
+    } else {
+      guard lastTypingSentAt.removeValue(forKey: conversationID) != nil else { return }
+    }
+    guard let client = workspaceLiveClient else { return }
+    Task { await client.sendTyping(conversationID: conversationID, active: active) }
   }
 
   /// The person behind a user id: the signed-in user, or a workspace member.

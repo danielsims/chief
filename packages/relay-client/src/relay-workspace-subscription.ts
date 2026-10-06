@@ -1,5 +1,12 @@
-import type { ConversationEvent, RelayDiscovery } from "@chief/relay-contracts";
-import { conversationEventSchema } from "@chief/relay-contracts";
+import type {
+  ConversationEvent,
+  ConversationTypingEvent,
+  RelayDiscovery,
+} from "@chief/relay-contracts";
+import {
+  conversationEventSchema,
+  conversationTypingEventSchema,
+} from "@chief/relay-contracts";
 
 import type { RelaySocket } from "./relay-client-options";
 import {
@@ -13,7 +20,11 @@ export interface RelayWorkspaceSubscription {
   close: () => void;
   cursor: () => number;
   updateConversationIds: (conversationIds: readonly string[]) => void;
+  /** Tells the other people in a conversation that this user is typing. */
+  sendTyping: (conversationId: string, active?: boolean) => void;
 }
+
+export type RelayTypingEvent = ConversationTypingEvent;
 
 export async function openRelayWorkspaceSubscription(input: {
   workspaceId: string;
@@ -23,6 +34,7 @@ export async function openRelayWorkspaceSubscription(input: {
   createTicket: () => Promise<{ ticket: string; cursor: number }>;
   createWebSocket: (url: string) => RelaySocket;
   onEvent: (event: ConversationEvent) => void;
+  onTyping?: (event: RelayTypingEvent) => void;
   onError?: (error: Error) => void;
 }): Promise<RelayWorkspaceSubscription> {
   let cursor = input.after;
@@ -46,6 +58,7 @@ export async function openRelayWorkspaceSubscription(input: {
         type: "workspace.subscribe",
         conversationIds,
         after: cursor ?? 0,
+        typing: input.onTyping !== undefined,
       }),
     );
   };
@@ -88,9 +101,13 @@ export async function openRelayWorkspaceSubscription(input: {
     socket.addEventListener("message", (message) => {
       if (closed || connection !== generation) return;
       try {
-        const event = conversationEventSchema.parse(
-          JSON.parse(String(message.data)),
-        );
+        const data: unknown = JSON.parse(String(message.data));
+        const typing = conversationTypingEventSchema.safeParse(data);
+        if (typing.success) {
+          input.onTyping?.(typing.data);
+          return;
+        }
+        const event = conversationEventSchema.parse(data);
         if (event.sequence <= (cursor ?? 0)) return;
         cursor = event.sequence;
         input.onEvent(event);
@@ -143,6 +160,12 @@ export async function openRelayWorkspaceSubscription(input: {
       if (activeSocket?.readyState === 1) {
         sendSubscription(activeSocket);
       }
+    },
+    sendTyping: (conversationId, active = true) => {
+      if (activeSocket?.readyState !== 1) return;
+      activeSocket.send(
+        JSON.stringify({ type: "conversation.typing", conversationId, active }),
+      );
     },
   };
 }

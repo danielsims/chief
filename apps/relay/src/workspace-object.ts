@@ -58,6 +58,7 @@ import {
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
+import { relayConversationTyping } from "./workspace-typing";
 import {
   updateOutdatedEveAgents,
   WorkspaceVercelService,
@@ -549,6 +550,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         socket.close(1008, "Invalid workspace message");
         return;
       }
+      if (input.type === "conversation.typing") {
+        relayConversationTyping(this.ctx, this.env, socket, attachment, input);
+        return;
+      }
       if (input.type !== "workspace.subscribe") {
         socket.close(1008, "Invalid workspace message");
         return;
@@ -583,6 +588,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         ...attachment,
         conversationIds,
         subscribed: true,
+        typing: input.typing === true,
       });
       this.replayLiveEvents(
         socket,
