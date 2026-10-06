@@ -322,6 +322,7 @@ struct WorkspaceMember: Codable, Equatable, Identifiable, Sendable {
   let principalId: String
   let role: String
   let name: String?
+  var image: String? = nil
   var id: String { "\(kind):\(principalId)" }
 }
 
@@ -901,7 +902,7 @@ extension ConversationMessage.Author {
   private static func displayName(kind: String, id: String) -> String {
     let lower = id.lowercased()
     if lower == "chief" { return "Chief" }
-    if kind == "user" { return "You" }
+    if kind == "user" { return "" }
     return WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
   }
 }

@@ -22,6 +22,7 @@ import {
   MessageBlocksContent,
 } from "./chief-chat-message-components";
 import { withActionTimelineEntries } from "./conversation-timeline-entries";
+import { ChannelGuestMentions } from "./mention-people-context";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { ScheduledRunMessage } from "./scheduled-run-message";
@@ -124,6 +125,7 @@ export function ChiefChat({
     setVisibleThread,
     statusLabel,
     userAuthor,
+    authorFor,
   } = core;
   const {
     bottomRef,
@@ -135,6 +137,7 @@ export function ChiefChat({
     mainScrollRef,
     openAgentMention,
     openUserProfile,
+    openAuthorProfile,
     optimisticInitialPrompt,
     selectProfile,
     setComposerOpen,
@@ -219,7 +222,7 @@ export function ChiefChat({
     [conversationActions, timelineEntries],
   );
   return (
-    <>
+    <ChannelGuestMentions guests={core.channelGuests}>
       <div className="relative flex h-full min-w-0 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {header}
@@ -314,29 +317,17 @@ export function ChiefChat({
                       return (
                         <div id={`chief-message-${message.id}`}>
                           <UserMessage
-                            author={
-                              message.metadata?.guest
-                                ? {
-                                    name: message.metadata.guest.name,
-                                    ...(message.metadata.guest.image
-                                      ? { image: message.metadata.guest.image }
-                                      : undefined),
-                                  }
-                                : userAuthor
-                            }
+                            author={authorFor(message)}
+                            {...(message.metadata?.guest
+                              ? { guest: message.metadata.guest }
+                              : undefined)}
                             attachments={imageParts(message)}
-                            metadata={
-                              message.metadata?.guest
-                                ? "Guest"
-                                : channel
-                                  ? null
-                                  : undefined
-                            }
+                            metadata={channel ? null : undefined}
                             channelReferences={channelReferences}
                             onOpenChannel={onOpenChannel}
                             {...(message.metadata?.guest
                               ? undefined
-                              : { onOpenProfile: openUserProfile })}
+                              : { onOpenProfile: openAuthorProfile(message) })}
                             onOpenMention={openAgentMention}
                             timestamp={message.metadata?.createdAt}
                             {...controlsForMessage(message)}
@@ -515,6 +506,6 @@ export function ChiefChat({
           timeline={timelineState}
         />
       </div>
-    </>
+    </ChannelGuestMentions>
   );
 }

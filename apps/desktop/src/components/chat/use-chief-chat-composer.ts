@@ -6,6 +6,8 @@ import {
   useState,
 } from "react";
 
+import type { ChiefUIMessage } from "@chief/agent-runtime/types";
+
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import type { ComposerImageAttachment } from "./composer-image-attachments";
@@ -131,6 +133,16 @@ export function useChiefChatComposer({
   const openUserProfile = onOpenProfile
     ? () => selectProfile({ kind: "user" })
     : undefined;
+  const openAuthorProfile = (message: ChiefUIMessage) =>
+    onOpenProfile
+      ? () =>
+          selectProfile({
+            kind: "user",
+            ...(message.metadata?.author
+              ? { userId: message.metadata.author.id }
+              : undefined),
+          })
+      : undefined;
   const openAgentMention = onOpenProfile
     ? (agentId: WorkspaceAgentId) => selectProfile({ kind: "agent", agentId })
     : undefined;
@@ -288,6 +300,7 @@ export function useChiefChatComposer({
     mainScrollRef,
     openAgentMention,
     openUserProfile,
+    openAuthorProfile,
     optimisticInitialPrompt,
     selectProfile,
     setComposerOpen,

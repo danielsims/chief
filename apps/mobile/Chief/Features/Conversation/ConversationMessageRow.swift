@@ -86,7 +86,9 @@ struct ConversationMessageRow: View {
       Button(action: openAuthorProfile) {
         switch message.author {
         case .agent(_, let name): AgentMark(name: name, size: 34)
-        case .user(_, let name): UserMessageAvatar(name: name)
+        case .user(let id, let name):
+          UserAvatar(user: model.person(userID: id, fallbackName: name), size: 34, rounded: true)
+        case .guest(let guest): GuestAvatar(guest: guest, size: 34)
         case .system: AgentMark(name: "Chief", size: 34)
         }
       }
@@ -225,7 +227,9 @@ struct ConversationMessageRow: View {
       let participant: ThreadParticipant
       switch reply.author {
       case .agent(let id, let name): participant = .agent(id: id, name: name)
-      case .user(let id, let name): participant = .user(id: id, name: name)
+      case .user(let id, let name):
+        participant = .user(id: id, name: model.person(userID: id, fallbackName: name).name)
+      case .guest(let guest): participant = .user(id: "guest:\(guest.id)", name: guest.name)
       case .system: participant = .agent(id: "chief", name: "Chief")
       }
       return seen.insert(participant.id).inserted ? participant : nil
@@ -275,7 +279,9 @@ struct ConversationMessageRow: View {
 
   private var authorName: String {
     switch message.author {
-    case .agent(_, let name), .user(_, let name): name.isEmpty ? "Agent" : name
+    case .agent(_, let name): name.isEmpty ? "Agent" : name
+    case .user: model.authorName(message.author)
+    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }
@@ -289,8 +295,11 @@ struct ConversationMessageRow: View {
     switch message.author {
     case .agent(let id, _):
       openProfile = .agent(id)
-    case .user(let id, let name):
-      openProfile = .person(userID: id, name: name)
+    case .user(let id, _):
+      openProfile = .person(userID: id, name: model.authorName(message.author))
+    case .guest:
+      // Outside agents have no workspace profile to open.
+      return
     case .system:
       openProfile = .agent("chief")
     }

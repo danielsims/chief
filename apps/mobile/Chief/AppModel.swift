@@ -78,6 +78,9 @@ final class AppModel {
   /// channels. Direct messages are participants-only and do not use this set.
   private(set) var joinedConversationIDs: Set<String>?
   private var membershipWorkspaceID: String?
+  /// Workspace people by user id, for naming message authors and typists.
+  private(set) var workspacePeople: [String: WorkspaceMember] = [:]
+  private var workspacePeopleWorkspaceID: String?
   var homeNavigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
@@ -2125,13 +2128,13 @@ final class AppModel {
     if mentioned {
       title =
         conversation?.kind == .direct
-        ? "\(message.author.displayName) mentioned you"
-        : "\(message.author.displayName) mentioned you in #\(channelName)"
+        ? "\(authorName(message.author)) mentioned you"
+        : "\(authorName(message.author)) mentioned you in #\(channelName)"
     } else {
       title =
         conversation?.kind == .direct
-        ? message.author.displayName
-        : "\(message.author.displayName) in #\(channelName)"
+        ? authorName(message.author)
+        : "\(authorName(message.author)) in #\(channelName)"
     }
 
     if mentioned {
@@ -3115,6 +3118,7 @@ final class AppModel {
   }
 
   private func refreshCurrentChannelMemberships(for snapshot: WorkspaceSnapshot) async {
+    await refreshWorkspacePeople(for: snapshot)
     do {
       let memberships = try await relay.currentChannelMemberships(workspaceID: snapshot.id)
       guard workspace?.id == snapshot.id else { return }
@@ -3155,6 +3159,47 @@ final class AppModel {
     membershipWorkspaceID = snapshot.id
     joinedConversationIDs = Set(results.compactMap { id, joined in joined == true ? id : nil })
     syncWorkspaceLiveStreams(for: snapshot)
+  }
+}
+
+extension AppModel {
+  /// Loads workspace people once per workspace so authors resolve to names.
+  fileprivate func refreshWorkspacePeople(for snapshot: WorkspaceSnapshot) async {
+    guard workspacePeopleWorkspaceID != snapshot.id || workspacePeople.isEmpty else { return }
+    guard let members = try? await relay.workspaceMembers(workspaceID: snapshot.id) else { return }
+    guard workspace?.id == snapshot.id else { return }
+    workspacePeopleWorkspaceID = snapshot.id
+    workspacePeople = Dictionary(
+      members.filter { $0.kind == "user" }.map { ($0.principalId, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+  }
+
+  /// The person behind a user id: the signed-in user, or a workspace member.
+  func person(userID: String, fallbackName: String = "") -> ChiefUser {
+    // Strictly by account id: people can share a name.
+    if let user = session?.user, userID == user.id {
+      return ChiefUser(
+        id: user.id, name: user.name, imageURL: relayAssetURL(user.imageURL?.absoluteString))
+    }
+    let member = workspacePeople[userID]
+    let name = member?.name ?? (fallbackName.isEmpty ? "Member" : fallbackName)
+    return ChiefUser(id: userID, name: name, imageURL: relayAssetURL(member?.image))
+  }
+
+  func authorName(_ author: ConversationMessage.Author) -> String {
+    guard case .user(let id, let name) = author else { return author.displayName }
+    return person(userID: id, fallbackName: name).name
+  }
+
+  /// Relay avatars may carry another relay host; serve them from this relay.
+  private func relayAssetURL(_ value: String?) -> URL? {
+    guard let value, !value.isEmpty else { return nil }
+    if let range = value.range(of: "/v1/assets/") {
+      return URL(string: String(value[range.lowerBound...]), relativeTo: appConfiguration.relayURL)?
+        .absoluteURL
+    }
+    return URL(string: value)
   }
 }
 
