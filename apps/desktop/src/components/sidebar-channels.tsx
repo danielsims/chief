@@ -463,6 +463,7 @@ export function SidebarChannels({
         onPinChange={setAgentPinned}
         pinnedAgentIds={pinnedAgentIds}
         unreadCounts={unreadDirectMessageCounts}
+        unreadChannelCounts={unreadChannelCounts}
         agents={agents}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>

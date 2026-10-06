@@ -217,6 +217,7 @@ export function SidebarDirectMessages({
   onPinChange,
   pinnedAgentIds,
   unreadCounts,
+  unreadChannelCounts,
   agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
@@ -235,6 +236,8 @@ export function SidebarDirectMessages({
   onPinChange: (agentId: WorkspaceAgentId, pinned: boolean) => void;
   pinnedAgentIds: WorkspaceAgentId[];
   unreadCounts: ReadonlyMap<WorkspaceAgentId, number>;
+  /** Person-to-person DMs are channels, so their unread counts key by channel. */
+  unreadChannelCounts: ReadonlyMap<string, number>;
   agents: readonly {
     id: string;
     name: string;
@@ -322,28 +325,42 @@ export function SidebarDirectMessages({
       />
       {!collapsed ? (
         <div className="space-y-0.5">
-          {peopleDirects.map((direct) => (
-            <button
-              key={direct.channelId}
-              type="button"
-              aria-current={
-                activeChannelId === direct.channelId ? "page" : undefined
-              }
-              onClick={() => onOpenChannel(direct.channelId)}
-              className={cn(
-                "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-                activeChannelId === direct.channelId &&
-                  "bg-sidebar-accent text-sidebar-foreground font-medium",
-              )}
-            >
-              <UserAvatar
-                name={direct.name}
-                image={direct.image}
-                className="size-4 text-[8px]"
-              />
-              <span className="min-w-0 flex-1 truncate">{direct.name}</span>
-            </button>
-          ))}
+          {peopleDirects.map((direct) => {
+            const unread = unreadChannelCounts.get(direct.channelId) ?? 0;
+            return (
+              <button
+                key={direct.channelId}
+                type="button"
+                aria-current={
+                  activeChannelId === direct.channelId ? "page" : undefined
+                }
+                onClick={() => onOpenChannel(direct.channelId)}
+                className={cn(
+                  "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+                  activeChannelId === direct.channelId &&
+                    "bg-sidebar-accent text-sidebar-foreground font-medium",
+                  activeChannelId !== direct.channelId &&
+                    unread > 0 &&
+                    "text-sidebar-foreground font-semibold",
+                )}
+              >
+                <UserAvatar
+                  name={direct.name}
+                  image={direct.image}
+                  className="size-4 text-[8px]"
+                />
+                <span className="min-w-0 flex-1 truncate">{direct.name}</span>
+                {unread > 0 ? (
+                  <span
+                    aria-label={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
+                    className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 shrink-0 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
           {visibleIds
             .filter(
               (id) =>
