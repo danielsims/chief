@@ -36,6 +36,10 @@ impl PendingNotificationActivation {
     }
 }
 
+/// Whether the frontend has already received the link that launched the app.
+#[derive(Default)]
+struct LaunchDeepLinkTaken(std::sync::atomic::AtomicBool);
+
 fn focus_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
 
@@ -58,6 +62,28 @@ fn take_pending_notification_activation(
     state.take()
 }
 
+/// The link that launched the app, handed over once per process. The deep
+/// link plugin keeps reporting it for the life of the process, and the
+/// frontend reloads its page in several flows, so reading it on every load
+/// would act on the same link again.
+#[tauri::command]
+fn take_launch_deep_link(
+    app: tauri::AppHandle,
+    taken: tauri::State<'_, LaunchDeepLinkTaken>,
+) -> Option<String> {
+    use tauri_plugin_deep_link::DeepLinkExt;
+
+    if taken.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    app.deep_link()
+        .get_current()
+        .ok()
+        .flatten()
+        .and_then(|urls| urls.into_iter().next())
+        .map(|url| url.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     use tauri::{Emitter, Manager};
@@ -66,6 +92,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(PendingNotificationActivation::default());
+            app.manage(LaunchDeepLinkTaken::default());
             app.manage(CellSupervisor::default());
             app.manage(PluginHostSupervisor::default());
             app.manage(Mutex::new(OAuthLoopback::default()));
@@ -109,7 +136,8 @@ pub fn run() {
             start_workspace_cells,
             cell_runtime_setup,
             start_plugin_host,
-            take_pending_notification_activation
+            take_pending_notification_activation,
+            take_launch_deep_link
         ])
         .build(tauri::generate_context!())
         .expect("error while building Chief")
