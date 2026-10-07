@@ -76,7 +76,7 @@ export async function setupAuthDeepLink(
 ): Promise<(() => void) | undefined> {
   if (!(await checkIsTauri())) return;
 
-  const { getCurrent, isRegistered, onOpenUrl, register } =
+  const { isRegistered, onOpenUrl, register } =
     await import("@tauri-apps/plugin-deep-link");
   const { platform } = await import("@tauri-apps/plugin-os");
   const os = platform();
@@ -106,16 +106,15 @@ export async function setupAuthDeepLink(
     DESKTOP_OAUTH_LOOPBACK_EVENT,
     (event) => handleUrls([event.payload], true),
   );
-  const currentUrls = await getCurrent().catch((error) => {
-    console.warn("[Auth] Failed to read current deep link:", error);
-    return null;
-  });
-  if (currentUrls?.length) {
-    handleUrls(
-      currentUrls.map((url) => url.toString()),
-      false,
-    );
-  }
+  // Rust hands over the launch link once per process: the page reloads in
+  // several flows and must not act on the same link again.
+  const launchUrl = await invoke<string | null>("take_launch_deep_link").catch(
+    (error: unknown) => {
+      console.warn("[Auth] Failed to read the launch deep link:", error);
+      return null;
+    },
+  );
+  if (launchUrl) handleUrls([launchUrl], false);
   return () => {
     unlistenDeepLink();
     void unlistenLoopback();
