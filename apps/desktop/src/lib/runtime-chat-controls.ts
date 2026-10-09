@@ -1,27 +1,11 @@
-import type { AgentEvent, AgentQuestion } from "@chief/agent-runtime/types";
+import type { AgentEvent } from "@chief/agent-runtime/types";
 
 import { isExpectedRuntimeStop, visibleRuntimeError } from "./runtime-messages";
-
-export interface PendingApproval {
-  requestId: string;
-  toolName: string;
-  input: unknown;
-  threadRootId?: string;
-}
-
-export interface PendingQuestion {
-  requestId: string;
-  questions: AgentQuestion[];
-}
 
 export interface ChatControlState {
   status: "idle" | "running";
   /** True after the runtime has emitted real output for the current turn. */
   hasAgentOutput: boolean;
-  /** Tool calls waiting on the user's allow/deny decision. */
-  approvals: PendingApproval[];
-  /** Agent questions waiting on the user's answers. */
-  questions: PendingQuestion[];
   toolProgress: Record<string, string>;
   /** Agents with a turn in progress, so several can show as working at once. */
   workingAgents: WorkingAgent[];
@@ -45,8 +29,6 @@ export interface ChatRuntimeError {
 export const emptyChatControls: ChatControlState = {
   status: "idle",
   hasAgentOutput: false,
-  approvals: [],
-  questions: [],
   toolProgress: {},
   workingAgents: [],
 };
@@ -105,24 +87,6 @@ export function reduceChatControls(
         },
       };
     }
-    case "permission":
-      return reducePermission(controls, event);
-    case "permissionResolved":
-      return {
-        ...controls,
-        approvals: controls.approvals.filter(
-          (approval) => approval.requestId !== event.requestId,
-        ),
-      };
-    case "question":
-      return reduceQuestion(controls, event);
-    case "questionResolved":
-      return {
-        ...controls,
-        questions: controls.questions.filter(
-          (question) => question.requestId !== event.requestId,
-        ),
-      };
     case "result": {
       const message = event.ok ? undefined : visibleRuntimeError(event.error);
       const error = message ? { message } : undefined;
@@ -133,8 +97,6 @@ export function reduceChatControls(
         ...controls,
         status: workingAgents.length > 0 ? "running" : "idle",
         workingAgents,
-        approvals: [],
-        questions: [],
         lastCostUsd: event.costUsd ?? controls.lastCostUsd,
         error,
         errorAcknowledged: error ? false : undefined,
@@ -159,8 +121,6 @@ export function reduceChatControls(
           ...controls,
           status: "idle",
           workingAgents: [],
-          approvals: [],
-          questions: [],
         };
       }
       return {
@@ -212,47 +172,6 @@ function reduceMessage(
     hasAgentOutput: !isUser,
     error: isUser ? undefined : controls.error,
     errorAcknowledged: isUser ? undefined : controls.errorAcknowledged,
-  };
-}
-
-function reducePermission(
-  controls: ChatControlState,
-  event: Extract<AgentEvent, { type: "permission" }>,
-): ChatControlState {
-  return {
-    ...controls,
-    hasAgentOutput: true,
-    approvals: controls.approvals.some(
-      (approval) => approval.requestId === event.requestId,
-    )
-      ? controls.approvals
-      : [
-          ...controls.approvals,
-          {
-            requestId: event.requestId,
-            toolName: event.toolName,
-            input: event.input,
-            threadRootId: event.threadRootId,
-          },
-        ],
-  };
-}
-
-function reduceQuestion(
-  controls: ChatControlState,
-  event: Extract<AgentEvent, { type: "question" }>,
-): ChatControlState {
-  return {
-    ...controls,
-    hasAgentOutput: true,
-    questions: controls.questions.some(
-      (question) => question.requestId === event.requestId,
-    )
-      ? controls.questions
-      : [
-          ...controls.questions,
-          { requestId: event.requestId, questions: event.questions },
-        ],
   };
 }
 

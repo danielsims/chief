@@ -16,6 +16,7 @@ import { agentIdSchema, userIdSchema } from "@chief/relay-contracts";
 
 import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import type {
+  RuntimeCommand,
   RuntimeConnectionStatus,
   RuntimeMessageListener,
   RuntimeTransport,
@@ -51,7 +52,10 @@ import {
 } from "./relay-runtime-mappers";
 import { appendRelayMessage } from "./relay-runtime-messages";
 import { localProjectSnapshots } from "./relay-runtime-project-connect";
-import { routeRelayWorkspaceDataCommand } from "./relay-runtime-workspace-data";
+import {
+  isRelayWorkspaceDataCommand,
+  routeRelayWorkspaceDataCommand,
+} from "./relay-runtime-workspace-data";
 import {
   loadWorkspaceCursor,
   saveWorkspaceCursor,
@@ -166,7 +170,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
   }
-  send(message: ClientMessage) {
+  send(message: RuntimeCommand) {
     void this.route(message).catch((error) => {
       const chatId = "chatId" in message ? message.chatId : undefined;
       const requestId = "requestId" in message ? message.requestId : undefined;
@@ -186,7 +190,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.pendingWorkspaceSubscription = null;
     this.statusListener("disconnected");
   }
-  private async route(message: ClientMessage) {
+  private async route(message: RuntimeCommand) {
     if (this.closed) return;
     // Chat attachment is local to the view. Keep lifecycle commands ordered
     // before asynchronous workspace routing, without stopping background runs.
@@ -206,13 +210,12 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.conversationIdsByChat.delete(message.chatId);
         return;
     }
-    if (
+    if (isRelayWorkspaceDataCommand(message)) {
       await routeRelayWorkspaceDataCommand(message, {
         relay: this.relay,
         snapshot: this.snapshot,
         emit: (event) => this.emit(event),
-      })
-    ) {
+      });
       return;
     }
     switch (message.type) {
@@ -271,6 +274,20 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "sendMessage":
         await this.appendMessage(message);
         return;
+      case "interruptChat":
+        await this.stopChat(message.chatId);
+        return;
+      case "listWorkspaceEnvironmentVariables":
+        await this.emitEnvironment();
+        return;
+      case "saveWorkspaceEnvironmentVariable":
+        await this.relay.setWorkspaceSecret(message.key, message.value);
+        await this.emitEnvironment();
+        return;
+      case "deleteWorkspaceEnvironmentVariable":
+        await this.relay.deleteWorkspaceSecret(message.key);
+        await this.emitEnvironment();
+        return;
       case "updateChannel":
       case "setChannelArchived":
       case "deleteChannel":
@@ -281,13 +298,75 @@ export class RelayRuntimeClient implements RuntimeTransport {
           (reply) => this.emit(reply),
         );
         return;
-      default:
+      // A cloud workspace has no local browser runs, so there is nothing to
+      // list and no run for the other browser commands to act on.
+      case "listBrowserRuns":
+        this.emit({
+          type: "browserRuns",
+          workspaceId: this.snapshot.id,
+          runs: [],
+        });
+        return;
+      case "anchorBrowserRun":
+      case "browserNavigateRequest":
+      case "browserUrlChanged":
+      case "browserViewportResize":
+      case "browserReload":
+      case "browserClose":
+        return;
+      // Live features the relay does not serve yet. Each needs a relay route
+      // or removal; until then they fail loudly instead of silently.
+      case "listArtifacts":
+      case "updateChannelAgents":
+      case "setChannelPolicy":
+      case "publishProjectCheckout":
+      case "discardProjectCheckout":
+      case "createProjectPullRequest":
+      case "listProjectAccessRequests":
+      case "resolveProjectAccessRequest":
         this.recordError(
           new Error(`Relay command ${message.type} is not implemented.`),
-          "chatId" in message ? message.chatId : undefined,
+          undefined,
+          "requestId" in message ? message.requestId : undefined,
         );
         return;
+      default: {
+        const unhandled: never = message;
+        return unhandled;
+      }
     }
+  }
+  /** Stops every hosted agent working in the chat's conversation. */
+  private async stopChat(chatId: string) {
+    const agentIds = this.snapshot.agents
+      .filter((agent) => agent.runtime.kind === "native-cell")
+      .flatMap((agent) => [
+        agent.id,
+        ...agent.subagents.map((child) => child.id),
+      ])
+      .slice(0, 16);
+    if (agentIds.length === 0) return;
+    await this.relay.stopConversation(
+      this.conversationIdForChat(chatId),
+      agentIds,
+    );
+    this.emit({
+      type: "event",
+      workspaceId: this.snapshot.id,
+      chatId,
+      event: { type: "result", ok: true },
+    });
+  }
+  /** Workspace secrets by name. Values never leave the relay. */
+  private async emitEnvironment() {
+    const secrets = await this.relay.listWorkspaceSecrets();
+    this.emit({
+      type: "workspaceEnvironmentVariables",
+      workspaceId: this.snapshot.id,
+      variables: secrets
+        .filter(({ name }) => !isInternalSecret(name))
+        .map(({ name }) => ({ key: name, sensitive: true })),
+    });
   }
   private async refreshSnapshot() {
     this.snapshot = await this.relay.activeWorkspace();
@@ -643,4 +722,13 @@ export class RelayRuntimeClient implements RuntimeTransport {
       explicitConversationId,
     );
   }
+}
+
+/** Credentials Chief manages itself, never edited as environment. */
+function isInternalSecret(name: string) {
+  return (
+    name === "vercel-deployment" ||
+    name.startsWith("external-agent.") ||
+    name.startsWith("github-")
+  );
 }

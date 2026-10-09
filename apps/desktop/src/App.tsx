@@ -34,25 +34,20 @@ import {
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
 import { ArtifactsPage } from "./pages/artifacts";
-import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
-import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
 import { AppearanceSettings } from "./pages/settings/appearance";
 import { ConnectionSettings } from "./pages/settings/connection";
-import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
 import { SettingsLayout } from "./pages/settings/layout";
-import { MissionsSettings } from "./pages/settings/missions";
 import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WebhooksSettings } from "./pages/settings/webhooks";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
-import { TrendingPage } from "./pages/trending";
 import { WorkspaceFilePage } from "./pages/workspace-file";
 import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
@@ -325,10 +320,7 @@ function AuthenticatedApp() {
                         <Route index element={<DashboardPage />} />
                         <Route path="inbox" element={<InboxPage />} />
                         <Route path="artifacts" element={<ArtifactsPage />} />
-                        <Route path="campaigns" element={<CampaignsPage />} />
                         <Route path="schedule" element={<SchedulePage />} />
-                        <Route path="prospects" element={<ProspectsPage />} />
-                        <Route path="trending" element={<TrendingPage />} />
                         <Route
                           path="conversations"
                           element={<ConversationsPage />}
@@ -376,10 +368,6 @@ function AuthenticatedApp() {
                             element={<ConnectionSettings />}
                           />
                           <Route
-                            path="missions"
-                            element={<MissionsSettings />}
-                          />
-                          <Route
                             path="webhooks"
                             element={<WebhooksSettings />}
                           />
@@ -390,10 +378,6 @@ function AuthenticatedApp() {
                           <Route
                             path="notifications"
                             element={<NotificationsSettings />}
-                          />
-                          <Route
-                            path="diagnostics"
-                            element={<DiagnosticsSettings />}
                           />
                           <Route
                             path="environment"
@@ -443,7 +427,7 @@ export default function App() {
 
 function ExperimentalMachines() {
   const enabled = useMachinesEnabled();
-  if (!enabled) return <Navigate to="/settings/diagnostics" replace />;
+  if (!enabled) return <Navigate to="/settings" replace />;
   return (
     <Suspense fallback={null}>
       <MachinesPage />

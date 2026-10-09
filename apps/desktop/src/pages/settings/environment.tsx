@@ -21,7 +21,9 @@ import { Input } from "@chief/ui/components/input";
 
 import { useWorkspaceEnvironmentVariables } from "../../lib/runtime";
 
-const ENV_KEY = /^[A-Z][A-Z0-9_]{0,127}$/;
+// Workspace secret names, exactly as the relay stores them. An agent's
+// provider key (for example "opencode") is one of these.
+const ENV_KEY = /^[a-z][a-z0-9._-]{0,119}$/;
 
 function VariableDialog({
   open,
@@ -38,7 +40,7 @@ function VariableDialog({
   const [value, setValue] = useState("");
 
   const submit = () => {
-    const normalizedKey = key.trim().toUpperCase();
+    const normalizedKey = key.trim().toLowerCase();
     if (!ENV_KEY.test(normalizedKey) || !value) return;
     onSave(normalizedKey, value);
     setKey("");
@@ -65,8 +67,8 @@ function VariableDialog({
               : "Add environment variable"}
           </DialogTitle>
           <DialogDescription>
-            Stored in this workspace's protected credential vault. Values are
-            never returned to the interface or added to agent transcripts.
+            Encrypted in this workspace's vault. Values are never returned to
+            the interface or added to agent transcripts.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -77,10 +79,10 @@ function VariableDialog({
               disabled={Boolean(variableKey)}
               onChange={(event) =>
                 setKey(
-                  event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""),
+                  event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""),
                 )
               }
-              placeholder="API_TOKEN"
+              placeholder="opencode"
               className="font-mono"
               autoComplete="off"
             />
@@ -104,7 +106,7 @@ function VariableDialog({
           </Button>
           <Button
             onClick={submit}
-            disabled={!ENV_KEY.test(key.trim().toUpperCase()) || !value}
+            disabled={!ENV_KEY.test(key.trim().toLowerCase()) || !value}
           >
             {variableKey ? "Replace" : "Add variable"}
           </Button>
@@ -174,7 +176,7 @@ export function EnvironmentSettings() {
             <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
               <KeyRound size={20} strokeWidth={1.5} />
               <p className="mt-3 text-sm font-medium">
-                The local vault did not respond
+                The workspace vault did not respond
               </p>
               <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-5">
                 Your values remain protected. Chief will retry without exposing
@@ -188,7 +190,7 @@ export function EnvironmentSettings() {
             <div className="text-muted-foreground p-5 text-sm">
               {connected
                 ? "Loading variables…"
-                : "Connecting to the local vault…"}
+                : "Connecting to the workspace vault…"}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex min-h-36 flex-col items-center justify-center px-6 text-center">
@@ -242,8 +244,8 @@ export function EnvironmentSettings() {
         </div>
 
         <p className="text-muted-foreground mt-3 text-xs leading-5">
-          Chief injects these only into local agent processes for this
-          workspace. Secret values stay in the system credential store.
+          Encrypted on the relay. Only the workspace owner can change them, and
+          an agent can read only the key it is configured to use.
         </p>
       </CardContent>
 

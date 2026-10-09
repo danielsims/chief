@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type {
-  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
   SessionRecord,
@@ -10,7 +9,6 @@ import type {
 
 import {
   conversationTimelineEntries,
-  withActionTimelineEntries,
   withSpecialistTimelineEntries,
 } from "../src/components/chat/conversation-timeline-entries.js";
 
@@ -155,42 +153,5 @@ void test("a specialist file card stays in its owning thread", () => {
   assert.equal(
     threadEntries[0]?.type === "message" && threadEntries[0].message.id,
     fileMessage.id,
-  );
-});
-
-void test("an answered action stays before the continuation reply it triggered", () => {
-  const messages = [
-    {
-      id: "request",
-      role: "user",
-      parts: [{ type: "text", text: "Set an action item." }],
-      metadata: { createdAt: 100 },
-    },
-    {
-      id: "continuation",
-      role: "assistant",
-      parts: [{ type: "text", text: "Thanks, I continued the work." }],
-      metadata: { createdAt: 300 },
-    },
-  ] satisfies ChiefUIMessage[];
-  const action = {
-    id: "action",
-    agentId: "chief",
-    title: "Choose one",
-    reason: "One decision is needed.",
-    status: "resolved",
-    createdAt: 200,
-  } satisfies ActionItem;
-
-  const entries = withActionTimelineEntries(
-    conversationTimelineEntries(messages, [], new Map(), null),
-    [action],
-  );
-
-  assert.deepEqual(
-    entries.map((entry) =>
-      entry.type === "message" ? entry.message.id : entry.type,
-    ),
-    ["request", "action", "continuation"],
   );
 });

@@ -12,8 +12,6 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import {
-  actionItemsInConversation,
-  actionItemsInThread,
   legacyThreadRootIdsNeedingUser,
   threadRootIdsNeedingUser,
 } from "../../lib/channel-action-items";
@@ -56,7 +54,7 @@ export function useChiefChatPresentation({
   timeline: Timeline;
 }) {
   const { authorFor, channelReactions, messages } = core;
-  const { setThreadRootId, threadRootId } = composer;
+  const { setThreadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
   const openActionSourceIds = useMemo(
@@ -91,34 +89,6 @@ export function useChiefChatPresentation({
     (message: ChiefUIMessage) =>
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
     [],
-  );
-  const threadActions = useMemo(
-    () =>
-      threadRootId
-        ? actionItemsInThread({
-            actionItems: core.workspaceData.actionItems,
-            chatId,
-            messages,
-            sessions: core.workspaceData.activity,
-            threadRootId,
-          })
-        : [],
-    [
-      chatId,
-      core.workspaceData.actionItems,
-      core.workspaceData.activity,
-      messages,
-      threadRootId,
-    ],
-  );
-  const conversationActions = useMemo(
-    () =>
-      actionItemsInConversation({
-        actionItems: core.workspaceData.actionItems,
-        chatId,
-        sessions: core.workspaceData.activity,
-      }),
-    [chatId, core.workspaceData.actionItems, core.workspaceData.activity],
   );
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
@@ -255,8 +225,6 @@ export function useChiefChatPresentation({
   const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
 
   return {
-    conversationActions,
-    threadActions,
     activeThreadSummary,
     controlsForMessage,
     imageParts,

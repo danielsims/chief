@@ -5,6 +5,40 @@ import type {
 } from "@chief/agent-runtime/types";
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
 
+/**
+ * Commands the desktop sends to its workspace. Local-runtime commands that no
+ * cloud workspace serves are excluded, so sending one cannot compile.
+ */
+export type RuntimeCommand = Exclude<
+  ClientMessage,
+  {
+    type:
+      | "bootstrapOnboardingWork"
+      | "deleteChat"
+      | "deleteWorkspaceFile"
+      | "disconnectGoogleAnalytics"
+      | "dismissActionItem"
+      | "expandRecurringWorkGrant"
+      | "getSlackChannel"
+      | "inspectWorkspaceIntegrations"
+      | "listDiagnostics"
+      | "listVercelEveDestinations"
+      | "provideInput"
+      | "provisionVercelEveAgent"
+      | "queryInputs"
+      | "renderWorkspaceEmail"
+      | "resolveActionRequest"
+      | "respondPermission"
+      | "respondQuestion"
+      | "rotateRecurringWorkWebhook"
+      | "runMissionControlHeartbeatNow"
+      | "saveCampaign"
+      | "saveSlackChannel"
+      | "saveWorkspaceWaysOfWorking"
+      | "storeInput";
+  }
+>;
+
 export type RuntimeMessageListener = (message: ServerMessage) => void;
 export type RuntimeConnectionStatus =
   "connecting" | "connected" | "disconnected";
@@ -20,7 +54,7 @@ export interface RuntimeTransport {
     input: CreateNativeAgentCommand,
     preference?: AgentPreference,
   ): Promise<void>;
-  send(message: ClientMessage): void;
+  send(message: RuntimeCommand): void;
   subscribe(listener: RuntimeMessageListener): () => void;
   destroy(): void;
 }

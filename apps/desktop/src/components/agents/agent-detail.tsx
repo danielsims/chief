@@ -27,7 +27,6 @@ import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentOverride as LocalAgentOverride } from "../../lib/agent-overrides";
-import type { AgentIntegrationOption } from "./agent-detail-sections";
 import {
   agentExecution,
   relayDeploymentTarget,
@@ -52,8 +51,6 @@ import {
   SubagentDetail,
 } from "./agent-identity-navigator";
 import { AgentMessageAccess } from "./agent-message-access";
-
-export type { AgentIntegrationOption } from "./agent-detail-sections";
 
 type DetailTab = "configuration" | "runtime" | "channels" | "permissions";
 
@@ -88,7 +85,6 @@ export function AgentDetail({
   agent,
   workspaceId,
   override,
-  integrations,
   channels,
   ready,
   saving,
@@ -106,7 +102,6 @@ export function AgentDetail({
   agent: AgentDefinition;
   workspaceId: string | null;
   override: AgentPreference | undefined;
-  integrations: AgentIntegrationOption[];
   channels: readonly WorkspaceChannel[];
   ready: boolean;
   saving: boolean;
@@ -161,8 +156,6 @@ export function AgentDetail({
     override?.deploymentTarget ?? (driver === "remote" ? "cloud" : "desktop");
   const approvals = override?.approvals ?? getToolApprovals(workspaceId);
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
-  const assignedIntegrations =
-    override?.integrations ?? integrations.map((item) => item.provider);
   const toolPermissions = effectiveAgentToolPermissions(
     agent.id,
     override?.toolPermissions,
@@ -185,7 +178,6 @@ export function AgentDetail({
     model?: string;
     approvals?: AgentApprovalMode;
     capabilities?: AgentCapabilityId[];
-    integrations?: string[];
     toolPermissions?: AgentToolPermission[];
   }) => {
     const mirror: LocalAgentOverride = {};
@@ -194,7 +186,6 @@ export function AgentDetail({
     if (patch.model !== undefined) mirror.model = patch.model || undefined;
     if (patch.approvals) mirror.approvals = patch.approvals;
     if (patch.capabilities) mirror.capabilities = patch.capabilities;
-    if (patch.integrations) mirror.integrations = patch.integrations;
     if (patch.toolPermissions) mirror.toolPermissions = patch.toolPermissions;
     if (workspaceId && Object.keys(mirror).length > 0) {
       setAgentOverride(workspaceId, agent.id, mirror);
@@ -211,7 +202,9 @@ export function AgentDetail({
       model: (patch.model ?? model) || undefined,
       approvals: patch.approvals ?? approvals,
       capabilities: patch.capabilities ?? capabilities,
-      integrations: patch.integrations ?? assignedIntegrations,
+      ...(override?.integrations
+        ? { integrations: override.integrations }
+        : undefined),
       toolPermissions: patch.toolPermissions ?? toolPermissions,
     });
   };
@@ -334,14 +327,9 @@ export function AgentDetail({
                       approvals={approvals}
                       ready={ready}
                       capabilities={capabilities}
-                      integrations={integrations}
-                      assignedIntegrations={assignedIntegrations}
                       onApprovalChange={(value) => save({ approvals: value })}
                       onCapabilitiesChange={(value) =>
                         save({ capabilities: value })
-                      }
-                      onIntegrationsChange={(value) =>
-                        save({ integrations: value })
                       }
                     />
                     <AgentDangerZone

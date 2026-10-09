@@ -8,12 +8,8 @@ import type { ThreadAgent } from "./chief-chat-auxiliary-panels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
 import { useChannelTyping } from "../../lib/use-channel-typing";
-import { InputRequestSection } from "../integrations/input-request-section";
 import { workspaceCardClassName } from "../workspace-content-surface";
-import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
-import { ApprovalCard } from "./approval-card";
-import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
 import { ChatTimeline } from "./chat-timeline";
@@ -25,13 +21,9 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import {
-  continuedMessageIds,
-  withActionTimelineEntries,
-} from "./conversation-timeline-entries";
+import { continuedMessageIds } from "./conversation-timeline-entries";
 import { ChannelGuestMentions } from "./mention-people-context";
 import { PeopleTypingRow } from "./people-typing-row";
-import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { ScheduledRunMessage } from "./scheduled-run-message";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
@@ -125,12 +117,7 @@ export function ChiefChat({
     markThreadRead,
     mentionCandidates,
     messages,
-    pendingInput,
-    provideInput,
-    respondPermission,
-    respondQuestion,
     setActivityOpen,
-    setAnsweredInputs,
     setSelectedExecution,
     setVisibleThread,
     statusLabel,
@@ -214,8 +201,6 @@ export function ChiefChat({
     </div>
   );
   const {
-    conversationActions,
-    threadActions,
     activeThreadSummary,
     controlsForMessage,
     imageParts,
@@ -231,13 +216,9 @@ export function ChiefChat({
     directAgent,
     timeline: timelineState,
   });
-  const conversationTimelineEntries = useMemo(
-    () => withActionTimelineEntries(timelineEntries, conversationActions),
-    [conversationActions, timelineEntries],
-  );
   const continuedIds = useMemo(
-    () => continuedMessageIds(conversationTimelineEntries, currentUser?.id),
-    [conversationTimelineEntries, currentUser?.id],
+    () => continuedMessageIds(timelineEntries, currentUser?.id),
+    [timelineEntries, currentUser?.id],
   );
   return (
     <ChannelGuestMentions guests={core.channelGuests}>
@@ -292,19 +273,10 @@ export function ChiefChat({
               ) : null}
               {channelResolved || isNew ? (
                 <ChatTimeline
-                  entries={conversationTimelineEntries}
+                  entries={timelineEntries}
                   renderEntry={(entry) => {
                     if (entry.type === "browser") {
                       return browserAttachmentNode(entry.run);
-                    }
-                    if (entry.type === "action") {
-                      return (
-                        <TimelineActionRequestCard
-                          action={entry.action}
-                          currentUser={currentUser}
-                          resolve={core.workspaceData.resolveActionRequest}
-                        />
-                      );
                     }
                     if (entry.type === "specialist") return null;
                     const { message } = entry;
@@ -391,42 +363,6 @@ export function ChiefChat({
                     );
                   }}
                 />
-              ) : null}
-              {controls.approvals
-                .filter((approval) => approvalBelongsToSurface(approval, null))
-                .map((approval) => (
-                  <div key={approval.requestId} className="mx-auto max-w-3xl">
-                    <ApprovalCard
-                      approval={approval}
-                      onRespond={respondPermission}
-                    />
-                  </div>
-                ))}
-              {!threadRootId
-                ? controls.questions.map((pending) => (
-                    <div key={pending.requestId} className="mx-auto max-w-3xl">
-                      <QuestionCard
-                        pending={pending}
-                        onSubmit={(answers) =>
-                          respondQuestion(pending.requestId, answers)
-                        }
-                        onDismiss={() =>
-                          respondQuestion(pending.requestId, null)
-                        }
-                      />
-                    </div>
-                  ))
-                : null}
-              {pendingInput ? (
-                <div className="mx-auto max-w-3xl">
-                  <InputRequestSection
-                    request={pendingInput}
-                    onSubmit={(request, values) => {
-                      provideInput(request, values);
-                      setAnsweredInputs((s) => new Set(s).add(request.id));
-                    }}
-                  />
-                </div>
               ) : null}
               <div ref={bottomRef} />
             </div>
@@ -516,7 +452,6 @@ export function ChiefChat({
           </div>
         </div>
         <ChiefChatAuxiliaryPanels
-          threadActions={threadActions}
           activeThreadSummary={activeThreadSummary}
           composer={composerState}
           core={core}

@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useRef } from "react";
 
 import type {
-  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
   ContentBlock,
@@ -18,7 +17,6 @@ import {
   isWorkspaceAgentId,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../../lib/workspace-channels";
-import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
 import {
@@ -27,8 +25,6 @@ import {
   scheduledAgentActivityPresence,
   taskAgentActivityPresence,
 } from "./agent-activity-presence";
-import { ApprovalCard } from "./approval-card";
-import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
 import { ChatDateSeparator } from "./chat-date-time";
@@ -43,12 +39,8 @@ import {
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
-import {
-  withActionTimelineEntries,
-  withSpecialistTimelineEntries,
-} from "./conversation-timeline-entries";
+import { withSpecialistTimelineEntries } from "./conversation-timeline-entries";
 import { ObservedChat } from "./observed-chat";
-import { QuestionCard } from "./question-card";
 import { ScheduledRunMessage } from "./scheduled-run-message";
 import {
   taskActivitySubtitle,
@@ -86,7 +78,6 @@ interface ThreadSummary {
  * threads, agent activity, specialist work, and profiles, beside the main feed.
  */
 export function ChiefChatAuxiliaryPanels({
-  threadActions,
   activeThreadSummary,
   composer,
   core,
@@ -97,7 +88,6 @@ export function ChiefChatAuxiliaryPanels({
   threadBlocks,
   timeline,
 }: {
-  threadActions: readonly ActionItem[];
   activeThreadSummary: ThreadSummary;
   composer: Composer;
   core: Core;
@@ -142,8 +132,6 @@ export function ChiefChatAuxiliaryPanels({
     mentionCandidates,
     activityTurns,
     activityAgentId,
-    respondPermission,
-    respondQuestion,
     send,
     setActivityOpen,
     statusLabel,
@@ -178,18 +166,15 @@ export function ChiefChatAuxiliaryPanels({
   } = timeline;
   const threadTimelineEntries = useMemo(
     () =>
-      withActionTimelineEntries(
-        // An agent DM thread is a clean chat: the agent's run is not surfaced
-        // as a task card, and its tool calls live in the Activity panel.
-        threadAgent
-          ? threadReplyEntries
-          : withSpecialistTimelineEntries(
-              threadReplyEntries,
-              activeThreadChildSessions,
-            ),
-        threadActions,
-      ),
-    [activeThreadChildSessions, threadActions, threadReplyEntries, threadAgent],
+      // An agent DM thread is a clean chat: the agent's run is not surfaced
+      // as a task card, and its tool calls live in the Activity panel.
+      threadAgent
+        ? threadReplyEntries
+        : withSpecialistTimelineEntries(
+            threadReplyEntries,
+            activeThreadChildSessions,
+          ),
+    [activeThreadChildSessions, threadReplyEntries, threadAgent],
   );
   const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadComposerRef = useRef<HTMLDivElement>(null);
@@ -401,15 +386,6 @@ export function ChiefChatAuxiliaryPanels({
                 if (entry.type === "browser") {
                   return threadBrowserAttachmentNode(entry.run);
                 }
-                if (entry.type === "action") {
-                  return (
-                    <TimelineActionRequestCard
-                      action={entry.action}
-                      currentUser={core.currentUser}
-                      resolve={core.workspaceData.resolveActionRequest}
-                    />
-                  );
-                }
                 if (entry.type === "specialist") {
                   return (
                     <ThreadSpecialistTaskCard
@@ -476,29 +452,6 @@ export function ChiefChatAuxiliaryPanels({
                 );
               }}
             />
-            {controls.questions.map((pending) => (
-              <div key={pending.requestId} className="mx-auto max-w-3xl">
-                <QuestionCard
-                  pending={pending}
-                  onSubmit={(answers) =>
-                    respondQuestion(pending.requestId, answers)
-                  }
-                  onDismiss={() => respondQuestion(pending.requestId, null)}
-                />
-              </div>
-            ))}
-            {controls.approvals
-              .filter((approval) =>
-                approvalBelongsToSurface(approval, threadRootId),
-              )
-              .map((approval) => (
-                <div key={approval.requestId} className="w-full">
-                  <ApprovalCard
-                    approval={approval}
-                    onRespond={respondPermission}
-                  />
-                </div>
-              ))}
             <div ref={threadBottomRef} />
           </ConversationAuxiliaryPanelBody>
           <div ref={threadComposerRef} className="relative shrink-0 px-3 pb-3">

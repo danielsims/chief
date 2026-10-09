@@ -1,5 +1,4 @@
 import {
-  Activity,
   BarChart3,
   Bell,
   Building2,
@@ -12,7 +11,6 @@ import {
   Network,
   Plug,
   Radio,
-  Target,
   UserRound,
   Webhook,
 } from "lucide-react";
@@ -74,12 +72,6 @@ export const SETTINGS = [
     icon: Radio,
   },
   {
-    to: "/settings/missions",
-    label: "Missions",
-    keywords: "goals objectives",
-    icon: Target,
-  },
-  {
     to: "/settings/webhooks",
     label: "Webhooks",
     keywords: "integrations events",
@@ -90,12 +82,6 @@ export const SETTINGS = [
     label: "Environment",
     keywords: "secrets keys variables api",
     icon: KeyRound,
-  },
-  {
-    to: "/settings/diagnostics",
-    label: "Diagnostics",
-    keywords: "debug logs experimental",
-    icon: Activity,
   },
 ] as const;
 

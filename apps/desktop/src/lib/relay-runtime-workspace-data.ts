@@ -14,6 +14,7 @@ import type {
 } from "@chief/relay-contracts";
 
 import type { ProjectGitHubAccess } from "./relay-runtime-project-connect";
+import type { RuntimeCommand } from "./runtime-transport";
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
 import {
   relayProjectRecord,
@@ -156,8 +157,40 @@ interface WorkspaceDataContext {
   emit(message: ServerMessage): void;
 }
 
+const workspaceDataCommandTypes = [
+  "saveRecurringWork",
+  "runRecurringWorkNow",
+  "deleteRecurringWork",
+  "listWorkspaceFiles",
+  "getWorkspaceFile",
+  "saveWorkspaceFile",
+  "listProjects",
+  "browseProject",
+  "inspectProjectCommit",
+  "compareProjectBranches",
+  "cloneProject",
+  "attachProject",
+  "listPlugins",
+  "installPlugin",
+  "authorizePlugin",
+  "uninstallPlugin",
+  "listWorkspaceData",
+] as const satisfies readonly RuntimeCommand["type"][];
+
+type RelayWorkspaceDataCommand = Extract<
+  RuntimeCommand,
+  { type: (typeof workspaceDataCommandTypes)[number] }
+>;
+
+export function isRelayWorkspaceDataCommand(
+  message: RuntimeCommand,
+): message is RelayWorkspaceDataCommand {
+  const types: readonly string[] = workspaceDataCommandTypes;
+  return types.includes(message.type);
+}
+
 export async function routeRelayWorkspaceDataCommand(
-  message: ClientMessage,
+  message: RelayWorkspaceDataCommand,
   context: WorkspaceDataContext,
 ) {
   if (
@@ -170,26 +203,26 @@ export async function routeRelayWorkspaceDataCommand(
     } finally {
       await listWorkspaceData(context);
     }
-    return true;
+    return;
   }
   switch (message.type) {
     case "listWorkspaceFiles":
       await listWorkspaceFiles(context);
-      return true;
+      return;
     case "getWorkspaceFile":
       await getWorkspaceFile(context, message.fileId, message.requestId);
-      return true;
+      return;
     case "saveWorkspaceFile":
       await saveWorkspaceFile(context, message);
-      return true;
+      return;
     case "listProjects":
       await listProjects(context);
-      return true;
+      return;
     case "browseProject":
     case "inspectProjectCommit":
     case "compareProjectBranches":
       context.emit(await queryRelayProject(context.snapshot.id, message));
-      return true;
+      return;
     case "cloneProject":
     case "attachProject": {
       const project = await connectRelayProject(
@@ -204,7 +237,7 @@ export async function routeRelayWorkspaceDataCommand(
         project: relayProjectRecord(project),
       });
       await listProjects(context);
-      return true;
+      return;
     }
     case "listPlugins": {
       const response = await requestDesktopPluginHost("/plugins/list", {
@@ -217,7 +250,7 @@ export async function routeRelayWorkspaceDataCommand(
         workspaceId: context.snapshot.id,
         ...snapshot,
       });
-      return true;
+      return;
     }
     case "installPlugin": {
       const response = await requestDesktopPluginHost("/plugins/install", {
@@ -231,7 +264,7 @@ export async function routeRelayWorkspaceDataCommand(
         workspaceId: context.snapshot.id,
         ...snapshot,
       });
-      return true;
+      return;
     }
     case "authorizePlugin": {
       const response = await requestDesktopPluginHost("/plugins/authorize", {
@@ -254,7 +287,7 @@ export async function routeRelayWorkspaceDataCommand(
           action,
         });
       }
-      return true;
+      return;
     }
     case "uninstallPlugin": {
       const response = await requestDesktopPluginHost("/plugins/uninstall", {
@@ -267,13 +300,15 @@ export async function routeRelayWorkspaceDataCommand(
         workspaceId: context.snapshot.id,
         ...snapshot,
       });
-      return true;
+      return;
     }
     case "listWorkspaceData":
       await listWorkspaceData(context);
-      return true;
-    default:
-      return false;
+      return;
+    default: {
+      const unhandled: never = message;
+      return unhandled;
+    }
   }
 }
 

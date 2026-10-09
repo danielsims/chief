@@ -1,5 +1,4 @@
 import type {
-  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
   SessionRecord,
@@ -8,8 +7,7 @@ import type {
 export type TimelineEntry =
   | { type: "message"; message: ChiefUIMessage }
   | { type: "browser"; key: string; run: BrowserRunRecord }
-  | { type: "specialist"; task: SessionRecord }
-  | { type: "action"; action: ActionItem };
+  | { type: "specialist"; task: SessionRecord };
 
 function isActivityProjection(message: ChiefUIMessage) {
   if (message.role !== "assistant") return false;
@@ -62,9 +60,7 @@ export function conversationTimelineEntries(
 export function timelineEntryCreatedAt(entry: TimelineEntry) {
   if (entry.type === "message") return entry.message.metadata?.createdAt;
   if (entry.type === "browser") return entry.run.createdAt;
-  return entry.type === "specialist"
-    ? entry.task.createdAt
-    : entry.action.createdAt;
+  return entry.task.createdAt;
 }
 
 /**
@@ -89,32 +85,6 @@ export function withSpecialistTimelineEntries(
     const taskEntry: TimelineEntry = { type: "specialist", task };
     if (insertionIndex < 0) result.push(taskEntry);
     else result.splice(insertionIndex, 0, taskEntry);
-  }
-  return result;
-}
-
-/**
- * Places durable action UI at the point where it was raised. Keeping actions
- * outside the transcript makes a later continuation reply render above the
- * answered card, which looks like the reply disappeared.
- */
-export function withActionTimelineEntries(
-  entries: readonly TimelineEntry[],
-  actions: readonly ActionItem[],
-): TimelineEntry[] {
-  const result = [...entries];
-  const orderedActions = [...actions].sort(
-    (left, right) =>
-      left.createdAt - right.createdAt || left.id.localeCompare(right.id),
-  );
-  for (const action of orderedActions) {
-    const insertionIndex = result.findIndex((entry) => {
-      const createdAt = timelineEntryCreatedAt(entry);
-      return createdAt !== undefined && createdAt > action.createdAt;
-    });
-    const actionEntry: TimelineEntry = { type: "action", action };
-    if (insertionIndex < 0) result.push(actionEntry);
-    else result.splice(insertionIndex, 0, actionEntry);
   }
   return result;
 }

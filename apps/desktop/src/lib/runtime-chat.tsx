@@ -4,7 +4,6 @@ import { useChat } from "@ai-sdk/react";
 import type {
   ChatExecutionSelection,
   ChiefUIMessage,
-  InputRequest,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
 
@@ -339,51 +338,6 @@ export function useRuntimeChat(
     }
   };
 
-  const respondPermission = (requestId: string, behavior: "allow" | "deny") => {
-    if (chatId && cloudOrganizationId && executorCapability) {
-      client.send({
-        type: "respondPermission",
-        workspaceId: cloudOrganizationId,
-        chatId,
-        requestId,
-        behavior,
-        executorCapability,
-      });
-    }
-  };
-
-  const respondQuestion = (
-    requestId: string,
-    answers: Record<string, string> | null,
-  ) => {
-    if (chatId && cloudOrganizationId && executorCapability) {
-      client.send({
-        type: "respondQuestion",
-        workspaceId: cloudOrganizationId,
-        chatId,
-        requestId,
-        answers,
-        executorCapability,
-      });
-    }
-  };
-
-  const provideInput = (
-    request: InputRequest,
-    values: Record<string, string>,
-  ) => {
-    if (chatId && cloudOrganizationId && executorCapability) {
-      client.send({
-        type: "provideInput",
-        workspaceId: cloudOrganizationId,
-        chatId,
-        request,
-        values,
-        executorCapability,
-      });
-    }
-  };
-
   const sendMessageWithContext = useCallback(
     (
       text: string,
@@ -494,9 +448,6 @@ export function useRuntimeChat(
     sendMessageWithContext,
     interrupt,
     stop,
-    respondPermission,
-    respondQuestion,
-    provideInput,
     chatReady: activeChatReady || conversationResolved,
     // The first visit waits for both transcript and channel events. Once that
     // conversation has hydrated, revisits render its cached timeline
