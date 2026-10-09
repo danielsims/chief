@@ -40,7 +40,6 @@ struct SettingsView: View {
         link("Missions", icon: "scope") { MissionsSettingsView() }
         link("Webhooks", icon: "arrow.triangle.branch") { WebhooksSettingsView() }
         link("Environment", icon: "key") { EnvironmentSettingsView() }
-        link("Machines", icon: "desktopcomputer") { MachinesSettingsView() }
       }
 
       Text("Chief \(version) (\(build))")

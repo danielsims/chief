@@ -47,7 +47,6 @@
 		3371F608F28C508752B8B275 /* ConversationMenuSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06EB5803FCFD5F5FB079472F /* ConversationMenuSheet.swift */; };
 		34A81403D6D8834508FD93B8 /* SettingsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079F6D841084A1E993EEE0F4 /* SettingsSupport.swift */; };
 		34B4583CB4CAC7B5888EABCA /* ChiefTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F41C16FB9059541794B958 /* ChiefTabBar.swift */; };
-		35950AF012DFA9C2FBB071E9 /* MachinesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAE2C6A86FAAF033DF51E08 /* MachinesSettingsView.swift */; };
 		37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */; };
 		38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */; };
 		39578FE04E502922DBB930D1 /* ConversationDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E6A0CEE361E0B804BB8D6F /* ConversationDeepLink.swift */; };
@@ -364,7 +363,6 @@
 		B8B02334F232B3125D853C1D /* PersonProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonProfileView.swift; sourceTree = "<group>"; };
 		B9BAEB49A44AFC695D23AE79 /* MessageActionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageActionsSheet.swift; sourceTree = "<group>"; };
 		B9D662F822416D9E05196009 /* AgentSettingsCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsCopy.swift; sourceTree = "<group>"; };
-		BCAE2C6A86FAAF033DF51E08 /* MachinesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesSettingsView.swift; sourceTree = "<group>"; };
 		BD55FD68FD940D54B8A67C2D /* AgentDetailDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDetailDestination.swift; sourceTree = "<group>"; };
 		BD8AC00866FD447A39F74F4E /* AgentRetryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRetryPolicy.swift; sourceTree = "<group>"; };
 		C04B79184CE08CFDDFEE3966 /* AgentWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkspaceContext.swift; sourceTree = "<group>"; };
@@ -466,7 +464,6 @@
 			children = (
 				C5B37C78598B00778376DACB /* ConnectionSettingsView.swift */,
 				1E08B699E4CA7FAF00B657AE /* EnvironmentSettingsView.swift */,
-				BCAE2C6A86FAAF033DF51E08 /* MachinesSettingsView.swift */,
 				8568BA655C92F517DDDCC4EA /* MissionsSettingsView.swift */,
 				C7C514062A601E65CD2AA1DD /* NotificationSettingsView.swift */,
 				E625E8BAFE865E7C4240C659 /* ProfileSettingsView.swift */,
@@ -1077,7 +1074,6 @@
 				149EEF8AED43F71DAC92BADC /* Haptics.swift in Sources */,
 				EC9D02B21E9FF422D19CCB82 /* InferenceCredentialStore.swift in Sources */,
 				B02B1632D316824E142A1507 /* KickoffToolEvidence.swift in Sources */,
-				35950AF012DFA9C2FBB071E9 /* MachinesSettingsView.swift in Sources */,
 				79962DA13493398D435F615F /* MarkdownMessageBody.swift in Sources */,
 				A6E7928A1F6654A16F2E6F3D /* MessageActionsSheet.swift in Sources */,
 				90392B538A15D8E64CF20D19 /* MessageAttachmentUploader.swift in Sources */,

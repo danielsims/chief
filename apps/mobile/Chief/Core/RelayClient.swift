@@ -166,7 +166,6 @@ protocol RelayServing: Sendable {
     -> ScheduleWebhookReveal
   func scheduleWebhookAction(workspaceID: String, webhookID: String, action: String) async throws
     -> ScheduleWebhookReveal
-  func workspaceMachines(workspaceID: String) async throws -> [WorkspaceMachine]
   func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission]
   func replies(
     workspaceID: String,
