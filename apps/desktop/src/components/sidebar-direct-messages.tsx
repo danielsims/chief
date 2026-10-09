@@ -30,6 +30,7 @@ import { AttentionPill } from "./attention-pill";
 import { useWorkspaceUsers } from "./chat/mention-people-context";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { UserAvatar } from "./user-avatar";
+import { OPEN_NEW_MESSAGE_EVENT } from "./workspace-search";
 
 export function DirectMessageRow({
   active,
@@ -262,6 +263,11 @@ export function SidebarDirectMessages({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setNewMessageOpen(true);
+    window.addEventListener(OPEN_NEW_MESSAGE_EVENT, open);
+    return () => window.removeEventListener(OPEN_NEW_MESSAGE_EVENT, open);
+  }, []);
   const { user, cloudOrganizationId } = useAuth();
   const workspaceUsers = useWorkspaceUsers();
   const { channels } = useWorkspaceChannels();
