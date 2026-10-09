@@ -38,7 +38,7 @@ describe("hosted agent turn context", () => {
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_list");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_recommend");
-    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("projects_recommend");
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("projects_create");
   });
 
   it("primes only the latest relevant messages and excludes the triggering message", () => {
@@ -58,20 +58,18 @@ describe("hosted agent turn context", () => {
     );
   });
 
-  it("primes a new mention thread from the surrounding channel", () => {
+  it("primes a thread from that thread, never the surrounding conversation", () => {
     const mentionMessageId = "00000000-0000-4000-8000-000000000030";
 
-    expect(hostedHistoryThreadRootId(mentionMessageId, mentionMessageId)).toBe(
-      undefined,
-    );
+    // A thread is its own context in every surface, so a thread root is primed
+    // from the thread (itself), not from the whole DM or channel.
+    expect(hostedHistoryThreadRootId(mentionMessageId)).toBe(mentionMessageId);
     expect(
-      hostedHistoryThreadRootId(
-        mentionMessageId,
-        "00000000-0000-4000-8000-000000000031",
-      ),
-    ).toBe(mentionMessageId);
+      hostedHistoryThreadRootId("00000000-0000-4000-8000-000000000031"),
+    ).toBe("00000000-0000-4000-8000-000000000031");
+    expect(hostedHistoryThreadRootId(undefined)).toBeUndefined();
     expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain(
-      "Use the attached recent channel messages",
+      "call channels_messages_list",
     );
     expect(HOSTED_MENTION_CONTEXT_GUIDANCE).toContain(
       "Do not narrate that the user only tagged you",

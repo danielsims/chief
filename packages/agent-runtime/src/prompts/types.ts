@@ -45,5 +45,5 @@ export interface PromptPart {
   /** Returns true when this part belongs in the assembled prompt. */
   when: (ctx: PromptContext) => boolean;
   /** The instruction text (written as a self-contained rule). */
-  render: () => string;
+  render: (ctx?: PromptContext) => string;
 }

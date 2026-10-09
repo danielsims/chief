@@ -46,7 +46,9 @@ void test("browser and projects rules appear when licensed", () => {
     ],
     deployment: "cloud",
   });
-  assert.match(prompt.text, /projectsCreateCheckout/u);
+  // A cloud agent works in the workspace Git host, not local checkouts.
+  assert.match(prompt.text, /projects_create/u);
+  assert.doesNotMatch(prompt.text, /projectsCreateCheckout/u);
   assert.match(prompt.text, /Use the visible browser only/u);
   assert.match(prompt.text, /owning conversation/u);
 });

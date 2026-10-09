@@ -6,6 +6,9 @@ import { delegateSpecialistDefinition } from "./delegate-specialist-definition.j
 export const delegateSpecialistTool = defineLocalTool({
   ...delegateSpecialistDefinition,
   async execute({ context, input, manager, workspaceId }) {
+    // Only the hosted runtime can default this to the current conversation.
+    const conversationId = input.conversationId ?? input.channelId;
+    if (!conversationId) throw new Error("conversationId is required.");
     const setupDomain =
       input.agentId === "setup" ? input.setupDomain : undefined;
     const setupAttemptId =
@@ -13,7 +16,7 @@ export const delegateSpecialistTool = defineLocalTool({
     const delegation = runSpecialistDelegation({
       manager,
       workspaceId,
-      conversationId: input.conversationId,
+      conversationId,
       delegationId: input.delegationId,
       agentId: input.agentId,
       title: input.title,
