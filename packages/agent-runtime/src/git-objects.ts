@@ -1,5 +1,10 @@
 const textEncoder = new TextEncoder();
 
+function trimmedOr(value: string | undefined, fallback: string) {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === "" ? fallback : trimmed;
+}
+
 export interface GitFile {
   path: string;
   content: string;
@@ -17,12 +22,25 @@ export interface GitRepository {
   objects: GitObject[];
 }
 
+export interface GitCommitOptions {
+  parentSha?: string;
+  message?: string;
+  authorName?: string;
+  authorEmail?: string;
+  timestamp?: number;
+}
+
+export interface GitRef {
+  ref: string;
+  sha: string;
+}
+
 interface TreeNode {
   files: Map<string, Uint8Array>;
   dirs: Map<string, TreeNode>;
 }
 
-export function chiefGitRemoteUrl(
+export function gitRemoteUrl(
   origin: string,
   workspaceId: string,
   repo: string,
@@ -31,7 +49,7 @@ export function chiefGitRemoteUrl(
   return `${base}/git/${encodeURIComponent(workspaceId)}/${encodeURIComponent(repo)}.git`;
 }
 
-export function chiefGitRepoSlug(name: string) {
+export function gitRepoSlug(name: string) {
   return (
     name
       .trim()
@@ -44,6 +62,7 @@ export function chiefGitRepoSlug(name: string) {
 
 export async function buildGitRepository(
   files: readonly GitFile[],
+  options: GitCommitOptions = {},
 ): Promise<GitRepository> {
   const objects = new Map<string, GitObject>();
   const root: TreeNode = { files: new Map(), dirs: new Map() };
@@ -55,10 +74,22 @@ export async function buildGitRepository(
     );
   }
   const treeSha = await writeTree(root, objects);
+  const name = trimmedOr(options.authorName, "Chief");
+  const email = trimmedOr(options.authorEmail, "chief@heychief.sh");
+  const timestamp = options.timestamp ?? 1;
+  const identity = `${name} <${email}> ${timestamp} +0000`;
+  const message = trimmedOr(options.message, "Publish Eve agent from Chief");
   const commit = await gitObject(
     "commit",
     textEncoder.encode(
-      `tree ${treeSha}\nauthor Chief <chief@heychief.sh> 1 +0000\ncommitter Chief <chief@heychief.sh> 1 +0000\n\nPublish Eve agent from Chief\n`,
+      [
+        `tree ${treeSha}`,
+        ...(options.parentSha ? [`parent ${options.parentSha}`] : []),
+        `author ${identity}`,
+        `committer ${identity}`,
+        "",
+        `${message}\n`,
+      ].join("\n"),
     ),
   );
   objects.set(commit.sha, commit);
@@ -87,15 +118,33 @@ export async function gitPackfile(repository: GitRepository) {
 }
 
 export function gitUploadPackAdvertisement(commitSha: string) {
-  const capabilities =
-    "multi_ack_detailed no-done thin-pack ofs-delta agent=chief/0.1";
-  return concat([
+  return gitUploadPackAdvertisementForRefs([
+    { ref: "refs/heads/main", sha: commitSha },
+  ]);
+}
+
+export function gitUploadPackAdvertisementForRefs(refs: readonly GitRef[]) {
+  const head = refs.find((ref) => ref.ref === "refs/heads/main") ?? refs[0];
+  // side-band-64k: isomorphic-git (used by the hosted agent computer) always
+  // demultiplexes the pack as side-band data. symref tells every client which
+  // branch HEAD is, so a clone checks out main rather than guessing master.
+  const capabilities = [
+    "multi_ack_detailed",
+    "no-done",
+    "side-band-64k",
+    "thin-pack",
+    "ofs-delta",
+    ...(head ? [`symref=HEAD:${head.ref}`] : []),
+    "agent=chief/0.1",
+  ].join(" ");
+  const lines = [
     pkt(`# service=git-upload-pack\n`),
     flushPkt(),
-    pkt(`${commitSha} HEAD\0${capabilities}\n`),
-    pkt(`${commitSha} refs/heads/main\n`),
+    ...(head ? [pkt(`${head.sha} HEAD\0${capabilities}\n`)] : []),
+    ...refs.map((ref) => pkt(`${ref.sha} ${ref.ref}\n`)),
     flushPkt(),
-  ]);
+  ];
+  return concat(lines);
 }
 
 export function gitUploadPackWants(body: Uint8Array) {
@@ -119,7 +168,25 @@ export async function gitUploadPackResult(
       pkt("ERR want is not advertised on this Chief Git repository\n"),
     ]);
   }
-  return concat([pkt("NAK\n"), await gitPackfile(repository)]);
+  const pack = await gitPackfile(repository);
+  if (!gitUploadPackSideBand(body)) return concat([pkt("NAK\n"), pack]);
+  // Side-band-64k frames carry at most 65520 bytes including the 4-byte
+  // length and the 1-byte band, which is 1 for pack data.
+  const frames: Uint8Array[] = [pkt("NAK\n")];
+  for (let offset = 0; offset < pack.byteLength; offset += 65_515) {
+    frames.push(
+      pkt(concat([Uint8Array.of(1), pack.subarray(offset, offset + 65_515)])),
+    );
+  }
+  frames.push(flushPkt());
+  return concat(frames);
+}
+
+/** Whether the client asked for side-band output on its first want line. */
+export function gitUploadPackSideBand(body: Uint8Array) {
+  const text = new TextDecoder().decode(body);
+  const firstWant = /want [a-fA-F0-9]{40}([^\n]*)/u.exec(text)?.[1] ?? "";
+  return /(^|\s)side-band-64k(\s|$)/u.test(firstWant);
 }
 
 export function pkt(data: string | Uint8Array) {

@@ -1,10 +1,18 @@
+import { buildGitRepository } from "@chief/agent-runtime/git-objects";
 import { projectRepositoryFilesSchema } from "@chief/relay-contracts";
 
-import { serveChiefGitHttp } from "./chief-git-http";
 import { HttpError } from "./http";
 import { githubRepositoryIdentity } from "./project-repository";
 import { projectRepositoriesInsertEnsureProjectRepository } from "./queries/project-repositories/insert-ensure-project-repository";
-import { projectsFindChiefGitRepositoryFiles } from "./queries/projects/find-chief-git-repository-files";
+import { projectsFindWorkspaceGitRepositoryFiles } from "./queries/projects/find-workspace-git-repository-files";
+import { serveWorkspaceGitHttp } from "./workspace-git-http";
+import {
+  GIT_HEAD_REF,
+  gitRepoSlug,
+  readGitRefs,
+  readGitRepository,
+  writeGitCommit,
+} from "./workspace-git-store";
 
 export interface ProjectRow extends Record<string, SqlStorageValue> {
   project_id: string;
@@ -27,17 +35,35 @@ export async function serveProjectGit(
   request: Request,
   operation: "git-info-refs" | "git-upload-pack" | "git-receive-pack",
 ) {
-  const repo = request.headers.get("x-chief-git-repo")?.trim() ?? "";
-  const files = chiefGitRepositoryFiles(storage, repo);
-  if (!files && operation !== "git-receive-pack") {
-    throw new HttpError(
-      404,
-      "git_repository_not_found",
-      "This Chief Git repository does not exist in the workspace.",
+  const repo = gitRepoSlug(
+    request.headers.get("x-chief-git-repo")?.trim() ?? "",
+  );
+  let repository = readGitRepository(storage, repo);
+  let refs = readGitRefs(storage, repo);
+  if (!repository) {
+    // A repository published before the object store existed is rebuilt from
+    // its file tree once and persisted, so clones keep working.
+    const files = workspaceGitRepositoryFiles(storage, repo);
+    if (!files) {
+      throw new HttpError(
+        404,
+        "git_repository_not_found",
+        "This workspace Git repository does not exist in the workspace.",
+      );
+    }
+    repository = await buildGitRepository(files);
+    writeGitCommit(
+      storage,
+      repo,
+      repository,
+      "Publish Eve agent from the workspace",
+      "Agent",
     );
+    refs = [{ ref: GIT_HEAD_REF, sha: repository.commitSha }];
   }
-  return await serveChiefGitHttp({
-    files: files ?? [],
+  return await serveWorkspaceGitHttp({
+    repository,
+    refs,
     operation,
     service: request.headers.get("x-chief-git-service"),
     body:
@@ -47,12 +73,12 @@ export async function serveProjectGit(
   });
 }
 
-export function chiefGitRepositoryFiles(
+export function workspaceGitRepositoryFiles(
   storage: DurableObjectStorage,
   repo: string,
 ) {
   const normalized = repo.replace(/\.git$/u, "").toLowerCase();
-  const rows = projectsFindChiefGitRepositoryFiles<ProjectRow>(storage);
+  const rows = projectsFindWorkspaceGitRepositoryFiles<ProjectRow>(storage);
   const row = rows.find((project) => {
     if (project.provider_id !== "chief-git") return false;
     const remote = project.canonical_remote_url?.replace(/\.git$/u, "") ?? "";

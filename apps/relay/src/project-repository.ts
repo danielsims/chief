@@ -75,10 +75,10 @@ export class ProjectRepositoryResolver {
   resolve(repository: ProjectRepository, path: string, requestedRef: string) {
     if (repository.provider.provider === "github")
       return this.github.resolve(repository, path, requestedRef);
-    return this.resolveChiefGit(repository, requestedRef);
+    return this.resolveWorkspaceGit(repository, requestedRef);
   }
 
-  private async resolveChiefGit(
+  private async resolveWorkspaceGit(
     repository: ProjectRepository,
     requestedRef: string,
   ): Promise<ProjectRepositoryResolution> {

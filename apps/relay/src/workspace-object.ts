@@ -40,6 +40,10 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
+import {
+  mintGitToken,
+  publishGitTreeFromAgent,
+} from "./workspace-git-operations";
 import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
@@ -105,6 +109,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method === "GET" &&
         (operation === "github-connection" ||
           operation === "github-repositories");
+      // The Git wire protocol advertises refs with a GET before the POST pack
+      // exchange, so this one read is allowed over GET.
+      const readsGitRefs =
+        request.method === "GET" && operation === "git-info-refs";
       const deletesExternalAgent =
         request.method === "DELETE" &&
         operation === "external-agent-disconnect";
@@ -113,6 +121,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         !readsSecret &&
         !readsVercel &&
         !readsGitHub &&
+        !readsGitRefs &&
         !deletesExternalAgent
       ) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
@@ -170,6 +179,16 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "directs-start") {
         return yield* attempt("workspace.direct.start", () =>
           routeWorkspaceDirect(ctx.storage, env, request),
+        );
+      }
+      if (operation === "git-token") {
+        return yield* attempt("workspace.git.token", () =>
+          mintGitToken(ctx.storage, env, request),
+        );
+      }
+      if (operation === "git-publish") {
+        return yield* attempt("workspace.git.publish", () =>
+          publishGitTreeFromAgent(ctx.storage, env, request),
         );
       }
       if (operation?.startsWith("data-") || operation?.startsWith("git-")) {

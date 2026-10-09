@@ -2,7 +2,7 @@ import { relayDatabase } from "../../db/connection";
 import { executeDatabaseQuery } from "../../db/execute";
 import { projects } from "../../db/schema/projects";
 
-export function projectsFindChiefGitRepositoryFiles<
+export function projectsFindWorkspaceGitRepositoryFiles<
   Row extends Record<string, SqlStorageValue> = Record<string, SqlStorageValue>,
 >(storage: DurableObjectStorage) {
   const db = relayDatabase(storage);
