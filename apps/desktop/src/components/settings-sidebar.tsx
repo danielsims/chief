@@ -15,6 +15,8 @@ import { NavLink } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
 
+import { useMachinesEnabled } from "../lib/experimental";
+
 const groups = [
   {
     label: "Personal",
@@ -44,6 +46,7 @@ const groups = [
 ] as const;
 
 export function SettingsSidebar({ width }: { width: number }) {
+  const machinesEnabled = useMachinesEnabled();
   return (
     <aside
       style={{ width }}
@@ -68,22 +71,26 @@ export function SettingsSidebar({ width }: { width: number }) {
               {group.label}
             </p>
             <div className="space-y-0.5">
-              {group.items.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    cn(
-                      "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors",
-                      isActive &&
-                        "bg-sidebar-accent text-sidebar-foreground font-medium",
-                    )
-                  }
-                >
-                  <Icon size={15} strokeWidth={1.8} />
-                  <span>{label}</span>
-                </NavLink>
-              ))}
+              {group.items
+                .filter(
+                  (item) => machinesEnabled || item.to !== "/settings/machines",
+                )
+                .map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }) =>
+                      cn(
+                        "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors",
+                        isActive &&
+                          "bg-sidebar-accent text-sidebar-foreground font-medium",
+                      )
+                    }
+                  >
+                    <Icon size={15} strokeWidth={1.8} />
+                    <span>{label}</span>
+                  </NavLink>
+                ))}
             </div>
           </section>
         ))}

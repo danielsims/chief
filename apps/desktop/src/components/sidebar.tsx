@@ -51,7 +51,7 @@ import { useWorkspaceRole } from "../lib/workspace-role";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarUpdateCard } from "./sidebar-update-card";
-import { WorkspaceSearch } from "./workspace-search";
+import { WorkspaceSearchButton } from "./workspace-search";
 
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
@@ -409,7 +409,7 @@ export function Sidebar({
       className="bg-sidebar text-sidebar-foreground relative z-30 flex h-full shrink-0 flex-col"
     >
       <div className="shrink-0 px-3 pt-3 pb-2">
-        <WorkspaceSearch />
+        <WorkspaceSearchButton />
       </div>
       <nav
         className={`min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 ${
