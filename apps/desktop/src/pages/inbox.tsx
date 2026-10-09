@@ -215,7 +215,7 @@ export function InboxPage() {
                     type="button"
                     onClick={() => setSelectedId(message.id)}
                     className={cn(
-                      "border-border/50 hover:bg-muted/35 flex w-full gap-3 border-b px-4 py-3.5 text-left [content-visibility:auto]",
+                      "border-border/50 hover:bg-muted/35 flex w-full gap-3 border-b px-4 py-3.5 text-left",
                       selected?.id === message.id && "bg-muted/45",
                     )}
                   >
