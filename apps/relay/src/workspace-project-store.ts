@@ -17,14 +17,15 @@ import { HttpError, json, parseJson } from "./http";
 import { projectStoreMigrationsFindMigrateSnapshotProjects } from "./queries/project-store-migrations/find-migrate-snapshot-projects";
 import { projectStoreMigrationsInsertMigrateSnapshotProjects } from "./queries/project-store-migrations/insert-migrate-snapshot-projects";
 import { projectsDeleteRemove } from "./queries/projects/delete-remove";
-import { projectsFindChiefGitRepositoryFiles } from "./queries/projects/find-chief-git-repository-files";
 import { projectsFindCreateProject } from "./queries/projects/find-create-project";
 import { projectsFindProjectIdsOwnedByAgent } from "./queries/projects/find-project-ids-owned-by-agent";
 import { projectsFindSaveAgentProjectFiles } from "./queries/projects/find-save-agent-project-files";
+import { projectsFindWorkspaceGitRepositoryFiles } from "./queries/projects/find-workspace-git-repository-files";
 import { projectsFindWorkspaceProjects } from "./queries/projects/find-workspace-projects";
 import { projectsInsertMigrateSnapshotProjects } from "./queries/projects/insert-migrate-snapshot-projects";
 import { projectsInsertSaveAgentProjectFiles } from "./queries/projects/insert-save-agent-project-files";
 import { projectsUpdateBackfillAgentProjectFiles } from "./queries/projects/update-backfill-agent-project-files";
+import { projectsUpdatePublishedFiles } from "./queries/projects/update-published-files";
 import { projectsUpdateSaveAgentProjectFiles } from "./queries/projects/update-save-agent-project-files";
 import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-agent";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
@@ -35,7 +36,7 @@ import {
   serveProjectGit,
 } from "./workspace-project-git";
 
-export { chiefGitRepositoryFiles } from "./workspace-project-git";
+export { workspaceGitRepositoryFiles } from "./workspace-project-git";
 
 const SNAPSHOT_PROJECTS_MIGRATION = "snapshot-projects-v1";
 
@@ -52,7 +53,7 @@ export function initializeWorkspaceProjects(storage: DurableObjectStorage) {
   if (!columns.has("repository_files_json")) {
     addProjectRepositoryFiles(storage);
   }
-  for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
+  for (const project of projectsFindWorkspaceGitRepositoryFiles<ProjectRow>(
     storage,
   )) {
     ensureProjectRepository(storage, project);
@@ -103,7 +104,7 @@ function backfillAgentProjectFiles(storage: DurableObjectStorage) {
   if (!workspace?.snapshot_json) return;
   const agents = decodeWorkspaceSnapshot(workspace.snapshot_json).agents;
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
-  for (const project of projectsFindChiefGitRepositoryFiles<ProjectRow>(
+  for (const project of projectsFindWorkspaceGitRepositoryFiles<ProjectRow>(
     storage,
   )) {
     // Generated files belong only to an agent's own repository, which always
@@ -409,4 +410,45 @@ export function projectIdsOwnedByAgent(
   >(storage)
     .filter((project) => project.agent_id === agentId)
     .map((project) => project.project_id);
+}
+
+// The stored file list is what the Projects tab shows. Keep it inside the
+// project schema's limits and well under a Durable Object row's 2 MB.
+const PUBLISHED_FILES_MAX_COUNT = 1_000;
+const PUBLISHED_FILE_MAX_BYTES = 1_000_000;
+const PUBLISHED_FILES_MAX_TOTAL = 1_500_000;
+
+/**
+ * Records the files of a repository's newly published head on its project,
+ * so every client sees what is actually on main.
+ */
+export function recordPublishedProjectFiles(
+  storage: DurableObjectStorage,
+  workspaceId: string,
+  repo: string,
+  files: readonly { path: string; content: string }[],
+) {
+  migrateSnapshotProjects(storage, workspaceId);
+  const project = [...projectsFindWorkspaceProjects<ProjectRow>(storage)].find(
+    (row) => {
+      const remote = row.canonical_remote_url?.replace(/\.git$/u, "") ?? "";
+      return remote.split("/").at(-1)?.toLowerCase() === repo;
+    },
+  );
+  if (!project) return;
+  const kept: { path: string; content: string }[] = [];
+  let total = 0;
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    if (kept.length >= PUBLISHED_FILES_MAX_COUNT) break;
+    if (file.content.length > PUBLISHED_FILE_MAX_BYTES) continue;
+    if (total + file.content.length > PUBLISHED_FILES_MAX_TOTAL) continue;
+    total += file.content.length;
+    kept.push({ path: file.path, content: file.content });
+  }
+  projectsUpdatePublishedFiles(storage, {
+    projectId: project.project_id,
+    repositoryFilesJson: JSON.stringify(kept),
+    updatedAt: new Date().toISOString(),
+  });
+  syncSnapshotProjects(storage, workspaceId);
 }

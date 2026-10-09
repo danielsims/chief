@@ -1,8 +1,5 @@
 import type { RelayClient } from "@chief/relay-client";
-import {
-  chiefGitRemoteUrl,
-  chiefGitRepoSlug,
-} from "@chief/agent-runtime/git-objects";
+import { gitRemoteUrl, gitRepoSlug } from "@chief/agent-runtime/git-objects";
 
 import { RELAY_URL } from "./config";
 
@@ -10,7 +7,7 @@ import { RELAY_URL } from "./config";
  * Creates a repository hosted by the workspace's own relay, so a team can
  * work in source control without connecting an outside Git provider.
  */
-export async function createChiefGitRepository(
+export async function createWorkspaceGitRepository(
   client: Pick<RelayClient, "createProject">,
   workspaceId: string,
   name: string,
@@ -20,10 +17,10 @@ export async function createChiefGitRepository(
     name: trimmed,
     repositoryKind: "cloned",
     providerId: "chief-git",
-    canonicalRemoteUrl: chiefGitRemoteUrl(
+    canonicalRemoteUrl: gitRemoteUrl(
       new URL(RELAY_URL).origin,
       workspaceId,
-      chiefGitRepoSlug(trimmed),
+      gitRepoSlug(trimmed),
     ),
     defaultBranch: "main",
     repositoryFiles: [{ path: "README.md", content: `# ${trimmed}\n` }],

@@ -3,10 +3,7 @@ import type {
   EveAgentProvisioningProgress,
   EveAgentProvisioningStreamEvent,
 } from "@chief/relay-contracts";
-import {
-  chiefGitRemoteUrl,
-  chiefGitRepoSlug,
-} from "@chief/agent-runtime/git-objects";
+import { gitRemoteUrl, gitRepoSlug } from "@chief/agent-runtime/git-objects";
 import {
   eveProjectFiles,
   listVercelEveDestinations,
@@ -239,8 +236,8 @@ export class WorkspaceVercelService {
     const token = await this.vercelToken(workspaceId);
     const agentId = input.environment.CHIEF_AGENT_ID;
     const sourceFiles = eveProjectFiles(input);
-    const repo = chiefGitRepoSlug(input.project.projectName);
-    const remoteUrl = chiefGitRemoteUrl(
+    const repo = gitRepoSlug(input.project.projectName);
+    const remoteUrl = gitRemoteUrl(
       input.environment.CHIEF_RELAY_URL,
       workspaceId,
       repo,

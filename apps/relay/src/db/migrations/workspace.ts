@@ -8,6 +8,7 @@ import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
 import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
+import { initializeWorkspaceGitTables } from "./initialize-workspace-git-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
 export function initializeWorkspaceSchema(
@@ -203,6 +204,7 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
   initializeChannelGuestTables(storage);
+  initializeWorkspaceGitTables(storage);
 }
 
 function migrateExternalAgentSchema(storage: DurableObjectStorage) {

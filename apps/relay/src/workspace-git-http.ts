@@ -1,23 +1,20 @@
+import type { GitRef, GitRepository } from "@chief/agent-runtime/git-objects";
 import {
-  buildGitRepository,
-  gitUploadPackAdvertisement,
+  gitUploadPackAdvertisementForRefs,
   gitUploadPackResult,
 } from "@chief/agent-runtime/git-objects";
 
 import { HttpError } from "./http";
 
-export interface GitHttpFile {
-  path: string;
-  content: string;
-}
-
-export async function serveChiefGitHttp({
-  files,
+export async function serveWorkspaceGitHttp({
+  repository,
+  refs,
   operation,
   service,
   body,
 }: {
-  files: readonly GitHttpFile[];
+  repository: GitRepository;
+  refs: readonly GitRef[];
   operation: "git-info-refs" | "git-upload-pack" | "git-receive-pack";
   service?: string | null;
   body?: Uint8Array;
@@ -26,30 +23,27 @@ export async function serveChiefGitHttp({
     throw new HttpError(
       403,
       "git_push_disabled",
-      "Chief Git hosts the Eve agent directory for clone. Push is not enabled yet.",
+      "The workspace Git host accepts changes through its publish tool, not the Git wire push protocol.",
     );
   }
-  if (files.length === 0) {
+  if (refs.length === 0) {
     throw new HttpError(
       404,
       "git_repository_empty",
-      "This Chief Git repository has not been published yet.",
+      "This workspace Git repository has not been published yet.",
     );
   }
-  const repository = await buildGitRepository(
-    files.map((file) => ({ path: file.path, content: file.content })),
-  );
   if (operation === "git-info-refs") {
     if (service && service !== "git-upload-pack") {
       throw new HttpError(
         403,
         "git_service_unsupported",
-        "Chief Git currently advertises git-upload-pack only.",
+        "The workspace Git host currently advertises git-upload-pack only.",
       );
     }
     return gitResponse(
       "application/x-git-upload-pack-advertisement",
-      gitUploadPackAdvertisement(repository.commitSha),
+      gitUploadPackAdvertisementForRefs(refs),
     );
   }
   return gitResponse(
