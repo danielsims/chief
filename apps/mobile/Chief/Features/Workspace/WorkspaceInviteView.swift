@@ -25,7 +25,7 @@ struct WorkspaceInviteRelayConfirmationSheet: View {
       if let host = model.pendingInviteRelayURL?.host {
         Text(host)
           .font(.system(size: 13, weight: .medium, design: .monospaced))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
           .padding(.horizontal, 13)
           .frame(height: 40)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,7 +53,7 @@ struct WorkspaceInviteRelayConfirmationSheet: View {
       } label: {
         Group {
           if model.workspaceInviteInProgress {
-            ChiefSpinner().tint(.black)
+            ChiefSpinner().tint(ChiefTheme.onPrimary)
           } else {
             Text("Continue")
           }
@@ -73,37 +73,36 @@ struct WorkspaceInviteConfirmationSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 22) {
+    VStack(spacing: 0) {
       if let preview = model.workspaceInvitePreview {
         WorkspaceIdentityAvatar(
           name: preview.workspaceName,
           website: preview.website,
           imageURL: nil,
-          size: 56
+          size: 64
         )
 
-        VStack(alignment: .leading, spacing: 7) {
-          Text("Join \(preview.workspaceName)?")
-            .font(.system(size: 25, weight: .semibold, design: .rounded))
-          Text(inviteDescription(preview))
-            .font(.system(size: 15))
-            .foregroundStyle(ChiefTheme.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Text("Join \(preview.workspaceName)")
+          .font(.system(size: 26, weight: .semibold, design: .rounded))
+          .multilineTextAlignment(.center)
+          .padding(.top, 20)
 
-        if let host = model.pendingWorkspaceInvite?.relayURL.host {
-          Label(host, systemImage: "network")
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
+        Text(inviteDescription(preview))
+          .font(.system(size: 15))
+          .foregroundStyle(ChiefTheme.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 8)
 
         if let error = model.workspaceInviteError {
           Text(error)
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.red.opacity(0.9))
+            .multilineTextAlignment(.center)
+            .padding(.top, 14)
         }
 
-        Spacer(minLength: 0)
+        Spacer(minLength: 24)
 
         Button {
           Haptics.heavy()
@@ -118,7 +117,7 @@ struct WorkspaceInviteConfirmationSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ChiefSpinner().tint(.black)
+              ChiefSpinner().tint(ChiefTheme.onPrimary)
             } else {
               Text("Join workspace")
             }
@@ -126,18 +125,29 @@ struct WorkspaceInviteConfirmationSheet: View {
         }
         .buttonStyle(PrimaryButtonStyle())
         .disabled(model.workspaceInviteInProgress)
+
+        if let host = model.pendingWorkspaceInvite?.relayURL.host {
+          Text("Hosted on \(host)")
+            .font(.system(size: 12))
+            .foregroundStyle(ChiefTheme.tertiary)
+            .padding(.top, 12)
+        }
       }
     }
-    .padding(ChiefTheme.pagePadding)
+    .frame(maxWidth: .infinity)
+    .padding(.horizontal, ChiefTheme.pagePadding)
+    .padding(.top, 36)
+    .padding(.bottom, 12)
     .background(ChiefSheetPalette.background.ignoresSafeArea())
+    .presentationDetents([.height(370)])
     .presentationDragIndicator(.visible)
   }
 
   private func inviteDescription(_ preview: WorkspaceInvite) -> String {
     if let channel = preview.conversationName {
-      return "You were invited to the \(channel) channel in this workspace."
+      return "You’ve been invited to #\(channel) on Chief."
     }
-    return "You were invited to collaborate in this workspace."
+    return "You’ve been invited to collaborate on Chief."
   }
 }
 
@@ -184,7 +194,7 @@ struct JoinWorkspaceSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ChiefSpinner().tint(.black)
+              ChiefSpinner().tint(ChiefTheme.onPrimary)
             } else {
               Text("Continue")
             }
@@ -313,7 +323,7 @@ struct InvitePeopleSheet: View {
       } label: {
         Group {
           if sending {
-            ChiefSpinner().tint(.black)
+            ChiefSpinner().tint(ChiefTheme.onPrimary)
           } else {
             Text("Send invite")
           }
@@ -396,7 +406,7 @@ struct InvitePeopleSheet: View {
         .disabled(creatingLink)
       }
 
-      Text(linkError ?? "Anyone with the link can join. It expires in 7 days.")
+      Text(linkError ?? (link == nil ? "Works for one person and expires in 7 days." : "Copy it now. This link won’t be shown again."))
         .font(.system(size: 12))
         .foregroundStyle(linkError == nil ? ChiefSheetPalette.secondary : .red.opacity(0.9))
         .padding(.horizontal, 2)

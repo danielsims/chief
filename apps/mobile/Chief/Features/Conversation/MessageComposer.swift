@@ -155,8 +155,8 @@ struct MessageComposer: View {
           }
           .font(.system(size: 15, weight: .bold))
           .frame(width: 36, height: 36)
-          .background(canSend ? Color.white : ChiefTheme.elevated, in: Circle())
-          .foregroundStyle(canSend ? Color.black : ChiefTheme.tertiary)
+          .background(canSend ? ChiefTheme.primary : ChiefTheme.elevated, in: Circle())
+          .foregroundStyle(canSend ? ChiefTheme.onPrimary : ChiefTheme.tertiary)
         }
         .buttonStyle(.plain)
         .disabled(!canSend)

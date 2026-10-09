@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Settings, grouped like the desktop settings sidebar. Appearance is omitted
-/// because Chief on iPhone is dark-only; agents are configured from their own
-/// pages, so the desktop's App group has no counterpart here.
+/// Settings, grouped like the desktop settings sidebar. Agents are configured
+/// from their own pages, so the desktop's App group has no counterpart here.
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
+  @AppStorage(ChiefAppearance.storageKey) private var appearance = ChiefAppearance.system
 
   var body: some View {
     SettingsPage {
@@ -26,6 +26,9 @@ struct SettingsView: View {
           }
         }
         .buttonStyle(.plain)
+        link("Appearance", icon: "circle.lefthalf.filled", detail: appearance.title) {
+          AppearanceSettingsView()
+        }
         link("Notifications", icon: "bell") { NotificationSettingsView() }
       }
 
@@ -40,7 +43,6 @@ struct SettingsView: View {
         link("Missions", icon: "scope") { MissionsSettingsView() }
         link("Webhooks", icon: "arrow.triangle.branch") { WebhooksSettingsView() }
         link("Environment", icon: "key") { EnvironmentSettingsView() }
-        link("Machines", icon: "desktopcomputer") { MachinesSettingsView() }
       }
 
       Text("Chief \(version) (\(build))")

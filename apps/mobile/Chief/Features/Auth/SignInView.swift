@@ -4,6 +4,7 @@ import SwiftUI
 struct SignInView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+  @Environment(\.colorScheme) private var colorScheme
   @StateObject private var authentication = MobileAuthenticationSession()
   @State private var relayAddress = ""
   @State private var showsRelay = false
@@ -38,16 +39,16 @@ struct SignInView: View {
         Group {
           if isLoading(.apple) {
             ChiefSpinner()
-              .tint(.black)
+              .tint(ChiefTheme.onPrimary)
               .frame(maxWidth: .infinity, minHeight: 52)
-              .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+              .background(ChiefTheme.primary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
           } else {
             SignInWithAppleButton(.signIn) { request in
               prepareAppleRequest(request)
             } onCompletion: { result in
               handleApple(result)
             }
-            .signInWithAppleButtonStyle(.white)
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
             .frame(height: 52)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .disabled(isWorking)
@@ -57,7 +58,7 @@ struct SignInView: View {
         Button(action: beginGoogleSignIn) {
           Group {
             if isLoading(.google) {
-              ChiefSpinner().tint(.white)
+              ChiefSpinner().tint(ChiefTheme.accent)
             } else {
               HStack(spacing: 10) {
                 Image("GoogleG")
@@ -73,7 +74,7 @@ struct SignInView: View {
           .frame(minHeight: 52)
           .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 14))
           .overlay { RoundedRectangle(cornerRadius: 14).stroke(ChiefTheme.line) }
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
         }
         .disabled(isWorking)
         .padding(.top, 12)
@@ -95,7 +96,7 @@ struct SignInView: View {
           Button(action: beginRelaySignIn) {
             Group {
               if isLoading(.relay) {
-                ChiefSpinner().tint(.black)
+                ChiefSpinner().tint(ChiefTheme.onPrimary)
               } else {
                 Text("Continue")
               }
@@ -103,8 +104,8 @@ struct SignInView: View {
             .font(.system(size: 16, weight: .semibold))
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(.white, in: RoundedRectangle(cornerRadius: 14))
-            .foregroundStyle(.black)
+            .background(ChiefTheme.primary, in: RoundedRectangle(cornerRadius: 14))
+            .foregroundStyle(ChiefTheme.onPrimary)
           }
           .disabled(
             isWorking || relayAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -137,7 +138,7 @@ struct SignInView: View {
         Text(errorMessage)
           .font(.system(size: 13, weight: .medium))
           .multilineTextAlignment(.center)
-          .foregroundStyle(.white.opacity(0.88))
+          .foregroundStyle(ChiefTheme.accent.opacity(0.88))
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
           .background(.ultraThinMaterial, in: Capsule())

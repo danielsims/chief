@@ -216,7 +216,7 @@ private struct NewWebhookSheet: View {
           Haptics.heavy()
           Task { await submit() }
         } label: {
-          if busy { ChiefSpinner().tint(.black) } else { Text("Create webhook") }
+          if busy { ChiefSpinner().tint(ChiefTheme.onPrimary) } else { Text("Create webhook") }
         }
         .buttonStyle(PrimaryButtonStyle())
         .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty || scheduleID.isEmpty)

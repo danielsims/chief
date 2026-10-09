@@ -9,6 +9,7 @@ struct WorkspaceSettingsView: View {
   @State private var role: WorkspaceRole?
   @State private var members: [WorkspaceMember] = []
   @State private var invitations: [WorkspaceInvitation] = []
+  @State private var inviteLinks: [WorkspaceOpenInvite] = []
   @State private var membersError: String?
   @State private var invitationsError: String?
   @State private var settings: WorkspaceSettingsData?
@@ -18,6 +19,8 @@ struct WorkspaceSettingsView: View {
   @State private var busyID: String?
   @State private var actionError: String?
   @State private var removing: WorkspaceMember?
+  @State private var revokingInvitation: WorkspaceInvitation?
+  @State private var revokingLink: WorkspaceOpenInvite?
   @State private var inviting = false
   @State private var confirmingDelete = false
   @State private var deleteConfirmation = ""
@@ -71,6 +74,31 @@ struct WorkspaceSettingsView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("They lose access to \(workspaceName) and its channels.")
+    }
+    .confirmationDialog(
+      "Revoke this invitation?",
+      isPresented: Binding(
+        get: { revokingInvitation != nil }, set: { if !$0 { revokingInvitation = nil } }),
+      titleVisibility: .visible
+    ) {
+      Button("Revoke", role: .destructive) {
+        if let invitation = revokingInvitation { Task { await cancel(invitation) } }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("\(revokingInvitation?.email ?? "They") won’t be able to join with this invitation.")
+    }
+    .confirmationDialog(
+      "Revoke this invite link?",
+      isPresented: Binding(get: { revokingLink != nil }, set: { if !$0 { revokingLink = nil } }),
+      titleVisibility: .visible
+    ) {
+      Button("Revoke", role: .destructive) {
+        if let link = revokingLink { Task { await revoke(link) } }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Nobody will be able to join with this link. It can’t be used again.")
     }
     .alert("Delete \(workspaceName)", isPresented: $confirmingDelete) {
       TextField(workspaceName, text: $deleteConfirmation)
@@ -223,8 +251,8 @@ struct WorkspaceSettingsView: View {
               Button("Resend", systemImage: "arrow.clockwise") {
                 Task { await resend(invitation) }
               }
-              Button("Cancel invitation", systemImage: "xmark", role: .destructive) {
-                Task { await cancel(invitation) }
+              Button("Revoke invitation", systemImage: "xmark", role: .destructive) {
+                revokingInvitation = invitation
               }
             } label: {
               Image(systemName: "ellipsis")
@@ -234,6 +262,33 @@ struct WorkspaceSettingsView: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel("Manage invitation for \(invitation.email)")
+          }
+        }
+      }
+      ForEach(inviteLinks) { link in
+        SettingsRow {
+          Image(systemName: "link")
+            .font(.system(size: 14))
+            .foregroundStyle(ChiefTheme.secondary)
+            .frame(width: 34, height: 34)
+            .background(
+              ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 34 * 0.28, style: .continuous))
+          VStack(alignment: .leading, spacing: 3) {
+            Text(link.label ?? "Invite link")
+              .foregroundStyle(ChiefTheme.accent).lineLimit(1)
+            Text(inviteLinkDetail(link))
+              .font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
+          }
+          Spacer(minLength: 8)
+          if busyID == link.id {
+            ChiefSpinner().controlSize(.small)
+          } else {
+            Button("Revoke", role: .destructive) {
+              revokingLink = link
+            }
+            .font(.system(size: 14, weight: .medium))
+            .buttonStyle(.plain)
+            .foregroundStyle(.red.opacity(0.9))
           }
         }
       }
@@ -292,10 +347,19 @@ struct WorkspaceSettingsView: View {
     role?.canManage == true && !isSelf(member)
   }
 
+  private func inviteLinkDetail(_ link: WorkspaceOpenInvite) -> String {
+    var parts = [link.conversationName.map { "#\($0)" } ?? "Link"]
+    if let created = SettingsFormat.isoDate(link.createdAt) {
+      parts.append("Created \(SettingsFormat.dateTime(created))")
+    }
+    if let expires = link.expiresDate { parts.append("Expires \(SettingsFormat.date(expires))") }
+    return parts.joined(separator: " · ")
+  }
+
   private func invitationDetail(_ invitation: WorkspaceInvitation) -> String {
     let role = WorkspaceRole(invitation.role).title
     guard let expires = invitation.expiresDate else { return role }
-    return "\(role) · expires \(SettingsFormat.date(expires))"
+    return "\(role) · Expires \(SettingsFormat.date(expires))"
   }
 
   private func field(_ key: WritableKeyPath<WorkspaceSettingsData, String>) -> Binding<String> {
@@ -334,6 +398,7 @@ struct WorkspaceSettingsView: View {
     guard role?.canManage == true else { return }
     do {
       invitations = try await model.relay.workspaceInvitations(workspaceID: workspaceID)
+      inviteLinks = try await model.relay.workspaceInviteLinks(workspaceID: workspaceID)
       invitationsError = nil
     } catch {
       invitationsError = SettingsFailure.message(
@@ -449,6 +514,22 @@ struct WorkspaceSettingsView: View {
     } catch {
       invitationsError = SettingsFailure.message(
         error, fallback: "Chief couldn’t cancel this invitation.")
+      Haptics.error()
+    }
+  }
+
+  private func revoke(_ link: WorkspaceOpenInvite) async {
+    guard let workspaceID = model.workspace?.id else { return }
+    busyID = link.id
+    invitationsError = nil
+    defer { busyID = nil }
+    do {
+      try await model.relay.revokeWorkspaceInvite(workspaceID: workspaceID, inviteID: link.inviteId)
+      Haptics.success()
+      await loadDirectory()
+    } catch {
+      invitationsError = SettingsFailure.message(
+        error, fallback: "Chief couldn’t revoke this invite link.")
       Haptics.error()
     }
   }

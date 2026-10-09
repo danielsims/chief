@@ -18,9 +18,9 @@ struct PrimaryButtonStyle: ButtonStyle {
       .frame(maxWidth: .infinity)
       .frame(height: 50)
       .background(
-        .white.opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.28),
+        ChiefTheme.primary.opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.28),
         in: RoundedRectangle(cornerRadius: 13)
       )
-      .foregroundStyle(.black.opacity(isEnabled ? 1 : 0.54))
+      .foregroundStyle(ChiefTheme.onPrimary.opacity(isEnabled ? 1 : 0.54))
   }
 }

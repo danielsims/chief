@@ -33,16 +33,16 @@ struct ChiefTabBar: View {
           if badge > 0 && tab == .home {
             Text(badge > 99 ? "99+" : "\(badge)")
               .font(.system(size: 9, weight: .bold))
-              .foregroundStyle(.black)
+              .foregroundStyle(ChiefTheme.onPrimary)
               .padding(.horizontal, 4)
               .frame(minWidth: 16, minHeight: 16)
-              .background(.white, in: Capsule())
+              .background(ChiefTheme.primary, in: Capsule())
               .offset(x: 12, y: -7)
           }
         }
         Text(label).font(.system(size: 10.5, weight: selection == tab ? .semibold : .medium))
       }
-      .foregroundStyle(selection == tab ? Color.white : ChiefTheme.secondary)
+      .foregroundStyle(selection == tab ? ChiefTheme.accent : ChiefTheme.secondary)
       .frame(maxWidth: .infinity, minHeight: 50)
       .background(
         selection == tab ? ChiefTheme.elevated : .clear,
