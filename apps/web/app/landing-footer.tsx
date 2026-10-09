@@ -84,6 +84,12 @@ export function LandingFooter({ className }: { className?: string }) {
             >
               Terms
             </Link>
+            <Link
+              className="text-muted-foreground hover:text-foreground text-[15px]"
+              href="/support"
+            >
+              Support
+            </Link>
           </nav>
         </div>
       </div>
