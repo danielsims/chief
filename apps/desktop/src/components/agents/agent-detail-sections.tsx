@@ -20,36 +20,17 @@ export interface AgentIntegrationOption {
 
 const permissionGroups = [
   "Workspace",
+  "Projects",
   "Channels",
   "Messages",
   "Scheduled work",
   "Advanced",
 ] as const;
 
-const capabilityDetails: Record<
-  AgentCapabilityId,
-  { label: string; description: string }
+// Only the features worth an owner's decision are offered here.
+const capabilityDetails: Partial<
+  Record<AgentCapabilityId, { label: string; description: string }>
 > = {
-  "analytics-chart": {
-    label: "Analytics charts",
-    description: "Create visual reports from reliable workspace data.",
-  },
-  "prospect-memory": {
-    label: "Prospect records",
-    description: "Save qualified prospects with their source evidence.",
-  },
-  "trend-memory": {
-    label: "Market signals",
-    description: "Keep supported market and audience observations.",
-  },
-  "content-calendar": {
-    label: "Content planning",
-    description: "Create and update content drafts and schedules.",
-  },
-  "campaign-memory": {
-    label: "Campaign planning",
-    description: "Maintain campaign plans, decisions and current status.",
-  },
   "schedule-manager": {
     label: "Scheduled work",
     description: "Turn goals into recurring or event-triggered work.",
@@ -193,6 +174,7 @@ export function AgentConfigurationTab({
           {availableCapabilities.map((capability) => {
             const checked = capabilities.includes(capability.id);
             const detail = capabilityDetails[capability.id];
+            if (!detail) return null;
             return (
               <SettingRow
                 key={capability.id}
