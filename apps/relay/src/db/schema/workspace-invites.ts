@@ -9,4 +9,5 @@ export const workspaceInvites = sqliteTable("workspace_invites", {
   use_count: integer("use_count").notNull().default(0),
   revoked_at: text("revoked_at"),
   created_at: text("created_at").notNull(),
+  label: text("label"),
 });

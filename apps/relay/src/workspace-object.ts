@@ -8,6 +8,7 @@ import {
   isJsonString,
   parseJsonObject,
   principalSchema,
+  userIdSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
@@ -278,6 +279,27 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "invite-create") {
         return yield* attempt("workspace.invite.create", () =>
           invitations.create(request, readTrustedContext(request).principal),
+        );
+      }
+      if (operation === "invite-claim-account") {
+        return yield* attempt("workspace.invite.claim_account", () =>
+          invitations.claimForUser(
+            request,
+            userIdSchema.parse(request.headers.get("x-chief-account-user-id")),
+          ),
+        );
+      }
+      if (operation === "invite-list") {
+        return yield* attempt("workspace.invite.list", () =>
+          invitations.list(readTrustedContext(request).principal),
+        );
+      }
+      if (operation === "invite-revoke") {
+        return yield* attempt("workspace.invite.revoke", () =>
+          invitations.revoke(
+            readTrustedContext(request).principal,
+            request.headers.get("x-chief-invite-id") ?? "",
+          ),
         );
       }
       if (operation === "invite-preview") {

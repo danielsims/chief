@@ -46,6 +46,7 @@ import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import { routeWorkspaceSettings } from "./router-workspace-settings";
 import { routeWorkspaceVercel } from "./router-workspace-vercel";
 import {
+  acceptWorkspaceInviteForAccount,
   activeManagedWorkspace,
   authorizeConversation,
   authorizeWorkspace,
@@ -56,7 +57,9 @@ import {
   deleteManagedWorkspace,
   joinOrganizationWorkspace,
   listManagedWorkspaces,
+  listWorkspaceInvites,
   previewWorkspaceInvite,
+  revokeWorkspaceInvite,
   routeWorkspaceLogs,
   switchManagedWorkspace,
 } from "./workspace-authority";
@@ -79,6 +82,10 @@ const workspaceSocketTicketRoute =
   /^\/v1\/workspaces\/([^/]+)\/socket-tickets$/u;
 const deleteWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)$/u;
 const workspaceInviteRoute = /^\/v1\/workspaces\/([^/]+)\/invites$/u;
+const workspaceInviteAcceptRoute =
+  /^\/v1\/workspaces\/([^/]+)\/invites\/accept$/u;
+const workspaceInviteRevokeRoute =
+  /^\/v1\/workspaces\/([^/]+)\/invites\/([^/]+)\/revoke$/u;
 const workspaceInvitePreviewRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/preview$/u;
 const workspaceInviteClaimRoute =
@@ -275,6 +282,26 @@ function routeWorkspaceRequest(
         user.userId,
       );
     }
+    const inviteAccept = workspaceInviteAcceptRoute.exec(url.pathname);
+    if (inviteAccept && request.method === "POST") {
+      const workspaceId = yield* parseId(inviteAccept[1]);
+      // The web join page forwards the visitor's Better Auth session cookie;
+      // the relay is the auth server, so it resolves the account itself.
+      const userId = yield* attempt("relay.workspace_invite.session", () =>
+        sessionUserId(env, request),
+      );
+      if (!userId) {
+        return relayError(
+          401,
+          "authentication_required",
+          "Sign in to accept this invitation.",
+          requestId,
+        );
+      }
+      return yield* attempt("relay.workspace_invite.accept", () =>
+        acceptWorkspaceInviteForAccount(env, request, { userId, workspaceId }),
+      );
+    }
     const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
     if (invitePreview && request.method === "POST") {
       const workspaceId = yield* parseId(invitePreview[1]);
@@ -388,6 +415,46 @@ function routeWorkspaceRequest(
               `/v1/assets/workspaces/${encodeURIComponent(workspaceId)}`,
             ),
           );
+    }
+    const inviteList = workspaceInviteRoute.exec(url.pathname);
+    if (inviteList && request.method === "GET") {
+      const workspaceId = yield* parseId(inviteList[1]);
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_invite.list", () =>
+        listWorkspaceInvites(env, { principal, requestId, workspaceId }),
+      );
+    }
+    const inviteRevoke = workspaceInviteRevokeRoute.exec(url.pathname);
+    if (inviteRevoke && request.method === "POST") {
+      const workspaceId = yield* parseId(inviteRevoke[1]);
+      const inviteId = yield* sync("relay.workspace_invite.scope", () =>
+        decodeURIComponent(inviteRevoke[2] ?? ""),
+      );
+      const authenticated = yield* authenticate(request);
+      yield* requireBinding(authenticated.bound);
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      return yield* attempt("relay.workspace_invite.revoke", () =>
+        revokeWorkspaceInvite(env, {
+          principal,
+          requestId,
+          workspaceId,
+          inviteId,
+        }),
+      );
     }
     const inviteCreate = workspaceInviteRoute.exec(url.pathname);
     if (inviteCreate && request.method === "POST") {
@@ -630,3 +697,12 @@ const conversationStub = (
   );
 const parseWorkspaceId = (value: string | undefined) =>
   workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
+
+async function sessionUserId(env: Env, request: Request) {
+  const { createRelayAuth } = await import("./auth/server");
+  const auth = await createRelayAuth(env);
+  const session = await auth.api
+    .getSession({ headers: request.headers })
+    .catch(() => null);
+  return session?.user.id ?? null;
+}

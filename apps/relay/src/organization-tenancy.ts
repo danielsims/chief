@@ -32,7 +32,7 @@ export async function registerWorkspaceOrganization(
 export async function registerWorkspaceOrganizationMember(
   env: Env,
   input: {
-    identity: Extract<AuthenticatedIdentity, { kind: "user" }>;
+    userId: string;
     workspaceId: WorkspaceId;
   },
 ) {
@@ -41,7 +41,7 @@ export async function registerWorkspaceOrganizationMember(
     await import("@chief/auth/d1-organizations");
   await ensureChiefOrganizationMember(env.AUTH_DB, {
     organizationId: input.workspaceId,
-    userId: input.identity.userId,
+    userId: input.userId,
   });
 }
 
