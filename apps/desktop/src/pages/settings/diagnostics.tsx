@@ -12,9 +12,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@chief/ui/components/card";
+import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../../lib/auth/auth-context";
+import { setMachinesEnabled, useMachinesEnabled } from "../../lib/experimental";
 import { useDiagnostics } from "../../lib/runtime";
 
 interface TreeSession {
@@ -333,41 +335,73 @@ export function DiagnosticsSettings() {
   );
 
   return (
+    <>
+      <ExperimentalCard />
+      <Card>
+        <CardHeader>
+          <CardTitle>Diagnostics</CardTitle>
+          <CardDescription>
+            Read-only runtime sessions and redacted event data for this
+            workspace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-muted-foreground flex min-h-64 items-center justify-center rounded-xl border text-sm">
+              Loading session diagnostics...
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="flex min-h-64 items-center justify-center rounded-xl border px-6 text-center">
+              <div>
+                <p className="text-sm font-medium">No diagnostic sessions</p>
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
+                  Runtime sessions will appear here after an agent starts work.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid min-h-[560px] overflow-hidden rounded-xl border lg:grid-cols-[260px_minmax(0,1fr)]">
+              <SessionList
+                sessions={tree}
+                selectedId={selected?.id}
+                onSelect={setSelectedId}
+              />
+              {selected ? (
+                <div className="min-h-0 overflow-y-auto">
+                  <SessionDetails session={selected} events={selectedEvents} />
+                </div>
+              ) : null}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function ExperimentalCard() {
+  const machinesEnabled = useMachinesEnabled();
+  return (
     <Card>
       <CardHeader>
-        <CardTitle>Diagnostics</CardTitle>
+        <CardTitle>Experimental</CardTitle>
         <CardDescription>
-          Read-only runtime sessions and redacted event data for this workspace.
+          Unfinished features you can try early.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div className="text-muted-foreground flex min-h-64 items-center justify-center rounded-xl border text-sm">
-            Loading session diagnostics...
-          </div>
-        ) : sessions.length === 0 ? (
-          <div className="flex min-h-64 items-center justify-center rounded-xl border px-6 text-center">
-            <div>
-              <p className="text-sm font-medium">No diagnostic sessions</p>
-              <p className="text-muted-foreground mt-1 text-xs leading-5">
-                Runtime sessions will appear here after an agent starts work.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid min-h-[560px] overflow-hidden rounded-xl border lg:grid-cols-[260px_minmax(0,1fr)]">
-            <SessionList
-              sessions={tree}
-              selectedId={selected?.id}
-              onSelect={setSelectedId}
-            />
-            {selected ? (
-              <div className="min-h-0 overflow-y-auto">
-                <SessionDetails session={selected} events={selectedEvents} />
-              </div>
-            ) : null}
-          </div>
-        )}
+        <label className="flex items-center justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium">Machines</span>
+            <span className="text-muted-foreground block text-xs">
+              Persistent computers your agents can operate.
+            </span>
+          </span>
+          <Switch
+            checked={machinesEnabled}
+            onCheckedChange={setMachinesEnabled}
+          />
+        </label>
       </CardContent>
     </Card>
   );

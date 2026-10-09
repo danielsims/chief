@@ -22,6 +22,7 @@ import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
+import { useMachinesEnabled } from "./lib/experimental";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -400,11 +401,7 @@ function AuthenticatedApp() {
                           />
                           <Route
                             path="machines"
-                            element={
-                              <Suspense fallback={null}>
-                                <MachinesPage />
-                              </Suspense>
-                            }
+                            element={<ExperimentalMachines />}
                           />
                           <Route
                             path="integrations/*"
@@ -441,5 +438,15 @@ export default function App() {
         </AuthProvider>
       </ThemeProvider>
     </AppErrorBoundary>
+  );
+}
+
+function ExperimentalMachines() {
+  const enabled = useMachinesEnabled();
+  if (!enabled) return <Navigate to="/settings/diagnostics" replace />;
+  return (
+    <Suspense fallback={null}>
+      <MachinesPage />
+    </Suspense>
   );
 }
