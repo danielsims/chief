@@ -14,6 +14,7 @@ import {
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
+import type { ConversationScope } from "./agent-turn-supersession";
 import type { readTrustedContext } from "./internal-context";
 import {
   cancelAgentWorkflow,
@@ -34,6 +35,7 @@ import {
   HOSTED_JOB_MAX_ATTEMPTS,
   hostedAutomaticRetryAt,
 } from "./agent-runtime-support";
+import { inConversationScope } from "./agent-turn-supersession";
 import { HttpError, json, parseJson } from "./http";
 import { jobsFindClaim } from "./queries/jobs/find-claim";
 import { jobsFindComplete } from "./queries/jobs/find-complete";
@@ -269,7 +271,7 @@ export class AgentJobQueue {
     return json({ leaseExpiresAt });
   }
 
-  supersedeConversation(conversationId: string, replacementJobId: string) {
+  supersedeConversation(scope: ConversationScope, replacementJobId?: string) {
     const now = new Date().toISOString();
     const superseded: string[] = [];
     for (const row of jobsFindSupersedeConversation<{ job_json: string }>(
@@ -279,7 +281,11 @@ export class AgentJobQueue {
       if (
         previous.id === replacementJobId ||
         previous.kind !== "conversation.message" ||
-        previous.payload.conversationId !== conversationId
+        !inConversationScope(
+          scope,
+          previous.payload.conversationId,
+          previous.payload.threadRootId,
+        )
       ) {
         continue;
       }

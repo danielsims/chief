@@ -17,6 +17,7 @@ import type {
 } from "./agent-execution-environment";
 import type { AgentJobQueue } from "./agent-job-queue";
 import type { TurnFailure } from "./agent-runtime-support";
+import type { ConversationScope } from "./agent-turn-supersession";
 import { publishAgentErrorActivity } from "./agent-activity";
 import { recordCompletedTurn } from "./agent-cell-projection";
 import { agentCellPersistence } from "./agent-cell-storage";
@@ -109,12 +110,12 @@ export class AgentRuntime {
   }
 
   async supersedeConversation(
-    conversationId: string,
-    replacementJobId: string,
+    scope: ConversationScope,
+    replacementJobId?: string,
   ) {
     return supersedeConversationTurn({
-      conversationId,
-      replacementJobId,
+      scope,
+      ...(replacementJobId ? { replacementJobId } : undefined),
       turns: this.turns,
       queue: this.queue,
       loadJob: (jobId) => loadAgentJob(this.storage, jobId),
