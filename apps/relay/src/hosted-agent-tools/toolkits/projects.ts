@@ -140,10 +140,23 @@ export const hostedProjectTools = [
   ),
   defineHostedAgentTool(
     "projects.list",
-    async ({ env, job, principal }) =>
-      await callWorkspace(env, job, principal, "data-projects-list", {
-        method: "POST",
-      }),
+    // What is on each repository's main branch, by path. The file list is
+    // updated on every publish, so this is how an agent checks its own work.
+    async ({ env, job, principal }) => {
+      const { projects = [] } = projectsListSchema.parse(
+        await callWorkspace(env, job, principal, "data-projects-list", {
+          method: "POST",
+        }),
+      );
+      return {
+        projects: projects.map((project) => ({
+          name: project.name,
+          repo: repoFromRemote(project.canonicalRemoteUrl),
+          defaultBranch: project.defaultBranch,
+          files: project.repositoryFiles?.map((file) => file.path) ?? [],
+        })),
+      };
+    },
     { effect: "read_only" },
   ),
   defineHostedAgentTool(
@@ -262,9 +275,25 @@ const publishResultSchema = z.object({
 
 const projectsListSchema = z.object({
   projects: z
-    .array(z.object({ canonicalRemoteUrl: z.string().optional() }))
+    .array(
+      z.object({
+        name: z.string(),
+        canonicalRemoteUrl: z.string().optional(),
+        defaultBranch: z.string().optional(),
+        repositoryFiles: z.array(z.object({ path: z.string() })).optional(),
+      }),
+    )
     .optional(),
 });
+
+function repoFromRemote(remote = "") {
+  return (
+    remote
+      .replace(/\.git$/u, "")
+      .split("/")
+      .at(-1) ?? ""
+  );
+}
 
 async function singleProjectRepo(
   env: Env,
@@ -282,12 +311,7 @@ async function singleProjectRepo(
       "Name the repository to publish to, or attach exactly one project.",
     );
   }
-  const remote = projects[0]?.canonicalRemoteUrl ?? "";
-  const slug =
-    remote
-      .replace(/\.git$/u, "")
-      .split("/")
-      .at(-1) ?? "";
+  const slug = repoFromRemote(projects[0]?.canonicalRemoteUrl);
   if (!slug) throw new Error("This project has no workspace Git repository.");
   return slug;
 }
