@@ -37,7 +37,7 @@ export function useMainAgentActivity({
   running: boolean;
   statusLabel: string;
   scheduleRuns: readonly ScheduleRun[];
-  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[];
+  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status" | "provider">[];
   workingAgents: readonly WorkingAgent[];
 }) {
   const agents = useMemo(() => {
@@ -46,13 +46,18 @@ export function useMainAgentActivity({
       (channelAgentIds?.length === 1 ? channelAgentIds[0] : undefined) ??
       (!channelAgentIds ? "chief" : undefined);
     const rootAgentId = activeRootTurn?.agentId ?? fallbackRootAgentId;
+    // An agent DM answers every message in its own thread, so its working
+    // state belongs under the main composer, not on the thread.
+    const includeThreads = Boolean(directAgentId);
     const root =
-      running && !activeRootTurn?.threadRootId && rootAgentId
+      running &&
+      (includeThreads || !activeRootTurn?.threadRootId) &&
+      rootAgentId
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
     return mergeAgentActivityPresence(root, [
       ...workingAgents
-        .filter((agent) => !agent.threadRootId)
+        .filter((agent) => includeThreads || !agent.threadRootId)
         .map((agent) => ({
           id: agent.agentId,
           label: activityAgentName(agent.agentId),
