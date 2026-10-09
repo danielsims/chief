@@ -967,12 +967,14 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     id: String,
     kind: String,
     version: Int = 1,
-    payload: [String: String]
+    payload: [String: String],
+    payloadArrays: [String: [String]] = [:]
   ) {
     self.id = id
     self.kind = kind
     self.version = version
     self.payload = payload
+    self.payloadArrays = payloadArrays
   }
 
   enum CodingKeys: String, CodingKey {

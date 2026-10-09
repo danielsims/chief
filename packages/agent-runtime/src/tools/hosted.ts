@@ -13,6 +13,7 @@ import { createChannelDefinition } from "./toolkits/channels/create-channel.js";
 import { joinChannelDefinition } from "./toolkits/channels/join-channel.js";
 import { listChannelMembersDefinition } from "./toolkits/channels/list-channel-members.js";
 import { listChannelsDefinition } from "./toolkits/channels/list-channels.js";
+import { askQuestionDefinition } from "./toolkits/channels/messages/ask-question.js";
 import { listChannelMessagesDefinition } from "./toolkits/channels/messages/list-channel-messages.js";
 import { postChannelMessageDefinition } from "./toolkits/channels/messages/post-channel-message.js";
 import { computerEditFileDefinition } from "./toolkits/computer/edit-file.js";
@@ -66,6 +67,7 @@ export const hostedAgentToolDefinitions = {
     listChannelMembersDefinition,
     listChannelMessagesDefinition,
     postChannelMessageDefinition,
+    askQuestionDefinition,
     listPluginsDefinition,
     recommendPluginsDefinition,
     createProjectDefinition,

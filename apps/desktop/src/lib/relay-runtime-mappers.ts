@@ -18,6 +18,7 @@ import {
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
+  questionPayloadSchema,
   scheduledRunMessagePayloadSchema,
 } from "@chief/relay-contracts";
 
@@ -331,6 +332,7 @@ function messageComponentParts(
     ...activityParts(message.components),
     ...pluginRecommendationParts(message),
     ...projectRecommendationParts(message),
+    ...questionParts(message),
     ...artifactParts(message),
   ];
 }
@@ -453,6 +455,29 @@ function projectRecommendationParts(
           description: parsed.data.description,
           ...(parsed.data.remoteUrl
             ? { remoteUrl: parsed.data.remoteUrl }
+            : undefined),
+        },
+      },
+    ];
+  });
+}
+
+function questionParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "question") return [];
+    const parsed = questionPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-question" as const,
+        data: {
+          messageId: message.id,
+          agentId: parsed.data.agentId,
+          question: parsed.data.question,
+          options: parsed.data.options,
+          ...(parsed.data.threadRootId
+            ? { threadRootId: parsed.data.threadRootId }
             : undefined),
         },
       },

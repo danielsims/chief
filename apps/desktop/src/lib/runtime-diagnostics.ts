@@ -64,7 +64,9 @@ export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
       part.type === "data-chart" ||
       part.type === "data-table" ||
       part.type === "data-document" ||
-      part.type === "data-plugin-recommendations"
+      part.type === "data-plugin-recommendations" ||
+      part.type === "data-project-recommendation" ||
+      part.type === "data-question"
     ) {
       return [part];
     }
