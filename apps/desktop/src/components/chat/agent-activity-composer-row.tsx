@@ -12,12 +12,15 @@ export function AgentActivityComposerRow({
   agentLabel = "Chief",
   running,
   statusLabel,
+  idleLabel,
   onOpen,
 }: {
   agents?: readonly AgentActivityPresence[];
   agentLabel?: string;
   running: boolean;
   statusLabel: string;
+  /** Shown quietly once the work is done, so its activity stays reachable. */
+  idleLabel?: string;
   onOpen: () => void;
 }) {
   const visibleAgents =
@@ -28,6 +31,21 @@ export function AgentActivityComposerRow({
     visibleAgents.length > 1
       ? formatAgentActivityStatus(visibleAgents)
       : statusLabel;
+  if (!running && idleLabel) {
+    return (
+      <div className="flex h-8 shrink-0 items-center px-1">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="text-muted-foreground/80 hover:text-foreground flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-[11px] font-medium transition-colors duration-150"
+        >
+          <span className="truncate">{idleLabel}</span>
+          <span aria-hidden="true">·</span>
+          <span>View activity</span>
+        </button>
+      </div>
+    );
+  }
   if (!running || !visibleStatusLabel.trim()) {
     return <div className="h-8 shrink-0" aria-hidden="true" />;
   }

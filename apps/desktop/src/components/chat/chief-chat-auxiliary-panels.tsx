@@ -66,6 +66,15 @@ function activityAgentName(agentId: string) {
     : agentId;
 }
 
+/**
+ * A thread in an agent DM. It behaves like a channel thread, but the agent's
+ * tool calls and file changes are shown inline so the thread is the whole
+ * picture of the work.
+ */
+export interface ThreadAgent {
+  name: string;
+}
+
 interface ThreadSummary {
   count: number;
   lastReplyAt?: number;
@@ -84,6 +93,7 @@ export function ChiefChatAuxiliaryPanels({
   imageParts,
   props,
   respondingAgentFor,
+  threadAgent,
   threadBlocks,
   timeline,
 }: {
@@ -107,6 +117,7 @@ export function ChiefChatAuxiliaryPanels({
   respondingAgentFor: (
     message: ChiefUIMessage,
   ) => { id: WorkspaceAgentId; name: string; role: string } | undefined;
+  threadAgent?: ThreadAgent;
   threadBlocks: (message: ChiefUIMessage) => ContentBlock[];
   timeline: Timeline;
 }) {
@@ -168,13 +179,17 @@ export function ChiefChatAuxiliaryPanels({
   const threadTimelineEntries = useMemo(
     () =>
       withActionTimelineEntries(
-        withSpecialistTimelineEntries(
-          threadReplyEntries,
-          activeThreadChildSessions,
-        ),
+        // An agent DM thread is a clean chat: the agent's run is not surfaced
+        // as a task card, and its tool calls live in the Activity panel.
+        threadAgent
+          ? threadReplyEntries
+          : withSpecialistTimelineEntries(
+              threadReplyEntries,
+              activeThreadChildSessions,
+            ),
         threadActions,
       ),
-    [activeThreadChildSessions, threadActions, threadReplyEntries],
+    [activeThreadChildSessions, threadActions, threadReplyEntries, threadAgent],
   );
   const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadComposerRef = useRef<HTMLDivElement>(null);
@@ -216,6 +231,20 @@ export function ChiefChatAuxiliaryPanels({
     controls.workingAgents,
     threadRootId,
   ]);
+  // In an agent DM the Activity panel opened from a thread shows that
+  // thread's work only, and returns to the thread.
+  const threadActivityTurns = useMemo(
+    () =>
+      threadAgent && threadRootId
+        ? activityTurns.filter((turn) => turn.threadRootId === threadRootId)
+        : [],
+    [activityTurns, threadAgent, threadRootId],
+  );
+  const threadActivitySteps = threadActivityTurns.reduce(
+    (count, turn) =>
+      count + turn.blocks.filter((block) => block.type === "tool_use").length,
+    0,
+  );
   const threadStatusLabel =
     threadActivityAgents.length === 1 &&
     threadActivityAgents[0]?.id === activeRootTurn?.agentId
@@ -290,17 +319,33 @@ export function ChiefChatAuxiliaryPanels({
     );
   }
 
-  if (channel && threadRootId && !activityOpen && !profileOpen) {
-    return (
+  if (
+    (channel || threadAgent) &&
+    threadRootId &&
+    !activityOpen &&
+    !profileOpen
+  ) {
+    const thread = (
       <ConversationAuxiliaryPanel
         onClose={() => setThreadRootId(null)}
         sizing={panelSizing}
       >
         <ConversationAuxiliaryPanelHeader
           title={
-            <ConversationAuxiliaryBreadcrumb current="Thread" items={[]} />
+            <ConversationAuxiliaryBreadcrumb
+              current={threadAgent ? threadAgent.name : "Thread"}
+              items={[]}
+            />
           }
-          subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
+          subtitle={
+            threadAgent && threadActivityAgents.length > 0 ? (
+              <span className="chief-shimmer-text">
+                {threadAgent.name} is working…
+              </span>
+            ) : (
+              `${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`
+            )
+          }
           onClose={() => setThreadRootId(null)}
         />
         <div
@@ -481,13 +526,24 @@ export function ChiefChatAuxiliaryPanels({
                 showSuggestions={false}
                 showExecutionControls={false}
                 mentionCandidates={mentionCandidates}
-                placeholder={`Reply in #${channel.label}…`}
+                placeholder={
+                  threadAgent
+                    ? `Message ${threadAgent.name}…`
+                    : `Reply in #${channel?.label ?? ""}…`
+                }
               />
               <AgentActivityComposerRow
                 agents={threadActivityAgents}
                 agentLabel={activityAgentLabel}
                 running={threadActivityAgents.length > 0}
                 statusLabel={threadStatusLabel}
+                idleLabel={
+                  threadAgent && threadActivityTurns.length > 0
+                    ? threadActivitySteps > 0
+                      ? `${threadActivitySteps} ${threadActivitySteps === 1 ? "step" : "steps"}`
+                      : "Activity"
+                    : undefined
+                }
                 onOpen={() => {
                   const onlyAgent = threadActivityAgents[0];
                   if (
@@ -506,15 +562,29 @@ export function ChiefChatAuxiliaryPanels({
         </div>
       </ConversationAuxiliaryPanel>
     );
+    return thread;
   }
 
+  const threadScoped = Boolean(threadAgent && threadRootId);
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
       error={controls.error}
-      turns={activityTurns}
+      turns={threadScoped ? threadActivityTurns : activityTurns}
       activeAgentId={activityAgentId}
-      running={controls.status === "running"}
-      tasks={childSessions}
+      running={
+        threadScoped
+          ? threadActivityAgents.length > 0
+          : controls.status === "running"
+      }
+      tasks={threadScoped ? activeThreadChildSessions : childSessions}
+      flat={Boolean(threadAgent)}
+      title={threadAgent?.name}
+      {...(threadScoped
+        ? {
+            onBack: () => setActivityOpen(false),
+            backLabel: "Back to thread",
+          }
+        : undefined)}
       onClose={() => setActivityOpen(false)}
       onOpenTask={onOpenChild}
       sizing={panelSizing}

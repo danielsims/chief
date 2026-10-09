@@ -26,7 +26,7 @@ export function mergeAgentActivityPresence(
 }
 
 export function taskAgentActivityPresence(
-  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[],
+  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status" | "provider">[],
   labelFor: (agentId: string) => string,
 ) {
   return mergeAgentActivityPresence(
@@ -34,7 +34,9 @@ export function taskAgentActivityPresence(
     tasks.filter(taskIsActivelyWorking).map((task) => ({
       id: task.agent,
       label: labelFor(task.agent),
-      taskId: task.id,
+      // A relay job has no local transcript to open. Its tool calls and
+      // thinking arrive as conversation activity, shown in the Activity panel.
+      ...(task.provider === "relay" ? undefined : { taskId: task.id }),
     })),
   );
 }
