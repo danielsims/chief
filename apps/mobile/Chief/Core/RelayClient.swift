@@ -146,6 +146,8 @@ protocol RelayServing: Sendable {
   func inviteWorkspaceMember(workspaceID: String, email: String, role: String) async throws
     -> WorkspaceInvitation
   func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws
+  func workspaceInviteLinks(workspaceID: String) async throws -> [WorkspaceOpenInvite]
+  func revokeWorkspaceInvite(workspaceID: String, inviteID: String) async throws
   func setWorkspaceMemberRole(
     workspaceID: String, kind: String, principalID: String, role: String
   ) async throws
@@ -405,6 +407,12 @@ extension RelayServing {
     -> WorkspaceInvitation
   { throw RelayError.unavailable }
   func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws {
+    throw RelayError.unavailable
+  }
+  func workspaceInviteLinks(workspaceID: String) async throws -> [WorkspaceOpenInvite] {
+    throw RelayError.unavailable
+  }
+  func revokeWorkspaceInvite(workspaceID: String, inviteID: String) async throws {
     throw RelayError.unavailable
   }
   func setWorkspaceMemberRole(
@@ -972,6 +980,18 @@ actor URLSessionRelayClient: RelayServing {
   func cancelWorkspaceInvitation(workspaceID: String, invitationID: String) async throws {
     let _: EmptyResponse = try await request(
       path: "/v1/workspaces/\(workspaceID)/invitations/\(invitationID)/cancel", method: "POST")
+  }
+
+  func workspaceInviteLinks(workspaceID: String) async throws -> [WorkspaceOpenInvite] {
+    struct Result: Decodable { let invites: [WorkspaceOpenInvite] }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/invites", method: "GET")
+    return result.invites
+  }
+
+  func revokeWorkspaceInvite(workspaceID: String, inviteID: String) async throws {
+    let _: EmptyResponse = try await request(
+      path: "/v1/workspaces/\(workspaceID)/invites/\(inviteID)/revoke", method: "POST")
   }
 
   func setWorkspaceMemberRole(

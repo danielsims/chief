@@ -358,6 +358,23 @@ struct WorkspaceInvitation: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+/// An open invite link. The relay never returns its secret; links are shown once.
+struct WorkspaceOpenInvite: Codable, Equatable, Identifiable, Sendable {
+  let inviteId: String
+  let label: String?
+  let conversationName: String?
+  let createdAt: String
+  let expiresAt: String
+  var id: String { inviteId }
+  var expiresDate: Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: expiresAt) { return date }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: expiresAt)
+  }
+}
+
 struct DirectMessageRecipient: Equatable, Identifiable, Sendable {
   let kind: String
   let principalID: String
