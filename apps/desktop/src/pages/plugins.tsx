@@ -13,7 +13,9 @@ function PluginsPageContent({ plugins }: { plugins: PluginRuntimeState }) {
         description="Connect the tools your team already uses."
       />
       <main className="min-h-0 flex-1 overflow-y-auto px-6">
-        <PluginList plugins={plugins} />
+        <div className="mx-auto w-full max-w-5xl">
+          <PluginList plugins={plugins} />
+        </div>
       </main>
     </div>
   );
