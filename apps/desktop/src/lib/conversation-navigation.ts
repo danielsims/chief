@@ -49,9 +49,11 @@ export function withOwnedConversationChild(
 ) {
   const next = new URLSearchParams(current);
   const parentId = child.parentId;
+  // Local tasks name their parent "channel:…"; relay jobs name the
+  // conversation itself.
   const channelId = parentId?.startsWith("channel:")
     ? parentId.slice(parentId.lastIndexOf(":") + 1)
-    : null;
+    : (parentId ?? null);
   const channel = channelId
     ? channels.find((candidate) => candidate.id === channelId)
     : undefined;

@@ -127,11 +127,15 @@ export function DirectMessageRow({
         onClick={onOpen}
         className={cn(
           "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-[padding,color,background-color] select-none active:cursor-grabbing",
-          needsUser
-            ? menuOpen
-              ? "pr-9"
-              : "pr-2 group-focus-within/direct:pr-9 group-hover/direct:pr-9"
-            : "pr-9",
+          // The expand chevron sits beside the options button, so the badge
+          // clears both.
+          onExpand
+            ? "pr-[3.75rem]"
+            : needsUser
+              ? menuOpen
+                ? "pr-9"
+                : "pr-2 group-focus-within/direct:pr-9 group-hover/direct:pr-9"
+              : "pr-9",
           active && "bg-sidebar-accent text-sidebar-foreground font-medium",
           !active && unreadCount > 0 && "text-sidebar-foreground font-semibold",
           isDragging && "cursor-grabbing",

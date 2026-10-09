@@ -163,6 +163,11 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         : "assistant",
     metadata: {
       createdAt: Date.parse(message.createdAt),
+      ...(message.components.some(
+        (component) => component.kind === "session.start",
+      )
+        ? { sessionStart: true }
+        : undefined),
       ...(message.author.kind === "guest"
         ? {
             guest: guestAppearance(message.author),

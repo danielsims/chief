@@ -15,9 +15,22 @@ import { useAuth } from "../lib/auth/auth-context";
 import { channelIdsNeedingUser } from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
-import { useWorkspaceChannels, useWorkspaceData } from "../lib/runtime";
+import {
+  useLocalChats,
+  useWorkspaceChannels,
+  useWorkspaceData,
+} from "../lib/runtime";
 
 type InboxFilter = "all" | "unread" | "needs-you";
+
+/** A channel-shaped view of a conversation, so agent DMs render like channels. */
+interface InboxChannel {
+  id: string;
+  slug: string;
+  name: string;
+  visibility?: string;
+  agentIds: readonly string[];
+}
 
 function relativeTime(timestamp: number) {
   const elapsed = Date.now() - timestamp;
@@ -31,12 +44,7 @@ function relativeTime(timestamp: number) {
 
 function messageDestination(
   message: ChannelInboxMessage,
-  channel: {
-    id: string;
-    slug: string;
-    visibility?: string;
-    agentIds: readonly string[];
-  },
+  channel: InboxChannel,
 ) {
   return {
     kind: "conversation" as const,
@@ -73,13 +81,35 @@ export function InboxPage() {
   const { inboxMessages, markChannelRead, markThreadRead } =
     useChannelReadState();
   const { channels } = useWorkspaceChannels();
+  const { chats } = useLocalChats(cloudOrganizationId);
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const channelsById = useMemo(
-    () => new Map(channels.map((channel) => [channel.id, channel])),
-    [channels],
-  );
+  const channelsById = useMemo(() => {
+    const map = new Map<string, InboxChannel>();
+    for (const channel of channels) {
+      map.set(channel.id, {
+        id: channel.id,
+        slug: channel.slug,
+        name: channel.name,
+        visibility: channel.visibility,
+        agentIds: channel.agentIds,
+      });
+    }
+    // Agent DMs are not in the channel roster; present them as direct channels
+    // so the Inbox can show, open, and mark them read.
+    for (const chat of chats) {
+      if (map.has(chat.id)) continue;
+      map.set(chat.id, {
+        id: chat.id,
+        slug: chat.id,
+        name: chat.title,
+        visibility: "direct",
+        agentIds: [chat.agent],
+      });
+    }
+    return map;
+  }, [channels, chats]);
   const channelsNeedingUser = useMemo(
     () =>
       channelIdsNeedingUser({

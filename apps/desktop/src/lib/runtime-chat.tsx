@@ -391,11 +391,14 @@ export function useRuntimeChat(
         threadRootId?: string;
         mentions?: string[];
         interruptActive?: boolean;
+        sessionStart?: boolean;
       },
       attachments?: MessageAttachment[],
     ) => {
+      // The caller may open the message's thread before the relay echoes it.
+      const id = crypto.randomUUID();
       void sendMessage({
-        text,
+        id,
         metadata: {
           createdAt: Date.now(),
           ...(context?.threadRootId
@@ -405,14 +408,19 @@ export function useRuntimeChat(
             ? { mentions: context.mentions }
             : undefined),
           ...(context?.interruptActive ? { interruptActive: true } : undefined),
+          ...(context?.sessionStart ? { sessionStart: true } : undefined),
         },
-        files: attachments?.map((attachment) => ({
-          type: "file" as const,
-          filename: attachment.name,
-          mediaType: attachment.mediaType,
-          url: attachment.url,
-        })),
+        parts: [
+          ...(attachments ?? []).map((attachment) => ({
+            type: "file" as const,
+            filename: attachment.name,
+            mediaType: attachment.mediaType,
+            url: attachment.url,
+          })),
+          { type: "text" as const, text },
+        ],
       });
+      return id;
     },
     [sendMessage],
   );

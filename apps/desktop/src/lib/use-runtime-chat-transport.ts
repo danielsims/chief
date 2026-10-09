@@ -88,6 +88,7 @@ export function useRuntimeChatTransport({
             threadRootId: message.metadata?.threadRootId,
             mentions: message.metadata?.mentions,
             interruptActive: message.metadata?.interruptActive,
+            sessionStart: message.metadata?.sessionStart,
           };
           const expectsReply =
             !wakeOnMentionOnly || Boolean(context.mentions?.length);
@@ -108,6 +109,18 @@ export function useRuntimeChatTransport({
             threadRootId: context.threadRootId,
             mentions: context.mentions,
             interruptActive: context.interruptActive,
+            ...(context.sessionStart
+              ? {
+                  components: [
+                    {
+                      id: crypto.randomUUID(),
+                      kind: "session.start",
+                      version: 1,
+                      payload: {},
+                    },
+                  ],
+                }
+              : undefined),
             senderName: senderName?.length ? senderName : "You",
             execution: executionRef.current,
             executorCapability,

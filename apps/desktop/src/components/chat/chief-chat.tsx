@@ -2,11 +2,14 @@ import { useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 
+import type { ThreadAgent } from "./chief-chat-auxiliary-panels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
 import { useChannelTyping } from "../../lib/use-channel-typing";
 import { InputRequestSection } from "../integrations/input-request-section";
+import { workspaceCardClassName } from "../workspace-content-surface";
 import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { ApprovalCard } from "./approval-card";
@@ -162,7 +165,6 @@ export function ChiefChat({
     anchorBrowserSession,
     browserRuns,
     browserSessions,
-    channel,
     chatId,
     childSessions,
     cloudOrganizationId,
@@ -185,6 +187,11 @@ export function ChiefChat({
     showOptimisticInitialPrompt,
     timelineEntries,
   } = timelineState;
+  // In an agent DM, every top-level message is answered in its own thread.
+  // The thread opens as the usual auxiliary panel, so no separate surface.
+  const threadAgent: ThreadAgent | undefined = directAgent
+    ? { name: directAgent.name }
+    : undefined;
   const { agents: mainActivityAgents, statusLabel: mainStatusLabel } =
     useMainAgentActivity({
       activeRootTurn,
@@ -234,8 +241,10 @@ export function ChiefChat({
   );
   return (
     <ChannelGuestMentions guests={core.channelGuests}>
-      <div className="relative flex h-full min-w-0 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex h-full min-w-0 min-[901px]:gap-2">
+        <div
+          className={cn(workspaceCardClassName, "flex min-w-0 flex-1 flex-col")}
+        >
           {header}
           <div
             ref={pictureInPictureContainerRef}
@@ -524,6 +533,7 @@ export function ChiefChat({
             profileOpen,
           }}
           respondingAgentFor={respondingAgentFor}
+          threadAgent={threadAgent}
           threadBlocks={threadBlocks}
           timeline={timelineState}
         />

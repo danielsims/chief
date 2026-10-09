@@ -183,6 +183,9 @@ export function useChiefChatCore({
                   role: message.role,
                   createdAt: message.metadata?.createdAt,
                   agentId: message.metadata?.agentId ?? directAgent?.id,
+                  ...(message.metadata?.threadRootId
+                    ? { threadRootId: message.metadata.threadRootId }
+                    : undefined),
                   blocks: withoutMarkerLines(messageBlocks(message)),
                 },
               ]
@@ -278,6 +281,9 @@ export function useChiefChatCore({
     attachments: readonly MessageAttachment[] = [],
     interruptActive = false,
   ) => {
+    // An agent DM is answered in threads: each top-level message opens its
+    // own, which carries that piece of work's context.
+    const sessionStart = Boolean(directAgent) && !threadRootId;
     const normalizedText = text.toLocaleLowerCase();
     const mentionedAgentIds = mentionCandidates
       .map((candidate) => ({
@@ -306,19 +312,34 @@ export function useChiefChatCore({
             ? channel.agentIds.find((agentId) => agentId !== "chief")
             : undefined))
       : (directAgent?.id ?? "chief");
+    const messageId = chat.sendMessageWithContext(
+      text,
+      {
+        threadRootId,
+        mentions,
+        interruptActive: interruptActive && !sessionStart,
+        sessionStart,
+      },
+      [...attachments],
+    );
+    // The reply lands in this message's own thread when it opens a session or
+    // mentions an agent, so track the turn against that root.
+    const turnThreadRootId =
+      threadRootId ??
+      (sessionStart || (channel && mentions.length > 0)
+        ? messageId
+        : undefined);
     setActiveRootTurn(
       routedAgentId
         ? {
             agentId: routedAgentId,
-            ...(threadRootId ? { threadRootId } : undefined),
+            ...(turnThreadRootId
+              ? { threadRootId: turnThreadRootId }
+              : undefined),
           }
         : null,
     );
-    chat.sendMessageWithContext(
-      text,
-      { threadRootId, mentions, interruptActive },
-      [...attachments],
-    );
+    return messageId;
   };
 
   const scheduleRuns = useScheduledRunProgress(chat.messages);
