@@ -58,7 +58,10 @@ import {
   DirectMessageRow,
   SidebarDirectMessages,
 } from "./sidebar-direct-messages";
-import { openWorkspaceSearch } from "./workspace-search";
+import {
+  OPEN_CHANNEL_BROWSER_EVENT,
+  openWorkspaceSearch,
+} from "./workspace-search";
 
 const pinnedCollisionDetection: CollisionDetection = (args) => {
   if (!args.pointerCoordinates) return closestCenter(args);
@@ -188,6 +191,11 @@ export function SidebarChannels({
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [channelBrowserOpen, setChannelBrowserOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setChannelBrowserOpen(true);
+    window.addEventListener(OPEN_CHANNEL_BROWSER_EVENT, open);
+    return () => window.removeEventListener(OPEN_CHANNEL_BROWSER_EVENT, open);
+  }, []);
   const [channelSort, setChannelSort] = useState<"default" | "az">("default");
   const [draggingItem, setDraggingItem] = useState<SidebarPinnedItem | null>(
     null,

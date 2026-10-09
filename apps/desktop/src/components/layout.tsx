@@ -12,6 +12,7 @@ import { SettingsSidebar } from "./settings-sidebar";
 import { Sidebar } from "./sidebar";
 import { WorkspaceContentSurface } from "./workspace-content-surface";
 import { WorkspaceRail } from "./workspace-rail";
+import { WorkspaceSearch } from "./workspace-search";
 
 const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = 232;
@@ -91,6 +92,7 @@ export function Layout({
   return (
     <TooltipProvider delayDuration={250}>
       <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
+        {isAuthenticated ? <WorkspaceSearch /> : null}
         <WorkspaceRail />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <AppTopChrome
