@@ -30,6 +30,7 @@ export function channelMembersInsertDirectMembers(
 INSERT INTO channel_members (
           conversation_id, principal_kind, principal_id, role, joined_at
         ) VALUES (${conversationId}, ${ownerKind}, ${ownerId}, 'owner', ${ownerJoinedAt}), (${memberConversationId}, ${memberKind}, ${memberId}, 'member', ${memberJoinedAt})
+        ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING
 `),
   );
 }
