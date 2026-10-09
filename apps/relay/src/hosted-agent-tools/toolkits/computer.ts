@@ -1,3 +1,5 @@
+import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
+
 import { publishAgentArtifact } from "../../agent-artifacts";
 import {
   optionalString,
@@ -24,6 +26,16 @@ function boundedExecution(value: {
     stderr: boundedOutput(value.stderr),
   };
 }
+
+const READ_ONLY_GIT = new Set([
+  "status",
+  "diff",
+  "log",
+  "show",
+  "rev-parse",
+  "ls-files",
+  "blame",
+]);
 
 export const hostedComputerTools = [
   defineHostedAgentTool(
@@ -91,14 +103,20 @@ export const hostedComputerTools = [
   ),
   defineHostedAgentTool(
     "computer.git",
-    async ({ computer }, input) =>
-      boundedExecution(
-        await computer.git(
-          stringArray(input, "argv"),
-          optionalString(input, "cwd"),
-        ),
-      ),
-    { effect: "non_replayable", requiresComputer: true },
+    async ({ computer }, input) => {
+      const argv = stringArray(input, "argv");
+      // History lives on the workspace Git host. A local commit, branch or
+      // push would create work that exists only on this computer.
+      if (!READ_ONLY_GIT.has(argv[0] ?? "")) {
+        throw new RecoverableToolError(
+          `computer_git only reads Git state (${[...READ_ONLY_GIT].join(", ")}). Record changes with projects_publish.`,
+        );
+      }
+      return boundedExecution(
+        await computer.git(argv, optionalString(input, "cwd")),
+      );
+    },
+    { effect: "read_only", requiresComputer: true },
   ),
   defineHostedAgentTool(
     "computer.artifacts.publish",
