@@ -205,25 +205,6 @@ export class WorkspaceChannelService {
         context.principal,
       );
 
-    const existing = firstRow<ChannelRow>(
-      channelsFindDirectBetweenMembers(this.store.storage, {
-        firstKind: kind,
-        firstId: id,
-        secondKind: target.kind,
-        secondId: target.principalId,
-      }),
-    );
-    if (existing) {
-      return json(
-        directStartResultSchema.parse({
-          conversation: this.directSummary(
-            existing,
-            target.kind,
-            target.principalId,
-          ),
-        }),
-      );
-    }
     const pair = [`${kind}:${id}`, `${target.kind}:${target.principalId}`]
       .sort()
       .join("|");
@@ -235,6 +216,55 @@ export class WorkspaceChannelService {
       .slice(0, 16)
       .map((value) => value.toString(16).padStart(2, "0"))
       .join("")}`;
+    // A pair's DM id is deterministic, so look it up by id first. Removing
+    // someone from the workspace deletes their DM memberships but keeps the
+    // conversation; matching on current members alone would then miss it and
+    // try to recreate the same id.
+    const existing =
+      firstRow<ChannelRow>(
+        channelsFindChannelsCreate(this.store.storage, conversationId),
+      ) ??
+      firstRow<ChannelRow>(
+        channelsFindDirectBetweenMembers(this.store.storage, {
+          firstKind: kind,
+          firstId: id,
+          secondKind: target.kind,
+          secondId: target.principalId,
+        }),
+      );
+    if (existing) {
+      if (String(existing.kind) !== "direct") {
+        throw new HttpError(
+          409,
+          "direct_conflict",
+          "This conversation is not a direct message.",
+        );
+      }
+      const creatorIsCaller =
+        String(existing.created_by_kind) === kind &&
+        String(existing.created_by_id) === id;
+      const now = new Date().toISOString();
+      // Restores either participant if they were removed and re-admitted.
+      channelMembersInsertDirectMembers(this.store.storage, {
+        conversationId: String(existing.conversation_id),
+        ownerKind: creatorIsCaller ? kind : target.kind,
+        ownerId: creatorIsCaller ? id : target.principalId,
+        ownerJoinedAt: now,
+        memberConversationId: String(existing.conversation_id),
+        memberKind: creatorIsCaller ? target.kind : kind,
+        memberId: creatorIsCaller ? target.principalId : id,
+        memberJoinedAt: now,
+      });
+      return json(
+        directStartResultSchema.parse({
+          conversation: this.directSummary(
+            existing,
+            target.kind,
+            target.principalId,
+          ),
+        }),
+      );
+    }
     const name = this.principalDisplayName(target.kind, target.principalId);
     const now = new Date().toISOString();
     this.store.storage.transactionSync(() => {
@@ -258,6 +288,7 @@ export class WorkspaceChannelService {
         memberJoinedAt: now,
       });
       this.store.rewriteSnapshot((conversations) => {
+        if (conversations.some((entry) => entry.id === conversationId)) return;
         conversations.push({
           id: conversationId,
           name,
