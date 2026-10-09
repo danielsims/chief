@@ -41,6 +41,9 @@ import { cellRecordsInsertPutRecord } from "./queries/cell-records/insert-put-re
 import { initializeSocketTickets } from "./socket-ticket-store";
 
 const enqueuedAgentJobSchema = z.object({ job: agentJobSchema });
+const stopConversationSchema = z.object({
+  conversationId: conversationIdSchema,
+});
 
 export class AgentObject extends DurableObject<Env> {
   private readonly workspace: Workspace;
@@ -196,6 +199,23 @@ export class AgentObject extends DurableObject<Env> {
         return yield* attempt("agent.job.renew", () =>
           queue.renew(request, context),
         );
+      }
+      if (request.method === "POST" && path.endsWith("/stop")) {
+        if (context.principal.kind !== "user") {
+          return relayError(
+            403,
+            "user_required",
+            "Only a person can stop a run.",
+          );
+        }
+        const { conversationId } = stopConversationSchema.parse(
+          yield* attempt("agent.stop.read", () => request.json()),
+        );
+        yield* attempt("agent.turn.stop", () =>
+          runtime.supersedeConversation({ conversationId, allThreads: true }),
+        );
+        yield* attempt("agent.alarm.schedule", () => queue.scheduleNextAlarm());
+        return new Response(null, { status: 204 });
       }
       if (request.method === "POST" && path.endsWith("/cancel-workflow"))
         return yield* attempt("agent.job.cancel_workflow", () =>
