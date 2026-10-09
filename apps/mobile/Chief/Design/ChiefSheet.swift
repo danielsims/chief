@@ -1,14 +1,16 @@
 import SwiftUI
 
 /// Shared bottom-sheet treatment, adapted from the on-device durable-agent
-/// menu. Sheets use iOS semantic surfaces, a generous radius, and their own
-/// explicit header instead of the generic grabber-heavy default.
+/// menu. Sheets sit on the desktop `--popover` surface, a generous radius, and
+/// their own explicit header instead of the generic grabber-heavy default.
 enum ChiefSheetPalette {
-  static let background = Color(uiColor: .secondarySystemBackground)
-  static let surface = Color(uiColor: .tertiarySystemBackground)
-  static let primary = Color(uiColor: .label)
-  static let secondary = Color(uiColor: .secondaryLabel)
-  static let separator = Color(uiColor: .separator).opacity(0.42)
+  /// `--popover`
+  static let background = Color(light: .hsl(42, 16, 96), dark: .hsl(0, 0, 9))
+  /// `--background` in light, `--muted` in dark: rows raised off the sheet.
+  static let surface = Color(light: .hsl(0, 0, 100), dark: .hsl(0, 0, 13))
+  static let primary = ChiefTheme.accent
+  static let secondary = ChiefTheme.secondary
+  static let separator = ChiefTheme.line
 }
 
 struct ChiefSheetModifier: ViewModifier {

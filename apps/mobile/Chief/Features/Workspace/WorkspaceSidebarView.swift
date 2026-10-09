@@ -226,7 +226,7 @@ struct DMsGroup: View {
           .lineLimit(1)
         Spacer(minLength: 8)
         if startingAgentID == agent.id {
-          ChiefSpinner().controlSize(.small).tint(.white)
+          ChiefSpinner().controlSize(.small).tint(ChiefTheme.accent)
         }
       }
       .frame(height: 38)
@@ -334,7 +334,7 @@ private struct ConversationRow: View {
             .foregroundStyle(ChiefTheme.accent)
             .padding(.horizontal, 7)
             .frame(minWidth: 20, minHeight: 20)
-            .background(Color.white.opacity(0.10), in: Capsule())
+            .background(ChiefTheme.elevated, in: Capsule())
         }
       }
       .contentShape(Rectangle())

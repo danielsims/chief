@@ -214,7 +214,7 @@ struct OpenCodeMark: View {
       path.addLine(to: CGPoint(x: 20 * s, y: 2 * s))
       path.closeSubpath()
     }
-    .fill(Color.white, style: FillStyle(eoFill: true))
+    .fill(ChiefTheme.accent, style: FillStyle(eoFill: true))
     .frame(width: size, height: size)
     .accessibilityHidden(true)
   }
@@ -250,7 +250,7 @@ struct BrandLogoView: View {
       } else {
         Text(String(domain.prefix(1)).uppercased())
           .font(.system(size: size * 0.38, weight: .bold))
-          .foregroundStyle(needsBacking ? .black : .white)
+          .foregroundStyle(needsBacking ? .black : ChiefTheme.accent)
       }
     }
     .frame(width: size, height: size)

@@ -110,6 +110,7 @@
 		8573908DC5E0D7D4C5E2AFAE /* agent-support.js in Resources */ = {isa = PBXBuildFile; fileRef = DBCEEF83AF58058F29166B7C /* agent-support.js */; };
 		86C7EEFF3B87F04891590874 /* KickoffToolEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520EE62054ECE3DF7878FDA /* KickoffToolEvidenceTests.swift */; };
 		87E4868E52FFA543CEC1A947 /* AgentBrowserTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F769EBDE56A903441CDF85 /* AgentBrowserTools.swift */; };
+		A11CE0A0A0A0A0A0A0A0A001 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0A0A0A0A0A0A0A0A002 /* AppearanceSettingsView.swift */; };
 		898B848A74AC8FD45DD89886 /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C514062A601E65CD2AA1DD /* NotificationSettingsView.swift */; };
 		8A4F99F18DD6A88EBDEDFDA2 /* ConversationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8D35A69CA1DA238E60641B /* ConversationCache.swift */; };
 		8C6AE453D51DE0A7ADB172D7 /* agents in Resources */ = {isa = PBXBuildFile; fileRef = FEF7EBF2CF71876B71E9F46C /* agents */; };
@@ -373,6 +374,7 @@
 		C637BCC22DBB18A68D58A5FC /* BrowserURLPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserURLPolicy.swift; sourceTree = "<group>"; };
 		C6479E5C24A0A51D0689DA99 /* WorkspaceInviteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceInviteView.swift; sourceTree = "<group>"; };
 		C731F2C4D0BFFFEEE4FBB4AB /* ScheduledRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledRuns.swift; sourceTree = "<group>"; };
+		A11CE0A0A0A0A0A0A0A0A002 /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
 		C7C514062A601E65CD2AA1DD /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		C8F769EBDE56A903441CDF85 /* AgentBrowserTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBrowserTools.swift; sourceTree = "<group>"; };
 		C94655488DC2BD184AEE1E8E /* CelldC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelldC.swift; sourceTree = "<group>"; };
@@ -465,6 +467,7 @@
 				C5B37C78598B00778376DACB /* ConnectionSettingsView.swift */,
 				1E08B699E4CA7FAF00B657AE /* EnvironmentSettingsView.swift */,
 				8568BA655C92F517DDDCC4EA /* MissionsSettingsView.swift */,
+				A11CE0A0A0A0A0A0A0A0A002 /* AppearanceSettingsView.swift */,
 				C7C514062A601E65CD2AA1DD /* NotificationSettingsView.swift */,
 				E625E8BAFE865E7C4240C659 /* ProfileSettingsView.swift */,
 				079F6D841084A1E993EEE0F4 /* SettingsSupport.swift */,
@@ -1090,6 +1093,7 @@
 				79DE4B5D3A6D0561568ADA9B /* NIP98Authenticator.swift in Sources */,
 				FE723A7672D269B60A616495 /* NIP98Signer.swift in Sources */,
 				37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */,
+				A11CE0A0A0A0A0A0A0A0A001 /* AppearanceSettingsView.swift in Sources */,
 				898B848A74AC8FD45DD89886 /* NotificationSettingsView.swift in Sources */,
 				7BCB0E66FDA3B32CA7D67097 /* NotificationSounds.swift in Sources */,
 				CC650F891CE4B8D022FAA593 /* OAuthAuthenticationClient.swift in Sources */,

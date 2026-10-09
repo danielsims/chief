@@ -106,7 +106,7 @@ private struct AgentCredentialsSection: View {
               Haptics.heavy()
               Task { await save() }
             } label: {
-              if saving { ChiefSpinner().tint(.black) } else { Text("Save") }
+              if saving { ChiefSpinner().tint(ChiefTheme.onPrimary) } else { Text("Save") }
             }
             .buttonStyle(PrimaryButtonStyle())
             .disabled(saving)

@@ -196,7 +196,7 @@ private struct PluginRecommendationMessageComponent: View {
               if busy {
                 ChiefSpinner()
                   .controlSize(.small)
-                  .tint(.white)
+                  .tint(ChiefTheme.accent)
               }
             }
             .frame(minWidth: 34)

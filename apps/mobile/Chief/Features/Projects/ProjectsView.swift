@@ -394,8 +394,8 @@ private struct EmptyProjectsView: View {
           .multilineTextAlignment(.center)
         Button("Add project") { showsAddProject = true }
           .buttonStyle(.borderedProminent)
-          .tint(.white)
-          .foregroundStyle(.black)
+          .tint(ChiefTheme.primary)
+          .foregroundStyle(ChiefTheme.onPrimary)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .padding(.vertical, 22)

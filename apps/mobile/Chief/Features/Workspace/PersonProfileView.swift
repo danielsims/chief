@@ -136,11 +136,11 @@ struct PersonProfileView: View {
         AsyncImage(url: person.imageURL) { image in
           image.resizable().scaledToFill()
         } placeholder: {
-          shape.fill(.white).overlay {
+          shape.fill(ChiefTheme.primary).overlay {
             Text(initials)
               .font(.system(size: 52, weight: .semibold))
               .tracking(-1.5)
-              .foregroundStyle(.black)
+              .foregroundStyle(ChiefTheme.onPrimary)
           }
         }
       }

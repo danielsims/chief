@@ -25,7 +25,7 @@ struct WorkspaceInviteRelayConfirmationSheet: View {
       if let host = model.pendingInviteRelayURL?.host {
         Text(host)
           .font(.system(size: 13, weight: .medium, design: .monospaced))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
           .padding(.horizontal, 13)
           .frame(height: 40)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,7 +53,7 @@ struct WorkspaceInviteRelayConfirmationSheet: View {
       } label: {
         Group {
           if model.workspaceInviteInProgress {
-            ChiefSpinner().tint(.black)
+            ChiefSpinner().tint(ChiefTheme.onPrimary)
           } else {
             Text("Continue")
           }
@@ -118,7 +118,7 @@ struct WorkspaceInviteConfirmationSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ChiefSpinner().tint(.black)
+              ChiefSpinner().tint(ChiefTheme.onPrimary)
             } else {
               Text("Join workspace")
             }
@@ -184,7 +184,7 @@ struct JoinWorkspaceSheet: View {
         } label: {
           Group {
             if model.workspaceInviteInProgress {
-              ChiefSpinner().tint(.black)
+              ChiefSpinner().tint(ChiefTheme.onPrimary)
             } else {
               Text("Continue")
             }
@@ -313,7 +313,7 @@ struct InvitePeopleSheet: View {
       } label: {
         Group {
           if sending {
-            ChiefSpinner().tint(.black)
+            ChiefSpinner().tint(ChiefTheme.onPrimary)
           } else {
             Text("Send invite")
           }
