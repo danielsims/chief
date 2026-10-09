@@ -20,7 +20,6 @@ import {
 
 import type { Provider } from "../../lib/providers";
 import type { RelayRuntimeIdentity } from "./agent-connection-model";
-import type { AgentIntegrationOption } from "./agent-detail-sections";
 import type { Deployment } from "./connect-agent-dialog-panel";
 import type { ConnectionResult } from "./connect-agent-dialog-sections";
 import type { EveConnectionPhase } from "./eve-provisioning-dialog";
@@ -35,13 +34,12 @@ import {
   suggestedVercelProjectName,
   verifyEveConnectionWithRetry,
 } from "./agent-connection-model";
-import { ConnectAgentForm, slug, toggle } from "./connect-agent-dialog-panel";
+import { ConnectAgentForm, slug } from "./connect-agent-dialog-panel";
 import { ConnectionSetup } from "./connect-agent-dialog-sections";
 import { EveProvisioningDialog } from "./eve-provisioning-dialog";
 
 export function ConnectAgentDialog({
   client,
-  integrations,
   onConnected,
   onCreateNative,
   onOpenChange,
@@ -52,7 +50,6 @@ export function ConnectAgentDialog({
   relayIdentity,
 }: {
   client: RelayClient | null;
-  integrations: AgentIntegrationOption[];
   onConnected: () => Promise<void>;
   onCreateNative: (
     input: CreateNativeAgentCommand,
@@ -82,9 +79,6 @@ export function ConnectAgentDialog({
     (item) => provider !== "remote" || item.value !== "",
   );
   const [model, setModel] = useState("deepseek/deepseek-v4-flash");
-  const [selectedIntegrations, setSelectedIntegrations] = useState<string[]>(
-    [],
-  );
   const [vercelCatalog, setVercelCatalog] =
     useState<VercelEveDestinationCatalog>({ teams: [], projects: [] });
   const [vercelLoading, setVercelLoading] = useState(false);
@@ -192,7 +186,6 @@ export function ConnectAgentDialog({
     setName("");
     setDescription("");
     setInstructions("");
-    setSelectedIntegrations([]);
     setVercelTeamId("");
     setVercelProjectMode("");
     setVercelProjectId("");
@@ -320,7 +313,6 @@ export function ConnectAgentDialog({
           deploymentTarget: deployment === "chief-cloud" ? "cloud" : "desktop",
           driver: provider,
           model: effectiveModel || undefined,
-          integrations: selectedIntegrations,
         },
       );
       close();
@@ -374,8 +366,6 @@ export function ConnectAgentDialog({
             availableProviders={availableProviders}
             selectedProviderMeta={selectedProviderMeta}
             SelectedProviderIcon={SelectedProviderIcon}
-            integrations={integrations}
-            selectedIntegrations={selectedIntegrations}
             vercelCatalog={vercelCatalog}
             vercelLoading={vercelLoading}
             vercelConnectionStatus={vercelConnectionStatus}
@@ -399,9 +389,6 @@ export function ConnectAgentDialog({
             }}
             onProviderChange={setProvider}
             onModelChange={setModel}
-            onToggleIntegration={(id) =>
-              toggle(id, selectedIntegrations, setSelectedIntegrations)
-            }
             onConnectVercel={async (token) => {
               const catalog = await connectVercel(token);
               setVercelCatalog(catalog);

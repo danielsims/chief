@@ -12,7 +12,6 @@ import {
   cachedIntegrationSearch,
   searchIntegrations,
 } from "../lib/integrations";
-import { onboardingCompletionPresentation } from "../lib/onboarding-completion";
 import { integrationDomainKey } from "./onboarding-options";
 
 export function IntegrationPickerControl({
@@ -156,17 +155,11 @@ export function IntegrationPickerControl({
 
 export function CompletionControl({
   onContinue,
-  runtimeReady,
   saving,
 }: {
   onContinue: () => void;
-  runtimeReady: boolean;
   saving: boolean;
 }) {
-  const presentation = onboardingCompletionPresentation({
-    runtimeReady,
-    saving,
-  });
   return (
     <div className="bg-card flex min-h-[480px] w-full items-center justify-center rounded-xl border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -176,15 +169,16 @@ export function CompletionControl({
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            {presentation.description}
+            Your workspace is ready. Chief will meet you in mission control and
+            bring Setup in when needed.
           </p>
           <Button
             type="button"
             className="mt-9"
             onClick={onContinue}
-            disabled={presentation.buttonDisabled}
+            disabled={saving}
           >
-            {presentation.buttonLabel}
+            {saving ? "Entering..." : "Enter workspace"}
           </Button>
         </div>
       </div>

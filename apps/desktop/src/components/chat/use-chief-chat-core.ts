@@ -11,10 +11,7 @@ import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import { guestLabel, guestSummaryAppearance } from "../../lib/guest-appearance";
-import {
-  findPendingInputRequest,
-  withoutMarkerLines,
-} from "../../lib/integration-setup";
+import { withoutMarkerLines } from "../../lib/integration-setup";
 import {
   messageBlocks,
   useChannelReactions,
@@ -196,13 +193,6 @@ export function useChiefChatCore({
   );
   const activeExecution =
     selectedExecution ?? chat.execution ?? initialExecution;
-  const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const pendingInput = useMemo(
-    () => findPendingInputRequest(chat.messages, answeredInputs),
-    [answeredInputs, chat.messages],
-  );
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -363,14 +353,12 @@ export function useChiefChatCore({
     markThreadRead,
     mentionCandidates,
     channelGuests,
-    pendingInput,
     activityTurns,
     activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
     runtimeStatus,
     selectedExecution,
     send,
     setActivityOpen: onActivityOpenChange,
-    setAnsweredInputs,
     setSelectedExecution,
     setVisibleThread,
     statusLabel: currentTurn.statusLabel,

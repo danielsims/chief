@@ -5,7 +5,6 @@ import { useSearchParams } from "react-router";
 import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
-import type { AgentIntegrationOption } from "../components/agents/agent-detail";
 import { relayRuntimeIdentity } from "../components/agents/agent-connection-model";
 import { AgentDetail } from "../components/agents/agent-detail";
 import { ConnectAgentDialog } from "../components/agents/connect-agent-dialog";
@@ -13,7 +12,6 @@ import { PageHeader } from "../components/page-header";
 import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
 import { useAuth } from "../lib/auth/auth-context";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../lib/config";
-import { useLocalIntegrationStatus } from "../lib/local-integration-status";
 import { useRelaySession } from "../lib/relay-session";
 import {
   useAgentPreferences,
@@ -29,13 +27,6 @@ export function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { agents, agentsLoaded, createNativeAgent, removeAgent } = useRuntime();
   const { cloudOrganizationId } = useAuth();
-  const { integrations: localIntegrations } = useLocalIntegrationStatus();
-  const integrations: AgentIntegrationOption[] = (localIntegrations ?? [])
-    .filter((integration) => integration.status === "connected")
-    .map((integration) => ({
-      provider: integration.provider,
-      displayName: integration.displayName ?? integration.provider,
-    }));
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();
   const overrides = agentPreferences.preferences;
@@ -159,7 +150,6 @@ export function AgentsPage() {
                 override={overrides.find(
                   (item) => item.agentId === selectedAgent.id,
                 )}
-                integrations={integrations}
                 channels={workspaceChannels.channels}
                 ready={ready}
                 saving={agentPreferences.saving}
@@ -227,7 +217,6 @@ export function AgentsPage() {
         onOpenChange={setConnectOpen}
         client={relay.client}
         relayIdentity={relayRuntimeIdentity(RELAY_URL, CHIEF_CLOUD_RELAY_URL)}
-        integrations={integrations}
         listVercelEveDestinations={async (teamId) => {
           if (!relay.client) {
             throw new Error("Chief is still connecting to this workspace.");

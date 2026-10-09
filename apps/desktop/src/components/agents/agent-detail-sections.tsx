@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Hash } from "lucide-react";
-import { Link } from "react-router";
 
 import type {
   AgentApprovalMode,
@@ -12,11 +11,6 @@ import { agentToolPermissionDefinitions } from "@chief/agent-runtime/agent-tool-
 import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
-
-export interface AgentIntegrationOption {
-  provider: string;
-  displayName: string;
-}
 
 const permissionGroups = [
   "Workspace",
@@ -128,20 +122,14 @@ export function AgentConfigurationTab({
   approvals,
   ready,
   capabilities,
-  integrations,
-  assignedIntegrations,
   onApprovalChange,
   onCapabilitiesChange,
-  onIntegrationsChange,
 }: {
   approvals: AgentApprovalMode;
   ready: boolean;
   capabilities: AgentCapabilityId[];
-  integrations: AgentIntegrationOption[];
-  assignedIntegrations: string[];
   onApprovalChange: (value: AgentApprovalMode) => void;
   onCapabilitiesChange: (value: AgentCapabilityId[]) => void;
-  onIntegrationsChange: (value: string[]) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -196,60 +184,6 @@ export function AgentConfigurationTab({
               />
             );
           })}
-        </SettingGroup>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Connections"
-          description="Connected services this agent may use when its Executor permissions allow it."
-          trailing={
-            <Link
-              to="/plugins"
-              className="text-muted-foreground hover:text-foreground text-[11px] transition-colors"
-            >
-              Manage plugins
-            </Link>
-          }
-        />
-        <SettingGroup>
-          {integrations.length > 0 ? (
-            integrations.map((integration) => {
-              const checked = assignedIntegrations.includes(
-                integration.provider,
-              );
-              return (
-                <SettingRow
-                  key={integration.provider}
-                  title={integration.displayName}
-                  description="Make this connected service available to the agent."
-                  control={
-                    <Switch
-                      checked={checked}
-                      disabled={!ready}
-                      onCheckedChange={(next) =>
-                        onIntegrationsChange(
-                          next
-                            ? [...assignedIntegrations, integration.provider]
-                            : assignedIntegrations.filter(
-                                (provider) => provider !== integration.provider,
-                              ),
-                        )
-                      }
-                    />
-                  }
-                />
-              );
-            })
-          ) : (
-            <div className="px-4 py-5">
-              <p className="text-[13px] font-medium">No connected services</p>
-              <p className="text-muted-foreground mt-1 text-[13px] leading-5 font-normal">
-                Add integrations at the workspace level before assigning them to
-                this agent.
-              </p>
-            </div>
-          )}
         </SettingGroup>
       </section>
     </div>

@@ -24,7 +24,7 @@ import {
 import { MediaPreview } from "../components/files/media-preview";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
-import { useWorkspaceEmailPreview, useWorkspaceFile } from "../lib/runtime";
+import { useWorkspaceFile } from "../lib/runtime";
 
 export function WorkspaceFilePage() {
   const navigate = useNavigate();
@@ -67,7 +67,6 @@ export function WorkspaceFilePage() {
     <WorkspaceFileEditor
       key={file.id}
       file={file}
-      workspaceId={cloudOrganizationId}
       saving={saving}
       error={error}
       save={save}
@@ -77,13 +76,11 @@ export function WorkspaceFilePage() {
 
 function WorkspaceFileEditor({
   file,
-  workspaceId,
   saving,
   error,
   save,
 }: {
   file: WorkspaceFileSnapshot;
-  workspaceId: string | null;
   saving: boolean;
   error: string | null;
   save: (content: string, name?: string) => void;
@@ -93,10 +90,6 @@ function WorkspaceFileEditor({
   const [content, setContent] = useState(file.content);
   const [baseline, setBaseline] = useState(file);
   const [view, setView] = useState<"edit" | "preview">("preview");
-  const emailPreview = useWorkspaceEmailPreview(
-    workspaceId,
-    file.provider === "local" ? file : null,
-  );
   const dirty = name.trim() !== file.name || content !== file.content;
   const newerRevision =
     baseline.currentVersionId !== file.currentVersionId && dirty;
@@ -232,33 +225,7 @@ function WorkspaceFileEditor({
         </div>
       ) : null}
 
-      {view === "preview" &&
-      file.kind === "email" &&
-      file.provider === "local" ? (
-        <div className="bg-card/20 mt-5 border p-4">
-          {dirty ? (
-            <div className="text-muted-foreground border-b px-3 pb-3 text-xs">
-              Save your changes to refresh this preview.
-            </div>
-          ) : null}
-          {emailPreview.loading ? (
-            <div className="bg-card mx-auto my-10 h-[620px] max-w-2xl animate-pulse border" />
-          ) : emailPreview.error ? (
-            <div className="text-destructive px-4 py-12 text-center text-sm">
-              {emailPreview.error}
-            </div>
-          ) : emailPreview.preview ? (
-            <iframe
-              title={`Preview of ${file.name}`}
-              srcDoc={emailPreview.preview.html}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              className="mx-auto h-[720px] w-full max-w-3xl border bg-white"
-            />
-          ) : null}
-        </div>
-      ) : file.mimeType !== "text/markdown" &&
-        file.mimeType !== "text/plain" ? (
+      {file.mimeType !== "text/markdown" && file.mimeType !== "text/plain" ? (
         <pre className="bg-card/20 mt-5 overflow-auto rounded-lg border p-8 text-xs leading-6">
           {content}
         </pre>
