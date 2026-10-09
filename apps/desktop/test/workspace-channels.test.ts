@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ExecutorArtifactSummary } from "@chief/agent-runtime/artifact-types";
-
-import { classifyArtifact } from "../src/lib/chief-artifacts";
 import {
   actionConversation,
   channelChatId,
@@ -20,17 +17,6 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../src/lib/workspace-channels";
-
-function artifact(title: string, description = ""): ExecutorArtifactSummary {
-  return {
-    id: title,
-    title,
-    description,
-    preview: null,
-    createdAt: 0,
-    updatedAt: 0,
-  };
-}
 
 void test("gives every product channel its own stable runtime session", () => {
   const chatIds = WORKSPACE_CHANNELS.map((channel) =>
@@ -144,16 +130,6 @@ void test("routes overview actions to the channel that owns the work", () => {
     }),
     { kind: "channel", id: "engineering" },
   );
-});
-
-void test("types durable artifacts with the same product vocabulary", () => {
-  assert.equal(classifyArtifact(artifact("Acquisition report")), "analytics");
-  assert.equal(
-    classifyArtifact(artifact("Launch concepts", "Campaign creative options")),
-    "advertising",
-  );
-  assert.equal(classifyArtifact(artifact("Buyer shortlist")), "prospecting");
-  assert.equal(classifyArtifact(artifact("Company brief")), "general");
 });
 
 void test("moves channels into and within the pinned section", () => {

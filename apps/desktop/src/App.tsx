@@ -33,7 +33,6 @@ import {
   shouldStayOnWorkspaceCreate,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
-import { ArtifactsPage } from "./pages/artifacts";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { InboxPage } from "./pages/inbox";
@@ -319,7 +318,6 @@ function AuthenticatedApp() {
                       <Route element={<Layout />}>
                         <Route index element={<DashboardPage />} />
                         <Route path="inbox" element={<InboxPage />} />
-                        <Route path="artifacts" element={<ArtifactsPage />} />
                         <Route path="schedule" element={<SchedulePage />} />
                         <Route
                           path="conversations"

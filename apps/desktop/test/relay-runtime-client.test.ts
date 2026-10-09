@@ -227,6 +227,12 @@ void test("routes createChannel through the relay and emits the created channel"
     stopConversation() {
       throw new Error("not used in this test");
     },
+    addChannelMembers() {
+      throw new Error("not used in this test");
+    },
+    removeChannelMember() {
+      throw new Error("not used in this test");
+    },
     github: {
       cloneToken() {
         throw new Error("not used in this test");
@@ -344,6 +350,8 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
     setWorkspaceSecret: unused,
     deleteWorkspaceSecret: unused,
     stopConversation: unused,
+    addChannelMembers: unused,
+    removeChannelMember: unused,
     github: { cloneToken: unused },
   } satisfies RelayRuntimeRelay;
   const client = new RelayRuntimeClient(relay, snapshot);

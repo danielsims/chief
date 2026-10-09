@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { Archive, Hash, Lock, Trash2 } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
-import { Switch } from "@chief/ui/components/switch";
 
 import type { SidebarChannel } from "./channel-browser-dialog";
 import { useChannelLinks } from "./chat/channel-guests";
@@ -11,24 +10,20 @@ import { useChannelLinks } from "./chat/channel-guests";
  * lifecycle actions that change who can see the channel or whether it
  * exists at all. */
 export function ChannelSettingsPanel({
-  agentsCanManage,
   busy,
   canManage,
   channel,
   nameField,
   onArchive,
   onDelete,
-  onSetAgentManagement,
   onSetPrivate,
 }: {
-  agentsCanManage: boolean;
   busy: boolean;
   canManage: boolean;
   channel: SidebarChannel;
   nameField: ReactNode;
   onArchive: () => void;
   onDelete: () => void;
-  onSetAgentManagement: (enabled: boolean) => void;
   onSetPrivate: (isPrivate: boolean) => void;
 }) {
   const isPrivate = channel.visibility === "private";
@@ -63,25 +58,6 @@ export function ChannelSettingsPanel({
             </Button>
           </section>
         )}
-        {canManage ? (
-          <section className="flex items-center gap-4 px-5 py-4">
-            <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold">
-                Agent channel management
-              </h3>
-              <p className="text-muted-foreground mt-1 text-sm leading-5">
-                Let agents update details, invite teammates, track feature work
-                and archive this channel when the work is done.
-              </p>
-            </div>
-            <Switch
-              aria-label="Allow agents to manage this channel"
-              checked={agentsCanManage}
-              disabled={busy}
-              onCheckedChange={onSetAgentManagement}
-            />
-          </section>
-        ) : null}
       </div>
 
       {canManage ? (

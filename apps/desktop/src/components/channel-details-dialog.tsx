@@ -3,8 +3,6 @@ import { useState } from "react";
 import { Copy, Hash } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import type { ChannelAgentPermission } from "@chief/channel-api";
-import { channelAgentPermissions } from "@chief/channel-api";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -55,7 +53,6 @@ export function ChannelDetailsDialog({
   onDelete,
   onLeave,
   onSetArchived,
-  onSetPolicy,
   onUpdate,
 }: {
   canManage: boolean;
@@ -68,10 +65,6 @@ export function ChannelDetailsDialog({
   onSetArchived: (
     channelId: WorkspaceChannelId,
     archived: boolean,
-  ) => Promise<void>;
-  onSetPolicy: (
-    channelId: WorkspaceChannelId,
-    agentPermissions: ChannelAgentPermission[],
   ) => Promise<void>;
   onUpdate: (
     channelId: WorkspaceChannelId,
@@ -92,30 +85,9 @@ export function ChannelDetailsDialog({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingLifecycle, setSavingLifecycle] = useState(false);
   const agentIds = details ? [...new Set(details.agentIds)] : [];
   const memberCount = agentIds.length + (user ? 1 : 0);
-  const agentsCanManage = (details?.agentPermissions?.length ?? 0) > 0;
-
-  const setAgentManagement = async (enabled: boolean) => {
-    if (!details || savingPolicy) return;
-    setSavingPolicy(true);
-    setError(null);
-    const agentPermissions = enabled ? [...channelAgentPermissions] : [];
-    try {
-      await onSetPolicy(details.id, agentPermissions);
-      setDetails({ ...details, agentPermissions });
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Chief could not update agent access.",
-      );
-    } finally {
-      setSavingPolicy(false);
-    }
-  };
 
   const setArchived = async () => {
     if (!details || savingLifecycle) return;
@@ -402,8 +374,7 @@ export function ChannelDetailsDialog({
 
           {activeTab === "settings" && details ? (
             <ChannelSettingsPanel
-              agentsCanManage={agentsCanManage}
-              busy={savingLifecycle || savingPolicy}
+              busy={savingLifecycle}
               canManage={canManage}
               channel={details}
               nameField={renderField(
@@ -413,9 +384,6 @@ export function ChannelDetailsDialog({
               )}
               onArchive={() => void setArchived()}
               onDelete={() => onDelete(details)}
-              onSetAgentManagement={(enabled) =>
-                void setAgentManagement(enabled)
-              }
               onSetPrivate={(isPrivate) => void setPrivate(isPrivate)}
             />
           ) : null}

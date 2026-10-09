@@ -31,7 +31,10 @@ import {
   relayAgentPreferencesMessage,
   saveRelayAgentPreference,
 } from "./relay-runtime-agents";
-import { applyRelayChannelSettings } from "./relay-runtime-channel-settings";
+import {
+  applyRelayChannelAgents,
+  applyRelayChannelSettings,
+} from "./relay-runtime-channel-settings";
 import {
   createRelayWorkspaceChannel,
   loadRelayWorkspaceChannels,
@@ -288,6 +291,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
         await this.relay.deleteWorkspaceSecret(message.key);
         await this.emitEnvironment();
         return;
+      case "updateChannelAgents":
+        await applyRelayChannelAgents(
+          this.relay,
+          this.snapshot,
+          message,
+          (reply) => this.emit(reply),
+        );
+        return;
       case "updateChannel":
       case "setChannelArchived":
       case "deleteChannel":
@@ -313,22 +324,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "browserViewportResize":
       case "browserReload":
       case "browserClose":
-        return;
-      // Live features the relay does not serve yet. Each needs a relay route
-      // or removal; until then they fail loudly instead of silently.
-      case "listArtifacts":
-      case "updateChannelAgents":
-      case "setChannelPolicy":
-      case "publishProjectCheckout":
-      case "discardProjectCheckout":
-      case "createProjectPullRequest":
-      case "listProjectAccessRequests":
-      case "resolveProjectAccessRequest":
-        this.recordError(
-          new Error(`Relay command ${message.type} is not implemented.`),
-          undefined,
-          "requestId" in message ? message.requestId : undefined,
-        );
         return;
       default: {
         const unhandled: never = message;

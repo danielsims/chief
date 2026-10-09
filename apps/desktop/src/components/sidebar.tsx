@@ -459,7 +459,6 @@ export function Sidebar({
           onCreateChannel={workspaceChannels.createChannel}
           onDeleteChannel={deleteChannel}
           onSetChannelArchived={workspaceChannels.setChannelArchived}
-          onSetChannelPolicy={workspaceChannels.setChannelPolicy}
           onUpdateChannel={workspaceChannels.updateChannel}
           onLeaveChannel={leaveChannel}
           onPinnedChange={updatePinned}
