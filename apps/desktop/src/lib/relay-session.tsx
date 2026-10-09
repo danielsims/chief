@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import type {
   CreateWorkspaceCommand,
   WorkspaceSummary,
 } from "@chief/relay-contracts";
-import { RelayClient } from "@chief/relay-client";
+import { RelayClient, RelayClientError } from "@chief/relay-client";
 
 import type { RelayConnectionIntent } from "./relay-session-state";
 import type { RelaySessionValue } from "./relay-session-value";
@@ -14,10 +15,7 @@ import { connectedRelayIdentities } from "./auth/account-directory";
 import { useAuth } from "./auth/auth-context";
 import { RELAY_URL } from "./config";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
-import {
-  clearPendingOrganizationInvitation,
-  readPendingOrganizationInvitation,
-} from "./organization-invitation";
+import { takePendingOrganizationInvitation } from "./organization-invitation";
 import {
   knownRelayConnections,
   knownWorkspacesForRelayIdentities,
@@ -118,27 +116,6 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           if (snapshot === undefined) {
             invalidateSession();
             return;
-          }
-          const pendingOrganizationInvitation =
-            readPendingOrganizationInvitation();
-          if (
-            pendingOrganizationInvitation?.relayUrl ===
-            new URL(RELAY_URL).origin
-          ) {
-            // Consume the invitation before opening it so a failed attempt
-            // cannot re-trigger this block on every reconnect. Switching
-            // provisions the membership; there is no separate join step.
-            clearPendingOrganizationInvitation();
-            await accountClient.switchWorkspace(
-              pendingOrganizationInvitation.workspaceId,
-            );
-            snapshot = await activeRelayWorkspace();
-            if (pendingOrganizationInvitation.channelId) {
-              dispatchChiefNavigation({
-                kind: "conversation",
-                channelId: pendingOrganizationInvitation.channelId,
-              });
-            }
           }
           const pendingWorkspace = pendingWorkspaceSwitch(accountId);
           if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
@@ -282,6 +259,44 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [connect]);
+
+  // Joining an invited workspace waits until this account is connected, and
+  // only touches the session once the relay accepts the join. An invitation
+  // accepted on the web by another account then leaves the open workspace as
+  // it was. Switching provisions the membership; there is no separate join.
+  useEffect(() => {
+    const client = state.client;
+    if (!client || state.loading) return;
+    const invitation = takePendingOrganizationInvitation(
+      new URL(RELAY_URL).origin,
+    );
+    if (!invitation) return;
+    void (async () => {
+      try {
+        await client.switchWorkspace(invitation.workspaceId);
+      } catch (error) {
+        console.warn("[Relay] Workspace invitation could not open:", error);
+        if (error instanceof RelayClientError && error.status === 403) {
+          toast.error("This invitation is for a different account", {
+            description:
+              "Chief is signed in with another email. Sign out, then sign in with the invited email to join.",
+          });
+        } else {
+          toast.error("Chief couldn’t open this invitation", {
+            description: "Open the invitation link again to retry.",
+          });
+        }
+        return;
+      }
+      await connect();
+      if (invitation.channelId) {
+        dispatchChiefNavigation({
+          kind: "conversation",
+          channelId: invitation.channelId,
+        });
+      }
+    })();
+  }, [connect, state.client, state.loading]);
 
   const switchWorkspace = useCallback(
     async (

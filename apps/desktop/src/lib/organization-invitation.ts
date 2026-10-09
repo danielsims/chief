@@ -44,23 +44,29 @@ export function storePendingOrganizationInvitation(
   );
 }
 
-export function readPendingOrganizationInvitation() {
+/**
+ * Reads the invitation saved before a reload and forgets it, unless it belongs
+ * to a different relay than the one now connected.
+ */
+export function takePendingOrganizationInvitation(relayOrigin: string) {
+  const stored = window.sessionStorage.getItem(
+    pendingOrganizationInvitationKey,
+  );
+  if (!stored) return null;
   try {
-    const parsed = parseJsonObject(
-      JSON.parse(
-        window.sessionStorage.getItem(pendingOrganizationInvitationKey) ??
-          "null",
-      ),
-    );
+    const parsed = parseJsonObject(JSON.parse(stored));
     if (
       !parsed ||
       !isJsonString(parsed.relayUrl) ||
       !isJsonString(parsed.workspaceId)
     ) {
+      window.sessionStorage.removeItem(pendingOrganizationInvitationKey);
       return null;
     }
     const relay = new URL(parsed.relayUrl);
     assertSafeRelayOrigin(relay);
+    if (relay.origin !== relayOrigin) return null;
+    window.sessionStorage.removeItem(pendingOrganizationInvitationKey);
     if (!parsed.workspaceId.startsWith("workspace-")) return null;
     const channelId = isJsonString(parsed.channelId) ? parsed.channelId : null;
     return {
@@ -73,10 +79,6 @@ export function readPendingOrganizationInvitation() {
     window.sessionStorage.removeItem(pendingOrganizationInvitationKey);
     return null;
   }
-}
-
-export function clearPendingOrganizationInvitation() {
-  window.sessionStorage.removeItem(pendingOrganizationInvitationKey);
 }
 
 function assertSafeRelayOrigin(url: URL) {
