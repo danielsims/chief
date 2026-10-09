@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from "@chief/agent-runtime/types";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
+import { agentIdSchema } from "@chief/relay-contracts";
 
 import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import { loadRelayWorkspaceChannels } from "./relay-runtime-channels";
@@ -60,4 +61,38 @@ export async function applyRelayChannelSettings(
           },
     );
   }
+}
+
+/** Makes a channel's agent members match the chosen agents, then answers with
+ * the refreshed channel list. People in the channel are left alone. */
+export async function applyRelayChannelAgents(
+  relay: RelayRuntimeRelay,
+  snapshot: WorkspaceSnapshot,
+  message: Extract<ClientMessage, { type: "updateChannelAgents" }>,
+  emit: (message: ServerMessage) => void,
+) {
+  const { channelId, agentIds } = message;
+  const current = new Set<string>(
+    (await relay.listChannelMembers(channelId)).flatMap((member) =>
+      member.kind === "agent" ? [member.principalId] : [],
+    ),
+  );
+  const added = agentIds
+    .filter((agentId) => !current.has(agentId))
+    .map((agentId) => agentIdSchema.parse(agentId));
+  if (added.length > 0) {
+    await relay.addChannelMembers(
+      channelId,
+      added.map((principalId) => ({ kind: "agent" as const, principalId })),
+    );
+  }
+  for (const agentId of current) {
+    if (agentIds.includes(agentId)) continue;
+    await relay.removeChannelMember(channelId, {
+      kind: "agent",
+      principalId: agentId,
+    });
+  }
+  const { channels } = await loadRelayWorkspaceChannels(relay, snapshot);
+  emit({ type: "channels", workspaceId: message.workspaceId, channels });
 }

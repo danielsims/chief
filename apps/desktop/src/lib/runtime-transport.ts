@@ -14,20 +14,26 @@ export type RuntimeCommand = Exclude<
   {
     type:
       | "bootstrapOnboardingWork"
+      | "createProjectPullRequest"
       | "deleteChat"
       | "deleteWorkspaceFile"
+      | "discardProjectCheckout"
       | "disconnectGoogleAnalytics"
       | "dismissActionItem"
       | "expandRecurringWorkGrant"
       | "getSlackChannel"
       | "inspectWorkspaceIntegrations"
+      | "listArtifacts"
       | "listDiagnostics"
+      | "listProjectAccessRequests"
       | "listVercelEveDestinations"
       | "provideInput"
       | "provisionVercelEveAgent"
+      | "publishProjectCheckout"
       | "queryInputs"
       | "renderWorkspaceEmail"
       | "resolveActionRequest"
+      | "resolveProjectAccessRequest"
       | "respondPermission"
       | "respondQuestion"
       | "rotateRecurringWorkWebhook"
@@ -35,6 +41,7 @@ export type RuntimeCommand = Exclude<
       | "saveCampaign"
       | "saveSlackChannel"
       | "saveWorkspaceWaysOfWorking"
+      | "setChannelPolicy"
       | "storeInput";
   }
 >;

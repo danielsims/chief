@@ -33,6 +33,7 @@ import {
   channelJoinCommandSchema,
   channelListResultSchema,
   channelMemberAddCommandSchema,
+  channelMemberRemoveCommandSchema,
   conversationIdSchema,
   imageAssetDeleteResultSchema,
   isJsonString,
@@ -310,6 +311,32 @@ export class RelayClientBase {
             protocolVersion: 1,
             occurredAt: new Date().toISOString(),
             payload: { conversationId: conversation, members },
+          }),
+        ),
+      },
+    );
+  }
+
+  async removeChannelMember(
+    conversationId: string,
+    member: { kind: "user" | "agent"; principalId: string },
+  ): Promise<void> {
+    const conversation = conversationIdSchema.parse(conversationId);
+    await this.fetchJson(
+      this.workspaceUrl(
+        `channels/${encodeURIComponent(conversation)}/members/remove`,
+      ),
+      channelActionResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          channelMemberRemoveCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: { conversationId: conversation, ...member },
           }),
         ),
       },
