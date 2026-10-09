@@ -13,6 +13,7 @@ protocol RelayServing: Sendable {
 
   func bindDeviceIdentity(accountToken: String) async throws
   func registerPushDevice(token: String, environment: String) async throws -> Bool
+  func unregisterPushDevice(token: String) async throws
   func createProject(
     workspaceID: String,
     name: String,
@@ -240,6 +241,8 @@ extension RelayServing {
   func registerPushDevice(token _: String, environment _: String) async throws -> Bool {
     false
   }
+
+  func unregisterPushDevice(token _: String) async throws {}
 
   func createProject(
     workspaceID _: String,
@@ -604,6 +607,15 @@ actor URLSessionRelayClient: RelayServing {
     await DeviceAuthorizationVault.shared.store(
       result.deviceAuthorization,
       for: configuration.relayURL
+    )
+  }
+
+  func unregisterPushDevice(token: String) async throws {
+    struct Payload: Encodable { let token: String }
+    let _: EmptyResponse = try await request(
+      path: "/v1/push/devices",
+      method: "DELETE",
+      body: try JSONEncoder().encode(Payload(token: token))
     )
   }
 

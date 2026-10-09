@@ -315,6 +315,15 @@ final class AppModel {
     await consumeNotificationDeepLink()
   }
 
+  /// Stops this phone receiving the signed-out account's notifications. Runs
+  /// while the session can still authenticate; failure never blocks sign-out.
+  private func unregisterPushToken() async {
+    guard let token = pendingPushToken, session != nil else { return }
+    let hex = token.map { String(format: "%02x", $0) }.joined()
+    try? await relay.unregisterPushDevice(token: hex)
+    MobileNotifications.remotePushRegistered = false
+  }
+
   func registerPushToken(_ token: Data) async {
     pendingPushToken = token
     await sendPendingPushToken()
@@ -3052,6 +3061,7 @@ final class AppModel {
       relayURL,
       appConfiguration.relayURL
     )
+    if signingOutActive { await unregisterPushToken() }
     await discardRelay(relayURL, signingOutActive: signingOutActive)
     workspaceSummaries = relayDirectory.workspaceSummaries(
       activeWorkspaceID: signingOutActive ? nil : workspace?.id
