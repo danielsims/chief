@@ -15,6 +15,7 @@ import type {
   WorkspaceInvitation,
   WorkspaceInvite,
   WorkspaceInviteClaimResult,
+  WorkspaceInviteLink,
   WorkspaceMember,
   WorkspaceSnapshot,
   WorkspaceSummary,
@@ -46,6 +47,7 @@ import {
   relayProjectDeleteResultSchema,
   relayProjectSchema,
   relayProjectsResultSchema,
+  revokeWorkspaceInviteResultSchema,
   workspaceDeleteResultSchema,
   workspaceFileSaveSchema,
   workspaceFileSchema,
@@ -55,6 +57,7 @@ import {
   workspaceInvitationListSchema,
   workspaceInvitationSchema,
   workspaceInviteClaimResultSchema,
+  workspaceInviteLinkListSchema,
   workspaceInviteSchema,
   workspaceListResultSchema,
   workspaceMediaUploadSchema,
@@ -172,6 +175,7 @@ export class RelayClientBase {
     secret: string;
     conversationId?: string | null;
     expiresAt: string;
+    label?: string | null;
   }): Promise<WorkspaceInvite> {
     return await this.fetchJson(
       this.workspaceUrl("invites"),
@@ -185,8 +189,27 @@ export class RelayClientBase {
           secret: input.secret,
           conversationId: input.conversationId ?? null,
           expiresAt: input.expiresAt,
+          label: input.label?.trim() ? input.label.trim() : null,
         }),
       },
+    );
+  }
+
+  async listWorkspaceInvites(): Promise<WorkspaceInviteLink[]> {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("invites"),
+        workspaceInviteLinkListSchema,
+      )
+    ).invites;
+  }
+
+  async revokeWorkspaceInvite(inviteId: string): Promise<void> {
+    await this.fetchJson(
+      this.workspaceUrl(`invites/${encodeURIComponent(inviteId)}/revoke`),
+      revokeWorkspaceInviteResultSchema,
+      true,
+      { method: "POST" },
     );
   }
 

@@ -132,6 +132,7 @@ export const createWorkspaceInviteCommandSchema = z
     secret: workspaceInviteSecretSchema,
     conversationId: conversationIdSchema.nullable().default(null),
     expiresAt: isoDateTimeSchema,
+    label: z.string().trim().min(1).max(60).nullable().default(null),
   })
   .strict();
 
@@ -143,6 +144,28 @@ export const workspaceInviteSchema = z
     conversationId: conversationIdSchema.nullable(),
     conversationName: z.string().trim().min(1).max(120).nullable(),
     expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
+/** An open invite link. The secret is never returned: links are shown once. */
+export const workspaceInviteLinkSchema = z
+  .object({
+    inviteId: z.string().trim().min(1).max(128),
+    label: z.string().trim().min(1).max(60).nullable(),
+    conversationName: z.string().trim().min(1).max(120).nullable(),
+    createdAt: isoDateTimeSchema,
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const workspaceInviteLinkListSchema = z
+  .object({ invites: z.array(workspaceInviteLinkSchema).max(500) })
+  .strict();
+
+export const revokeWorkspaceInviteResultSchema = z
+  .object({
+    inviteId: z.string().trim().min(1).max(128),
+    revoked: z.literal(true),
   })
   .strict();
 
@@ -442,6 +465,7 @@ export type CreateWorkspaceInviteCommand = z.infer<
   typeof createWorkspaceInviteCommandSchema
 >;
 export type WorkspaceInvite = z.infer<typeof workspaceInviteSchema>;
+export type WorkspaceInviteLink = z.infer<typeof workspaceInviteLinkSchema>;
 export type ClaimWorkspaceInviteCommand = z.infer<
   typeof claimWorkspaceInviteCommandSchema
 >;

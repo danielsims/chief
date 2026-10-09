@@ -3,7 +3,9 @@ import {
   claimWorkspaceInviteCommandSchema,
   createWorkspaceInviteCommandSchema,
   previewWorkspaceInviteCommandSchema,
+  revokeWorkspaceInviteResultSchema,
   workspaceInviteClaimResultSchema,
+  workspaceInviteLinkListSchema,
   workspaceInviteSchema,
 } from "@chief/relay-contracts";
 
@@ -17,9 +19,11 @@ import { membersInsertClaim } from "./queries/members/insert-claim";
 import { workspaceInviteClaimsFindClaim } from "./queries/workspace-invite-claims/find-claim";
 import { workspaceInviteClaimsInsertClaim } from "./queries/workspace-invite-claims/insert-claim";
 import { workspaceInvitesFindCreate } from "./queries/workspace-invites/find-create";
+import { workspaceInvitesFindListOpen } from "./queries/workspace-invites/find-list-open";
 import { workspaceInvitesFindLookupInvite } from "./queries/workspace-invites/find-lookup-invite";
 import { workspaceInvitesInsertCreate } from "./queries/workspace-invites/insert-create";
 import { workspaceInvitesUpdateClaim } from "./queries/workspace-invites/update-claim";
+import { workspaceInvitesUpdateRevoke } from "./queries/workspace-invites/update-revoke";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
@@ -33,6 +37,7 @@ interface InviteRow extends Record<string, SqlStorageValue> {
   use_count: number;
   revoked_at: string | null;
   created_at: string;
+  label: string | null;
 }
 
 interface InviteClaimRow extends Record<string, SqlStorageValue> {
@@ -114,6 +119,7 @@ export class WorkspaceInvitationService {
         createdByUserId: principal.userId,
         expiresAt: command.expiresAt,
         createdAt: new Date(now).toISOString(),
+        label: command.label,
       });
     } catch {
       throw new HttpError(
@@ -124,6 +130,67 @@ export class WorkspaceInvitationService {
     }
     const created = this.requireInvite(command.commandId);
     return json(this.describeInvite(created), { status: 201 });
+  }
+
+  list(principal: Principal) {
+    this.requireInviteManager(principal);
+    const invites = workspaceInvitesFindListOpen<InviteRow>(
+      this.storage,
+      new Date().toISOString(),
+    );
+    return json(
+      workspaceInviteLinkListSchema.parse({
+        invites: invites.map((invite) => ({
+          inviteId: invite.invite_id,
+          label: invite.label,
+          conversationName: invite.conversation_id
+            ? String(this.channels.requireChannel(invite.conversation_id).name)
+            : null,
+          createdAt: invite.created_at,
+          expiresAt: invite.expires_at,
+        })),
+      }),
+    );
+  }
+
+  revoke(principal: Principal, inviteId: string) {
+    this.requireInviteManager(principal);
+    const invite = firstRow<InviteRow>(
+      workspaceInvitesFindCreate(this.storage, inviteId),
+    );
+    if (!invite) {
+      throw new HttpError(
+        404,
+        "workspace_invite_not_found",
+        "This workspace invite is not valid.",
+      );
+    }
+    workspaceInvitesUpdateRevoke(
+      this.storage,
+      inviteId,
+      new Date().toISOString(),
+    );
+    return json(
+      revokeWorkspaceInviteResultSchema.parse({ inviteId, revoked: true }),
+    );
+  }
+
+  private requireInviteManager(principal: Principal) {
+    if (principal.kind !== "user") {
+      throw new HttpError(
+        403,
+        "workspace_invite_denied",
+        "Only a workspace owner or admin can manage invites.",
+      );
+    }
+    const member = this.channels.requirePrincipalMember(principal);
+    if (member.role !== "owner" && member.role !== "admin") {
+      throw new HttpError(
+        403,
+        "workspace_invite_denied",
+        "Only a workspace owner or admin can manage invites.",
+      );
+    }
   }
 
   async preview(request: Request) {
@@ -142,24 +209,24 @@ export class WorkspaceInvitationService {
         "A signed-in user is required to join a workspace.",
       );
     }
+    return this.claimForUser(request, identity.userId);
+  }
+
+  /** Admits one account. Callers have already authenticated `userId`. */
+  async claimForUser(request: Request, userId: string) {
     const command = claimWorkspaceInviteCommandSchema.parse(
       await parseJson(request),
     );
     const invite = await this.lookupInvite(command.secret);
     const existingClaim = firstRow<InviteClaimRow>(
-      workspaceInviteClaimsFindClaim(
-        this.storage,
-        invite.invite_id,
-        identity.userId,
-      ),
+      workspaceInviteClaimsFindClaim(this.storage, invite.invite_id, userId),
     );
-    const alreadyMember =
-      this.channels.memberRole("user", identity.userId) !== null;
+    const alreadyMember = this.channels.memberRole("user", userId) !== null;
     if (!existingClaim) {
       this.requireInviteAvailable(invite);
       const now = new Date().toISOString();
       this.storage.transactionSync(() => {
-        membersInsertClaim(this.storage, identity.userId, now);
+        membersInsertClaim(this.storage, userId, now);
         const conversationId = invite.conversation_id ?? "general";
         const channel = firstRow<{ conversation_id: string }>(
           channelsFindCreateChannel(this.storage, conversationId),
@@ -167,13 +234,13 @@ export class WorkspaceInvitationService {
         if (channel) {
           channelMembersInsertClaim(this.storage, {
             conversationId: conversationId,
-            principalId: identity.userId,
+            principalId: userId,
             joinedAt: now,
           });
         }
         workspaceInviteClaimsInsertClaim(this.storage, {
           inviteId: invite.invite_id,
-          userId: identity.userId,
+          userId: userId,
           claimedAt: now,
         });
         workspaceInvitesUpdateClaim(this.storage, invite.invite_id);
