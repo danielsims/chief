@@ -184,17 +184,17 @@ struct ConversationMessageRow: View {
         if unreadReplyCount > 0 {
           Text("\(unreadReplyCount) new")
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.black)
+            .foregroundStyle(ChiefTheme.onPrimary)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(.white, in: Capsule())
+            .background(ChiefTheme.primary, in: Capsule())
         }
         Spacer(minLength: 0)
         Image(systemName: "chevron.right")
           .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(ChiefTheme.tertiary)
       }
-      .foregroundStyle(unreadReplyCount > 0 ? Color.white : ChiefTheme.secondary)
+      .foregroundStyle(unreadReplyCount > 0 ? ChiefTheme.accent : ChiefTheme.secondary)
       .padding(.leading, 45)
       .padding(.vertical, 3)
       .contentShape(Rectangle())

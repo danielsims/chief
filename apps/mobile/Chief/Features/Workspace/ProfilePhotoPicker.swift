@@ -30,7 +30,7 @@ struct ProfilePhotoPicker: View {
             .overlay { Circle().stroke(ChiefTheme.background, lineWidth: 2) }
             .offset(x: 5, y: 5)
         }
-        .overlay { if saving { ChiefSpinner().tint(.white) } }
+        .overlay { if saving { ChiefSpinner().tint(ChiefTheme.accent) } }
     }
     .buttonStyle(.plain)
     .disabled(saving)
