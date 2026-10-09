@@ -36,6 +36,7 @@ import {
 import {
   agentRetryDelay,
   completeAgentJob,
+  hostedAutomaticRetryAt,
   hostedClaimRequest,
   hostedCompactionRatio,
   hostedErrorMessage,
@@ -62,6 +63,7 @@ import {
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
 import { hostedDurableTools } from "./hosted-agent-tools";
+import { ensureHostedProjectCheckout } from "./hosted-project-checkout";
 import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
@@ -211,14 +213,23 @@ export class AgentRuntime {
       return yield* admission.pipe(
         Effect.matchEffect({
           onFailure: (failure) =>
-            failAgentAdmission({
-              queue,
-              job: lease.job,
-              leaseToken: lease.leaseToken,
-              principal,
-              workspaceName: hosting.workspace?.name ?? lease.job.workspaceId,
-              error: new Error(failure.message),
-            }),
+            Effect.andThen(
+              failAgentAdmission({
+                queue,
+                job: lease.job,
+                leaseToken: lease.leaseToken,
+                principal,
+                workspaceName: hosting.workspace?.name ?? lease.job.workspaceId,
+                error: new Error(failure.message),
+              }),
+              publishRunError(env, lease.job, principal, {
+                title: "Agent run stopped",
+                message: hostedErrorMessage(failure.message),
+                retryable: Boolean(
+                  hostedAutomaticRetryAt(lease.job.attempt, failure.message),
+                ),
+              }),
+            ),
           onSuccess: () => Effect.void,
         }),
       );
@@ -287,6 +298,26 @@ export class AgentRuntime {
         "chief.workspace.name": workspaceName,
         "chief.turn.revision": current.revision,
       });
+      // A failed checkout must not stop the agent from answering at all. It
+      // still has projects_list and projects_create and can report the gap.
+      yield* attempt("agent.project.ensure", () =>
+        ensureHostedProjectCheckout(
+          env,
+          maintained.job,
+          principal,
+          execution.computer,
+        ),
+      ).pipe(
+        Effect.tapError((failure) =>
+          Effect.logWarning({
+            event: "agent.project.checkout_failed",
+            ...agentTelemetryAttributes(maintained.job),
+            code: failure.code,
+            message: failure.message,
+          }),
+        ),
+        Effect.ignore,
+      );
       const advance = Effect.gen(function* () {
         const apiKey = yield* resolveInferenceApiKey(
           env,
@@ -417,6 +448,11 @@ export class AgentRuntime {
           status: "failed",
           error,
         });
+        yield* publishRunError(env, job, principal, {
+          title: "Agent run stopped",
+          message: error,
+          retryable: false,
+        });
       }
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* scheduleNextAlarm();
@@ -438,20 +474,11 @@ export class AgentRuntime {
         status: "failed",
         error: message,
       });
-      yield* attempt("agent.activity.error", () =>
-        publishAgentErrorActivity(env, {
-          principal,
-          conversationId: isJsonString(job.payload.conversationId)
-            ? job.payload.conversationId
-            : "mission-control",
-          seed: `${job.id}:hosted-run`,
-          code: "agent_run_failed",
-          title: "Agent run stopped",
-          message,
-          jobId: job.id,
-          retryable: false,
-        }).catch(() => undefined),
-      );
+      yield* publishRunError(env, job, principal, {
+        title: "Agent run stopped",
+        message,
+        retryable: false,
+      });
       yield* attempt("agent.turn.settle", () => turns.markSettled());
       yield* Effect.ignore(
         attempt("agent.browser.close", () => execution.browser.close()),
@@ -480,21 +507,37 @@ export class AgentRuntime {
         errorStatus: failure.status,
         retryAt: new Date(wakeAt).toISOString(),
       });
-      yield* attempt("agent.activity.error", () =>
-        publishAgentErrorActivity(env, {
-          principal,
-          conversationId: isJsonString(job.payload.conversationId)
-            ? job.payload.conversationId
-            : "mission-control",
-          seed: `${job.id}:hosted-run`,
-          code: "agent_run_failed",
-          title: "Agent run interrupted",
-          message: hostedErrorMessage(failure.message),
-          jobId: job.id,
-          retryable: true,
-        }).catch(() => undefined),
-      );
+      yield* publishRunError(env, job, principal, {
+        title: "Agent run interrupted",
+        message: hostedErrorMessage(failure.message),
+        retryable: true,
+      });
       yield* attempt("agent.alarm.set", () => storage.setAlarm(wakeAt));
     });
   }
+}
+
+/** A run's failure lands where the run was asked for, so the thread that is
+ * waiting on it learns it stopped. */
+function publishRunError(
+  env: Env,
+  job: AgentJob,
+  principal: AgentPrincipal,
+  failure: { title: string; message: string; retryable: boolean },
+) {
+  return attempt("agent.activity.error", () =>
+    publishAgentErrorActivity(env, {
+      principal,
+      conversationId: isJsonString(job.payload.conversationId)
+        ? job.payload.conversationId
+        : "mission-control",
+      ...(isJsonString(job.payload.threadRootId)
+        ? { threadRootId: job.payload.threadRootId }
+        : undefined),
+      seed: `${job.id}:hosted-run`,
+      code: "agent_run_failed",
+      ...failure,
+      jobId: job.id,
+    }).catch(() => undefined),
+  );
 }

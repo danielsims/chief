@@ -46,8 +46,9 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     },
     {
       id: "projects.write",
-      label: "Work in projects",
-      description: "Create isolated checkouts and commit agent changes.",
+      label: "Create and change projects",
+      description:
+        "Create repositories, work in checkouts and publish commits.",
       group: "Projects",
     },
     {
@@ -385,12 +386,14 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/action",
   ].map((path) => [`POST ${path}`, "workspace.write"] as const),
   ["GET /local-tools/projects", "projects.read"],
+  ["POST /local-tools/projects", "projects.write"],
   ...[
     "/local-tools/projects/inspect",
     "/local-tools/projects/checkouts/status",
     "/local-tools/projects/diff",
     "/local-tools/projects/pull-requests/status",
     "/local-tools/projects/access-request",
+    "/local-tools/projects/checkout",
   ].map((path) => [`POST ${path}`, "projects.read"] as const),
   ...[
     "/local-tools/projects/checkouts",
@@ -399,6 +402,7 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/projects/checkouts/publish",
     "/local-tools/projects/checkouts/discard",
     "/local-tools/projects/pull-requests",
+    "/local-tools/projects/publish",
   ].map((path) => [`POST ${path}`, "projects.write"] as const),
   ...[
     "open",
