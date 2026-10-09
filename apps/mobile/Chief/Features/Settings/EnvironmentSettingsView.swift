@@ -214,7 +214,7 @@ private struct VariableSheet: View {
           Task { await submit() }
         } label: {
           if busy {
-            ChiefSpinner().tint(.black)
+            ChiefSpinner().tint(ChiefTheme.onPrimary)
           } else {
             Text(existingName == nil ? "Add variable" : "Replace")
           }

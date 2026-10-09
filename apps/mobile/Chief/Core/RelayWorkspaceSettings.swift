@@ -26,18 +26,6 @@ struct ScheduleWebhookReveal: Decodable, Equatable, Identifiable, Sendable {
   var id: String { webhook.id }
 }
 
-/// A computer agents can work on (`machineSchema`).
-struct WorkspaceMachine: Decodable, Equatable, Identifiable, Sendable {
-  let id: String
-  let name: String
-  let kind: String
-  let status: String
-  let endpoint: String?
-  let capabilities: [String]
-  let agentIds: [String]
-  let lastSeenAt: String?
-}
-
 /// A bounded mission an agent is pursuing (`missionSchema`).
 struct WorkspaceMission: Decodable, Equatable, Identifiable, Sendable {
   struct Experiment: Decodable, Equatable, Sendable {}
@@ -69,9 +57,6 @@ extension RelayServing {
   func scheduleWebhookAction(workspaceID: String, webhookID: String, action: String) async throws
     -> ScheduleWebhookReveal
   { throw RelayError.unavailable }
-  func workspaceMachines(workspaceID: String) async throws -> [WorkspaceMachine] {
-    throw RelayError.unavailable
-  }
   func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission] {
     throw RelayError.unavailable
   }
@@ -118,13 +103,6 @@ extension URLSessionRelayClient {
       method: "POST",
       body: JSONEncoder().encode(["action": action])
     )
-  }
-
-  func workspaceMachines(workspaceID: String) async throws -> [WorkspaceMachine] {
-    struct Result: Decodable { let machines: [WorkspaceMachine] }
-    let result: Result = try await request(
-      path: "/v1/workspaces/\(workspaceID)/machines", method: "GET")
-    return result.machines
   }
 
   func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission] {

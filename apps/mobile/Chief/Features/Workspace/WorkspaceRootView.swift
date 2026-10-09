@@ -244,7 +244,7 @@ struct UserAvatar: View {
       shape.fill(ChiefTheme.elevated).overlay {
         Text(initials)
           .font(.system(size: size * 0.34, weight: .semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
       }
     }
     .frame(width: size, height: size)
@@ -345,7 +345,7 @@ struct PluginsView: View {
 
           if loading && plugins.isEmpty {
             ChiefSpinner()
-              .tint(.white)
+              .tint(ChiefTheme.accent)
               .frame(maxWidth: .infinity)
               .padding(.top, 36)
           } else if filteredPlugins.isEmpty {
@@ -474,7 +474,7 @@ private struct PluginCatalogRow: View {
           if busy {
             ChiefSpinner()
               .controlSize(.small)
-              .tint(.white)
+              .tint(ChiefTheme.accent)
           }
         }
         .padding(.horizontal, 12)
@@ -557,10 +557,10 @@ struct DMsView: View {
       } label: {
         Image(systemName: quickCreateVisible ? "xmark" : "plus")
           .font(.system(size: 19, weight: .semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
           .frame(width: 54, height: 54)
           .background(.ultraThinMaterial, in: Circle())
-          .overlay { Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5) }
+          .overlay { Circle().stroke(ChiefTheme.line, lineWidth: 0.5) }
           .shadow(color: .black.opacity(0.24), radius: 12, y: 5)
       }
       .buttonStyle(.plain)

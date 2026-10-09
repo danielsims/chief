@@ -38,7 +38,7 @@ struct OnboardingView: View {
             }
           } label: {
             if model.onboardingInProgress {
-              ChiefSpinner().tint(.black)
+              ChiefSpinner().tint(ChiefTheme.onPrimary)
             } else {
               Text(model.onboarding.step == stepCount - 1 ? "Enter workspace" : "Continue")
             }
@@ -74,7 +74,7 @@ struct OnboardingView: View {
       if let error = model.onboardingError {
         Text(error)
           .font(.system(size: 13, weight: .medium))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
           .background(.regularMaterial, in: Capsule())
@@ -448,7 +448,7 @@ private struct OpenCodeModelPicker: View {
             .foregroundStyle(ChiefTheme.tertiary)
           Text(loading ? "Loading models…" : (selected?.displayName ?? selectedID))
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(.white)
+            .foregroundStyle(ChiefTheme.accent)
         }
         Spacer()
         Image(systemName: "chevron.up.chevron.down")
@@ -487,7 +487,7 @@ private struct DeviceModelPickerSheet: View {
         Spacer()
         Button("Done") { dismiss() }
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.accent)
       }
       .padding(.horizontal, 24)
       .padding(.top, 20)
@@ -551,7 +551,7 @@ private struct DeviceModelSheetRow: View {
       }
       .padding(12)
       .background(
-        selected ? Color.white.opacity(0.08) : Color.clear,
+        selected ? ChiefTheme.accent.opacity(0.06) : Color.clear,
         in: RoundedRectangle(cornerRadius: 13, style: .continuous)
       )
       .overlay {
@@ -569,7 +569,7 @@ private struct DeviceModelSheetRow: View {
     if store.isDownloaded(model.id) {
       Image(systemName: selected ? "checkmark.circle.fill" : "checkmark.circle")
         .font(.system(size: 22))
-        .foregroundStyle(selected ? .white : ChiefTheme.secondary)
+        .foregroundStyle(selected ? ChiefTheme.accent : ChiefTheme.secondary)
     } else if store.isDownloading(model.id) {
       ChiefSpinner()
     } else {
@@ -578,7 +578,7 @@ private struct DeviceModelSheetRow: View {
       }
       .font(.system(size: 13, weight: .medium))
       .buttonStyle(.bordered)
-      .tint(.white)
+      .tint(ChiefTheme.accent)
     }
   }
 }
@@ -676,7 +676,7 @@ private struct OnboardingProgressSegments: View {
     HStack(spacing: 7) {
       ForEach(0..<4, id: \.self) { index in
         Capsule()
-          .fill(index <= currentStep ? Color.white : ChiefTheme.elevated)
+          .fill(index <= currentStep ? ChiefTheme.accent : ChiefTheme.elevated)
           .frame(maxWidth: .infinity)
           .frame(height: 3)
       }
@@ -704,10 +704,10 @@ private struct OptionRow<Icon: View>: View {
       HStack(spacing: 14) {
         icon()
           .font(.system(size: 17, weight: .medium))
-          .foregroundStyle(selected ? .white : ChiefTheme.secondary)
+          .foregroundStyle(selected ? ChiefTheme.accent : ChiefTheme.secondary)
           .frame(width: 40, height: 40)
           .background(
-            selected ? Color.white.opacity(0.14) : ChiefTheme.elevated,
+            selected ? ChiefTheme.accent.opacity(0.12) : ChiefTheme.elevated,
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
           )
         VStack(alignment: .leading, spacing: 3) {
@@ -721,7 +721,7 @@ private struct OptionRow<Icon: View>: View {
         Spacer()
         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
           .font(.system(size: 20))
-          .foregroundStyle(selected ? .white : ChiefTheme.tertiary)
+          .foregroundStyle(selected ? ChiefTheme.accent : ChiefTheme.tertiary)
       }
       .padding(.vertical, 14)
       .contentShape(Rectangle())

@@ -26,10 +26,10 @@ struct WorkspaceQuickCreateMenu: View {
       } label: {
         Label("Message", systemImage: "square.and.pencil")
           .font(.system(size: 17, weight: .semibold, design: .rounded))
-          .foregroundStyle(.white)
+          .foregroundStyle(ChiefTheme.onPrimary)
           .frame(maxWidth: .infinity)
           .frame(height: 52)
-          .background(Color.black.opacity(0.34), in: Capsule())
+          .background(ChiefTheme.primary, in: Capsule())
           .overlay { Capsule().stroke(ChiefTheme.line, lineWidth: 0.5) }
       }
       .buttonStyle(.plain)
@@ -39,7 +39,7 @@ struct WorkspaceQuickCreateMenu: View {
     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+        .stroke(ChiefTheme.line, lineWidth: 0.5)
     }
     .shadow(color: .black.opacity(0.30), radius: 22, y: 10)
     .accessibilityElement(children: .contain)
@@ -60,7 +60,7 @@ struct WorkspaceQuickCreateMenu: View {
         Image(systemName: icon)
           .font(.system(size: 19, weight: .regular))
           .frame(width: 40, height: 40)
-          .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+          .background(ChiefTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
             .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -70,7 +70,7 @@ struct WorkspaceQuickCreateMenu: View {
         }
         Spacer(minLength: 0)
       }
-      .foregroundStyle(enabled ? Color.white : ChiefTheme.tertiary)
+      .foregroundStyle(enabled ? ChiefTheme.accent : ChiefTheme.tertiary)
       .padding(.horizontal, 16)
       .frame(minHeight: 66)
       .contentShape(Rectangle())
@@ -160,7 +160,7 @@ struct NewMessageView: View {
   @ViewBuilder private var recipientList: some View {
     if loading {
       Spacer()
-      ChiefSpinner().tint(.white)
+      ChiefSpinner().tint(ChiefTheme.accent)
       Spacer()
     } else if filteredRecipients.isEmpty {
       ContentUnavailableView(
@@ -172,7 +172,7 @@ struct NewMessageView: View {
             : "Try another name."
         )
       )
-      .foregroundStyle(.white)
+      .foregroundStyle(ChiefTheme.accent)
     } else {
       ScrollView {
         LazyVStack(spacing: 0) {
@@ -207,7 +207,7 @@ struct NewMessageView: View {
         } else {
           Image(systemName: "person.fill")
             .font(.system(size: 18))
-            .foregroundStyle(.white)
+            .foregroundStyle(ChiefTheme.accent)
             .frame(width: 40, height: 40)
             .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -230,14 +230,14 @@ struct NewMessageView: View {
         }
         Spacer()
         if startingID == recipient.id {
-          ChiefSpinner().tint(.white)
+          ChiefSpinner().tint(ChiefTheme.accent)
         } else {
           Circle()
             .stroke(ChiefTheme.secondary.opacity(0.65), lineWidth: 1.5)
             .frame(width: 24, height: 24)
         }
       }
-      .foregroundStyle(.white)
+      .foregroundStyle(ChiefTheme.accent)
       .padding(.horizontal, ChiefTheme.pagePadding)
       .frame(minHeight: 68)
       .contentShape(Rectangle())

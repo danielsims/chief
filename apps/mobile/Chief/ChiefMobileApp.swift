@@ -4,12 +4,13 @@ import SwiftUI
 struct ChiefMobileApp: App {
   @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
   @State private var model = AppModel.live()
+  @AppStorage(ChiefAppearance.storageKey) private var appearance = ChiefAppearance.system
 
   var body: some Scene {
     WindowGroup {
       AppRootView()
         .environment(model)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(appearance.colorScheme)
         .task { await model.start() }
         .onOpenURL { url in
           Task { await model.handleIncomingURL(url) }
