@@ -19,6 +19,7 @@ import { loadAgentWorkMemory } from "./agent-cell-projection";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { isSafeGitRepoSlug } from "./workspace-git-store";
 import { peopleContextLines } from "./workspace-member-names";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
@@ -27,9 +28,9 @@ export const HOSTED_MAX_INFERENCE_STEPS = 24;
 export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
 export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_MENTION_CONTEXT_GUIDANCE =
-  "When the current message only addresses your name, treat it as an invitation into the ongoing conversation. Use the attached recent channel messages to continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If the attached messages contain no actionable request, ask one short question and stop. Address people with @Name and their principal id from the people roster or channels_members_list. Never invent a @chief (user) tag.";
+  "A thread carries its own context. When the current message only addresses your name, or refers to something not already in the thread, call channels_messages_list for this conversation to read the recent messages before responding, then continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If there is no actionable request, ask one short question and stop. Address people with @Name and their principal id from the people roster or channels_members_list. Never invent a @chief (user) tag.";
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
-  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. If projects_list is empty, call projects_recommend so the user can attach a repository from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow.";
+  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow. When asked for a new repository or project, create it with projects_create and report the repository it returned; do not ask the user to create one elsewhere. Use projects_recommend only when the user wants to attach a repository that already exists on an outside Git provider.";
 
 export interface HostingContext {
   managed: boolean;
@@ -88,10 +89,22 @@ export async function prepareHostedAgentTurn(
   const browserEnabled =
     assignedCapabilities.has("browser") &&
     (context.config?.toolPermissions.includes("browser.use") ?? false);
+  const permissions = context.config?.toolPermissions ?? [];
+  const requestedRepo = stringPayload(job, "projectRepo");
+  // Only a plain slug reaches the prompt and the filesystem path.
+  const projectRepo =
+    requestedRepo && isSafeGitRepoSlug(requestedRepo)
+      ? requestedRepo
+      : undefined;
   const computerEnabled =
     assignedCapabilities.has("files") ||
     assignedCapabilities.has("git") ||
-    assignedCapabilities.has("shell");
+    assignedCapabilities.has("shell") ||
+    // Project work needs a durable working tree, so project access brings the
+    // agent's own computer with it.
+    Boolean(projectRepo) ||
+    permissions.includes("projects.read") ||
+    permissions.includes("projects.write");
   const conversationId = conversationIdSchema.parse(
     stringPayload(job, "conversationId") ?? "mission-control",
   );
@@ -105,7 +118,7 @@ export async function prepareHostedAgentTurn(
     job,
     principal,
     conversationId,
-    hostedHistoryThreadRootId(threadRootId, messageId),
+    hostedHistoryThreadRootId(threadRootId),
   ).catch(() => [] satisfies ConversationMessage[]);
   const instruction =
     stringPayload(job, "instruction") ??
@@ -120,7 +133,7 @@ export async function prepareHostedAgentTurn(
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
-    systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\nThe latest relevant messages from this conversation are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need older context. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
+    systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\n${hostedRuntimeContext({ conversationId, threadRootId, computerEnabled })}${projectRepo ? `\n\n# Project repository\nThe workspace repository "${projectRepo}" is checked out at /workspace/${projectRepo}. Work in it with computer_read, computer_write, computer_edit, and computer_exec, and run Git through computer_git with cwd set to that directory. When you finish a coherent piece of work, publish it with projects_publish so it is durable and reviewable. Never re-clone it yourself. If the directory is missing, the checkout failed: say so rather than working around it.` : ""}\n\nThe messages of this thread are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need the surrounding conversation. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
     maxInferenceSteps: hostedInferenceStepBudget(job.kind),
@@ -155,11 +168,12 @@ export function boundedHostedHistory(
   return precedingMessages.slice(-HOSTED_HISTORY_MESSAGE_LIMIT);
 }
 
-export function hostedHistoryThreadRootId(
-  threadRootId?: string,
-  triggeringMessageId?: string,
-) {
-  return threadRootId === triggeringMessageId ? undefined : threadRootId;
+export function hostedHistoryThreadRootId(threadRootId?: string) {
+  // A thread is its own context, in every surface. The agent is primed with
+  // that thread's messages only, so earlier turns in the DM or channel never
+  // bleed into it. When it genuinely needs the surrounding conversation it
+  // pulls it with channels_messages_list.
+  return threadRootId;
 }
 
 export function hostedCompletionContract(
@@ -321,4 +335,34 @@ function stringPayload(job: AgentJob, key: string) {
 function nonEmptyOr(value: string | undefined, fallback: string) {
   if (value === undefined || value.length === 0) return fallback;
   return value;
+}
+
+/**
+ * Where this turn is running and what the agent can work with. Tools that
+ * target a conversation need these exact ids; without them a model guesses.
+ */
+export function hostedRuntimeContext({
+  conversationId,
+  threadRootId,
+  computerEnabled,
+}: {
+  conversationId: string;
+  threadRootId?: string;
+  computerEnabled: boolean;
+}) {
+  return [
+    "# Runtime context",
+    `Current conversation id: ${conversationId}.`,
+    threadRootId
+      ? `Current thread root id: ${threadRootId}. Your final answer is posted in this thread.`
+      : "This turn is not in a thread.",
+    "Pass these exact ids to any tool that asks for a conversationId, channelId or threadRootId about this conversation. Never use a person's or agent's id as a conversation id. To reach another channel, find its id with channels_list first.",
+    ...(computerEnabled
+      ? [
+          "",
+          "# Your computer",
+          "You have your own durable computer with a filesystem under /workspace that persists between turns. Use it to do hands-on work yourself: computer_write creates files, computer_edit changes them, computer_read and computer_list inspect them, computer_execute runs shell commands, and computer_git runs Git. To work in a project, call projects_checkout with its repo slug to get /workspace/<repo>, make the change there, then publish it with projects_publish and report the commit it returned. projects_checkout and projects_publish carry the credentials for the workspace Git host: never clone, fetch or push that host yourself, and never look for tokens. projects_publish is the commit: it records your files on main and then resets your checkout to exactly that commit. Never run git commit, branch, merge, reset or checkout yourself, and never describe local history as being in the repository; work is in the repository only once projects_publish has returned its commit. The shell has no git binary; computer_git is for reading local state such as status, diff and log. If projects_checkout fails, report its error rather than rebuilding the repository by hand. Do small, clear changes like this yourself rather than delegating them.",
+        ]
+      : []),
+  ].join("\n");
 }

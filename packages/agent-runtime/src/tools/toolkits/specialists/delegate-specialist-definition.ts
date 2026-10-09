@@ -5,7 +5,8 @@ import { boundedText, optionalBoundedText } from "../../input.js";
 
 export const delegationInputSchema = z
   .object({
-    conversationId: boundedText(160),
+    // Defaults to the current conversation when omitted.
+    conversationId: optionalBoundedText(160),
     delegationId: boundedText(64).refine(
       (id) => /^[a-z0-9][a-z0-9-]{5,63}$/u.test(id),
       "delegationId must be a unique lowercase slug.",
