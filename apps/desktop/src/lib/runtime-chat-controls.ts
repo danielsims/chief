@@ -58,9 +58,14 @@ function withWorkingAgent(
 ) {
   const { agentId, threadRootId } = agent;
   if (!agentId) return controls.workingAgents;
-  const others = controls.workingAgents.filter(
-    (entry) => entry.agentId !== agentId || entry.threadRootId !== threadRootId,
-  );
+  // A terminal event without a thread root speaks for the whole agent, so it
+  // clears every entry. With one, it clears that thread and any untagged
+  // entry, since a mismatch must not leave the UI stuck on "working".
+  const others = controls.workingAgents.filter((entry) => {
+    if (entry.agentId !== agentId) return true;
+    if (!threadRootId || !entry.threadRootId) return false;
+    return entry.threadRootId !== threadRootId;
+  });
   return working
     ? [...others, { agentId, ...(threadRootId ? { threadRootId } : undefined) }]
     : others;

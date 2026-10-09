@@ -225,6 +225,9 @@ export interface ChiefMessageMetadata {
   author?: { id: string; name: string; image?: string };
   /** The top-level channel message this reply belongs to. */
   threadRootId?: string;
+  /** Opens a session: agents answer this message in its own thread, so the
+   * thread carries the session's whole context. */
+  sessionStart?: boolean;
   /** Stable user or agent identities explicitly addressed by this message. */
   mentions?: string[];
   /** Ephemeral desktop delivery intent. It is not copied into durable agent

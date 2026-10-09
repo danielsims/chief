@@ -128,14 +128,19 @@ export function Layout({
                 </AnimatePresence>
               </div>
             ) : null}
-            <WorkspaceContentSurface balancedGutter={!activeSidebarOpen}>
+            <WorkspaceContentSurface
+              balancedGutter={!activeSidebarOpen}
+              split={Boolean(channel)}
+            >
               <div
                 className={cn(
                   "min-h-0 min-w-0 flex-1",
                   settings
                     ? "overflow-y-auto"
                     : channel
-                      ? "overflow-hidden"
+                      ? // Conversation cards draw their own edges and shadows
+                        // into the gutter, so nothing here clips them.
+                        undefined
                       : "overflow-y-auto px-8 pb-8",
                   overview && "overflow-hidden px-8 pb-8",
                 )}

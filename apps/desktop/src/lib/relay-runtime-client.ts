@@ -517,6 +517,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
       (conversation) => conversation.id === message.conversationId,
     );
     const knownChannel = knownConversation?.kind === "channel";
+    // An agent DM is not in the channel roster, but its messages still drive
+    // the unread badge and notifications, so observe them like a channel.
+    const knownAgentDirect =
+      knownConversation?.kind === "direct" && !knownConversation.directUserId;
     const revised =
       event.type === "conversation.message.reacted" ||
       event.type === "conversation.message.edited" ||
@@ -526,7 +530,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.recordError(parseRelayError(error)),
       );
     }
-    if (!isActivity && (knownChannel || isChannelMembershipMessage(message))) {
+    if (
+      !isActivity &&
+      (knownChannel || knownAgentDirect || isChannelMembershipMessage(message))
+    ) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
       if (revised) {
         void this.openChannelEvents(message.conversationId).catch((error) =>

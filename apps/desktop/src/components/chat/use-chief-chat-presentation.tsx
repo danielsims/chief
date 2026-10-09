@@ -153,7 +153,7 @@ export function useChiefChatPresentation({
       : undefined;
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
-    if (!channel) return {};
+    if (!channel && !directAgent) return {};
     const replySummary = summarizeThreadReplies(
       threadReplies.get(message.id) ?? [],
     );
@@ -205,13 +205,17 @@ export function useChiefChatPresentation({
       },
     );
     return {
-      actions: (
-        <ChannelMessageActions
-          text={text}
-          onReply={openThread}
-          onToggleReaction={toggleReaction}
-        />
-      ),
+      ...(channel
+        ? {
+            actions: (
+              <ChannelMessageActions
+                text={text}
+                onReply={openThread}
+                onToggleReaction={toggleReaction}
+              />
+            ),
+          }
+        : undefined),
       footer: (
         <ChannelMessageMeta
           replies={replySummary.visibleReplies}

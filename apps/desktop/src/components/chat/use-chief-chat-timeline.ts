@@ -49,7 +49,6 @@ export function useChiefChatTimeline({
   anchorBrowserSession,
   browserRuns,
   browserSessions,
-  channel,
   chatId,
   childSessions,
   cloudOrganizationId,
@@ -70,7 +69,6 @@ export function useChiefChatTimeline({
   anchorBrowserSession: Runtime["anchorBrowserSession"];
   browserRuns: Runtime["browserRuns"];
   browserSessions: Runtime["browserSessions"];
-  channel?: { label: string; description: string; agentIds: readonly string[] };
   chatId: string;
   childSessions: readonly SessionRecord[];
   cloudOrganizationId: string | null;
@@ -190,7 +188,7 @@ export function useChiefChatTimeline({
   );
 
   useEffect(() => {
-    if (!channel || !destinationChannelId || !threadRootId) {
+    if (!destinationChannelId || !threadRootId) {
       if (destinationChannelId) setVisibleThread(destinationChannelId, null);
       return;
     }
@@ -199,7 +197,6 @@ export function useChiefChatTimeline({
     return () => setVisibleThread(destinationChannelId, null);
   }, [
     activeThreadReplies.length,
-    channel,
     destinationChannelId,
     markThreadRead,
     setVisibleThread,
