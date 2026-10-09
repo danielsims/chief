@@ -394,20 +394,29 @@ export function JoinForm({
     <div className="space-y-6">
       <div>
         <h1 className="text-[32px] leading-tight font-normal tracking-[-0.04em]">
-          Join a workspace
+          {preview ? "You’re invited" : "Join a workspace"}
         </h1>
         <p className="text-muted-foreground mt-2 text-sm leading-6">
-          Paste the invitation link you received.
+          {preview
+            ? "Join to work alongside the team and its agents."
+            : "Paste the invitation link you received."}
         </p>
       </div>
       {preview ? (
-        <div className="border-y py-4">
-          <p className="text-sm font-medium">{preview.workspaceName}</p>
-          <p className="text-muted-foreground mt-1 text-xs">
-            {preview.conversationName
-              ? `You’ll join #${preview.conversationName}.`
-              : "You’ll join this workspace."}
-          </p>
+        <div className="bg-card/30 flex items-center gap-3 rounded-xl border px-4 py-4">
+          <div className="bg-foreground text-background flex size-10 shrink-0 items-center justify-center rounded-[11px] text-base font-semibold">
+            {preview.workspaceName.trim().charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">
+              {preview.workspaceName}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {preview.conversationName
+                ? `You’ll join #${preview.conversationName}.`
+                : "You’ll join this workspace."}
+            </p>
+          </div>
         </div>
       ) : (
         <Field label="Invitation link" htmlFor="workspace-invite">
@@ -421,7 +430,7 @@ export function JoinForm({
           />
         </Field>
       )}
-      <div className="flex justify-end border-t pt-4">
+      <div className="flex justify-end">
         <Button
           disabled={!invite.trim() || working || !connected}
           loading={working}

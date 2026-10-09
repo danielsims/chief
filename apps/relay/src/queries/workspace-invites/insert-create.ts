@@ -11,6 +11,7 @@ export function workspaceInvitesInsertCreate(
     createdByUserId,
     expiresAt,
     createdAt,
+    label,
   }: {
     inviteId: string;
     secretHash: string;
@@ -18,6 +19,7 @@ export function workspaceInvitesInsertCreate(
     createdByUserId: string;
     expiresAt: string;
     createdAt: string;
+    label: string | null;
   },
 ) {
   const db = relayDatabase(storage);
@@ -32,6 +34,7 @@ export function workspaceInvitesInsertCreate(
         use_count: 0,
         revoked_at: null,
         created_at: createdAt,
+        label,
       }),
     ),
   );

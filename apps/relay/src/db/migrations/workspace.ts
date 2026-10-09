@@ -173,7 +173,8 @@ export function initializeWorkspaceSchema(
       expires_at TEXT NOT NULL,
       use_count INTEGER NOT NULL DEFAULT 0,
       revoked_at TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      label TEXT
     );
     CREATE TABLE IF NOT EXISTS workspace_invite_claims (
       invite_id TEXT NOT NULL,
@@ -187,6 +188,7 @@ export function initializeWorkspaceSchema(
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
+  addColumns(storage, "workspace_invites", [["label", "TEXT"]]);
   dropPreReleaseExternalLinks(storage);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
