@@ -141,8 +141,16 @@ export class AgentObject extends DurableObject<Env> {
             const conversationId = conversationIdSchema.parse(
               command.payload.payload.conversationId,
             );
+            const threadRootId = z
+              .string()
+              .optional()
+              .catch(undefined)
+              .parse(command.payload.payload.threadRootId);
             yield* attempt("agent.turn.supersede", () =>
-              runtime.supersedeConversation(conversationId, command.payload.id),
+              runtime.supersedeConversation(
+                { conversationId, threadRootId },
+                command.payload.id,
+              ),
             );
           }
         }
