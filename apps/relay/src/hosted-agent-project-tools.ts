@@ -76,7 +76,7 @@ function optionalUrl(value: JsonValue | undefined) {
   }
 }
 
-async function deterministicUuid(value: string) {
+export async function deterministicUuid(value: string) {
   const bytes = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
   ).slice(0, 16);

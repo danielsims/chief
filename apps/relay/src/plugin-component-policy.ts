@@ -7,6 +7,7 @@ import {
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
+  questionPayloadSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -35,7 +36,9 @@ export function validatePluginComponentPlacement(
           ? pluginAuthorizationPayloadSchema.parse(component.payload)
           : component.kind === "project.recommendation"
             ? projectRecommendationPayloadSchema.parse(component.payload)
-            : undefined;
+            : component.kind === "question"
+              ? questionPayloadSchema.parse(component.payload)
+              : undefined;
     if (!parsed) continue;
     if (
       parsed.workspaceId !== workspaceId ||
@@ -51,7 +54,8 @@ export function validatePluginComponentPlacement(
     if (
       (component.kind === "plugin.recommendation" ||
         component.kind === "plugin.authorization" ||
-        component.kind === "project.recommendation") &&
+        component.kind === "project.recommendation" ||
+        component.kind === "question") &&
       (principal.kind !== "agent" ||
         !("agentId" in parsed) ||
         parsed.agentId !== principal.agentId)

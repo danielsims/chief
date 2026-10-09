@@ -182,6 +182,16 @@ export interface GenerativeProjectRecommendationData {
   remoteUrl?: string;
 }
 
+/** An agent's multiple-choice question. Answering posts an ordinary reply. */
+export interface GenerativeQuestionData {
+  /** The message that asked, so a client can find the reply that answered. */
+  messageId: string;
+  agentId: string;
+  question: string;
+  options: string[];
+  threadRootId?: string;
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -255,6 +265,7 @@ export type ChiefUIMessage = UIMessage<
     document: GenerativeDocumentData;
     "plugin-recommendations": GenerativePluginRecommendationsData;
     "project-recommendation": GenerativeProjectRecommendationData;
+    question: GenerativeQuestionData;
   }
 >;
 
@@ -283,6 +294,11 @@ export type GenerativeProjectRecommendationBlock = Extract<
   { type: "data-project-recommendation" }
 >;
 
+export type GenerativeQuestionBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-question" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -298,6 +314,7 @@ export type ContentBlock =
   | GenerativeDocumentBlock
   | GenerativePluginRecommendationsBlock
   | GenerativeProjectRecommendationBlock
+  | GenerativeQuestionBlock
   | {
       type: "tool_use";
       id: string;

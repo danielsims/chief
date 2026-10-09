@@ -573,10 +573,10 @@ enum DemoWorkspace {
             components: [
                 .init(
                     id: "attention-1",
-                    kind: "action-request",
-                    payload: [
-                        "title": "Choose the next move",
-                        "options": "Review the relay|Connect GitHub|Start mobile QA"
+                    kind: "question",
+                    payload: ["question": "Which move should I greenlight next?"],
+                    payloadArrays: [
+                        "options": ["Review the relay", "Connect GitHub", "Start mobile QA"]
                     ]
                 )
             ],
