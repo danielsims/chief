@@ -36,7 +36,10 @@ import { isDeferredToolError, isUnavailableToolError } from "./tool-errors.js";
 import { durableTurnSchema } from "./types.js";
 
 const STATE_KEY = "durable-turn";
-const MAX_OUTPUT_TOKENS = 2_000;
+// Thinking models spend output tokens on reasoning before they answer or call
+// a tool, and a tool call can carry a whole file. A small cap truncates them
+// mid-thought and the step comes back empty.
+const MAX_OUTPUT_TOKENS = 16_000;
 const CLAIM_TTL_MS = 60_000;
 
 export class DurableTurnRunner {
@@ -222,7 +225,7 @@ export class DurableTurnRunner {
         inference,
         turn,
         tools: definitions,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        maxOutputTokens: stepOutputTokens(inference),
         policy: { compactionRatio: this.compactionRatio },
       })
     ) {
@@ -247,7 +250,7 @@ export class DurableTurnRunner {
       tools: definitions,
       maxTokens: turn.finalization
         ? finalizationOutputTokens(inference)
-        : MAX_OUTPUT_TOKENS,
+        : stepOutputTokens(inference),
       temperature: 0.3,
     };
     await notify(() => observer?.inferenceStarted?.(turn, request));
@@ -411,6 +414,11 @@ export class DurableTurnRunner {
   private async save(turn: DurableTurn) {
     await persistTurn(this.persistence, this.cellId, turn);
   }
+}
+
+function stepOutputTokens(inference: AgentInference) {
+  const limit = inference.model?.maxOutputTokens;
+  return limit ? Math.min(limit, MAX_OUTPUT_TOKENS) : MAX_OUTPUT_TOKENS;
 }
 
 function finalizationOutputTokens(inference: AgentInference) {
