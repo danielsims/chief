@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { RelayClient } from "@chief/relay-client";
 import type {
   WorkspaceInvitation,
+  WorkspaceInviteLink,
   WorkspaceMember,
 } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
@@ -54,6 +55,7 @@ const DevelopmentOnboardingReplay = import.meta.hot
 interface WorkspaceDirectory {
   members: WorkspaceMember[];
   invitations: WorkspaceInvitation[];
+  inviteLinks: WorkspaceInviteLink[];
   membersError: string | null;
   invitationsError: string | null;
 }
@@ -79,7 +81,7 @@ async function settle<T>(
 async function loadWorkspaceDirectory(
   client: RelayClient,
 ): Promise<WorkspaceDirectory> {
-  const [members, invitations] = await Promise.all([
+  const [members, invitations, inviteLinks] = await Promise.all([
     settle(
       client.listWorkspaceMembers(),
       "Chief couldn’t load this workspace’s members.",
@@ -88,12 +90,14 @@ async function loadWorkspaceDirectory(
       client.listWorkspaceInvitations(),
       "Chief couldn’t load pending invitations.",
     ),
+    settle(client.listWorkspaceInvites(), "Chief couldn’t load invite links."),
   ]);
   return {
     members: members.value,
     membersError: members.error,
     invitations: invitations.value,
-    invitationsError: invitations.error,
+    invitationsError: invitations.error ?? inviteLinks.error,
+    inviteLinks: inviteLinks.value,
   };
 }
 
@@ -546,6 +550,7 @@ export function WorkspaceSettings() {
           workspaceId={snapshot.id}
           workspaceName={workspaceName}
           invitations={directory.invitations}
+          links={directory.inviteLinks}
           error={directory.invitationsError}
           onChanged={refreshDirectory}
         />

@@ -261,6 +261,48 @@ export async function createWorkspaceInvite(
   );
 }
 
+export function listWorkspaceInvites(
+  env: Env,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+  },
+) {
+  return workspaceStub(env, input.workspaceId).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: { "x-chief-internal-operation": "invite-list" },
+      }),
+      input,
+    ),
+  );
+}
+
+export function revokeWorkspaceInvite(
+  env: Env,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    inviteId: string;
+  },
+) {
+  return workspaceStub(env, input.workspaceId).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "x-chief-internal-operation": "invite-revoke",
+          "x-chief-invite-id": input.inviteId,
+        },
+      }),
+      input,
+    ),
+  );
+}
+
 export async function previewWorkspaceInvite(
   env: Env,
   request: Request,
@@ -276,6 +318,37 @@ export async function previewWorkspaceInvite(
       body: await request.text(),
     }),
   );
+}
+
+/**
+ * Accepts an invite link for a signed-in web account. The app then opens the
+ * workspace through the same organization handoff as an email invitation.
+ */
+export async function acceptWorkspaceInviteForAccount(
+  env: Env,
+  request: Request,
+  input: { userId: string; workspaceId: WorkspaceId },
+) {
+  const response = await workspaceStub(env, input.workspaceId).fetch(
+    new Request("https://workspace.internal", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-chief-internal-operation": "invite-claim-account",
+        "x-chief-account-user-id": input.userId,
+      },
+      body: await request.text(),
+    }),
+  );
+  if (!response.ok) return response;
+  const result = workspaceInviteClaimResultSchema.parse(
+    await response.clone().json(),
+  );
+  await registerWorkspaceOrganizationMember(env, {
+    userId: input.userId,
+    workspaceId: result.workspaceId,
+  });
+  return response;
 }
 
 export async function claimWorkspaceInvite(
@@ -306,7 +379,7 @@ export async function claimWorkspaceInvite(
     await response.clone().json(),
   );
   await registerWorkspaceOrganizationMember(env, {
-    identity: input.identity,
+    userId: input.identity.userId,
     workspaceId: result.workspaceId,
   });
   const operationId = commandIdSchema.parse(
