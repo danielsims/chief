@@ -15,7 +15,7 @@ export function AccountCreatedEmail({
   firstName,
   dashboardUrl = "https://heychief.sh",
   logoUrl,
-  supportEmail = "hello@heychief.sh",
+  supportEmail = "admin@latentsupply.com",
 }: AccountCreatedEmailProps) {
   const greeting = firstName ? `Hey ${firstName},` : "Hey there,";
 
