@@ -30,6 +30,12 @@ import {
 import { missionToolDefinitions } from "./toolkits/missions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
+import {
+  checkoutProjectDefinition,
+  createProjectDefinition,
+  listProjectsDefinition,
+  publishProjectDefinition,
+} from "./toolkits/projects/hosted.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
 import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
 import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
@@ -62,6 +68,10 @@ export const hostedAgentToolDefinitions = {
     postChannelMessageDefinition,
     listPluginsDefinition,
     recommendPluginsDefinition,
+    createProjectDefinition,
+    checkoutProjectDefinition,
+    listProjectsDefinition,
+    publishProjectDefinition,
     recommendProjectDefinition,
     getBrandProfileStatusDefinition,
     saveBrandProfileDefinition,
