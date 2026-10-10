@@ -402,6 +402,7 @@ export function ChiefChat({
                   ) : null}
                   <ChatComposer
                     autoFocus={focusComposer}
+                    storageKey={`${cloudOrganizationId}:${chatId}`}
                     value={draft}
                     onValueChange={(value) => {
                       setDraft(value);
