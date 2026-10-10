@@ -21,7 +21,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     await model.hydrateWorkspace()
     XCTAssertEqual(model.selectedConversationID, "marketing")
     XCTAssertEqual(model.selectedThread?.rootMessageID, "scheduled-root")
-    XCTAssertEqual(model.homeNavigationPath, ["marketing"])
+    XCTAssertEqual(model.navigationPath, ["marketing"])
     XCTAssertEqual(MobileNotifications.pendingOpen, newest)
     model.setVisibleConversation("general")
     XCTAssertEqual(MobileNotifications.pendingOpen, newest)
