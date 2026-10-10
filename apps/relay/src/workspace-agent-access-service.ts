@@ -15,6 +15,7 @@ import { readTrustedContext } from "./internal-context";
 import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentConfigsInsertConfigSet } from "./queries/agent-configs/insert-config-set";
+import { agentConfigsListAll } from "./queries/agent-configs/list-all";
 import { agentKeysDeleteRemove } from "./queries/agent-keys/delete-remove";
 import { channelMembersDeleteRemove } from "./queries/channel-members/delete-remove";
 import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
@@ -22,6 +23,7 @@ import { channelMembershipBatchesDeleteRemove } from "./queries/channel-membersh
 import { channelMembershipEventsDeleteRemove } from "./queries/channel-membership-events/delete-remove";
 import { channelsDeleteRemove } from "./queries/channels/delete-remove";
 import { channelsFindAgentDirects } from "./queries/channels/find-agent-directs";
+import { externalAgentRuntimesListAgentIds } from "./queries/external-agent-runtimes/list-agent-ids";
 import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
 import { membersInsertRegister } from "./queries/members/insert-register";
 import { projectsDeleteRemove } from "./queries/projects/delete-remove";
@@ -163,6 +165,51 @@ export class WorkspaceAgentAccessService {
         agentConfigSchema.parse(JSON.parse(row.config_json)),
       ),
       updatedAt: row.updated_at,
+    });
+  }
+
+  /** Every native agent's configuration in one read, so a client refresh is
+   * one request rather than one per agent. */
+  configList(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, false);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    const snapshot = workspace.snapshot_json
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json)
+      : undefined;
+    const external = new Set(
+      externalAgentRuntimesListAgentIds<{ agent_id: string }>(this.storage).map(
+        (row) => row.agent_id,
+      ),
+    );
+    const rows = new Map(
+      agentConfigsListAll<AgentConfigRow>(this.storage).map((row) => [
+        row.agent_id,
+        row,
+      ]),
+    );
+    const agentIds = (snapshot?.agents ?? [])
+      .filter((agent) => agent.runtime.kind === "native-cell")
+      .flatMap((agent) => [agent.id, ...agent.subagents.map(({ id }) => id)])
+      .filter((agentId) => !external.has(agentId));
+    return json({
+      configs: agentIds.map((agentId) => {
+        const row = rows.get(agentId);
+        return row
+          ? {
+              agentId,
+              config: effectiveAgentConfigFor(
+                agentId,
+                agentConfigSchema.parse(JSON.parse(row.config_json)),
+              ),
+              updatedAt: row.updated_at,
+            }
+          : {
+              agentId,
+              config: this.channels.agentConfiguration(agentId),
+              updatedAt: null,
+            };
+      }),
     });
   }
 
