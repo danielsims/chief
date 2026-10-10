@@ -270,7 +270,11 @@ function ChiefMessage({
             />
           </span>
         ) : (
-          <AgentAvatar className="rounded-lg" label={identity.name} />
+          <AgentAvatar
+            agentId={agentId}
+            className="rounded-lg"
+            label={identity.name}
+          />
         )}
       </button>
       <div className="min-w-0 flex-1 pt-0.5">
