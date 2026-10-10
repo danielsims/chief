@@ -170,11 +170,83 @@ export async function initializeOpenCodeSession(
   if (!isJsonString(sessionId)) {
     throw new Error("OpenCode returned no ACP session id.");
   }
-  const currentModelId = openCodeRecord(session.models).currentModelId;
-  return {
-    sessionId,
-    model: isJsonString(currentModelId) ? currentModelId : options.model,
-  };
+  const model = await selectOpenCodeModel(session, sessionId, options, rpc);
+  return { sessionId, model };
+}
+
+/**
+ * OpenCode v2 exposes a session's model as a `model` config option and ignores
+ * `model` from OPENCODE_CONFIG_CONTENT, so a fresh session silently falls back
+ * to the account's default model unless the client selects one over ACP. Older
+ * releases instead report the resolved model on `session.models.currentModelId`.
+ *
+ * Resolve whichever the running version exposes, and when the agent configured
+ * an explicit model, select it so the runtime matches what was requested.
+ */
+async function selectOpenCodeModel(
+  session: JsonObject,
+  sessionId: string,
+  options: StartOptions,
+  rpc: (method: string, params: JsonObject) => Promise<JsonValue | undefined>,
+) {
+  const current = openCodeSessionModel(session);
+  // An unset model means the agent wants the provider default, and a value the
+  // provider already reports is what we asked for, so there is nothing to do.
+  if (!options.model || options.model === current) {
+    return current ?? options.model;
+  }
+  // Only the config-option flow (v2) can switch a live session's model. On v1
+  // the resolved model is the best we can honour, and it is already selected.
+  const option = openCodeConfigOption(session, "model");
+  if (!option) return current ?? options.model;
+  const value = openCodeModelValue(option, options.model);
+  const updated = openCodeRecord(
+    await rpc("session/set_config_option", {
+      sessionId,
+      configId: "model",
+      value,
+    }),
+  );
+  return openCodeSessionModel(updated) ?? value;
+}
+
+/**
+ * OpenCode addresses models as `provider/model`, while Chief also stores the
+ * bare model ids its catalogues publish (for example `deepseek-v4.1-flash`).
+ * Resolve a bare id to the concrete option the provider advertises, keeping a
+ * fully-qualified id untouched.
+ */
+function openCodeModelValue(option: JsonObject, model: string) {
+  if (model.includes("/")) return model;
+  const candidates = Array.isArray(option.options) ? option.options : [];
+  const match = candidates
+    .flatMap((value) => {
+      const candidate = parseJsonObject(value)?.value;
+      return isJsonString(candidate) ? [candidate] : [];
+    })
+    .find((value) => value === model || value.endsWith(`/${model}`));
+  return match ?? model;
+}
+
+function openCodeSessionModel(session: JsonObject) {
+  const selected = openCodeConfigOption(session, "model")?.currentValue;
+  if (isJsonString(selected)) return selected;
+  const legacy = openCodeRecord(session.models).currentModelId;
+  return isJsonString(legacy) ? legacy : undefined;
+}
+
+function openCodeConfigOption(session: JsonObject, id: string) {
+  const options = session.configOptions;
+  if (!Array.isArray(options)) return undefined;
+  return options
+    .flatMap((value) => {
+      const option = parseJsonObject(value);
+      return option ? [option] : [];
+    })
+    .find(
+      (option) =>
+        option.id === id || option.category === id || option.name === id,
+    );
 }
 
 interface HostServiceOptions {
