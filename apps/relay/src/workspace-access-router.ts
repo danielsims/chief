@@ -14,6 +14,7 @@ const operations = new Set([
   "agent-avatar-set",
   "agent-remove",
   "authorize-conversation",
+  "authorize-identity-conversation",
   "authorize-agent-runtime",
   "authorize-native-agent",
   "agent-hosting-context",
@@ -57,6 +58,8 @@ export const workspaceAccessRouter = {
         return agents.remove(request);
       case "authorize-conversation":
         return agents.authorizeConversation(request);
+      case "authorize-identity-conversation":
+        return agents.authorizeIdentityConversation(request);
       case "authorize-agent-runtime":
         return agents.authorizeRuntime(request);
       case "authorize-native-agent":

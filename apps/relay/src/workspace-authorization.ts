@@ -41,6 +41,41 @@ export async function authorizeWorkspace(
   return principal;
 }
 
+/** Workspace membership and conversation access in one workspace round trip. */
+export async function authorizeWorkspaceConversation(
+  env: Env,
+  input: {
+    identity: AuthenticatedIdentity;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    conversationId: string;
+    permission: "messages.read" | "messages.send" | "messages.manage";
+  },
+): Promise<Principal> {
+  const url = new URL("https://workspace.internal/authorize-conversation");
+  url.searchParams.set("conversationId", input.conversationId);
+  const response = await workspaceStub(env, input.workspaceId).fetch(
+    new Request(
+      url,
+      withTrustedIdentity(input, {
+        method: "POST",
+        headers: {
+          "x-chief-internal-operation": "authorize-identity-conversation",
+          "x-chief-required-permission": input.permission,
+        },
+      }),
+    ),
+  );
+  if (!response.ok) {
+    await releaseInternalResponse(response);
+    throw new AuthorizationError(
+      "The conversation is not available to this identity.",
+    );
+  }
+  return workspaceAuthorizationResultSchema.parse(await response.json())
+    .principal;
+}
+
 export async function authorizeConversation(
   env: Env,
   input: {

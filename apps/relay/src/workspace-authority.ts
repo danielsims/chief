@@ -35,6 +35,7 @@ import { accountStub, workspaceStub } from "./workspace-stubs";
 export {
   authorizeConversation,
   authorizeWorkspace,
+  authorizeWorkspaceConversation,
 } from "./workspace-authorization";
 export { deleteManagedWorkspace } from "./workspace-deletion";
 

@@ -48,8 +48,8 @@ import { routeWorkspaceVercel } from "./router-workspace-vercel";
 import {
   acceptWorkspaceInviteForAccount,
   activeManagedWorkspace,
-  authorizeConversation,
   authorizeWorkspace,
+  authorizeWorkspaceConversation,
   claimWorkspace,
   claimWorkspaceInvite,
   createManagedWorkspace,
@@ -643,13 +643,8 @@ async function routeConversationRequest(
     decodeURIComponent(match?.[2] ?? ""),
   );
   const authenticated = await authenticateRelayRequest(request, env);
-  const principal = await authorizeWorkspace(env, {
+  const principal = await authorizeWorkspaceConversation(env, {
     identity: authenticated.identity,
-    requestId,
-    workspaceId,
-  });
-  await authorizeConversation(env, {
-    principal,
     requestId,
     workspaceId,
     conversationId,
