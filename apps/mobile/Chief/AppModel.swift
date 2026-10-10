@@ -84,7 +84,7 @@ final class AppModel {
   /// Other people typing, by conversation and user id, with when they last were.
   private(set) var typingPeople: [String: [String: Date]] = [:]
   private var lastTypingSentAt: [String: Date] = [:]
-  var homeNavigationPath: [String] = []
+  var navigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
   private var pendingConversationDeepLink: ConversationDeepLink?
@@ -1285,7 +1285,7 @@ final class AppModel {
     conversations.clearAll()
     session = nil
     workspace = nil
-    homeNavigationPath = []
+    navigationPath = []
     selectedConversationID = nil
     selectedThread = nil
     isWorkspaceReadyForPresentation = false
@@ -1818,7 +1818,7 @@ final class AppModel {
     let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
     selectedConversationID = id
-    homeNavigationPath = [id]
+    navigationPath = [id]
     if let threadRootID, !threadRootID.isEmpty {
       selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
     } else {
@@ -1972,7 +1972,7 @@ final class AppModel {
   private func configureReadState(for workspaceID: String) {
     guard readStateWorkspaceID != workspaceID else { return }
     stopWorkspaceLiveStreams()
-    homeNavigationPath = []
+    navigationPath = []
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     readStateWorkspaceID = workspaceID
@@ -3126,7 +3126,7 @@ final class AppModel {
     try? sessions.clear()
     session = nil
     workspace = nil
-    homeNavigationPath = []
+    navigationPath = []
     selectedConversationID = nil
     selectedThread = nil
     isWorkspaceReadyForPresentation = false
@@ -3283,9 +3283,8 @@ extension ConversationMessage {
   }
 }
 
-enum WorkspaceTab: Hashable {
+enum WorkspaceTab: Hashable, CaseIterable {
   case home
   case plugins
   case projects
-  case agents
 }

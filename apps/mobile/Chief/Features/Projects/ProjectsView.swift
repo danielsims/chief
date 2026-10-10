@@ -5,7 +5,25 @@ struct ProjectsView: View {
   @State private var showsAddProject = false
 
   var body: some View {
-    Group {
+    VStack(spacing: 0) {
+      HStack {
+        Text("Projects")
+          .font(.system(size: 26, weight: .regular, design: .rounded))
+          .tracking(-0.6)
+        Spacer()
+        Button {
+          Haptics.medium()
+          showsAddProject = true
+        } label: {
+          PageBarIcon(systemName: "plus")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add project")
+      }
+      .padding(.horizontal, ChiefTheme.pagePadding)
+      .padding(.top, 16)
+      .padding(.bottom, 14)
+      Group {
       if projects.isEmpty {
         EmptyProjectsView(showsAddProject: $showsAddProject)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -29,18 +47,9 @@ struct ProjectsView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(ChiefTheme.background)
-    .navigationTitle("Projects")
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          Haptics.medium()
-          showsAddProject = true
-        } label: {
-          Image(systemName: "plus")
-        }
-      }
     }
+    .background(ChiefTheme.background)
+    .toolbar(.hidden, for: .navigationBar)
     .sheet(isPresented: $showsAddProject) {
       AddProjectSheet()
     }
@@ -89,7 +98,9 @@ private struct ProjectDetailView: View {
   let project: ProjectSummary
 
   var body: some View {
-    ScrollView {
+    VStack(spacing: 0) {
+      PageDetailBar(title: project.name)
+      ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
         ProjectHeader(project: project)
         RepositoryToolbar(project: project)
@@ -102,10 +113,11 @@ private struct ProjectDetailView: View {
       }
       .padding(ChiefTheme.pagePadding)
       .padding(.bottom, 28)
+      }
     }
-    .background(ChiefTheme.background)
-    .navigationTitle(project.name)
-    .navigationBarTitleDisplayMode(.inline)
+    .background(ChiefTheme.background.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
+    .background(InteractivePopEnabler())
   }
 }
 
@@ -254,14 +266,17 @@ private struct ProjectDirectoryView: View {
   let path: String
 
   var body: some View {
-    ScrollView {
-      RepositoryDirectoryContent(project: project, tree: tree, path: path)
-        .padding(ChiefTheme.pagePadding)
-        .padding(.bottom, 28)
+    VStack(spacing: 0) {
+      PageDetailBar(title: (path as NSString).lastPathComponent)
+      ScrollView {
+        RepositoryDirectoryContent(project: project, tree: tree, path: path)
+          .padding(ChiefTheme.pagePadding)
+          .padding(.bottom, 28)
+      }
     }
-    .background(ChiefTheme.background)
-    .navigationTitle((path as NSString).lastPathComponent)
-    .navigationBarTitleDisplayMode(.inline)
+    .background(ChiefTheme.background.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
+    .background(InteractivePopEnabler())
   }
 }
 
@@ -270,7 +285,15 @@ private struct ProjectFileView: View {
   let file: ProjectRepositorySourceFile?
 
   var body: some View {
-    ScrollView(.vertical) {
+    VStack(spacing: 0) {
+      PageDetailBar(title: file.map { ($0.path as NSString).lastPathComponent } ?? project.name) {
+        if let file {
+          ShareLink(item: file.content) {
+            PageBarIcon(systemName: "square.and.arrow.up")
+          }
+        }
+      }
+      ScrollView(.vertical) {
       if let file {
         ScrollView(.horizontal, showsIndicators: true) {
           Text(file.content)
@@ -285,18 +308,10 @@ private struct ProjectFileView: View {
           .padding(40)
       }
     }
-    .background(ChiefTheme.background)
-    .navigationTitle(file.map { ($0.path as NSString).lastPathComponent } ?? project.name)
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      if let file {
-        ToolbarItem(placement: .topBarTrailing) {
-          ShareLink(item: file.content) {
-            Image(systemName: "square.and.arrow.up")
-          }
-        }
-      }
     }
+    .background(ChiefTheme.background.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
+    .background(InteractivePopEnabler())
   }
 }
 

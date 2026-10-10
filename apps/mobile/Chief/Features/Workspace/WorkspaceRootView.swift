@@ -1,62 +1,84 @@
 import SafariServices
 import SwiftUI
+import UIKit
 
 private enum WorkspaceChrome {
-  static let tabBarClearance: CGFloat = 72
+  static let bottomClearance: CGFloat = 24
+  static let headerHeight: CGFloat = 52
 }
 
+/// One navigation stack holds the whole workspace. Its root is a fixed header
+/// above horizontally paged sections, so swiping only moves the page content,
+/// and anything pushed (a conversation, a project) covers the header with its
+/// own back bar.
 struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
-  @State private var agentsPath: [String] = []
 
   var body: some View {
     @Bindable var model = model
-    let inConversation = inConversationActive
-    ZStack(alignment: .bottom) {
-      Group {
-        switch model.selectedTab {
-        case .home:
-          NavigationStack(path: $model.homeNavigationPath) { HomeView(path: $model.homeNavigationPath) }
-        case .plugins:
-          NavigationStack { PluginsView() }
-        case .projects:
-          NavigationStack { ProjectsRootView() }
-        case .agents:
-          NavigationStack(path: $agentsPath) { AgentsView() }
-        }
-      }
-      .safeAreaPadding(.bottom, inConversation ? 0 : WorkspaceChrome.tabBarClearance)
-
-      if !inConversation {
-        ChiefTabBar(selection: $model.selectedTab, unreadCount: totalUnread)
-          .padding(.horizontal, 18)
-          .padding(.bottom, 5)
-      }
+    NavigationStack(path: $model.navigationPath) {
+      WorkspacePages(selection: $model.selectedTab)
+        .background(ChiefTheme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(for: String.self) { id in ConversationView(conversationID: id) }
     }
-    .background(ChiefTheme.background.ignoresSafeArea())
     .task(id: model.selectedConversationID) {
       guard let conversationID = model.selectedConversationID else { return }
-      model.selectedTab = .home
-      model.homeNavigationPath = [conversationID]
+      model.navigationPath = [conversationID]
       model.selectedConversationID = nil
     }
   }
+}
 
-  /// Hide the bottom tab bar in favour of the conversation composer when a
-  /// channel/DM is pushed onto the active navigation stack.
-  private var inConversationActive: Bool {
-    switch model.selectedTab {
-    case .home: return !model.homeNavigationPath.isEmpty
-    case .plugins: return false
-    case .agents: return !agentsPath.isEmpty
-    default: return false
+/// The fixed header and the paged sections under it. The header's tab
+/// highlight follows the scroll position while you drag, not only once a page
+/// settles.
+private struct WorkspacePages: View {
+  @Environment(AppModel.self) private var model
+  @Binding var selection: WorkspaceTab
+  @State private var scrolledTab: WorkspaceTab?
+  @State private var progress: CGFloat = 0
+
+  var body: some View {
+    VStack(spacing: 0) {
+      WorkspaceHeader(selection: $selection, progress: progress)
+      ScrollView(.horizontal) {
+        HStack(spacing: 0) {
+          ForEach(WorkspaceTab.allCases, id: \.self) { tab in
+            page(tab)
+              .containerRelativeFrame(.horizontal)
+              .id(tab)
+          }
+        }
+        .scrollTargetLayout()
+      }
+      .scrollTargetBehavior(.paging)
+      .scrollIndicators(.hidden)
+      .scrollPosition(id: $scrolledTab)
+      .onScrollGeometryChange(for: CGFloat.self) { geometry in
+        geometry.contentOffset.x / max(geometry.containerSize.width, 1)
+      } action: { _, offset in
+        progress = offset
+      }
+    }
+    .onAppear { scrolledTab = selection }
+    .onChange(of: scrolledTab) { _, tab in
+      if let tab, tab != selection { selection = tab }
+    }
+    .onChange(of: selection) { _, tab in
+      guard tab != scrolledTab else { return }
+      withAnimation(.snappy(duration: 0.3)) { scrolledTab = tab }
     }
   }
 
-  private var totalUnread: Int {
-    model.workspace?.conversations
-      .filter { model.isConversationJoined($0.id) }
-      .reduce(0) { $0 + $1.unreadCount } ?? 0
+  @ViewBuilder
+  private func page(_ tab: WorkspaceTab) -> some View {
+    @Bindable var model = model
+    switch tab {
+    case .home: HomeView(path: $model.navigationPath)
+    case .plugins: PluginsView()
+    case .projects: ProjectsView()
+    }
   }
 }
 
@@ -64,28 +86,30 @@ struct WorkspaceHeader: View {
   @Environment(AppModel.self) private var model
   @State private var workspaceSheet = false
   @State private var profilePage = false
+  @Binding var selection: WorkspaceTab
+  /// The pager's scroll position in pages, so labels track a drag.
+  var progress: CGFloat
+
+  private var totalUnread: Int {
+    model.workspace?.conversations
+      .filter { model.isConversationJoined($0.id) }
+      .reduce(0) { $0 + $1.unreadCount } ?? 0
+  }
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 14) {
       Button {
         Haptics.medium()
         workspaceSheet = true
       } label: {
-        HStack(spacing: 9) {
-          WorkspaceAvatar(workspace: model.workspace, size: 32)
-          Text(model.workspace?.name ?? "Chief")
-            .font(.system(size: 16, weight: .semibold))
-            .lineLimit(1)
-          Image(systemName: "chevron.down")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
+        WorkspaceAvatar(workspace: model.workspace, size: 32)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Switch workspace")
       .accessibilityIdentifier("workspace-switcher")
 
-      Spacer()
+      ChiefTabBar(selection: $selection, progress: progress, unreadCount: totalUnread)
+        .frame(maxWidth: .infinity)
 
       Button {
         Haptics.medium()
@@ -100,7 +124,7 @@ struct WorkspaceHeader: View {
     .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52)
     .background(ChiefTheme.background)
     .sheet(isPresented: $workspaceSheet) { WorkspaceSwitcherSheet() }
-    .navigationDestination(isPresented: $profilePage) { SettingsView() }
+    .sheet(isPresented: $profilePage) { NavigationStack { SettingsView() } }
   }
 }
 
@@ -222,8 +246,83 @@ private struct WorkspaceAvatar: View {
       name: workspace?.name ?? "Chief",
       website: workspace?.website,
       imageURL: workspace?.imageURL,
-      size: size
+      size: size,
+      plain: true
     )
+  }
+}
+
+/// The header for pushed screens (channels, DMs, project detail). It sits at the
+/// same height and border as the main page header so navigation doesn't shift.
+struct PageDetailBar<Trailing: View>: View {
+  @Environment(\.dismiss) private var dismiss
+  let title: String
+  let trailing: Trailing
+
+  init(title: String, @ViewBuilder trailing: () -> Trailing) {
+    self.title = title
+    self.trailing = trailing()
+  }
+
+  var body: some View {
+    ZStack {
+      Text(title)
+        .font(.system(size: 16, weight: .semibold))
+        .lineLimit(1)
+        .padding(.horizontal, 56)
+      HStack {
+        Button {
+          Haptics.light()
+          dismiss()
+        } label: {
+          PageBarIcon(systemName: "chevron.left")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+        Spacer()
+        trailing
+      }
+    }
+    .padding(.horizontal, ChiefTheme.pagePadding)
+    .frame(maxWidth: .infinity, minHeight: WorkspaceChrome.headerHeight, maxHeight: WorkspaceChrome.headerHeight)
+    .background(ChiefTheme.background)
+    .overlay(alignment: .bottom) {
+      Rectangle().fill(ChiefTheme.line).frame(height: 0.5)
+    }
+  }
+}
+
+extension PageDetailBar where Trailing == EmptyView {
+  init(title: String) {
+    self.init(title: title) { EmptyView() }
+  }
+}
+
+struct PageBarIcon: View {
+  let systemName: String
+
+  var body: some View {
+    Image(systemName: systemName)
+      .font(.system(size: 14, weight: .semibold))
+      .foregroundStyle(.primary)
+      .frame(width: 34, height: 34)
+      .background(ChiefTheme.elevated, in: Circle())
+      .overlay { Circle().stroke(ChiefTheme.line) }
+      .contentShape(Circle())
+  }
+}
+
+/// Keeps the system edge-swipe back gesture live while the navigation bar is hidden.
+struct InteractivePopEnabler: UIViewControllerRepresentable {
+  func makeUIViewController(context: Context) -> Controller { Controller() }
+  func updateUIViewController(_ controller: Controller, context: Context) {}
+
+  final class Controller: UIViewController {
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+      navigationController?.interactivePopGestureRecognizer?.delegate = nil
+    }
   }
 }
 
@@ -264,7 +363,6 @@ struct HomeView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      WorkspaceHeader()
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 20) {
           greeting
@@ -275,12 +373,10 @@ struct HomeView: View {
           DMsGroup(path: $path)
         }
         .padding(.top, 16)
-        .padding(.bottom, WorkspaceChrome.tabBarClearance + 12)
+        .padding(.bottom, WorkspaceChrome.bottomClearance)
       }
     }
     .background(ChiefTheme.background)
-    .navigationDestination(for: String.self) { id in ConversationView(conversationID: id) }
-    .toolbar(.hidden, for: .navigationBar)
   }
 
   private var greeting: some View {
@@ -317,7 +413,6 @@ struct PluginsView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      WorkspaceHeader()
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 14) {
           VStack(alignment: .leading, spacing: 4) {
@@ -372,11 +467,10 @@ struct PluginsView: View {
           }
         }
         .padding(.top, 16)
-        .padding(.bottom, WorkspaceChrome.tabBarClearance + 18)
+        .padding(.bottom, WorkspaceChrome.bottomClearance)
       }
     }
     .background(ChiefTheme.background)
-    .toolbar(.hidden, for: .navigationBar)
     .task {
       loading = true
       async let catalog = PluginCatalogClient.shared.preferredPlugins()
@@ -502,114 +596,6 @@ struct PluginBrowserView: UIViewControllerRepresentable {
   func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
-struct DMsView: View {
-  @Environment(AppModel.self) private var model
-  @Binding var path: [String]
-  @State private var quickCreateVisible = false
-  @State private var newMessageVisible = false
-  @State private var newChannelVisible = false
-  @State private var inviteVisible = false
-
-  var body: some View {
-    ZStack(alignment: .bottomTrailing) {
-      VStack(spacing: 0) {
-        WorkspaceHeader()
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 14) {
-            Text("DMs")
-              .font(.system(size: 26, weight: .regular, design: .rounded))
-              .tracking(-0.6)
-              .padding(.horizontal, ChiefTheme.pagePadding)
-            DMsGroup(path: $path)
-          }
-          .padding(.top, 16)
-          .padding(.bottom, 84)
-        }
-      }
-      if quickCreateVisible {
-        Color.black.opacity(0.001)
-          .ignoresSafeArea()
-          .onTapGesture {
-            Haptics.light()
-            withAnimation(.easeOut(duration: 0.15)) { quickCreateVisible = false }
-          }
-        WorkspaceQuickCreateMenu(
-          onInvite: {
-            quickCreateVisible = false
-            inviteVisible = true
-          },
-          onChannel: {
-            quickCreateVisible = false
-            newChannelVisible = true
-          },
-          onMessage: {
-            quickCreateVisible = false
-            newMessageVisible = true
-          }
-        )
-        .padding(.trailing, ChiefTheme.pagePadding)
-        .padding(.bottom, 74)
-        .transition(.scale(scale: 0.94, anchor: .bottomTrailing).combined(with: .opacity))
-      }
-      Button {
-        Haptics.heavy()
-        withAnimation(.easeOut(duration: 0.16)) { quickCreateVisible.toggle() }
-      } label: {
-        Image(systemName: quickCreateVisible ? "xmark" : "plus")
-          .font(.system(size: 19, weight: .semibold))
-          .foregroundStyle(ChiefTheme.accent)
-          .frame(width: 54, height: 54)
-          .background(.ultraThinMaterial, in: Circle())
-          .overlay { Circle().stroke(ChiefTheme.line, lineWidth: 0.5) }
-          .shadow(color: .black.opacity(0.24), radius: 12, y: 5)
-      }
-      .buttonStyle(.plain)
-      .padding(.trailing, ChiefTheme.pagePadding)
-      .padding(.bottom, 8)
-      .accessibilityLabel(quickCreateVisible ? "Close create menu" : "Create")
-    }
-    .background(ChiefTheme.background)
-    .navigationDestination(for: String.self) { id in ConversationView(conversationID: id) }
-    .toolbar(.hidden, for: .navigationBar)
-    .fullScreenCover(isPresented: $newMessageVisible) {
-      NewMessageView { conversationID in path.append(conversationID) }
-    }
-    .sheet(isPresented: $newChannelVisible) {
-      NewChannelSheet { name, isPrivate in
-        Task { await model.createChannel(name: name, isPrivate: isPrivate) }
-      }
-    }
-    .sheet(isPresented: $inviteVisible) { InvitePeopleSheet() }
-  }
-}
-
-struct AgentsView: View {
-  @Environment(AppModel.self) private var model
-
-  var body: some View {
-    VStack(spacing: 0) {
-      WorkspaceHeader()
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          Text("Agents")
-            .font(.system(size: 26, weight: .regular, design: .rounded))
-            .tracking(-0.6)
-            .padding(.horizontal, ChiefTheme.pagePadding)
-          AgentsGroup()
-        }
-        .padding(.top, 16)
-        .padding(.bottom, 12)
-      }
-    }
-    .background(ChiefTheme.background)
-    .toolbar(.hidden, for: .navigationBar)
-    .navigationDestination(for: String.self) { agentID in
-      let card = model.workspace?.agentCard(for: agentID) ?? .chiefFallback(for: agentID)
-      AgentDetailView(agent: card.agent, highlightedSubagentID: card.subagentID)
-    }
-  }
-}
-
 private struct RelayUnavailableBanner: View {
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
@@ -642,19 +628,3 @@ private struct RelayUnavailableBanner: View {
   }
 }
 
-private struct ProjectsRootView: View {
-  var body: some View {
-    VStack(spacing: 0) {
-      WorkspaceHeader()
-      Text("Projects")
-        .font(.system(size: 26, weight: .regular, design: .rounded))
-        .tracking(-0.6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.top, 16)
-        .padding(.bottom, 14)
-      ProjectsView()
-    }
-    .toolbar(.hidden, for: .navigationBar)
-  }
-}

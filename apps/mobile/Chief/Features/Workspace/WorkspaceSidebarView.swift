@@ -238,20 +238,6 @@ struct DMsGroup: View {
   }
 }
 
-/// The agent roster, used on the Agents tab.
-struct AgentsGroup: View {
-  @Environment(AppModel.self) private var model
-
-  var body: some View {
-    VStack(spacing: 8) {
-      ForEach(model.workspace?.agents ?? []) { agent in
-        AgentTreeRow(agent: agent)
-      }
-    }
-    .padding(.horizontal, ChiefTheme.pagePadding)
-  }
-}
-
 private struct CollapsibleGroup<Content: View>: View {
   let title: String
   let count: Int

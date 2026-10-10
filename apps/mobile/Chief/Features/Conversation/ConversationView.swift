@@ -16,58 +16,54 @@ struct ConversationView: View {
   @State private var sentMessageIDs: Set<String> = []
   @State private var showsActivity = false
   @State private var showsMenu = false
-  @State private var showsCanvas = false
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
 
   var body: some View {
-    VStack(spacing: 0) {
-      content
-      if isMember, let workspaceID = model.workspace?.id {
-        AgentBrowserWorkView(
-          workspaceID: workspaceID,
-          conversationIDs: browserConversationIDs,
-          agents: workingAgents
-        )
-      }
-      if isMember {
-        let typists = model.typingNames(conversationID: conversationID)
-        if workingAgents.isEmpty, !typists.isEmpty {
-          PeopleTypingRow(names: typists).transition(.opacity)
-        } else {
-          ConversationActivityFooter(
-            agents: workingAgents,
-            openActivity: { showsActivity = true }
-          )
+    content
+      .ignoresSafeArea(.container, edges: .bottom)
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) {
+          if isMember, let workspaceID = model.workspace?.id {
+            AgentBrowserWorkView(
+              workspaceID: workspaceID,
+              conversationIDs: browserConversationIDs,
+              agents: workingAgents
+            )
+          }
+          if isMember {
+            let typists = model.typingNames(conversationID: conversationID)
+            if workingAgents.isEmpty, !typists.isEmpty {
+              PeopleTypingRow(names: typists).transition(.opacity)
+            } else {
+              ConversationActivityFooter(
+                agents: workingAgents,
+                openActivity: { showsActivity = true }
+              )
+            }
+          }
+          participationFooter
         }
       }
-      participationFooter
-    }
     .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
-    .background(ChiefTheme.background)
-    .navigationTitle(conversation?.name ?? "Conversation")
-    .navigationBarTitleDisplayMode(.inline)
-    .navigationDestination(isPresented: $showsCanvas) { ChannelCanvasView(conversationID: conversationID) }
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        if isMember, conversation?.kind == .channel {
-          Button { showsCanvas = true } label: { Image(systemName: "doc.on.doc") }
-            .accessibilityLabel("Open channel Canvas")
-        }
-      }
-      ToolbarItem(placement: .topBarTrailing) {
+    .safeAreaInset(edge: .top, spacing: 0) {
+      PageDetailBar(title: conversation?.name ?? "Conversation") {
         if isMember {
           Button {
             Haptics.medium()
             showsMenu = true
           } label: {
-            Image(systemName: "ellipsis")
+            PageBarIcon(systemName: "ellipsis")
           }
+          .buttonStyle(.plain)
           .accessibilityLabel("Conversation options")
         }
       }
     }
+    .background(ChiefTheme.background.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
+    .background(InteractivePopEnabler())
     .sheet(isPresented: $showsMenu) {
       ConversationMenuSheet { showsActivity = true }
     }
