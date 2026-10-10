@@ -28,9 +28,9 @@ import {
   trustedTelemetryAttributes,
 } from "./internal-context";
 import { metered, meterSql, requestOperation } from "./sql-metering";
+import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
-import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { runWorkspaceAlarm } from "./workspace-alarm";
 import {
@@ -235,85 +235,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
 
-      const access = new WorkspaceAccessService(ctx.storage, env);
-      const agents = new WorkspaceAgentAccessService(ctx.storage, env);
-      if (operation === "members-list") {
-        return yield* attempt("workspace.members.list", () =>
-          access.membersList(request),
+      if (workspaceAccessRouter.matches(operation)) {
+        return yield* attempt("workspace.access", () =>
+          workspaceAccessRouter.route(ctx.storage, env, request, operation),
         );
-      }
-      if (operation === "member-role-set") {
-        return yield* attempt("workspace.member.role", () =>
-          access.memberRoleSet(request),
-        );
-      }
-      if (operation === "members-remove") {
-        return yield* attempt("workspace.members.remove", () =>
-          access.memberRemove(request),
-        );
-      }
-      if (operation === "agent-configs-list") {
-        return yield* attempt("workspace.agent.configs.list", () =>
-          agents.configList(request),
-        );
-      }
-      if (operation === "agent-config-get") {
-        return yield* attempt("workspace.agent.config.get", () =>
-          agents.configGet(request),
-        );
-      }
-      if (operation === "agent-create") {
-        return yield* attempt("workspace.agent.create", () =>
-          agents.create(request),
-        );
-      }
-      if (operation === "agent-runtime-get") {
-        return yield* attempt("workspace.agent.runtime.get", () =>
-          agents.runtimeDescriptor(request),
-        );
-      }
-      if (operation === "agent-config-set") {
-        return yield* attempt("workspace.agent.config.set", () =>
-          agents.configSet(request),
-        );
-      }
-      if (operation === "agent-avatar-set") {
-        return yield* attempt("workspace.agent.avatar.set", () =>
-          agents.avatarSet(request),
-        );
-      }
-      if (operation === "agent-remove") {
-        return yield* attempt("workspace.agent.remove", () =>
-          agents.remove(request),
-        );
-      }
-      if (operation === "authorize-conversation") {
-        return yield* attempt("workspace.conversation.authorize", () =>
-          agents.authorizeConversation(request),
-        );
-      }
-      if (operation === "authorize-agent-runtime") {
-        return yield* attempt("workspace.agent.authorize", () =>
-          agents.authorizeRuntime(request),
-        );
-      }
-      if (operation === "authorize-native-agent") {
-        return yield* attempt("workspace.agent.native.authorize", () =>
-          agents.authorizeNativeAgent(request),
-        );
-      }
-      if (operation === "agent-hosting-context") {
-        return yield* attempt("workspace.agent.context", () =>
-          agents.hostingContext(request),
-        );
-      }
-      if (operation === "register-agent-key") {
-        return yield* attempt("workspace.agent.key.register", () =>
-          access.registerAgentKey(request, readTrustedIdentity(request)),
-        );
-      }
-      if (operation === "agent-keys") {
-        return yield* attempt("workspace.agent.keys", () => access.agentKeys());
       }
 
       const invitations = new WorkspaceInvitationService(ctx.storage, env);
@@ -451,7 +376,9 @@ export class WorkspaceObject extends DurableObject<Env> {
       const context = readTrustedIdentity(request);
       if (operation === "authorize") {
         return yield* attempt("workspace.authorize", () =>
-          access.authorize(context.identity),
+          new WorkspaceAccessService(ctx.storage, env).authorize(
+            context.identity,
+          ),
         );
       }
       if (operation === "claim") {
