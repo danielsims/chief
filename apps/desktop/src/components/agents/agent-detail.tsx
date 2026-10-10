@@ -39,6 +39,7 @@ import {
 } from "../../lib/agent-overrides";
 import { useWorkspaceRole } from "../../lib/workspace-role";
 import { AgentAvatar as ChiefAgentAvatar } from "../agent-avatar";
+import { AgentAvatarCard } from "./agent-avatar-card";
 import { AgentCredentialsCard } from "./agent-credentials-card";
 import {
   AgentChannelsTab,
@@ -94,7 +95,7 @@ export function AgentDetail({
   onUpdateChannelAgents,
   onRemove,
   relayClient,
-  onExternalAgentChanged,
+  onAgentChanged,
   selectedProfileId,
   onSelectProfile,
 }: {
@@ -115,7 +116,7 @@ export function AgentDetail({
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
   onRemove: (agentId: string) => Promise<void>;
   relayClient?: RelayClient | null;
-  onExternalAgentChanged?: () => Promise<void>;
+  onAgentChanged?: () => Promise<void>;
   selectedProfileId?: string;
   onSelectProfile?: (agentId: string) => void;
 }) {
@@ -322,6 +323,13 @@ export function AgentDetail({
               >
                 {activeTab === "configuration" ? (
                   <div className="space-y-10">
+                    <AgentAvatarCard
+                      agentId={agent.id}
+                      agentName={agent.name}
+                      relayClient={relayClient}
+                      ready={ready}
+                      onChanged={onAgentChanged}
+                    />
                     <div className="space-y-4">
                       <AgentExecutionCard
                         agent={agent}
@@ -330,7 +338,7 @@ export function AgentDetail({
                         saving={saving}
                         error={preferenceError}
                         relayClient={relayClient}
-                        onExternalAgentChanged={onExternalAgentChanged}
+                        onExternalAgentChanged={onAgentChanged}
                         onApply={(draft) =>
                           save({
                             deploymentTarget: relayDeploymentTarget(
