@@ -25,6 +25,7 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
+  agentConfigListSchema,
   agentConfigResultSchema,
   agentJobListSchema,
   agentLeaseSchema,
@@ -235,6 +236,13 @@ export class RelayClient extends RelayVercelProvisioning {
       `agents/${encodeURIComponent(agentId)}/config`,
     );
     return await this.fetchJson(url, agentConfigResultSchema);
+  }
+  async loadAgentConfigs(): Promise<AgentConfigResult[]> {
+    const { configs } = await this.fetchJson(
+      this.workspaceUrl("agents/configs"),
+      agentConfigListSchema,
+    );
+    return configs;
   }
   async loadOwnAgentProfile(): Promise<AgentSummary> {
     return this.fetchJson(
