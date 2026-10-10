@@ -1,12 +1,10 @@
 import type { ComponentType } from "react";
 import { createContext, useContext } from "react";
 
-import type { DriverType } from "@chief/agent-runtime/types";
 import type { AgentAvatar as AgentAvatarValue } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
-import { useAgentDriver } from "../lib/agent-config";
 import {
   WORKSPACE_AGENT_IDENTITIES,
   workspaceAgentIdentity,
@@ -25,13 +23,14 @@ export interface AgentAppearance {
   avatars: ReadonlyMap<string, AgentAvatarValue>;
   /** Agent ids by lowercased name, for views that only know an agent's name. */
   agentIds: ReadonlyMap<string, string>;
-  marks: Partial<Record<DriverType, ProviderMark>>;
+  /** Provider logos for on-device agents, by agent id. */
+  providerMarks: ReadonlyMap<string, ProviderMark>;
 }
 
 export const AgentAppearanceContext = createContext<AgentAppearance>({
   avatars: new Map(),
   agentIds: new Map(),
-  marks: {},
+  providerMarks: new Map(),
 });
 
 type Look =
@@ -42,7 +41,9 @@ type Look =
 /** The one place that decides how an agent is drawn: its own avatar, then its
  * provider's logo when it runs on this device, then Chief's mark. */
 function useAgentLook(requestedId: string | undefined, label: string): Look {
-  const { avatars, agentIds, marks } = useContext(AgentAppearanceContext);
+  const { avatars, agentIds, providerMarks } = useContext(
+    AgentAppearanceContext,
+  );
   const agentId = requestedId ?? agentIds.get(label.toLowerCase());
   const identity = agentId
     ? workspaceAgentIdentity(agentId)
@@ -50,11 +51,9 @@ function useAgentLook(requestedId: string | undefined, label: string): Look {
         (candidate) => candidate.name.toLowerCase() === label.toLowerCase(),
       );
   const avatar = agentId ? avatars.get(agentId) : undefined;
-  const driver = useAgentDriver(
-    avatar || identity?.color ? undefined : agentId,
-  );
   if (avatar) return avatar;
-  const Mark = driver ? marks[driver] : undefined;
+  const Mark =
+    agentId && !identity?.color ? providerMarks.get(agentId) : undefined;
   if (Mark) return { kind: "provider", Mark };
   return { kind: "mark", color: identity?.color };
 }

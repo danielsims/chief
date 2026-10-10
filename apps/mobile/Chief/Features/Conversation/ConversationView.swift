@@ -19,9 +19,12 @@ struct ConversationView: View {
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
+  /// The floating footer's height, kept clear under the last message.
+  @State private var footerHeight: CGFloat = 0
 
   var body: some View {
     content
+      .contentMargins(.bottom, footerHeight + 16, for: .scrollContent)
       .ignoresSafeArea(.container, edges: .bottom)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(spacing: 0) {
@@ -44,6 +47,9 @@ struct ConversationView: View {
             }
           }
           participationFooter
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+          footerHeight = height
         }
       }
     .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))

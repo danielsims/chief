@@ -35,7 +35,11 @@ struct ConversationTranscriptView: View {
         )
         .padding(ChiefTheme.pagePadding)
       }
-      .defaultScrollAnchor(.bottom)
+      // Short conversations start at the top and fill downwards; longer
+      // ones open at, and follow, the latest message.
+      .defaultScrollAnchor(.top, for: .alignment)
+      .defaultScrollAnchor(.bottom, for: .initialOffset)
+      .defaultScrollAnchor(.bottom, for: .sizeChanges)
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .refreshable { await reload() }

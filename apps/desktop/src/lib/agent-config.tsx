@@ -159,12 +159,6 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** The agent's provider, or null outside the provider tree or while loading. */
-export function useAgentDriver(agentId: string | undefined) {
-  const value = useContext(AgentConfigContext);
-  return agentId && value ? value.forAgent(agentId).driver : null;
-}
-
 export function useAgentConfig(): AgentConfigValue {
   const value = useContext(AgentConfigContext);
   if (!value) {

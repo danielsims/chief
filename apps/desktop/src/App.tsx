@@ -72,10 +72,14 @@ const MachinesPage = lazy(() =>
   })),
 );
 
-const LOCAL_PROVIDER_MARKS = {
+/** Logos for the providers that run agents on this device, by provider. */
+const LOCAL_PROVIDER_MARKS: Partial<
+  Record<string, (typeof PROVIDER_META)[keyof typeof PROVIDER_META]["Icon"]>
+> = {
   claude: PROVIDER_META.claude.Icon,
   codex: PROVIDER_META.codex.Icon,
   opencode: PROVIDER_META.opencode.Icon,
+  openCodeGo: PROVIDER_META.opencode.Icon,
 };
 
 /** Supplies every agent's avatar from the workspace, with provider logos for
@@ -88,7 +92,14 @@ function AgentAppearanceProvider({ children }: { children: ReactNode }) {
       ...agent.subagents,
     ]);
     return {
-      marks: LOCAL_PROVIDER_MARKS,
+      providerMarks: new Map(
+        profiles.flatMap((agent) => {
+          const mark = agent.provider
+            ? LOCAL_PROVIDER_MARKS[agent.provider]
+            : undefined;
+          return mark ? [[agent.id, mark] as const] : [];
+        }),
+      ),
       agentIds: new Map(
         profiles.map((agent) => [agent.name.toLowerCase(), agent.id] as const),
       ),

@@ -304,12 +304,14 @@ export class WorkspaceLifecycleService {
       }),
       agents: reconciled.snapshot.agents.map((agent) => ({
         ...agent,
+        ...this.agentProvider(agent),
         canRunOnDevice:
           (agent.ownerUserId ?? workspace.created_by_user_id) ===
           principal.userId,
         canMessage: canMessageAgent(this.channels, agent.id, principal),
         subagents: agent.subagents.map((child) => ({
           ...child,
+          ...this.agentProvider({ ...child, runtime: agent.runtime }),
           canMessage: canMessageAgent(this.channels, child.id, principal),
         })),
       })),
@@ -499,6 +501,18 @@ export class WorkspaceLifecycleService {
         "This identity is not a workspace member.",
       );
     }
+  }
+
+  /** A Chief-run agent's provider name, which every member may see. */
+  private agentProvider(agent: { id: string; runtime: { kind: string } }): {
+    provider?: string;
+  } {
+    return agent.runtime.kind === "native-cell"
+      ? {
+          provider: this.channels.agentConfiguration(agent.id).inference
+            .provider,
+        }
+      : {};
   }
 
   private requireOwner(context: ReturnType<typeof readTrustedIdentity>) {
