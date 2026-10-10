@@ -32,6 +32,12 @@ actor RelayLiveClient {
   private var conversationIDs: Set<String> = []
   private var workspaceCursor = 0
 
+  /// URLSession refuses frames over 1 MB by default. A live event can be larger,
+  /// and refusing one drops the socket before the cursor passes it, so every
+  /// reconnect replays the same event and fails again. Cloudflare's own
+  /// WebSocket frame limit is 32 MiB.
+  private static let maximumMessageSize = 32 * 1024 * 1024
+
   init(
     configuration: AppConfiguration,
     session: URLSession = .shared
@@ -66,6 +72,7 @@ actor RelayLiveClient {
       .replacingOccurrences(of: "http://", with: "ws://")
     let request = URLRequest(url: URL(string: url)!)
     let socket = session.webSocketTask(with: request)
+    socket.maximumMessageSize = Self.maximumMessageSize
     socket.resume()
     self.socket = socket
     try await sendWorkspaceSubscription()
@@ -124,6 +131,7 @@ actor RelayLiveClient {
       .replacingOccurrences(of: "https://", with: "wss://")
       .replacingOccurrences(of: "http://", with: "ws://")
     let mailboxSocket = session.webSocketTask(with: URL(string: url)!)
+    mailboxSocket.maximumMessageSize = Self.maximumMessageSize
     mailboxSocket.resume()
     socket = mailboxSocket
     // A one-shot durable catch-up only after the authenticated socket is open
