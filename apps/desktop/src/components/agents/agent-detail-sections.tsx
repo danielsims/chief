@@ -3,12 +3,10 @@ import { Hash } from "lucide-react";
 
 import type {
   AgentApprovalMode,
-  AgentCapabilityId,
   AgentToolPermission,
   WorkspaceChannel,
 } from "@chief/agent-runtime/types";
 import { agentToolPermissionDefinitions } from "@chief/agent-runtime/agent-tool-permissions";
-import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -20,16 +18,6 @@ const permissionGroups = [
   "Scheduled work",
   "Advanced",
 ] as const;
-
-// Only the features worth an owner's decision are offered here.
-const capabilityDetails: Partial<
-  Record<AgentCapabilityId, { label: string; description: string }>
-> = {
-  "schedule-manager": {
-    label: "Scheduled work",
-    description: "Turn goals into recurring or event-triggered work.",
-  },
-};
 
 export function SectionHeading({
   title,
@@ -121,15 +109,11 @@ function ApprovalControl({
 export function AgentConfigurationTab({
   approvals,
   ready,
-  capabilities,
   onApprovalChange,
-  onCapabilitiesChange,
 }: {
   approvals: AgentApprovalMode;
   ready: boolean;
-  capabilities: AgentCapabilityId[];
   onApprovalChange: (value: AgentApprovalMode) => void;
-  onCapabilitiesChange: (value: AgentCapabilityId[]) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -150,40 +134,6 @@ export function AgentConfigurationTab({
               />
             }
           />
-        </SettingGroup>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Workspace features"
-          description="Optional Chief records and views this agent can work with."
-        />
-        <SettingGroup>
-          {availableCapabilities.map((capability) => {
-            const checked = capabilities.includes(capability.id);
-            const detail = capabilityDetails[capability.id];
-            if (!detail) return null;
-            return (
-              <SettingRow
-                key={capability.id}
-                title={detail.label}
-                description={detail.description}
-                control={
-                  <Switch
-                    checked={checked}
-                    disabled={!ready}
-                    onCheckedChange={(next) =>
-                      onCapabilitiesChange(
-                        next
-                          ? [...capabilities, capability.id]
-                          : capabilities.filter((id) => id !== capability.id),
-                      )
-                    }
-                  />
-                }
-              />
-            );
-          })}
         </SettingGroup>
       </section>
     </div>
