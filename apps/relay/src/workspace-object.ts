@@ -27,6 +27,7 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { metered, meterSql, requestOperation } from "./sql-metering";
 import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
@@ -72,19 +73,28 @@ import {
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    meterSql(state.storage);
     registerGuestListeners(state);
     // Keep-alive pings are answered without waking the object, so idle
     // connections (members' and guest listeners') cost nothing.
     state.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong"),
     );
-    void state.blockConcurrencyWhile(async () => {
-      initializeWorkspaceSchema(state.storage, env);
-      await ensureWorkspaceAlarm(state.storage);
-    });
+    void state.blockConcurrencyWhile(() =>
+      metered("WorkspaceObject", "constructor", async () => {
+        initializeWorkspaceSchema(state.storage, env);
+        await ensureWorkspaceAlarm(state.storage);
+      }),
+    );
   }
 
   fetch(request: Request) {
+    return metered("WorkspaceObject", requestOperation(request), () =>
+      this.route(request),
+    );
+  }
+
+  private route(request: Request) {
     if (!this.eveAgentsUpdated) {
       this.eveAgentsUpdated = true;
       this.ctx.waitUntil(updateOutdatedEveAgents(this.ctx.storage, this.env));
@@ -143,7 +153,9 @@ export class WorkspaceObject extends DurableObject<Env> {
   private eveAgentsUpdated = false;
 
   async alarm() {
-    await runWorkspaceAlarm(this.ctx.storage, this.env);
+    await metered("WorkspaceObject", "alarm", () =>
+      runWorkspaceAlarm(this.ctx.storage, this.env),
+    );
   }
 
   private routeOperation(request: Request, operation: string | null) {
@@ -576,6 +588,15 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    return metered("WorkspaceObject", "websocket.message", () =>
+      this.receiveSocketMessage(socket, message),
+    );
+  }
+
+  private receiveSocketMessage(
+    socket: WebSocket,
+    message: string | ArrayBuffer,
+  ) {
     if (isGuestListener(this.ctx, socket)) {
       socket.close(1008, "Listeners only receive wake-ups");
       return;

@@ -44,6 +44,7 @@ import {
 import { requireInternalDeletion } from "./internal-deletion";
 import { validatePluginComponentPlacement } from "./plugin-component-policy";
 import { recordProductEvents } from "./product-events";
+import { metered, meterSql, requestOperation } from "./sql-metering";
 
 const repliesRoute = /\/messages\/([^/]+)\/replies$/u;
 const reactionsRoute = /\/messages\/([^/]+)\/reactions$/u;
@@ -55,14 +56,22 @@ export class ConversationObject extends DurableObject<Env> {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    meterSql(state.storage);
     this.store = new SqlConversationStore(state.storage);
-    void state.blockConcurrencyWhile(() => {
-      this.store.initialize();
-      return Promise.resolve();
-    });
+    void state.blockConcurrencyWhile(() =>
+      metered("ConversationObject", "constructor", () =>
+        this.store.initialize(),
+      ),
+    );
   }
 
-  async fetch(request: Request) {
+  fetch(request: Request) {
+    return metered("ConversationObject", requestOperation(request), () =>
+      this.receive(request),
+    );
+  }
+
+  private async receive(request: Request) {
     const ctx = this.ctx;
     const env = this.env;
     const workflowId = await conversationWorkflowId(request);
