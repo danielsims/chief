@@ -330,6 +330,10 @@ actor FixtureRelayClient: RelayServing {
         nil
     }
 
+    func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig] {
+        [:]
+    }
+
     func removeChannelMember(
         workspaceID: String,
         conversationID: String,

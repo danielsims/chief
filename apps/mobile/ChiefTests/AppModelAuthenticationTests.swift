@@ -395,6 +395,9 @@ private struct FailingRelay: RelayServing {
   func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {
     throw error
   }
+  func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig] {
+    throw error
+  }
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {
     throw error
   }
