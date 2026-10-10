@@ -52,11 +52,10 @@ import {
 } from "./agent-identity-navigator";
 import { AgentMessageAccess } from "./agent-message-access";
 
-type DetailTab = "configuration" | "runtime" | "channels" | "permissions";
+type DetailTab = "configuration" | "channels" | "permissions";
 
 const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "configuration", label: "Configuration" },
-  { id: "runtime", label: "Runtime" },
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
 ];
@@ -323,6 +322,42 @@ export function AgentDetail({
               >
                 {activeTab === "configuration" ? (
                   <div className="space-y-10">
+                    <div className="space-y-4">
+                      <AgentExecutionCard
+                        agent={agent}
+                        execution={execution}
+                        ready={ready}
+                        saving={saving}
+                        error={preferenceError}
+                        relayClient={relayClient}
+                        onExternalAgentChanged={onExternalAgentChanged}
+                        onApply={(draft) =>
+                          save({
+                            deploymentTarget: relayDeploymentTarget(
+                              draft.deployment,
+                            ),
+                            driver: draft.provider,
+                            model: draft.model,
+                          })
+                        }
+                        onApplyToTeam={(draft) =>
+                          onApplyExecutionToTeam(
+                            relayDeploymentTarget(draft.deployment),
+                            draft.provider,
+                            draft.model,
+                          )
+                        }
+                      />
+                      {isOwner &&
+                      relayClient &&
+                      execution.deployment.kind === "chief-cloud" &&
+                      execution.inference.kind === "configured" ? (
+                        <AgentCredentialsCard
+                          provider={execution.inference.provider}
+                          relayClient={relayClient}
+                        />
+                      ) : null}
+                    </div>
                     <AgentConfigurationTab
                       approvals={approvals}
                       ready={ready}
@@ -338,45 +373,6 @@ export function AgentDetail({
                       onRemove={onRemove}
                     />
                   </div>
-                ) : null}
-
-                {activeTab === "runtime" ? (
-                  <>
-                    <AgentExecutionCard
-                      agent={agent}
-                      execution={execution}
-                      ready={ready}
-                      saving={saving}
-                      error={preferenceError}
-                      relayClient={relayClient}
-                      onExternalAgentChanged={onExternalAgentChanged}
-                      onApply={(draft) =>
-                        save({
-                          deploymentTarget: relayDeploymentTarget(
-                            draft.deployment,
-                          ),
-                          driver: draft.provider,
-                          model: draft.model,
-                        })
-                      }
-                      onApplyToTeam={(draft) =>
-                        onApplyExecutionToTeam(
-                          relayDeploymentTarget(draft.deployment),
-                          draft.provider,
-                          draft.model,
-                        )
-                      }
-                    />
-                    {isOwner &&
-                    relayClient &&
-                    execution.deployment.kind === "chief-cloud" &&
-                    execution.inference.kind === "configured" ? (
-                      <AgentCredentialsCard
-                        provider={execution.inference.provider}
-                        relayClient={relayClient}
-                      />
-                    ) : null}
-                  </>
                 ) : null}
 
                 {activeTab === "channels" ? (
