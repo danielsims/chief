@@ -38,8 +38,7 @@ import {
   setWorkspaceProvider,
 } from "../../lib/agent-overrides";
 import { useWorkspaceRole } from "../../lib/workspace-role";
-import { AgentAvatar as ChiefAgentAvatar } from "../agent-avatar";
-import { AgentAvatarCard } from "./agent-avatar-card";
+import { AgentAvatarEditor } from "./agent-avatar-editor";
 import { AgentCredentialsCard } from "./agent-credentials-card";
 import {
   AgentChannelsTab,
@@ -60,28 +59,6 @@ const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
 ];
-
-function DetailAgentAvatar({
-  agentId,
-  name,
-  enabled,
-}: {
-  agentId: string;
-  name: string;
-  enabled: boolean;
-}) {
-  return (
-    <span className="relative flex size-14 shrink-0">
-      <ChiefAgentAvatar agentId={agentId} label={name} className="size-full" />
-      <span
-        className={cn(
-          "border-background absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-[3px]",
-          enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
-        )}
-      />
-    </span>
-  );
-}
 
 export function AgentDetail({
   agent,
@@ -226,7 +203,7 @@ export function AgentDetail({
             onSelect={selectProfile}
           />
         ) : null}
-        <div className="min-w-0">
+        <div className="max-w-4xl min-w-0">
           {selectedSubagent ? (
             <SubagentDetail profile={selectedSubagent} parent={agent} />
           ) : (
@@ -234,10 +211,12 @@ export function AgentDetail({
               <header>
                 <div className="flex flex-wrap items-start justify-between gap-5">
                   <div className="flex min-w-0 items-center gap-4">
-                    <DetailAgentAvatar
+                    <AgentAvatarEditor
                       agentId={agent.id}
-                      name={agent.name}
-                      enabled={enabled}
+                      agentName={agent.name}
+                      relayClient={relayClient}
+                      ready={ready}
+                      onChanged={onAgentChanged}
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -365,21 +344,10 @@ export function AgentDetail({
                         />
                       ) : null}
                     </div>
-                    <AgentAvatarCard
-                      agentId={agent.id}
-                      agentName={agent.name}
-                      relayClient={relayClient}
-                      ready={ready}
-                      onChanged={onAgentChanged}
-                    />
                     <AgentConfigurationTab
                       approvals={approvals}
                       ready={ready}
-                      capabilities={capabilities}
                       onApprovalChange={(value) => save({ approvals: value })}
-                      onCapabilitiesChange={(value) =>
-                        save({ capabilities: value })
-                      }
                     />
                     <AgentDangerZone
                       agent={agent}
