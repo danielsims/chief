@@ -455,7 +455,7 @@ export function ChiefChatAuxiliaryPanels({
             <div ref={threadBottomRef} />
           </ConversationAuxiliaryPanelBody>
           <div ref={threadComposerRef} className="relative shrink-0 px-3 pb-3">
-            <div className="relative space-y-2">
+            <div className="relative mx-auto w-full max-w-3xl space-y-2">
               <ChatComposer
                 storageKey={`${core.cloudOrganizationId}:thread:${threadRootId}`}
                 value={threadDraft}
