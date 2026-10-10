@@ -31,6 +31,8 @@ import {
   openCodeTextContent as textContent,
 } from "./opencode-support.js";
 
+const SESSION_OPEN_TIMEOUT_MS = 120_000;
+
 export class AcpDriver extends BaseDriver {
   private process: ChildProcess | null = null;
   protected sessionId: string | undefined;
@@ -126,7 +128,14 @@ export class AcpDriver extends BaseDriver {
     const initialized = await initializeOpenCodeSession(
       options,
       this.sessionId,
-      (method, params) => this.rpc(method, params),
+      // Opening a session can take well over the usual RPC budget the first
+      // time a provider sees a working directory and prepares its project.
+      (method, params) =>
+        this.rpc(
+          method,
+          params,
+          method.startsWith("session/") ? SESSION_OPEN_TIMEOUT_MS : undefined,
+        ),
     );
     this.sessionId = initialized.sessionId;
     this.emitEvent({
