@@ -82,4 +82,30 @@ extension WorkspaceSnapshot {
     }
     return avatars
   }
+
+  /// Provider logos for agents you added, by id and lowercased name. Chief's
+  /// own agents keep their colours, and an avatar wins over both.
+  var agentProviderLogos: [String: String] {
+    var logos: [String: String] = [:]
+    for agent in agents {
+      let profiles =
+        [(agent.id, agent.name, agent.provider)]
+        + agent.subagents.map { ($0.id, $0.name, $0.provider) }
+      for (id, name, provider) in profiles where WorkspaceAgentCatalog.agent(forID: id) == nil {
+        guard let logo = provider.flatMap(Self.providerLogo) else { continue }
+        logos[id] = logo
+        logos[name.lowercased()] = logo
+      }
+    }
+    return logos
+  }
+
+  private static func providerLogo(_ provider: String) -> String? {
+    switch provider {
+    case "claude": "ProviderClaude"
+    case "codex": "ProviderOpenAI"
+    case "opencode", "openCodeGo": "ProviderOpenCode"
+    default: nil
+    }
+  }
 }

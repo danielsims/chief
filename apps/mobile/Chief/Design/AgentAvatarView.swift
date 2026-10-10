@@ -4,6 +4,27 @@ import UIKit
 extension EnvironmentValues {
   /// Agent avatars by agent id and lowercased name, set once at the app root.
   @Entry var agentAvatars: [String: AgentAvatar] = [:]
+  /// Provider logo asset names for on-device agents without an avatar.
+  @Entry var agentProviderLogos: [String: String] = [:]
+}
+
+/// An on-device agent's provider logo on a white tile, as on desktop.
+struct AgentProviderLogoView: View {
+  let asset: String
+  let size: CGFloat
+
+  var body: some View {
+    Image(asset)
+      .resizable()
+      .scaledToFit()
+      .padding(size * 0.2)
+      .frame(width: size, height: size)
+      .background(Color.white, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+          .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+      }
+  }
 }
 
 /// Draws an agent's own avatar inside the same rounded tile as `AgentMark`.
