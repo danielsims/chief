@@ -1,5 +1,6 @@
 import type { Principal } from "@chief/relay-contracts";
 import {
+  agentAvatarSetSchema,
   agentConfigSchema,
   agentIdSchema,
   agentSummarySchema,
@@ -101,6 +102,43 @@ export class WorkspaceAgentAccessService {
       );
     });
     return json({ agent });
+  }
+
+  /** Sets or clears how an agent appears. The router has already checked that
+   * an image or sprite is this agent's own upload. */
+  async avatarSet(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const agentId = requestedAgentId(request);
+    const { avatar } = agentAvatarSetSchema.parse(await parseJson(request));
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json) {
+      throw new HttpError(404, "agent_not_found", "This agent was not found.");
+    }
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const withAvatar = <Agent extends { id: string; avatar?: unknown }>(
+      agent: Agent,
+    ) => {
+      if (agent.id !== agentId) return agent;
+      const { avatar: _previous, ...rest } = agent;
+      return avatar ? { ...rest, avatar } : rest;
+    };
+    if (
+      !workspaceAgentProfiles(snapshot).some((agent) => agent.id === agentId)
+    ) {
+      throw new HttpError(404, "agent_not_found", "This agent was not found.");
+    }
+    workspaceUpdateVerifyConnection(
+      this.storage,
+      JSON.stringify({
+        ...snapshot,
+        agents: snapshot.agents.map((agent) => ({
+          ...withAvatar(agent),
+          subagents: agent.subagents.map(withAvatar),
+        })),
+      }),
+    );
+    return json({ agentId, avatar });
   }
 
   configGet(request: Request) {

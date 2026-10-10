@@ -24,6 +24,7 @@ import {
   updateWorkspaceOrganizationMemberRole,
   usesOrganizationTenancy,
 } from "./organization-tenancy";
+import { routeAgentAvatar } from "./router-agent-avatar";
 import {
   authorizeNativeAgent,
   deterministicUuid,
@@ -90,6 +91,8 @@ export async function routeAgentRequest(
   if (external) return external;
   const profile = await routeOwnAgentProfile(env, request, requestId);
   if (profile) return profile;
+  const avatar = await routeAgentAvatar(env, request, requestId);
+  if (avatar) return avatar;
   const agentCollection = agentCollectionRoute.exec(url.pathname);
   if (agentCollection && request.method === "POST") {
     const workspaceId = parseWorkspaceId(agentCollection[1]);

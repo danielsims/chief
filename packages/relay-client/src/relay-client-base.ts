@@ -1,4 +1,5 @@
 import type {
+  AgentAvatar,
   AttachmentUploadPayload,
   BrandProfile,
   ChannelDetail,
@@ -21,6 +22,9 @@ import type {
   WorkspaceSummary,
 } from "@chief/relay-contracts";
 import {
+  agentAvatarSetResultSchema,
+  agentAvatarSetSchema,
+  agentIdSchema,
   attachmentUploadPayloadSchema,
   attachmentUploadResultSchema,
   brandProfileResultSchema,
@@ -114,6 +118,30 @@ export class RelayClientBase {
   }
   async deleteWorkspaceImage() {
     return this.deleteImage(this.workspaceUrl("logo"));
+  }
+  /** Stores an agent's avatar image or sprite sheet; set it with setAgentAvatar. */
+  async uploadAgentAvatarImage(
+    agentId: string,
+    input: AttachmentUploadPayload,
+  ) {
+    return this.uploadImage(this.agentAvatarUrl(agentId, "/image"), input);
+  }
+  async setAgentAvatar(agentId: string, avatar: AgentAvatar | null) {
+    await this.fetchJson(
+      this.agentAvatarUrl(agentId, ""),
+      agentAvatarSetResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(agentAvatarSetSchema.parse({ avatar })),
+      },
+    );
+  }
+  private agentAvatarUrl(agentId: string, suffix: "" | "/image") {
+    return this.workspaceUrl(
+      `agents/${encodeURIComponent(agentIdSchema.parse(agentId))}/avatar${suffix}`,
+    );
   }
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     return (
