@@ -1,5 +1,4 @@
 export function initializeChannelGuestTables(storage: DurableObjectStorage) {
-  dropPreReleaseGuestTables(storage);
   storage.sql.exec(`
     CREATE TABLE IF NOT EXISTS channel_guests (
       guest_id TEXT PRIMARY KEY,
@@ -96,26 +95,5 @@ export function initializeChannelGuestTables(storage: DurableObjectStorage) {
            webhook_authorization = NULL,
            webhook_secret = NULL
      WHERE operator_user_id IS NULL AND status = 'active';
-  `);
-}
-
-/**
- * Pre-release builds let any non-private channel be joined by link. Every
- * guest and link they created is discarded once so nothing admitted under
- * that model survives; `channel_links` only exists in those builds.
- */
-function dropPreReleaseGuestTables(storage: DurableObjectStorage) {
-  const legacy = storage.sql
-    .exec<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'channel_links'",
-    )
-    .toArray();
-  if (legacy.length === 0) return;
-  storage.sql.exec(`
-    DROP TABLE IF EXISTS channel_links;
-    DROP TABLE IF EXISTS channel_guests;
-    DROP TABLE IF EXISTS channel_guest_threads;
-    DROP TABLE IF EXISTS channel_guest_subscriptions;
-    DROP TABLE IF EXISTS channel_guest_outbox;
   `);
 }
