@@ -241,7 +241,10 @@ async function executeJob(
       conversationId,
       {
         driver: normalizeDriver(config.inference.provider),
-        access: "guarded",
+        // A cell has no one to answer provider prompts. With automatic
+        // approvals the agent works freely on this device; otherwise only
+        // Chief's own tools are allowed below.
+        access: config.approvals === "auto" ? "full" : "guarded",
         workspaceId: job.workspaceId,
         model:
           config.inference.model.toLowerCase() === "auto"
