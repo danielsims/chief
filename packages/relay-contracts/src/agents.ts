@@ -159,6 +159,10 @@ export const agentConfigResultSchema = z
 
 export type AgentConfigResult = z.infer<typeof agentConfigResultSchema>;
 
+export const agentConfigListSchema = z
+  .object({ configs: z.array(agentConfigResultSchema) })
+  .strict();
+
 export const agentJobSchema = z.object({
   id: jobIdSchema,
   workspaceId: workspaceIdSchema,

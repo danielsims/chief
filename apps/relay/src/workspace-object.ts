@@ -252,6 +252,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           access.memberRemove(request),
         );
       }
+      if (operation === "agent-configs-list") {
+        return yield* attempt("workspace.agent.configs.list", () =>
+          agents.configList(request),
+        );
+      }
       if (operation === "agent-config-get") {
         return yield* attempt("workspace.agent.config.get", () =>
           agents.configGet(request),

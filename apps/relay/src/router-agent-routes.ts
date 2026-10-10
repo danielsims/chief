@@ -67,6 +67,7 @@ const agentSocketTicketRoute =
 const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
+const agentConfigListRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/configs$/u;
 const agentResourceRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)$/u;
 const agentCollectionRoute = /^\/v1\/workspaces\/([^/]+)\/agents$/u;
 const agentCellSnapshotRoute =
@@ -262,6 +263,34 @@ export async function routeAgentRequest(
       workspaceId,
       agentId,
       artifact[3] ?? "",
+    );
+  }
+
+  const agentConfigList = agentConfigListRoute.exec(url.pathname);
+  if (agentConfigList) {
+    if (request.method !== "GET") {
+      return relayError(
+        405,
+        "method_not_allowed",
+        "Method not allowed.",
+        requestId,
+      );
+    }
+    const workspaceId = parseWorkspaceId(agentConfigList[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal/agent-configs", {
+          method: "POST",
+          headers: { "x-chief-internal-operation": "agent-configs-list" },
+        }),
+        { principal, requestId, workspaceId },
+      ),
     );
   }
 
