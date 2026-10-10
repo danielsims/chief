@@ -166,8 +166,8 @@ export function AgentsPage() {
               />
             </section>
           ) : (
-            <section className="px-6 pb-6">
-              <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <section className="mx-auto w-full max-w-6xl px-6 py-5">
+              <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
                 {agents.map((agent) => (
                   <TeamAgentCard
                     key={agent.id}

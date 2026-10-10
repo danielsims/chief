@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type {
@@ -100,7 +100,7 @@ export function AgentAvatar({
   );
 }
 
-/** Laid out exactly like a project card, so the two lists read as one system. */
+/** Laid out exactly like a plugin row, so the two lists read as one system. */
 export function TeamAgentCard({
   agent,
   override,
@@ -119,44 +119,38 @@ export function TeamAgentCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-muted hover:bg-accent/70 group flex min-h-[116px] w-full flex-col rounded-2xl px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
-        selected && "bg-accent/40 ring-foreground/15 ring-1",
+        "hover:bg-accent/30 flex w-full min-w-0 items-center gap-4 rounded-xl px-2 py-3 text-left transition-colors",
+        selected && "bg-accent/40",
       )}
     >
-      <span className="flex w-full items-start gap-3">
-        <ChiefAgentAvatar
-          agentId={agent.id}
-          label={agent.name}
-          className="size-10 rounded-xl"
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium">
-            {agent.name}
-          </span>
-          <span className="text-muted-foreground mt-1 block truncate text-[12px] leading-4">
-            {agent.role}
-          </span>
+      <ChiefAgentAvatar
+        agentId={agent.id}
+        label={agent.name}
+        className="size-12 shrink-0 rounded-[15px]"
+      />
+      <span className="min-w-0 flex-1 pr-5">
+        <span className="block truncate text-sm font-medium">{agent.name}</span>
+        <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+          <span className="truncate">{agent.role}</span>
+          {subagents > 0 ? (
+            <span className="shrink-0">
+              · {subagents} {subagents === 1 ? "subagent" : "subagents"}
+            </span>
+          ) : null}
         </span>
       </span>
-      <span className="text-muted-foreground mt-auto flex w-full items-center gap-4 pt-3 text-[12px] leading-4">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-1.5 rounded-full",
-              enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-            )}
-          />
-          <span className="truncate">{enabled ? "Active" : "Paused"}</span>
-        </span>
-        {subagents > 0 ? (
-          <span className="ml-auto flex min-w-0 items-center gap-1.5">
-            <Users size={13} />
-            <span className="truncate">
-              {subagents} {subagents === 1 ? "subagent" : "subagents"}
-            </span>
-          </span>
-        ) : null}
+      <span
+        className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs"
+        title={enabled ? "Active" : "Paused"}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-1.5 rounded-full",
+            enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+          )}
+        />
+        {enabled ? "Active" : "Paused"}
       </span>
     </button>
   );
