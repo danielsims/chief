@@ -386,6 +386,8 @@ export const agentProfileSchema = z
     instructions: z.string().trim().max(40_000).default(""),
     capabilities: z.array(z.string().trim().min(1).max(128)).default([]),
     avatar: agentAvatarSchema.optional(),
+    /** The inference provider a Chief-run agent uses, so clients can show it. */
+    provider: z.string().trim().min(1).max(64).optional(),
   })
   .strict();
 
