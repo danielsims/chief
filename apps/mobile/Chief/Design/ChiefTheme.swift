@@ -130,6 +130,12 @@ struct AgentMark: View {
   let name: String
   var size: CGFloat = 32
   var working = false
+  @Environment(\.agentAvatars) private var avatars
+
+  private var avatar: AgentAvatar? {
+    let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name
+    return avatars[agentID] ?? avatars[name.lowercased()]
+  }
 
   private var color: Color {
     let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name.lowercased()
@@ -142,6 +148,15 @@ struct AgentMark: View {
   }
 
   var body: some View {
+    if let avatar, !working {
+      AgentAvatarView(avatar: avatar, size: size)
+        .accessibilityLabel(name)
+    } else {
+      fallbackMark
+    }
+  }
+
+  private var fallbackMark: some View {
     ZStack {
       RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
         .fill(color)
