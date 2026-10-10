@@ -144,7 +144,6 @@ export function ChiefChat({
     setThreadRootId,
     submit,
     suppressThreadAutoScrollRef,
-    threadHasEnteredRef,
     threadRootId,
     threadScrollRef,
   } = composerState;
@@ -158,14 +157,12 @@ export function ChiefChat({
     cloudOrganizationId,
     controlsStatus: controls.status,
     destinationChannelId,
-    initialMessageId,
     knownAgentIds,
     markThreadRead,
     messages,
     optimisticInitialPrompt,
     setVisibleThread,
     suppressThreadAutoScrollRef,
-    threadHasEnteredRef,
     threadRootId,
     threadScrollRef,
   });
