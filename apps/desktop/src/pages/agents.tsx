@@ -155,7 +155,7 @@ export function AgentsPage() {
                 saving={agentPreferences.saving}
                 preferenceError={agentPreferences.error}
                 relayClient={relay.client}
-                onExternalAgentChanged={relay.refresh}
+                onAgentChanged={relay.refresh}
                 onSave={agentPreferences.save}
                 onApplyExecutionToTeam={applyExecutionToTeam}
                 onUpdateChannelAgents={workspaceChannels.updateChannelAgents}

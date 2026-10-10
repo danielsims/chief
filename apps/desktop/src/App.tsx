@@ -1,5 +1,5 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, lazy, Suspense } from "react";
+import { Component, lazy, Suspense, useMemo } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -11,7 +11,7 @@ import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
 
-import { ProviderMarksContext } from "./components/agent-avatar";
+import { AgentAppearanceContext } from "./components/agent-avatar";
 import { MentionPeopleProvider } from "./components/chat/mention-people-context";
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
@@ -77,6 +77,30 @@ const LOCAL_PROVIDER_MARKS = {
   codex: PROVIDER_META.codex.Icon,
   opencode: PROVIDER_META.opencode.Icon,
 };
+
+/** Supplies every agent's avatar from the workspace, with provider logos for
+ * on-device agents that have none. */
+function AgentAppearanceProvider({ children }: { children: ReactNode }) {
+  const { snapshot } = useRelaySession();
+  const value = useMemo(
+    () => ({
+      marks: LOCAL_PROVIDER_MARKS,
+      avatars: new Map(
+        (snapshot?.agents ?? [])
+          .flatMap((agent) => [agent, ...agent.subagents])
+          .flatMap((agent) =>
+            agent.avatar ? [[agent.id, agent.avatar] as const] : [],
+          ),
+      ),
+    }),
+    [snapshot],
+  );
+  return (
+    <AgentAppearanceContext.Provider value={value}>
+      {children}
+    </AgentAppearanceContext.Provider>
+  );
+}
 
 function ConfigurationRequired() {
   return (
@@ -311,7 +335,7 @@ function AuthenticatedApp() {
         }}
       />
       <AgentConfigProvider>
-        <ProviderMarksContext.Provider value={LOCAL_PROVIDER_MARKS}>
+        <AgentAppearanceProvider>
           <BrowserRouter>
             <ChiefNavigationProvider>
               <WorkspaceChannelsProvider>
@@ -415,7 +439,7 @@ function AuthenticatedApp() {
               </WorkspaceChannelsProvider>
             </ChiefNavigationProvider>
           </BrowserRouter>
-        </ProviderMarksContext.Provider>
+        </AgentAppearanceProvider>
       </AgentConfigProvider>
     </RuntimeProvider>
   );
