@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { agentAvatarSchema } from "./agent-avatar";
 import {
   commandIdSchema,
   conversationIdSchema,
@@ -384,6 +385,7 @@ export const agentProfileSchema = z
     description: z.string().trim().max(1_000).default(""),
     instructions: z.string().trim().max(40_000).default(""),
     capabilities: z.array(z.string().trim().min(1).max(128)).default([]),
+    avatar: agentAvatarSchema.optional(),
   })
   .strict();
 

@@ -260,6 +260,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           agents.configSet(request),
         );
       }
+      if (operation === "agent-avatar-set") {
+        return yield* attempt("workspace.agent.avatar.set", () =>
+          agents.avatarSet(request),
+        );
+      }
       if (operation === "agent-remove") {
         return yield* attempt("workspace.agent.remove", () =>
           agents.remove(request),
