@@ -268,13 +268,14 @@ export class WorkspaceLifecycleService {
       pubkey: context.identity.pubkey,
       workspaceId: context.workspaceId,
     };
+    const names = this.channels.principalNames();
     return json({
       ...reconciled.snapshot,
       // Each person sees only the DMs they are in. A person-to-person DM is
       // named after the other participant, for this viewer.
       conversations: conversations.flatMap((conversation) => {
         if (conversation.kind !== "direct") return [conversation];
-        const members = this.channels.channelMemberRows(conversation.id);
+        const members = this.channels.channelMemberRows(conversation.id, names);
         if (
           !members.some(
             (member) =>
@@ -295,8 +296,7 @@ export class WorkspaceLifecycleService {
           {
             ...conversation,
             name: (
-              this.channels.principalNames().get(`user:${peer.principalId}`) ??
-              conversation.name
+              names.get(`user:${peer.principalId}`) ?? conversation.name
             ).slice(0, 120),
             directUserId: peer.principalId,
           },

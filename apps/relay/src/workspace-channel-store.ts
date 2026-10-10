@@ -365,12 +365,12 @@ export class WorkspaceChannelStore {
     });
   }
 
-  channelMemberRows(conversationId: string) {
+  /** Pass `names` when listing many channels; building it reads every member. */
+  channelMemberRows(conversationId: string, names = this.principalNames()) {
     const rows = channelMembersFindChannelMemberRows(
       this.storage,
       conversationId,
     ).map((row) => channelMemberRowSchema.parse(row));
-    const names = this.principalNames();
     return rows.map((row) => ({
       kind: row.principal_kind,
       principalId: String(row.principal_id),
