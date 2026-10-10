@@ -305,24 +305,7 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation?.kind === "direct" && !conversation.directUserId
-    ? agentForDirect(conversation.name, snapshot)
-    : undefined;
-}
-
-export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
-  const normalized = name.toLowerCase();
-  const profiles = snapshot.agents.flatMap((agent) => [
-    agent,
-    ...agent.subagents,
-  ]);
-  return (
-    profiles.find(
-      (agent) =>
-        normalized.includes(agent.id.toLowerCase()) ||
-        normalized.includes(agent.name.toLowerCase()),
-    )?.id ?? "chief"
-  );
+  return conversation?.directAgentId;
 }
 
 function messageComponentParts(

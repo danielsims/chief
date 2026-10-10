@@ -44,7 +44,6 @@ import {
   relayRuntimeErrorMessage,
 } from "./relay-runtime-errors";
 import {
-  agentForDirect,
   agentRunEvent,
   browserRuntimeEvent,
   directAgentId,
@@ -442,18 +441,20 @@ export class RelayRuntimeClient implements RuntimeTransport {
       workspaceId: this.snapshot.id,
       chats: this.snapshot.conversations
         // Person-to-person DMs are listed with channels, not agent chats.
-        .filter(
-          (conversation) =>
-            conversation.kind === "direct" && !conversation.directUserId,
-        )
-        .map((conversation) => ({
-          id: conversation.id,
-          agent: agentForDirect(conversation.name, this.snapshot),
-          title: conversation.name,
-          lastText: conversation.lastMessage ?? "",
-          lastAt: 0,
-          running: false,
-        })),
+        .flatMap((conversation) =>
+          conversation.kind === "direct" && conversation.directAgentId
+            ? [
+                {
+                  id: conversation.id,
+                  agent: conversation.directAgentId,
+                  title: conversation.name,
+                  lastText: conversation.lastMessage ?? "",
+                  lastAt: 0,
+                  running: false,
+                },
+              ]
+            : [],
+        ),
     });
     for (const conversation of this.snapshot.conversations) {
       if (conversation.kind === "direct") {

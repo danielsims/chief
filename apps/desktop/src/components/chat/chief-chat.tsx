@@ -250,7 +250,11 @@ export function ChiefChat({
                     />
                   </div>
                 ) : null}
-                {!channelResolved && !isNew && !composerOpen ? (
+                {!channelResolved &&
+                !isNew &&
+                !composerOpen &&
+                messages.length === 0 &&
+                !showOptimisticInitialPrompt ? (
                   <ChatSkeleton />
                 ) : null}
                 {channelResolved &&
@@ -273,7 +277,7 @@ export function ChiefChat({
                     onOpenMention={openAgentMention}
                   />
                 ) : null}
-                {channelResolved || isNew ? (
+                {channelResolved || isNew || messages.length > 0 ? (
                   <ChatTimeline
                     entries={timelineEntries}
                     renderEntry={(entry) => {

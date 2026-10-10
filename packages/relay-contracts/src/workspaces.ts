@@ -293,6 +293,8 @@ export const conversationSummarySchema = z.object({
   lastMessageAt: isoDateTimeSchema.optional(),
   /** Set on a person-to-person DM: the other participant, for this viewer. */
   directUserId: z.string().trim().min(1).max(256).optional(),
+  /** Set on a DM with an agent: the agent it is with. */
+  directAgentId: z.string().trim().min(1).max(128).optional(),
 });
 
 export const agentDefinitionSourceSchema = z
