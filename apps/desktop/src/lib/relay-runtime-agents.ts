@@ -73,22 +73,12 @@ export async function relayAgentPreferencesMessage(
   snapshot: WorkspaceSnapshot,
   requestId?: string,
 ): Promise<Extract<ServerMessage, { type: "agentPreferences" }>> {
-  const nativeAgents = snapshot.agents
-    .filter((agent) => agent.runtime.kind === "native-cell")
-    .flatMap((agent) => [agent, ...agent.subagents]);
-  const results = await Promise.allSettled(
-    nativeAgents.map(async (agent) =>
-      relayAgentPreference(await relay.loadAgentConfig(agent.id)),
-    ),
-  );
-  const preferences = results.flatMap((result, index) => {
-    if (result.status === "fulfilled") return [result.value];
-    console.error(
-      `[Chief relay] Could not load ${nativeAgents[index]?.id ?? "agent"} configuration.`,
-      result.reason,
-    );
-    return [];
-  });
+  let preferences: AgentPreference[] = [];
+  try {
+    preferences = (await relay.loadAgentConfigs()).map(relayAgentPreference);
+  } catch (error) {
+    console.error("[Chief relay] Could not load agent configuration.", error);
+  }
   return {
     type: "agentPreferences",
     workspaceId: snapshot.id,

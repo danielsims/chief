@@ -179,6 +179,9 @@ void test("routes createChannel through the relay and emits the created channel"
     loadAgentConfig() {
       throw new Error("not used in this test");
     },
+    loadAgentConfigs() {
+      throw new Error("not used in this test");
+    },
     listAgentJobs: () => Promise.resolve([]),
     listProjects() {
       throw new Error("not used in this test");
@@ -328,6 +331,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
     },
     listMessages: unused,
     loadAgentConfig: unused,
+    loadAgentConfigs: unused,
     listAgentJobs: () => Promise.resolve([]),
     listProjects: unused,
     schedules: new RelayClient({

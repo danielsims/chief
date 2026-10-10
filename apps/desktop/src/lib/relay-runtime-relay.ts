@@ -19,6 +19,7 @@ export type RelayRuntimeRelay = Pick<
   | "listCurrentChannelMemberships"
   | "listMessages"
   | "loadAgentConfig"
+  | "loadAgentConfigs"
   | "listAgentJobs"
   | "listProjects"
   | "listProspects"
