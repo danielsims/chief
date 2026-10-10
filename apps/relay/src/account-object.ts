@@ -36,6 +36,7 @@ import { workspaceDirectoryV2FindSwitchWorkspace } from "./queries/workspace-dir
 import { workspaceDirectoryV2InsertCreate } from "./queries/workspace-directory-v2/insert-create";
 import { workspaceDirectoryV2InsertJoin } from "./queries/workspace-directory-v2/insert-join";
 import { workspaceDirectoryV2UpdateJoin } from "./queries/workspace-directory-v2/update-join";
+import { metered, meterSql, requestOperation } from "./sql-metering";
 
 interface DirectoryRow extends Record<string, SqlStorageValue> {
   workspace_id: string;
@@ -50,14 +51,22 @@ interface DirectoryRow extends Record<string, SqlStorageValue> {
 export class AccountObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    void state.blockConcurrencyWhile(() => {
-      initializeAccountTables(state.storage);
-      migrateLegacyDirectory(state.storage);
-      return Promise.resolve();
-    });
+    meterSql(state.storage);
+    void state.blockConcurrencyWhile(() =>
+      metered("AccountObject", "constructor", () => {
+        initializeAccountTables(state.storage);
+        migrateLegacyDirectory(state.storage);
+      }),
+    );
   }
 
   fetch(request: Request) {
+    return metered("AccountObject", requestOperation(request), () =>
+      this.route(request),
+    );
+  }
+
+  private route(request: Request) {
     const create = this.create.bind(this);
     const active = this.active.bind(this);
     const list = this.list.bind(this);
