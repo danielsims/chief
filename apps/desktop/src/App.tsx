@@ -82,19 +82,23 @@ const LOCAL_PROVIDER_MARKS = {
  * on-device agents that have none. */
 function AgentAppearanceProvider({ children }: { children: ReactNode }) {
   const { snapshot } = useRelaySession();
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    const profiles = (snapshot?.agents ?? []).flatMap((agent) => [
+      agent,
+      ...agent.subagents,
+    ]);
+    return {
       marks: LOCAL_PROVIDER_MARKS,
-      avatars: new Map(
-        (snapshot?.agents ?? [])
-          .flatMap((agent) => [agent, ...agent.subagents])
-          .flatMap((agent) =>
-            agent.avatar ? [[agent.id, agent.avatar] as const] : [],
-          ),
+      agentIds: new Map(
+        profiles.map((agent) => [agent.name.toLowerCase(), agent.id] as const),
       ),
-    }),
-    [snapshot],
-  );
+      avatars: new Map(
+        profiles.flatMap((agent) =>
+          agent.avatar ? [[agent.id, agent.avatar] as const] : [],
+        ),
+      ),
+    };
+  }, [snapshot]);
   return (
     <AgentAppearanceContext.Provider value={value}>
       {children}

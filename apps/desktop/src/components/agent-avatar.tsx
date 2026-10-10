@@ -23,11 +23,14 @@ type ProviderMark = ComponentType<{ className?: string }>;
  */
 export interface AgentAppearance {
   avatars: ReadonlyMap<string, AgentAvatarValue>;
+  /** Agent ids by lowercased name, for views that only know an agent's name. */
+  agentIds: ReadonlyMap<string, string>;
   marks: Partial<Record<DriverType, ProviderMark>>;
 }
 
 export const AgentAppearanceContext = createContext<AgentAppearance>({
   avatars: new Map(),
+  agentIds: new Map(),
   marks: {},
 });
 
@@ -38,8 +41,9 @@ type Look =
 
 /** The one place that decides how an agent is drawn: its own avatar, then its
  * provider's logo when it runs on this device, then Chief's mark. */
-function useAgentLook(agentId: string | undefined, label: string): Look {
-  const { avatars, marks } = useContext(AgentAppearanceContext);
+function useAgentLook(requestedId: string | undefined, label: string): Look {
+  const { avatars, agentIds, marks } = useContext(AgentAppearanceContext);
+  const agentId = requestedId ?? agentIds.get(label.toLowerCase());
   const identity = agentId
     ? workspaceAgentIdentity(agentId)
     : Object.values(WORKSPACE_AGENT_IDENTITIES).find(
