@@ -2314,15 +2314,20 @@ final class AppModel {
 
   func refreshConversation(workspaceID: String, conversationID: String) async throws {
     let baseline = conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
+    // History already held only needs what came after it; edits to older
+    // messages arrive through the socket's cursor replay.
     let remote = try await relay.messages(
-      workspaceID: workspaceID, conversationID: conversationID, after: nil
+      workspaceID: workspaceID, conversationID: conversationID,
+      after: baseline.map(\.sequence).max()
     )
     try Task.checkCancellation()
     guard workspace?.id == workspaceID else { return }
     // Preserve messages that arrived on the socket while history was in flight.
     conversations.reconcileHistory(
       workspaceID: workspaceID, conversationID: conversationID, messages: remote, baseline: baseline)
-    hydrateReadSnapshot(remote, workspaceID: workspaceID, conversationID: conversationID)
+    hydrateReadSnapshot(
+      conversations.messages(workspaceID: workspaceID, conversationID: conversationID),
+      workspaceID: workspaceID, conversationID: conversationID)
     if isAppActive, visibleConversationID == conversationID {
       markChannelRead(conversationID: conversationID)
       if let root = visibleThreadRootID {
