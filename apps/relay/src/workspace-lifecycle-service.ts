@@ -282,6 +282,9 @@ export class WorkspaceLifecycleService {
           )
         )
           return [];
+        const agent = members.find((member) => member.kind === "agent");
+        if (agent)
+          return [{ ...conversation, directAgentId: agent.principalId }];
         if (members.some((member) => member.kind !== "user"))
           return [conversation];
         const peer = members.find(

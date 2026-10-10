@@ -110,14 +110,15 @@ export function DirectMessageOpening({
         <AgentAvatar agentId={agentId} className="size-7" />
         <span className="text-sm font-semibold">{agentName}</span>
       </header>
-      <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
-        <p>{error ?? "Opening conversation…"}</p>
-        {error ? (
+      {/* Opening is near-instant, so it shows only the conversation frame. */}
+      {error ? (
+        <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
+          <p>{error}</p>
           <Button variant="outline" size="sm" onClick={onRetry}>
             Try again
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
