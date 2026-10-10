@@ -159,7 +159,6 @@ export function useChiefChatComposer({
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const mainHasEnteredRef = useRef(false);
-  const threadHasEnteredRef = useRef(false);
   const sentInitial = useRef(false);
   const approveRecurringWork = useEffectEvent(
     (proposed: (typeof workspaceData.recurringWork)[number]) => {
@@ -183,7 +182,6 @@ export function useChiefChatComposer({
 
   useEffect(() => {
     mainHasEnteredRef.current = false;
-    threadHasEnteredRef.current = false;
   }, [chatId]);
 
   const [mainScrolledUp, setMainScrolledUp] = useState(false);
@@ -313,7 +311,6 @@ export function useChiefChatComposer({
     suppressThreadAutoScrollRef,
     threadBottomRef,
     threadDraft,
-    threadHasEnteredRef,
     threadImageAttachments,
     threadRootId,
     threadScrollRef,

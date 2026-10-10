@@ -20,6 +20,7 @@ import {
   specialistTaskBelongsToConversation,
   specialistTaskOwners,
 } from "./specialist-task-display";
+import { useStickToBottom } from "./use-stick-to-bottom";
 
 type ReadState = ReturnType<typeof useChannelReadState>;
 type Runtime = ReturnType<typeof useRuntime>;
@@ -54,14 +55,12 @@ export function useChiefChatTimeline({
   cloudOrganizationId,
   controlsStatus,
   destinationChannelId,
-  initialMessageId,
   knownAgentIds,
   markThreadRead,
   messages,
   optimisticInitialPrompt,
   setVisibleThread,
   suppressThreadAutoScrollRef,
-  threadHasEnteredRef,
   threadRootId,
   threadScrollRef,
 }: {
@@ -74,14 +73,12 @@ export function useChiefChatTimeline({
   cloudOrganizationId: string | null;
   controlsStatus: string;
   destinationChannelId?: string;
-  initialMessageId?: string;
   knownAgentIds: ReadonlySet<string>;
   markThreadRead: ReadState["markThreadRead"];
   messages: readonly ChiefUIMessage[];
   optimisticInitialPrompt: string | null;
   setVisibleThread: ReadState["setVisibleThread"];
   suppressThreadAutoScrollRef: RefObject<boolean>;
-  threadHasEnteredRef: RefObject<boolean>;
   threadRootId: string | null;
   threadScrollRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -202,37 +199,12 @@ export function useChiefChatTimeline({
     setVisibleThread,
     threadRootId,
   ]);
-  useEffect(() => {
-    if (!threadRootId) return;
-    if (suppressThreadAutoScrollRef.current) {
-      if (
-        initialMessageId &&
-        !document.getElementById(`chief-message-${initialMessageId}`)
-      )
-        return;
-      suppressThreadAutoScrollRef.current = false;
-      return;
-    }
-    const container = threadScrollRef.current;
-    if (container && !threadHasEnteredRef.current) {
-      threadHasEnteredRef.current = true;
-      container.scrollTop = container.scrollHeight;
-      return;
-    }
-    if (container) {
-      const nearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        120;
-      if (nearBottom) container.scrollTop = container.scrollHeight;
-    }
-  }, [
-    activeThreadReplies.length,
-    initialMessageId,
-    suppressThreadAutoScrollRef,
-    threadHasEnteredRef,
-    threadRootId,
+  // A thread opened to show a specific message stays on that message.
+  useStickToBottom(
     threadScrollRef,
-  ]);
+    threadRootId,
+    () => !suppressThreadAutoScrollRef.current,
+  );
   const activeThreadAudience = useMemo(
     () =>
       threadAgentAudience(
