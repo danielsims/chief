@@ -62,15 +62,17 @@ const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
 ];
 
 function DetailAgentAvatar({
+  agentId,
   name,
   enabled,
 }: {
+  agentId: string;
   name: string;
   enabled: boolean;
 }) {
   return (
     <span className="relative flex size-14 shrink-0">
-      <ChiefAgentAvatar label={name} className="size-full" />
+      <ChiefAgentAvatar agentId={agentId} label={name} className="size-full" />
       <span
         className={cn(
           "border-background absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-[3px]",
@@ -232,7 +234,11 @@ export function AgentDetail({
               <header>
                 <div className="flex flex-wrap items-start justify-between gap-5">
                   <div className="flex min-w-0 items-center gap-4">
-                    <DetailAgentAvatar name={agent.name} enabled={enabled} />
+                    <DetailAgentAvatar
+                      agentId={agent.id}
+                      name={agent.name}
+                      enabled={enabled}
+                    />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
@@ -323,13 +329,6 @@ export function AgentDetail({
               >
                 {activeTab === "configuration" ? (
                   <div className="space-y-10">
-                    <AgentAvatarCard
-                      agentId={agent.id}
-                      agentName={agent.name}
-                      relayClient={relayClient}
-                      ready={ready}
-                      onChanged={onAgentChanged}
-                    />
                     <div className="space-y-4">
                       <AgentExecutionCard
                         agent={agent}
@@ -366,6 +365,13 @@ export function AgentDetail({
                         />
                       ) : null}
                     </div>
+                    <AgentAvatarCard
+                      agentId={agent.id}
+                      agentName={agent.name}
+                      relayClient={relayClient}
+                      ready={ready}
+                      onChanged={onAgentChanged}
+                    />
                     <AgentConfigurationTab
                       approvals={approvals}
                       ready={ready}
