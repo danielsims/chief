@@ -11,7 +11,7 @@ import {
 
 import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
-import { readTrustedContext } from "./internal-context";
+import { readTrustedContext, readTrustedIdentity } from "./internal-context";
 import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentConfigsInsertConfigSet } from "./queries/agent-configs/insert-config-set";
@@ -28,6 +28,7 @@ import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
 import { membersInsertRegister } from "./queries/members/insert-register";
 import { projectsDeleteRemove } from "./queries/projects/delete-remove";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
+import { WorkspaceAccessService } from "./workspace-access-service";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
 import {
   requireAgentMessageAccess,
@@ -370,6 +371,30 @@ export class WorkspaceAgentAccessService {
   authorizeConversation(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
+    this.requireConversationAccess(request, context.principal);
+    return json({ ok: true });
+  }
+
+  /** Resolves the identity and checks the conversation in one call, so a
+   * conversation request costs one workspace round trip rather than two. */
+  authorizeIdentityConversation(request: Request) {
+    const { identity } = readTrustedIdentity(request);
+    const principal = new WorkspaceAccessService(
+      this.storage,
+      this.env,
+    ).principalFor(identity);
+    if (!principal) {
+      throw new HttpError(
+        403,
+        "workspace_access_denied",
+        "This identity is not a workspace member.",
+      );
+    }
+    this.requireConversationAccess(request, principal);
+    return json({ principal });
+  }
+
+  private requireConversationAccess(request: Request, principal: Principal) {
     const permission = request.headers.get("x-chief-required-permission");
     if (!isConversationPermission(permission)) {
       throw new HttpError(
@@ -378,27 +403,28 @@ export class WorkspaceAgentAccessService {
         "The internal conversation permission is required.",
       );
     }
-    this.channels.requireAgentCapability(context.principal, permission);
+    this.channels.requireAgentCapability(principal, permission);
     const conversationId = parseChannelId(
       new URL(request.url).searchParams.get("conversationId"),
     );
-    this.channels.requireChannelVisible(conversationId, context.principal);
-    const channel = this.channels.requireChannel(conversationId);
+    const channel = this.channels.requireChannelVisible(
+      conversationId,
+      principal,
+    );
     if (
       permission === "messages.send" &&
       channel.kind === "direct" &&
-      context.principal.kind === "user"
+      principal.kind === "user"
     ) {
       for (const member of this.channels.channelMemberRows(conversationId)) {
         if (member.kind === "agent")
           requireAgentMessageAccess(
             this.channels,
             member.principalId,
-            context.principal,
+            principal,
           );
       }
     }
-    return json({ ok: true });
   }
 
   authorizeRuntime(request: Request) {

@@ -73,6 +73,19 @@ export class WorkspaceAccessService {
   }
 
   authorize(identity: AuthenticatedIdentity) {
+    const principal = this.principalFor(identity);
+    if (!principal) {
+      return relayError(
+        403,
+        "workspace_access_denied",
+        "This identity is not a workspace member.",
+      );
+    }
+    return json({ principal });
+  }
+
+  /** The workspace principal an authenticated identity acts as, if a member. */
+  principalFor(identity: AuthenticatedIdentity) {
     const agent =
       identity.kind === "user"
         ? firstRow<AgentKeyRow>(
@@ -87,13 +100,7 @@ export class WorkspaceAccessService {
     const workspace = firstRow<WorkspaceRow>(
       workspaceFindAuthorize(this.storage),
     );
-    if (!member || !workspace) {
-      return relayError(
-        403,
-        "workspace_access_denied",
-        "This identity is not a workspace member.",
-      );
-    }
+    if (!member || !workspace) return null;
     const resolved: AuthenticatedIdentity = agent
       ? {
           kind: "agent",
@@ -101,7 +108,7 @@ export class WorkspaceAccessService {
           pubkey: hexPubkeySchema.parse(agent.pubkey),
         }
       : identity;
-    return json({ principal: toPrincipal(resolved, member, workspace) });
+    return toPrincipal(resolved, member, workspace);
   }
 
   async registerAgentKey(
