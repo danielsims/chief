@@ -62,6 +62,7 @@ export function useChiefChatCore({
     browserRuns,
     browserSessions,
     agents: runtimeAgents,
+    agentsLoaded,
   } = useRuntime();
   const workspacePeople = useMentionPeople();
   const { cloudOrganizationId, user } = useAuth();
@@ -254,15 +255,22 @@ export function useChiefChatCore({
     runtimeAgents,
     workspacePeople,
   ]);
-  const knownAgentIds = useMemo(
+  /** Every agent and subagent, so messages name their real author. */
+  const agentRoster = useMemo(
     () =>
-      new Set(
-        runtimeAgents.flatMap((agent) => [
-          agent.id,
-          ...(agent.subagents ?? []).map((child) => child.id),
-        ]),
+      new Map(
+        runtimeAgents
+          .flatMap((agent) => [agent, ...(agent.subagents ?? [])])
+          .map((agent) => [
+            agent.id,
+            { id: agent.id, name: agent.name, role: agent.role },
+          ]),
       ),
     [runtimeAgents],
+  );
+  const knownAgentIds = useMemo(
+    () => new Set(agentRoster.keys()),
+    [agentRoster],
   );
   const send = (
     text: string,
@@ -336,6 +344,8 @@ export function useChiefChatCore({
   return {
     scheduleRuns,
     ...chat,
+    agentRoster,
+    agentsLoaded,
     activeCapabilities: resolved.capabilities,
     activeExecution,
     activityAgentLabel,

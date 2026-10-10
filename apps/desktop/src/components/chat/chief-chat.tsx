@@ -105,6 +105,7 @@ export function ChiefChat({
     activeExecution,
     activityAgentLabel,
     activeRootTurn,
+    agentsLoaded,
     anchorBrowserSession,
     browserRuns,
     browserSessions,
@@ -214,6 +215,10 @@ export function ChiefChat({
     directAgent,
     timeline: timelineState,
   });
+  // Messages wait for the agent roster, so authors never appear as Chief and
+  // then change. A message you just sent still shows straight away.
+  const timelineReady =
+    agentsLoaded && (channelResolved || isNew === true || messages.length > 0);
   const continuedIds = useMemo(
     () => continuedMessageIds(timelineEntries, currentUser?.id),
     [timelineEntries, currentUser?.id],
@@ -250,14 +255,13 @@ export function ChiefChat({
                     />
                   </div>
                 ) : null}
-                {!channelResolved &&
-                !isNew &&
+                {!timelineReady &&
                 !composerOpen &&
-                messages.length === 0 &&
                 !showOptimisticInitialPrompt ? (
                   <ChatSkeleton />
                 ) : null}
                 {channelResolved &&
+                agentsLoaded &&
                 !composerOpen &&
                 messages.length === 0 &&
                 !showOptimisticInitialPrompt ? (
@@ -277,7 +281,7 @@ export function ChiefChat({
                     onOpenMention={openAgentMention}
                   />
                 ) : null}
-                {channelResolved || isNew || messages.length > 0 ? (
+                {timelineReady ? (
                   <ChatTimeline
                     entries={timelineEntries}
                     renderEntry={(entry) => {

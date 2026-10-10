@@ -109,18 +109,18 @@ export function useChiefChatPresentation({
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
     const authoredId = message.metadata?.agentId;
-    const respondingId =
-      isJsonString(authoredId) && isWorkspaceAgentId(authoredId)
-        ? authoredId
-        : message.metadata?.mentions?.find(
-            (agentId) => isJsonString(agentId) && isWorkspaceAgentId(agentId),
-          );
-    const identity = respondingId
-      ? WORKSPACE_AGENT_IDENTITIES[respondingId]
-      : undefined;
-    return respondingId && identity
-      ? { id: respondingId, name: identity.name, role: identity.role }
-      : undefined;
+    const respondingId = isJsonString(authoredId)
+      ? authoredId
+      : message.metadata?.mentions?.find((agentId) =>
+          core.agentRoster.has(agentId),
+        );
+    if (!respondingId) return undefined;
+    return (
+      core.agentRoster.get(respondingId) ??
+      (isWorkspaceAgentId(respondingId)
+        ? { id: respondingId, ...WORKSPACE_AGENT_IDENTITIES[respondingId] }
+        : undefined)
+    );
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
     if (!channel && !directAgent) return {};
