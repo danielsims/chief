@@ -131,10 +131,16 @@ struct AgentMark: View {
   var size: CGFloat = 32
   var working = false
   @Environment(\.agentAvatars) private var avatars
+  @Environment(\.agentProviderLogos) private var providerLogos
 
   private var avatar: AgentAvatar? {
     let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name
     return avatars[agentID] ?? avatars[name.lowercased()]
+  }
+
+  private var providerLogo: String? {
+    let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name
+    return providerLogos[agentID] ?? providerLogos[name.lowercased()]
   }
 
   private var color: Color {
@@ -150,6 +156,9 @@ struct AgentMark: View {
   var body: some View {
     if let avatar, !working {
       AgentAvatarView(avatar: avatar, size: size)
+        .accessibilityLabel(name)
+    } else if let providerLogo, !working {
+      AgentProviderLogoView(asset: providerLogo, size: size)
         .accessibilityLabel(name)
     } else {
       fallbackMark

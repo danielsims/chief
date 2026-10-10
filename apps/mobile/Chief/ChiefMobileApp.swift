@@ -11,6 +11,7 @@ struct ChiefMobileApp: App {
       AppRootView()
         .environment(model)
         .environment(\.agentAvatars, model.workspace?.agentAvatars ?? [:])
+        .environment(\.agentProviderLogos, model.workspace?.agentProviderLogos ?? [:])
         .preferredColorScheme(appearance.colorScheme)
         .task { await model.start() }
         .onOpenURL { url in

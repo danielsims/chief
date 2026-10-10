@@ -476,6 +476,7 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
   var instructions: String
   var capabilities: [String]
   var avatar: AgentAvatar? = nil
+  var provider: String? = nil
 
   init(
     id: String,
@@ -503,6 +504,7 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
     instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
     avatar = try? container.decodeIfPresent(AgentAvatar.self, forKey: .avatar)
+    provider = try container.decodeIfPresent(String.self, forKey: .provider)
   }
 }
 
@@ -531,6 +533,7 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
   var capabilities: [String]
   var subagents: [AgentProfile]
   var avatar: AgentAvatar? = nil
+  var provider: String? = nil
   let status: Status
 
   init(
@@ -566,6 +569,7 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
     subagents = try container.decodeIfPresent([AgentProfile].self, forKey: .subagents) ?? []
     avatar = try? container.decodeIfPresent(AgentAvatar.self, forKey: .avatar)
+    provider = try container.decodeIfPresent(String.self, forKey: .provider)
   }
 
   var subagentCountLabel: String? {
@@ -587,6 +591,7 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
     result.canMessage = canMessage
     result.canRunOnDevice = canRunOnDevice
     result.avatar = avatar
+    result.provider = provider
     return result
   }
 
