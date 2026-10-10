@@ -10,13 +10,15 @@ struct WorkspaceIdentityAvatar: View {
   let website: String?
   let imageURL: URL?
   let size: CGFloat
+  /// Drops the tile so the mark sits directly on the page background.
+  var plain = false
 
   @State private var imageStore = WorkspaceIdentityImageStore.shared
 
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-        .fill(ChiefTheme.elevated)
+        .fill(plain ? ChiefTheme.background : ChiefTheme.elevated)
       Text(initial)
         .font(.system(size: size * 0.38, weight: .semibold))
         .foregroundStyle(ChiefTheme.accent)
@@ -29,8 +31,10 @@ struct WorkspaceIdentityAvatar: View {
     .frame(width: size, height: size)
     .clipShape(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
     .overlay {
-      RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-        .stroke(ChiefTheme.line)
+      if !plain {
+        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+          .stroke(ChiefTheme.line)
+      }
     }
     .task(id: identityKey) {
       await imageStore.load(
