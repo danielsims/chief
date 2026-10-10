@@ -1017,23 +1017,13 @@ final class AppModel {
   }
 
   private func refreshAgentConfigCache(for snapshot: WorkspaceSnapshot) async {
-    for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
-      do {
-        let config =
-          try await relay.loadAgentConfig(
-            workspaceID: snapshot.id,
-            agentID: agent.id
-          ) ?? AgentConfig.defaults(for: agent.id)
-        configStore.save(
-          workspaceID: snapshot.id,
-          agentID: agent.id,
-          config: config
-        )
-      } catch {
-        onboardingLog.warning(
-          "could not refresh config for \(agent.id): \(error.localizedDescription)"
-        )
+    do {
+      let configs = try await relay.loadAgentConfigs(workspaceID: snapshot.id)
+      for (agentID, config) in configs {
+        configStore.save(workspaceID: snapshot.id, agentID: agentID, config: config)
       }
+    } catch {
+      onboardingLog.warning("could not refresh agent configs: \(error.localizedDescription)")
     }
   }
 

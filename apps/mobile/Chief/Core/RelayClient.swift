@@ -159,6 +159,8 @@ protocol RelayServing: Sendable {
     participantID: String
   ) async throws -> ConversationSummary
   func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig?
+  /// Every native agent's configuration, by agent id, in one request.
+  func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig]
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws
   func workspaceSecretNames(workspaceID: String) async throws -> [String]
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
@@ -1030,6 +1032,22 @@ actor URLSessionRelayClient: RelayServing {
       method: "GET"
     )
     return result?.config.normalized
+  }
+
+  func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig] {
+    struct ConfigResult: Decodable {
+      let agentId: String
+      let config: AgentConfig
+    }
+    struct ConfigList: Decodable { let configs: [ConfigResult] }
+    let result: ConfigList = try await request(
+      path: "/v1/workspaces/\(workspaceID)/agents/configs",
+      method: "GET"
+    )
+    return Dictionary(
+      result.configs.map { ($0.agentId, $0.config.normalized) },
+      uniquingKeysWith: { first, _ in first }
+    )
   }
 
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {
