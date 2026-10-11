@@ -449,8 +449,13 @@ async function listenForJobs() {
     });
     return draining;
   };
+  const settled = async () => await draining?.catch(() => undefined);
 
+  // Each failed connection waits twice as long as the last. After ten in a row
+  // the cell exits rather than poll a relay that is down; the desktop starts it
+  // again the next time it loads the workspace.
   let delay = 1_000;
+  let failures = 0;
   while (true) {
     try {
       if (config.inference.provider === "codex") await ensureCodexSetup();
@@ -472,6 +477,7 @@ async function listenForJobs() {
         const socket = new WebSocket(socketUrl);
         socket.on("open", () => {
           delay = 1_000;
+          failures = 0;
           void drain().catch((error) => console.error("[cell] job:", error));
         });
         socket.on("message", () => {
@@ -500,6 +506,11 @@ async function listenForJobs() {
       });
     } catch (error) {
       console.error("[cell] connection:", error);
+    }
+    if (++failures >= 10) {
+      await settled();
+      console.error("[cell] relay unreachable, stopping");
+      process.exit(1);
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
     delay = Math.min(delay * 2, 300_000);
