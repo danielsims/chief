@@ -104,6 +104,16 @@ export abstract class BaseDriver extends EventEmitter {
     }
   }
 
+  /**
+   * Ends the prompt in flight as interrupted. A stopped backend never emits the
+   * terminal event its prompt is waiting on, so stop() would otherwise leave
+   * sendPrompt pending forever.
+   */
+  settlePrompt() {
+    this.interrupted = true;
+    this.promptCompletion?.resolve();
+  }
+
   respondPermission(_requestId: string, _behavior: "allow" | "deny"): void {
     // default: no interactive permissions
   }
