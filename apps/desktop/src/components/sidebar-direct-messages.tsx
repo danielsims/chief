@@ -11,12 +11,15 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { SidebarDirectMessagesCache } from "../lib/sidebar-direct-messages-cache";
 import type {
   SidebarPinnedItem,
   WorkspaceAgentId,
 } from "../lib/workspace-channels";
 import { useAuth } from "../lib/auth/auth-context";
 import {
+  orderSidebarDirectMessages,
+  parseSidebarDirectMessagesCache,
   readSidebarDirectMessagesCache,
   writeSidebarDirectMessagesCache,
 } from "../lib/sidebar-direct-messages-cache";
@@ -277,10 +280,19 @@ export function SidebarDirectMessages({
   const { channels } = useWorkspaceChannels();
   // Painted until channels, members and history arrive, so launch shows the
   // same rows in the same order instead of filling in over a few seconds.
-  const cached = useMemo(
+  // After that it tracks the latest render, so a reload mid-session falls
+  // back to what was just on screen rather than the launch snapshot.
+  const stored = useMemo(
     () => readSidebarDirectMessagesCache(cloudOrganizationId),
     [cloudOrganizationId],
   );
+  const [shown, setShown] = useState<{
+    workspaceId: string | null;
+    json: string;
+    cache: SidebarDirectMessagesCache;
+  } | null>(null);
+  const cached =
+    shown?.workspaceId === cloudOrganizationId ? shown.cache : stored;
   // Every workspace has channels, so an empty list means it hasn't loaded.
   const channelsLoaded = channels.length > 0;
   const peopleDirects = channelsLoaded
@@ -404,26 +416,23 @@ export function SidebarDirectMessages({
   );
   // People and agents together, most recent message first; DMs without
   // messages keep their roster order below.
-  const recentFirst = [
-    ...peopleDirects.map((direct) => ({
-      kind: "person" as const,
-      key: `channel:${direct.channelId}`,
-      direct,
-      live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
-    })),
-    ...messageableIds.map((agentId) => ({
-      kind: "agent" as const,
-      key: `agent:${agentId}`,
-      agentId,
-      live: lastMessageAtByAgent.get(agentId) ?? 0,
-    })),
-  ]
-    .map((entry) => ({
-      ...entry,
-      at: Math.max(entry.live, cached.lastMessageAt[entry.key] ?? 0),
-    }))
-    .map((entry, index) => ({ ...entry, index }))
-    .sort((a, b) => b.at - a.at || a.index - b.index);
+  const recentFirst = orderSidebarDirectMessages(
+    [
+      ...peopleDirects.map((direct) => ({
+        kind: "person" as const,
+        key: `channel:${direct.channelId}`,
+        direct,
+        live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
+      })),
+      ...messageableIds.map((agentId) => ({
+        kind: "agent" as const,
+        key: `agent:${agentId}`,
+        agentId,
+        live: lastMessageAtByAgent.get(agentId) ?? 0,
+      })),
+    ],
+    cached.lastMessageAt,
+  );
   const nextCache = JSON.stringify({
     people: peopleDirects,
     lastMessageAt: Object.fromEntries(
@@ -432,6 +441,17 @@ export function SidebarDirectMessages({
         .map((entry) => [entry.key, entry.at]),
     ),
   });
+  // Times only ever rise, so remembering them settles after one extra render.
+  if (
+    channelsLoaded &&
+    (shown?.workspaceId !== cloudOrganizationId || shown.json !== nextCache)
+  ) {
+    setShown({
+      workspaceId: cloudOrganizationId,
+      json: nextCache,
+      cache: parseSidebarDirectMessagesCache(nextCache),
+    });
+  }
   useEffect(() => {
     if (!channelsLoaded) return;
     writeSidebarDirectMessagesCache(cloudOrganizationId, nextCache);
