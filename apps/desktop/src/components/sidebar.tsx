@@ -38,6 +38,7 @@ import {
   useWorkspaceData,
 } from "../lib/runtime";
 import { useAppUpdate } from "../lib/updater";
+import { useWorkingAgentIds } from "../lib/use-working-agents";
 import {
   directMessageChatForAgent,
   directMessageIdsForAgents,
@@ -148,6 +149,7 @@ export function Sidebar({
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts, lastMessageAtByChannel } = useChannelReadState();
+  const workingAgentIds = useWorkingAgentIds();
   const location = useLocation();
   const navigate = useNavigate();
   const chiefNavigation = useChiefNavigation();
@@ -445,6 +447,7 @@ export function Sidebar({
           unreadChannelCounts={unreadChannelCounts}
           lastMessageAtByAgent={lastMessageAtByAgent}
           lastMessageAtByChannel={lastMessageAtByChannel}
+          workingAgentIds={workingAgentIds}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           agents={runtimeAgents}
           onOpen={openChannel}

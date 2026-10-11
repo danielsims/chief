@@ -90,6 +90,30 @@ export function isAgentActivityProjection(message: ConversationMessage) {
   );
 }
 
+/**
+ * Whether an agent message means that agent is still working in its thread.
+ * Unlike {@link agentRunEvent}, a finished activity projection reports
+ * `working: false`, so a run that ends without a reply still clears.
+ */
+export function agentWorkingChange(message: ConversationMessage) {
+  if (message.author.kind !== "agent") return undefined;
+  const working =
+    isAgentActivityProjection(message) &&
+    !message.components.some((component) => component.kind === "error") &&
+    message.components.some(
+      (component) =>
+        component.payload.status === "running" ||
+        component.payload.status === "working",
+    );
+  return {
+    agentId: message.author.id,
+    ...(message.threadRootId
+      ? { threadRootId: message.threadRootId }
+      : undefined),
+    working,
+  };
+}
+
 export function agentRunEvent(message: ConversationMessage) {
   if (isAgentActivityProjection(message)) {
     const error = message.components.find(

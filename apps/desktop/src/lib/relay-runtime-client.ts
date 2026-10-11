@@ -45,6 +45,7 @@ import {
 } from "./relay-runtime-errors";
 import {
   agentRunEvent,
+  agentWorkingChange,
   browserRuntimeEvent,
   directAgentId,
   isAgentActivityProjection,
@@ -585,6 +586,19 @@ export class RelayRuntimeClient implements RuntimeTransport {
     if (isActivity) recordDesktopActivityReceipt(this.snapshot.id, event);
     this.rememberMessage(message);
     if (browserEvent) this.emit(browserEvent);
+    const workingChange = agentWorkingChange(message);
+    if (workingChange) {
+      this.emit({
+        type: "agentWorking",
+        workspaceId: this.snapshot.id,
+        channelId: message.conversationId,
+        ...workingChange,
+        // A deleted progress note must not leave its agent shown as working.
+        working:
+          workingChange.working &&
+          event.type !== "conversation.message.deleted",
+      });
+    }
     if (isChannelMembershipMessage(message)) {
       this.requestChannelRosterRefresh();
     }

@@ -9,6 +9,7 @@ import {
 
 import {
   agentRunEvent,
+  agentWorkingChange,
   browserRuntimeEvent,
   isAgentActivityProjection,
   toChannelEvents,
@@ -286,4 +287,24 @@ void test("project recommendation components become connect cards", () => {
       remoteUrl: "https://github.com/acme/program.git",
     },
   });
+});
+
+void test("sidebar working state follows an agent's run to its end", () => {
+  const tool = (status: string) =>
+    message([
+      {
+        id: "tool-1",
+        kind: "tool",
+        version: 1,
+        payload: { name: "relay_channels_list", status, input: "{}" },
+      },
+    ]);
+
+  assert.deepEqual(agentWorkingChange(tool("running")), {
+    agentId: "advertising",
+    working: true,
+  });
+  // Finishing without a reply still clears the indicator.
+  assert.equal(agentWorkingChange(tool("completed"))?.working, false);
+  assert.equal(agentWorkingChange(message([], "Done."))?.working, false);
 });

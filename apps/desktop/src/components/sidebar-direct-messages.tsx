@@ -4,6 +4,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronDown, MoreHorizontal, Pin, PinOff, Plus } from "lucide-react";
 
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import {
   Popover,
   PopoverContent,
@@ -30,6 +31,7 @@ import {
 import { useWorkspaceChannels } from "../lib/workspace-channels-context";
 import { AgentAvatar } from "./agent-avatar";
 import { AttentionPill } from "./attention-pill";
+import { agentLoaderColor } from "./chat/agent-activity-presence";
 import { useWorkspaceUsers } from "./chat/mention-people-context";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { UserAvatar } from "./user-avatar";
@@ -46,6 +48,7 @@ export function DirectMessageRow({
   onPinChange,
   pinned,
   unreadCount,
+  working = false,
   expanded,
   onExpand,
 }: {
@@ -61,6 +64,8 @@ export function DirectMessageRow({
   onPinChange: (pinned: boolean) => void;
   pinned: boolean;
   unreadCount: number;
+  /** A run is in progress, so the avatar becomes the working indicator. */
+  working?: boolean;
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
   const identity = workspaceAgentIdentity(
@@ -144,11 +149,20 @@ export function DirectMessageRow({
           isDragging && "cursor-grabbing",
         )}
       >
-        <AgentAvatar
-          agentId={agentId}
-          label={identity.name}
-          className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
-        />
+        {working ? (
+          <MatrixLoader
+            ariaLabel={`${identity.name} is working`}
+            className="text-sidebar-foreground [&_.matrix-loader-cell]:rounded-[24%]"
+            color={agentLoaderColor(agentId)}
+            size={16}
+          />
+        ) : (
+          <AgentAvatar
+            agentId={agentId}
+            label={identity.name}
+            className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
+          />
+        )}
         <span className="min-w-0 flex-1 truncate">{identity.name}</span>
         {needsUser || unreadCount > 0 ? (
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -232,6 +246,7 @@ export function SidebarDirectMessages({
   unreadChannelCounts,
   lastMessageAtByAgent,
   lastMessageAtByChannel,
+  workingAgentIds,
   agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
@@ -255,6 +270,7 @@ export function SidebarDirectMessages({
   /** Latest message time (ms) in each agent's DM. */
   lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
   lastMessageAtByChannel: ReadonlyMap<string, number>;
+  workingAgentIds: ReadonlySet<string>;
   agents: readonly {
     id: string;
     name: string;
@@ -386,6 +402,7 @@ export function SidebarDirectMessages({
         onPinChange={(pinned) => onPinChange(id, pinned)}
         pinned={false}
         unreadCount={unreadCounts.get(id) ?? 0}
+        working={workingAgentIds.has(id)}
         expanded={expanded}
         onExpand={
           id === agentId && children.length > 0
