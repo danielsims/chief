@@ -235,6 +235,19 @@ export const agentActivityComponentSchema = z.discriminatedUnion("kind", [
   z
     .object({
       id: z.string().trim().min(1).max(128),
+      kind: z.literal("agent.activity"),
+      version: z.literal(1),
+      payload: z
+        .object({
+          status: z.enum(["working", "completed"]),
+          ...activityCorrelationSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().trim().min(1).max(128),
       kind: z.literal("thinking"),
       version: z.literal(1),
       payload: z

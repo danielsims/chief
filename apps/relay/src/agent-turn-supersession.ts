@@ -51,8 +51,9 @@ export async function supersedeConversationTurn(input: {
       await input.turns.cancelActive();
     }
   }
-  return (
-    input.queue.supersedeConversation(input.scope, input.replacementJobId)
-      .length > 0
+  const superseded = await input.queue.supersedeConversation(
+    input.scope,
+    input.replacementJobId,
   );
+  return superseded.length > 0;
 }

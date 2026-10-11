@@ -11,11 +11,13 @@ import {
   enqueueAgentJobCommandSchema,
   messageIdSchema,
   parseJsonObject,
+  parseJsonString,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
 import type { ConversationScope } from "./agent-turn-supersession";
 import type { readTrustedContext } from "./internal-context";
+import { publishAgentActivity } from "./agent-activity";
 import {
   cancelAgentWorkflow,
   listAgentJobs,
@@ -30,6 +32,7 @@ import {
 } from "./agent-job-store";
 import { validateSpecialistKickoff } from "./agent-kickoff-verification";
 import { publishAgentMessage } from "./agent-message-publisher";
+import { hostedPrincipal } from "./agent-object-values";
 import { publishOnboardingResult } from "./agent-onboarding";
 import {
   HOSTED_JOB_MAX_ATTEMPTS,
@@ -148,6 +151,7 @@ export class AgentJobQueue {
       jobId: job.id,
     });
     await this.scheduleNextAlarm();
+    await this.publishRun(job, "working");
     return json({ job, leaseToken });
   }
 
@@ -235,12 +239,33 @@ export class AgentJobQueue {
     } else {
       await this.scheduleNextAlarm();
     }
+    await this.publishRun(previous, "completed");
     return json({ job, outcome: input.outcome });
+  }
+
+  /** One activity row per run, bounded by its lease, so clients show an agent
+   * working for the whole run rather than per tool call. Best effort. */
+  private async publishRun(job: AgentJob, status: "working" | "completed") {
+    const conversationId = parseJsonString(job.payload.conversationId);
+    if (!conversationId) return;
+    const threadRootId = parseJsonString(job.payload.threadRootId);
+    await publishAgentActivity(this.env, {
+      principal: hostedPrincipal(job),
+      conversationId,
+      ...(threadRootId ? { threadRootId } : undefined),
+      seed: `${job.id}:run`,
+      component: {
+        kind: "agent.activity",
+        version: 1,
+        payload: { status, jobId: job.id },
+      },
+    }).catch(() => undefined);
   }
 
   private async exhaustAutomaticRetries(previous: AgentJob, now: string) {
     markJobFailed(this.storage, previous, now);
     await this.scheduleNextAlarm();
+    await this.publishRun(previous, "completed");
     return new Response(null, { status: 204 });
   }
 
@@ -271,7 +296,10 @@ export class AgentJobQueue {
     return json({ leaseExpiresAt });
   }
 
-  supersedeConversation(scope: ConversationScope, replacementJobId?: string) {
+  async supersedeConversation(
+    scope: ConversationScope,
+    replacementJobId?: string,
+  ) {
     const now = new Date().toISOString();
     const superseded: string[] = [];
     for (const row of jobsFindSupersedeConversation<{ job_json: string }>(
@@ -301,6 +329,9 @@ export class AgentJobQueue {
         jobId: job.id,
       });
       superseded.push(job.id);
+      if (previous.status === "leased") {
+        await this.publishRun(previous, "completed");
+      }
     }
     return superseded;
   }
