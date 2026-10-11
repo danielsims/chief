@@ -18,6 +18,7 @@ import {
 import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
 import { evaluateToolUse } from "../approvals.js";
 import { BaseDriver } from "./base.js";
+import { findClaudeCode } from "./claude-code-path.js";
 import { agentEnvironment } from "./environment.js";
 
 function parseQuestions(input: JsonObject): AgentQuestion[] {
@@ -93,11 +94,15 @@ export class ClaudeDriver extends BaseDriver {
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
 
+    const claudeCode = findClaudeCode();
     const activeQuery = query({
       prompt: this.inputMessages(),
       options: {
         env,
         cwd: opts.cwd,
+        ...(claudeCode
+          ? { pathToClaudeCodeExecutable: claudeCode }
+          : undefined),
         model: opts.model,
         mcpServers: Object.fromEntries(
           (opts.mcpServers ?? []).map((server) => [
