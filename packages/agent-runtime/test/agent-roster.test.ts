@@ -42,7 +42,10 @@ void test("every agent receives the mission-cell operating model", () => {
       instructions,
       /MUST use the available channel\s+reaction tool to add 👀 before the first work tool/u,
     );
-    assert.match(instructions, /Do not post a generic acknowledgement/u);
+    assert.match(
+      instructions,
+      /first send one short message that\s+acknowledges it/u,
+    );
     assert.doesNotMatch(instructions, /send the confirmation/u);
     assert.doesNotMatch(instructions, /localTools\.pluginsList/u);
     assert.match(instructions, /primary job is to advance the user's outcome/u);

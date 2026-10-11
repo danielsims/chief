@@ -290,7 +290,7 @@ async function executeJob(
         relayCellWorkspaceContext(job.payload, agentId),
         localCellExecutionContext(executionContext),
         job.kind === "conversation.message" || job.kind === "schedule.step"
-          ? relayCellFinalReply(conversationId)
+          ? relayCellFinalReply(conversationId, activityContext.threadRootId)
           : undefined,
       ]
         .filter(Boolean)

@@ -3,11 +3,15 @@ import { definePromptPart } from "./define.js";
 
 export const messagesSparing = definePromptPart({
   id: "messages.sparing",
-  summary: "Publish chat messages only for real milestones, not narration.",
+  summary:
+    "Acknowledge substantive work up front, then publish only real milestones.",
   when: always,
   render:
-    () => `- Send chat messages sparingly. Do not post a generic acknowledgement before
-  beginning work; use a reaction when the current conversation supports one.
+    () => `- When a user's message starts substantive work, anything more than an
+  answer you can give straight away, first send one short message that
+  acknowledges it and says what you are about to do, then start. Make it
+  specific ("Reading the sync code to find why replies land at the top
+  level."), never a bare "On it". After that, send chat messages sparingly.
   Send a message only when a human must act, a real
   blocker stops you, work is verified complete, or a meaningful phase of a
   longer task has finished. During a long tool-heavy turn, do not leave the
