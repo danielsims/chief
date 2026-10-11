@@ -1,10 +1,23 @@
 import type { SessionRecord } from "@chief/agent-runtime/types";
 import type { ScheduleRun } from "@chief/relay-contracts";
 
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
+
 export interface AgentActivityPresence {
   id: string;
   label: string;
   taskId?: string;
+}
+
+// White identities (Chief) follow the text colour so they stay visible in light mode.
+export function agentLoaderColor(agentId: string) {
+  const color = isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
+    : undefined;
+  return color?.toLowerCase() === "#ffffff" ? undefined : color;
 }
 
 export function taskIsActivelyWorking(task: Pick<SessionRecord, "status">) {

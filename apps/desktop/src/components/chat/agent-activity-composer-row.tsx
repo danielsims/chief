@@ -2,10 +2,9 @@ import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
 import type { AgentActivityPresence } from "./agent-activity-presence";
 import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
-import { formatAgentActivityStatus } from "./agent-activity-presence";
+  agentLoaderColor,
+  formatAgentActivityStatus,
+} from "./agent-activity-presence";
 
 export function AgentActivityComposerRow({
   agents,
@@ -86,12 +85,4 @@ export function AgentActivityComposerRow({
       </button>
     </div>
   );
-}
-
-// White identities (Chief) follow the text colour so they stay visible in light mode.
-function agentLoaderColor(agentId: string) {
-  const color = isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].color
-    : undefined;
-  return color?.toLowerCase() === "#ffffff" ? undefined : color;
 }
