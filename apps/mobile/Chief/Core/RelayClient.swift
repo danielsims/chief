@@ -519,6 +519,9 @@ struct AgentJobCompletion: Sendable, Equatable {
 
 struct AgentPublishedMessage: Sendable, Equatable, Codable {
   var conversationId: String
+  /// The thread this reply belongs to. A direct-message session opener's reply
+  /// lands in the opener's own thread, matching the desktop app.
+  var threadRootId: String? = nil
   var body: String
   var components: [MessageComponent] = []
 }
