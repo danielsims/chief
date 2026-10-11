@@ -217,11 +217,10 @@ function RelayUnavailableState() {
               >
                 Back
               </Button>
-            ) : (
-              <Button variant="ghost" onClick={() => signOut()}>
-                Disconnect
-              </Button>
-            )}
+            ) : null}
+            <Button variant="ghost" onClick={() => signOut()}>
+              Sign out
+            </Button>
           </div>
         </section>
       </main>
