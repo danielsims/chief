@@ -188,6 +188,7 @@ actor WorkspaceAgentLoop {
         completion: AgentJobCompletion(
           publishedMessage: alreadyPublished ? nil : AgentPublishedMessage(
             conversationId: conversationID,
+            threadRootId: lease.job.payload.threadRootId,
             body: turn.reply,
             components: []
           )

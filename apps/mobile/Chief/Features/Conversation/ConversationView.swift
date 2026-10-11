@@ -231,6 +231,11 @@ struct ConversationView: View {
       mentions: mentions,
       threadRootID: nil
     )
+    // An agent DM is answered in threads: each top-level message opens its own
+    // session thread, which then carries that piece of work's context. Mark the
+    // opening message so the relay answers it there, matching the desktop app.
+    let startsAgentSession =
+      conversation?.kind == .direct && conversation?.directUserID == nil
     let messageID = UUID().uuidString
     model.expectAgentReply(messageID: messageID, conversationID: conversationID, mentions: mentions, threadRootID: nil)
 
@@ -249,6 +254,16 @@ struct ConversationView: View {
           conversationID: conversationID,
           relay: model.relay
         )
+        let outgoingComponents =
+          startsAgentSession
+          ? components + [
+            MessageComponent(
+              id: UUID().uuidString,
+              kind: "session.start",
+              payload: [:]
+            )
+          ]
+          : components
         let message = try await model.relay.send(
           messageID: messageID,
           body: body,
@@ -256,7 +271,7 @@ struct ConversationView: View {
           conversationID: conversationID,
           threadRootID: nil,
           mentions: mentions,
-          components: components
+          components: outgoingComponents
         )
         sentMessageIDs.insert(message.id)
         model.conversations.merge(message)
