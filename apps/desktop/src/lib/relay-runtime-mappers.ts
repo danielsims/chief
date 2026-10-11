@@ -97,7 +97,9 @@ export function isAgentActivityProjection(message: ConversationMessage) {
  */
 export function agentWorkingChange(message: ConversationMessage) {
   if (message.author.kind !== "agent") return undefined;
+  // A deleted progress note must not leave its agent shown as working.
   const working =
+    !message.deleted &&
     isAgentActivityProjection(message) &&
     !message.components.some((component) => component.kind === "error") &&
     message.components.some(

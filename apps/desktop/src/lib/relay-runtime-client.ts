@@ -593,10 +593,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
         workspaceId: this.snapshot.id,
         channelId: message.conversationId,
         ...workingChange,
-        // A deleted progress note must not leave its agent shown as working.
-        working:
-          workingChange.working &&
-          event.type !== "conversation.message.deleted",
       });
     }
     if (isChannelMembershipMessage(message)) {
