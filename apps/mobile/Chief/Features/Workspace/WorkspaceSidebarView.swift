@@ -292,7 +292,14 @@ private struct ConversationRow: View {
             rounded: true
           )
         } else if conversation.kind == .direct {
-          AgentMark(name: conversation.name, size: 24)
+          AgentMark(
+            name: conversation.name,
+            size: 24,
+            working: model.isAgentWorking(
+              workspaceID: model.workspace?.id,
+              conversationID: conversation.id
+            )
+          )
         } else {
           Image(systemName: conversation.isPrivate ? "lock" : "number")
             .font(.system(size: 14, weight: .semibold))

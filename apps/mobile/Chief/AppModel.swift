@@ -2026,7 +2026,6 @@ final class AppModel {
         updateRelayActivityPresence(message)
         return
       }
-      clearRelayActivityPresence(for: message)
       updateConversationPreview(with: message)
       if applyCurrentUserMembershipEvent(message) {
         scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: expectedWorkspaceID)
@@ -2053,7 +2052,6 @@ final class AppModel {
         updateRelayActivityPresence(message)
         return
       }
-      clearRelayActivityPresence(for: message)
       if case .edited = event, !message.isAgentActivityProjection {
         updateConversationPreview(with: message)
       }
@@ -2075,37 +2073,18 @@ final class AppModel {
     )
   }
 
+  /// The relay's run row starts and ends a run, so an agent stays working
+  /// between tool steps and through mid-run messages.
   private func updateRelayActivityPresence(_ message: ConversationMessage) {
-    guard case .agent(let agentID, _) = message.author else { return }
-    let failed = message.components.contains { $0.kind == "error" }
-    let running = message.components.contains { component in
-      component.payload["status"] == "running"
-        || component.payload["status"] == "working"
-    }
-    if failed {
-      setRelayAgentWorking(
-        agentID: agentID,
-        workspaceID: message.workspaceID,
-        conversationID: message.conversationID,
-        isWorking: false
-      )
-    } else {
-      setRelayAgentWorking(
-        agentID: agentID,
-        workspaceID: message.workspaceID,
-        conversationID: message.conversationID,
-        isWorking: running
-      )
-    }
-  }
-
-  private func clearRelayActivityPresence(for message: ConversationMessage) {
-    guard case .agent(let agentID, _) = message.author else { return }
+    guard case .agent(let agentID, _) = message.author,
+      let status = message.components.first(where: { $0.kind == "agent.activity" })?
+        .payload["status"]
+    else { return }
     setRelayAgentWorking(
       agentID: agentID,
       workspaceID: message.workspaceID,
       conversationID: message.conversationID,
-      isWorking: false
+      isWorking: status == "working"
     )
   }
 
