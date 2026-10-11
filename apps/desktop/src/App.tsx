@@ -1,5 +1,6 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component, lazy, Suspense, useMemo } from "react";
+import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
 import {
   BrowserRouter,
   Navigate,
@@ -11,6 +12,7 @@ import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
 
+import type { ProviderMark } from "./components/agent-avatar";
 import { AgentAppearanceContext } from "./components/agent-avatar";
 import { MentionPeopleProvider } from "./components/chat/mention-people-context";
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
@@ -24,9 +26,8 @@ import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
 import { useMachinesEnabled } from "./lib/experimental";
-import { PROVIDER_META } from "./lib/providers";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
-import { RuntimeProvider } from "./lib/runtime";
+import { RuntimeProvider, useRuntime } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
 import {
@@ -72,24 +73,29 @@ const MachinesPage = lazy(() =>
   })),
 );
 
-/** Logos for the providers that run agents on this device, by provider. */
-const LOCAL_PROVIDER_MARKS: Partial<
-  Record<string, (typeof PROVIDER_META)[keyof typeof PROVIDER_META]["Icon"]>
-> = {
-  claude: PROVIDER_META.claude.Icon,
-  codex: PROVIDER_META.codex.Icon,
-  opencode: PROVIDER_META.opencode.Icon,
-  openCodeGo: PROVIDER_META.opencode.Icon,
+const openCodeMark: ProviderMark = {
+  Mark: OpenCode,
+  tileClassName: "bg-white text-black",
 };
 
-/** Supplies every agent's avatar from the workspace, with provider logos for
- * on-device agents that have none. */
+/** Logos for the providers that run agents on this device, each on its own
+ * brand colour, by provider. */
+const LOCAL_PROVIDER_MARKS: Partial<Record<string, ProviderMark>> = {
+  claude: { Mark: Claude, tileClassName: "bg-[#D97757] text-white" },
+  codex: { Mark: OpenAI, tileClassName: "bg-white text-black" },
+  opencode: openCodeMark,
+  openCodeGo: openCodeMark,
+};
+
+/** Supplies every agent's avatar from the live roster, with provider logos for
+ * on-device agents that have none. It follows the runtime's roster, which
+ * changes as soon as an agent is created or reconfigured. */
 function AgentAppearanceProvider({ children }: { children: ReactNode }) {
-  const { snapshot } = useRelaySession();
+  const { agents } = useRuntime();
   const value = useMemo(() => {
-    const profiles = (snapshot?.agents ?? []).flatMap((agent) => [
+    const profiles = agents.flatMap((agent) => [
       agent,
-      ...agent.subagents,
+      ...(agent.subagents ?? []),
     ]);
     return {
       providerMarks: new Map(
@@ -109,7 +115,7 @@ function AgentAppearanceProvider({ children }: { children: ReactNode }) {
         ),
       ),
     };
-  }, [snapshot]);
+  }, [agents]);
   return (
     <AgentAppearanceContext.Provider value={value}>
       {children}

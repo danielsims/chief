@@ -167,11 +167,15 @@ export class RelayRuntimeClient implements RuntimeTransport {
     preference?: AgentPreference,
   ) {
     await this.relay.createNativeAgent(input);
-    await this.refreshSnapshot();
     if (preference) {
+      await this.refreshSnapshot();
       await saveRelayAgentPreference(this.relay, this.snapshot, preference);
     }
+    // Refresh after saving, so the new agent arrives with its provider and
+    // settings together instead of showing defaults first.
+    await this.refreshSnapshot();
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
+    this.emit(await relayAgentPreferencesMessage(this.relay, this.snapshot));
   }
   send(message: RuntimeCommand) {
     void this.route(message).catch((error) => {
@@ -260,6 +264,12 @@ export class RelayRuntimeClient implements RuntimeTransport {
           this.snapshot,
           message.preference,
         );
+        // A provider change also changes how the agent appears.
+        await this.refreshSnapshot();
+        this.emit({
+          type: "agents",
+          agents: relayAgentDefinitions(this.snapshot),
+        });
         this.emit(
           await relayAgentPreferencesMessage(
             this.relay,

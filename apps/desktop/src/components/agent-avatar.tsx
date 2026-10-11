@@ -12,7 +12,11 @@ import {
 import { AgentAvatarSprite } from "./agent-avatar-sprite";
 import { ChiefMark } from "./chief-mark";
 
-type ProviderMark = ComponentType<{ className?: string }>;
+/** A provider's logo and the tile it sits on, in its own brand colours. */
+export interface ProviderMark {
+  Mark: ComponentType<{ className?: string }>;
+  tileClassName: string;
+}
 
 /**
  * What the app knows about how agents look: each agent's own avatar, and the
@@ -35,7 +39,7 @@ export const AgentAppearanceContext = createContext<AgentAppearance>({
 
 type Look =
   | AgentAvatarValue
-  | { kind: "provider"; Mark: ProviderMark }
+  | ({ kind: "provider" } & ProviderMark)
   | { kind: "mark"; color?: string };
 
 /** The one place that decides how an agent is drawn: its own avatar, then its
@@ -52,9 +56,9 @@ function useAgentLook(requestedId: string | undefined, label: string): Look {
       );
   const avatar = agentId ? avatars.get(agentId) : undefined;
   if (avatar) return avatar;
-  const Mark =
+  const provider =
     agentId && !identity?.color ? providerMarks.get(agentId) : undefined;
-  if (Mark) return { kind: "provider", Mark };
+  if (provider) return { kind: "provider", ...provider };
   return { kind: "mark", color: identity?.color };
 }
 
@@ -69,11 +73,15 @@ export function AgentAvatar({
   agentId,
   label = "Chief agent",
   markClassName,
+  markTileClassName,
 }: {
   className?: string;
   agentId?: WorkspaceAgentId;
   label?: string;
   markClassName?: string;
+  /** Colours for Chief's own mark tile, leaving avatars and provider tiles
+   * in their own colours. */
+  markTileClassName?: string;
 }) {
   const look = useAgentLook(agentId, label);
   const frame = cn(
@@ -114,7 +122,8 @@ export function AgentAvatar({
         <span
           className={cn(
             frame,
-            "bg-white text-black shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)]",
+            "shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)]",
+            look.tileClassName,
           )}
           title={label}
         >
@@ -132,6 +141,7 @@ export function AgentAvatar({
           className={cn(
             frame,
             "bg-foreground text-background shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
+            markTileClassName,
           )}
         >
           <ChiefMark className={cn("size-1/2", markClassName)} title={label} />
