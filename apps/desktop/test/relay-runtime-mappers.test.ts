@@ -289,22 +289,25 @@ void test("project recommendation components become connect cards", () => {
   });
 });
 
-void test("sidebar working state follows an agent's run to its end", () => {
-  const tool = (status: string) =>
+void test("working state follows the relay's run row, not its steps", () => {
+  const run = (status: string) =>
     message([
-      {
-        id: "tool-1",
-        kind: "tool",
-        version: 1,
-        payload: { name: "relay_channels_list", status, input: "{}" },
-      },
+      { id: "run-1", kind: "agent.activity", version: 1, payload: { status } },
     ]);
+  const step = message([
+    {
+      id: "tool-1",
+      kind: "tool",
+      version: 1,
+      payload: { name: "relay_channels_list", status: "completed" },
+    },
+  ]);
 
-  assert.deepEqual(agentWorkingChange(tool("running")), {
+  assert.deepEqual(agentWorkingChange(run("working")), {
     agentId: "advertising",
     working: true,
   });
-  // Finishing without a reply still clears the indicator.
-  assert.equal(agentWorkingChange(tool("completed"))?.working, false);
-  assert.equal(agentWorkingChange(message([], "Done."))?.working, false);
+  assert.equal(agentWorkingChange(step), undefined);
+  assert.equal(agentWorkingChange(message([], "On it.")), undefined);
+  assert.equal(agentWorkingChange(run("completed"))?.working, false);
 });

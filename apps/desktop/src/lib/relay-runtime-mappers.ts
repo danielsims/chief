@@ -90,29 +90,25 @@ export function isAgentActivityProjection(message: ConversationMessage) {
   );
 }
 
-/**
- * Whether an agent message means that agent is still working in its thread.
- * Unlike {@link agentRunEvent}, a finished activity projection reports
- * `working: false`, so a run that ends without a reply still clears.
- */
+/** The relay's run row starts and ends a run, so an agent stays working
+ * between tool steps and through mid-run messages. */
+function runStatus(message: ConversationMessage) {
+  return isAgentActivityProjection(message)
+    ? message.components.find(
+        (component) => component.kind === "agent.activity",
+      )?.payload.status
+    : undefined;
+}
+
 export function agentWorkingChange(message: ConversationMessage) {
-  if (message.author.kind !== "agent") return undefined;
-  // A deleted progress note must not leave its agent shown as working.
-  const working =
-    !message.deleted &&
-    isAgentActivityProjection(message) &&
-    !message.components.some((component) => component.kind === "error") &&
-    message.components.some(
-      (component) =>
-        component.payload.status === "running" ||
-        component.payload.status === "working",
-    );
+  const status = runStatus(message);
+  if (!status) return undefined;
   return {
     agentId: message.author.id,
     ...(message.threadRootId
       ? { threadRootId: message.threadRootId }
       : undefined),
-    working,
+    working: status === "working",
   };
 }
 
@@ -139,34 +135,18 @@ export function agentRunEvent(message: ConversationMessage) {
           : "The agent run was interrupted.",
       };
     }
-    // Completed steps can land after the reply; only unfinished work means
-    // the agent is still running.
-    const working = message.components.some(
-      (component) =>
-        component.payload.status === "running" ||
-        component.payload.status === "working",
-    );
-    return working
-      ? {
-          type: "status" as const,
-          status: "running" as const,
-          agentId: message.author.id,
-          ...(message.threadRootId
-            ? { threadRootId: message.threadRootId }
-            : undefined),
-        }
-      : undefined;
   }
-  return message.author.kind === "agent"
-    ? {
-        type: "result" as const,
-        ok: true,
-        agentId: message.author.id,
-        ...(message.threadRootId
-          ? { threadRootId: message.threadRootId }
-          : undefined),
-      }
-    : undefined;
+  const status = runStatus(message);
+  if (!status) return undefined;
+  const where = {
+    agentId: message.author.id,
+    ...(message.threadRootId
+      ? { threadRootId: message.threadRootId }
+      : undefined),
+  };
+  return status === "working"
+    ? { type: "status" as const, status: "running" as const, ...where }
+    : { type: "result" as const, ok: true, ...where };
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
