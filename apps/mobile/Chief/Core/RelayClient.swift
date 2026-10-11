@@ -1739,7 +1739,7 @@ enum RelayError: LocalizedError, Equatable {
     case .unavailable:
       "Chief could not reach the relay. Check your connection and retry."
     case .capacity:
-      "This relay is temporarily at capacity. Your workspace is safe; try again after its usage window resets."
+      "This relay is busy right now. Your workspace is safe; try again later."
     case .unsupportedRelay:
       "This invite belongs to another Chief relay. Add that relay before joining."
     case .httpStatus(404):
