@@ -33,9 +33,10 @@ describe("agent conversation history", () => {
         expect(
           store.history(rootId, 10).map((message) => message.body),
         ).toEqual(["old request", "thread reply"]);
-        // Replies get their own window, so they never push out top-level ones.
+        // Textless agent rows (activity) get their own window, so they never
+        // push conversational messages out.
         expect(store.recent(2).messages.map((message) => message.body)).toEqual(
-          ["", "thread reply", "latest request"],
+          ["", "", "thread reply", "latest request"],
         );
       },
     );
