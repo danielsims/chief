@@ -8,18 +8,26 @@ extension EnvironmentValues {
   @Entry var agentProviderLogos: [String: String] = [:]
 }
 
-/// An on-device agent's provider logo on a white tile, as on desktop.
+/// An on-device agent's provider logo on its brand-coloured tile, as on
+/// desktop: Claude's white mark on orange, the others on white.
 struct AgentProviderLogoView: View {
   let asset: String
   let size: CGFloat
 
+  private var isClaude: Bool { asset == "ProviderClaude" }
+
   var body: some View {
     Image(asset)
       .resizable()
+      .renderingMode(isClaude ? .template : .original)
       .scaledToFit()
+      .foregroundStyle(Color.white)
       .padding(size * 0.2)
       .frame(width: size, height: size)
-      .background(Color.white, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+      .background(
+        isClaude ? Color(red: 0.851, green: 0.467, blue: 0.341) : Color.white,
+        in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+      )
       .overlay {
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
           .stroke(Color.black.opacity(0.08), lineWidth: 0.5)

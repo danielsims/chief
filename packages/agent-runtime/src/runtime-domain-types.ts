@@ -1,5 +1,9 @@
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
-import type { JsonObject, WorkspaceAgentRuntime } from "@chief/relay-contracts";
+import type {
+  AgentAvatar,
+  JsonObject,
+  WorkspaceAgentRuntime,
+} from "@chief/relay-contracts";
 
 import type {
   AgentEvent,
@@ -351,6 +355,10 @@ export interface AgentProfile {
   baseInstructions?: string;
   /** Optional, composable tool + UI behaviors available to this agent. */
   capabilities?: AgentCapabilityId[];
+  /** How the agent appears, when its owner has chosen an avatar. */
+  avatar?: AgentAvatar;
+  /** The inference provider a Chief-run agent uses. */
+  provider?: string;
 }
 
 export interface AgentDefinition extends AgentProfile {

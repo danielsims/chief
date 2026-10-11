@@ -160,7 +160,8 @@ export function DirectMessageRow({
           <AgentAvatar
             agentId={agentId}
             label={identity.name}
-            className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
+            className="size-4"
+            markTileClassName="bg-sidebar-foreground text-sidebar dark:bg-white dark:text-black"
           />
         )}
         <span className="min-w-0 flex-1 truncate">{identity.name}</span>
