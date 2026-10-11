@@ -6,6 +6,7 @@ describe("relay capacity errors", () => {
   it.each([
     "Exceeded allowed duration in Durable Objects free tier.",
     "Exceeded allowed volume of requests in Durable Objects free tier.",
+    "Exceeded allowed rows read in Durable Objects free tier.",
   ])("turns %s into a retryable response", async (message) => {
     const response = relayCapacityResponse(new Error(message), "request-1");
 
