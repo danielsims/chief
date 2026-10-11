@@ -222,7 +222,12 @@ export function useChiefChatCore({
       }));
     const people = workspacePeople
       .filter((person) => person.id !== user?.id)
-      .map((person) => ({ ...person, role: "Workspace member", member: true }));
+      .map((person) => ({
+        ...person,
+        role: "Workspace member",
+        member: true,
+        user: { image: workspaceUsers.get(person.id)?.image },
+      }));
     // Agents members invited into this channel. The relay wakes them from the
     // @handle in the text; they never route to workspace agents.
     const guests = channelGuests.map((guest) => {
@@ -249,6 +254,7 @@ export function useChiefChatCore({
     user,
     runtimeAgents,
     workspacePeople,
+    workspaceUsers,
   ]);
   /** Every agent and subagent, so messages name their real author. */
   const agentRoster = useMemo(
