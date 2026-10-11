@@ -26,17 +26,27 @@ function storageKey(workspaceId: string) {
   return `chief:sidebar-direct-messages:v1:${workspaceId}`;
 }
 
+export function parseSidebarDirectMessagesCache(
+  json: string | null,
+): SidebarDirectMessagesCache {
+  try {
+    const parsed = sidebarDirectMessagesCacheSchema.safeParse(
+      JSON.parse(json ?? "null"),
+    );
+    return parsed.success ? parsed.data : EMPTY;
+  } catch {
+    return EMPTY;
+  }
+}
+
 export function readSidebarDirectMessagesCache(
   workspaceId: string | null,
 ): SidebarDirectMessagesCache {
   if (!workspaceId) return EMPTY;
   try {
-    const parsed = sidebarDirectMessagesCacheSchema.safeParse(
-      JSON.parse(
-        window.localStorage.getItem(storageKey(workspaceId)) ?? "null",
-      ),
+    return parseSidebarDirectMessagesCache(
+      window.localStorage.getItem(storageKey(workspaceId)),
     );
-    return parsed.success ? parsed.data : EMPTY;
   } catch {
     return EMPTY;
   }
@@ -53,4 +63,22 @@ export function writeSidebarDirectMessagesCache(
   } catch {
     // Storage can be full or unavailable; the sidebar still renders live data.
   }
+}
+
+/**
+ * Newest message first. Each entry is ranked by the later of its live time
+ * and the time remembered from an earlier render, so history that is still
+ * reloading (or briefly missing) never drops a row down the list. Entries
+ * with no messages keep their input order.
+ */
+export function orderSidebarDirectMessages<
+  Entry extends { key: string; live: number },
+>(entries: readonly Entry[], rememberedAt: Readonly<Record<string, number>>) {
+  return entries
+    .map((entry, index) => ({
+      ...entry,
+      at: Math.max(entry.live, rememberedAt[entry.key] ?? 0),
+      index,
+    }))
+    .sort((a, b) => b.at - a.at || a.index - b.index);
 }
