@@ -26,8 +26,14 @@ export function relayCellWorkspaceContext(
     .join("\n");
 }
 
-export function relayCellFinalReply(conversationId: string) {
-  return `Return exactly one user-facing final reply. Do not call channels_messages_post for ${conversationId}; Chief publishes your returned reply to that conversation. Use channels_reactions_add sparingly when a reaction is more natural than another acknowledgement, never on your own message, and at most once per user message.`;
+export function relayCellFinalReply(
+  conversationId: string,
+  threadRootId: string | undefined,
+) {
+  const where = threadRootId
+    ? `channelId ${conversationId} and threadRootId ${threadRootId}`
+    : `channelId ${conversationId}`;
+  return `Before substantive work, acknowledge the user with channels_messages_post (${where}): one short message saying what you are about to do. Then return exactly one user-facing final reply. Do not post that final reply yourself; Chief publishes your returned reply to the conversation. Use channels_reactions_add sparingly when a reaction is more natural than another message, never on your own message, and at most once per user message.`;
 }
 
 export function activeSkillInstructions(instructions: string) {
