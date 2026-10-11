@@ -19,10 +19,7 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { workspaceAgentName } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { useChannelGuests } from "./channel-guests";
 import { channelRecipients } from "./channel-thread-audience";
@@ -155,12 +152,10 @@ export function useChiefChatCore({
             : undefined),
         }
       : null);
-  const activeRootIdentity =
-    visibleActiveRootTurn && isWorkspaceAgentId(visibleActiveRootTurn.agentId)
-      ? WORKSPACE_AGENT_IDENTITIES[visibleActiveRootTurn.agentId]
-      : undefined;
-  const activityAgentLabel =
-    activeRootIdentity?.name ?? directAgent?.name ?? "Chief";
+  const activeRootName = visibleActiveRootTurn
+    ? workspaceAgentName(visibleActiveRootTurn.agentId, runtimeAgents)
+    : undefined;
+  const activityAgentLabel = activeRootName ?? directAgent?.name ?? "Chief";
   const currentTurn = useMemo(
     () =>
       channelActivityState(

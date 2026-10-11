@@ -12,11 +12,8 @@ import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
-import { messageBlocks } from "../../lib/runtime";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { messageBlocks, useRuntime } from "../../lib/runtime";
+import { workspaceAgentName } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
 import {
@@ -51,12 +48,6 @@ import { UserMessage } from "./user-message";
 type Core = ReturnType<typeof useChiefChatCore>;
 type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
-
-function activityAgentName(agentId: string) {
-  return isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
-    : agentId;
-}
 
 /**
  * A thread in an agent DM. It behaves like a channel thread, but the agent's
@@ -182,7 +173,10 @@ export function ChiefChatAuxiliaryPanels({
     () => [threadComposerRef],
     [],
   );
+  const { agents: roster } = useRuntime();
   const threadActivityAgents = useMemo(() => {
+    const activityAgentName = (agentId: string) =>
+      workspaceAgentName(agentId, roster) ?? agentId;
     const root =
       controls.status === "running" &&
       activeRootTurn?.threadRootId === threadRootId
@@ -214,6 +208,7 @@ export function ChiefChatAuxiliaryPanels({
     activeThreadChildSessions,
     controls.status,
     controls.workingAgents,
+    roster,
     threadRootId,
   ]);
   // In an agent DM the Activity panel opened from a thread shows that
