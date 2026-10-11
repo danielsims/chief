@@ -478,6 +478,7 @@ export class AgentSession extends EventEmitter {
   }
   async stop() {
     this.clearStallWatchdog();
+    this.driver.settlePrompt();
     await this.driver.stop();
     this.removeAllListeners();
   }
