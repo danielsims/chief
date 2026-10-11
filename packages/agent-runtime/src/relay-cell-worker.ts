@@ -502,7 +502,7 @@ async function listenForJobs() {
       console.error("[cell] connection:", error);
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
-    delay = Math.min(delay * 2, 30_000);
+    delay = Math.min(delay * 2, 300_000);
   }
 }
 

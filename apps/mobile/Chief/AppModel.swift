@@ -1928,7 +1928,7 @@ final class AppModel {
           failureCount = 0
         }
         failureCount += 1
-        let baseSeconds = min(pow(2.0, Double(min(failureCount - 1, 5))), 30)
+        let baseSeconds = min(pow(2.0, Double(min(failureCount - 1, 9))), 300)
         let jitter = Double.random(in: 0...0.5)
         do {
           try await Task.sleep(for: .seconds(baseSeconds + jitter))
