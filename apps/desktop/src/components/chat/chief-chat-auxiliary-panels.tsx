@@ -356,7 +356,6 @@ export function ChiefChatAuxiliaryPanels({
                 <UserMessage
                   author={userAuthor}
                   attachments={imageParts(activeThreadRoot)}
-                  metadata={null}
                   channelReferences={channelReferences}
                   onOpenChannel={onOpenChannel}
                   onOpenProfile={openUserProfile}
@@ -399,7 +398,6 @@ export function ChiefChatAuxiliaryPanels({
                           ? { guest: message.metadata.guest }
                           : undefined)}
                         attachments={imageParts(message)}
-                        metadata={null}
                         channelReferences={channelReferences}
                         onOpenChannel={onOpenChannel}
                         {...(message.metadata?.guest
@@ -426,7 +424,6 @@ export function ChiefChatAuxiliaryPanels({
                         : undefined
                     }
                     agent={respondingAgent}
-                    metadata={null}
                     onOpenProfile={selectProfile}
                     timestamp={message.metadata?.createdAt}
                   >

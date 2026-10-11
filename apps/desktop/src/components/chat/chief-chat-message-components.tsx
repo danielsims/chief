@@ -226,7 +226,6 @@ function ChiefMessage({
   onOpenProfile,
   actions,
   footer,
-  metadata,
   timestamp,
 }: {
   activity?: SessionRecord;
@@ -236,15 +235,10 @@ function ChiefMessage({
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   actions?: ReactNode;
   footer?: ReactNode;
-  metadata?: ReactNode;
   timestamp?: number;
 }) {
-  const identity: { name: string; role: string } = agent ?? {
-    name: "Chief",
-    role: "Workspace Lead",
-  };
+  const identity = agent ?? { name: "Chief" };
   const agentId = agent?.id ?? "chief";
-  const resolvedMetadata = metadata === undefined ? identity.role : metadata;
   return (
     <div
       id={messageId ? `chief-message-${messageId}` : undefined}
@@ -281,11 +275,6 @@ function ChiefMessage({
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{identity.name}</strong>
           <MessageTimestamp timestamp={timestamp} />
-          {resolvedMetadata ? (
-            <span className="text-muted-foreground text-[10px]">
-              {resolvedMetadata}
-            </span>
-          ) : null}
         </div>
         {children}
         {footer}

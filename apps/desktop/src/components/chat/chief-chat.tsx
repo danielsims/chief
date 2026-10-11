@@ -274,7 +274,6 @@ export function ChiefChat({
                   <UserMessage
                     text={optimisticInitialPrompt}
                     author={userAuthor}
-                    metadata={channel ? null : undefined}
                     channelReferences={channelReferences}
                     onOpenChannel={onOpenChannel}
                     onOpenProfile={openUserProfile}
@@ -325,7 +324,6 @@ export function ChiefChat({
                                 ? { guest: message.metadata.guest }
                                 : undefined)}
                               attachments={imageParts(message)}
-                              metadata={channel ? null : undefined}
                               channelReferences={channelReferences}
                               onOpenChannel={onOpenChannel}
                               {...(message.metadata?.guest
@@ -353,7 +351,6 @@ export function ChiefChat({
                         <ChiefMessage
                           messageId={message.id}
                           agent={respondingAgentFor(message)}
-                          metadata={channel ? null : undefined}
                           onOpenProfile={selectProfile}
                           timestamp={message.metadata?.createdAt}
                           {...controlsForMessage(message)}
