@@ -8,6 +8,8 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 
+import { requestDesktopPluginHost } from "./desktop-plugin-host";
+
 const gatewayCatalogSchema = z.object({
   data: z.array(
     z.object({
@@ -15,6 +17,16 @@ const gatewayCatalogSchema = z.object({
       name: z.string().trim().min(1).optional(),
       description: z.string().optional(),
       type: z.string().optional(),
+    }),
+  ),
+});
+
+const claudeCodeCatalogSchema = z.object({
+  models: z.array(
+    z.object({
+      value: z.string().trim().min(1),
+      label: z.string().trim().min(1),
+      description: z.string().optional(),
     }),
   ),
 });
@@ -61,7 +73,17 @@ export async function listHostedProviderModels(
       }))
       .sort((left, right) => left.label.localeCompare(right.label));
   }
+  if (driver === "claude") return await claudeCodeModels();
   return [];
+}
+
+/** Claude Code reports its own models, so this list never needs updating. */
+async function claudeCodeModels(): Promise<ProviderModelOption[]> {
+  const response = await requestDesktopPluginHost("/models/claude", {});
+  // Claude Code's own "default" is what Auto already means.
+  return claudeCodeCatalogSchema
+    .parse(response)
+    .models.filter((model) => model.value !== "default");
 }
 
 export async function hostedProviderModelsMessage(

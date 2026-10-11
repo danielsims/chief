@@ -5,6 +5,7 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
+import { listClaudeCodeModels } from "./claude-code-models.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import {
   parseLocalProjectQuery,
@@ -28,6 +29,7 @@ type PluginHostResponse =
   | { error: string }
   | { status: "ready" }
   | { snapshot: PluginCatalogSnapshot }
+  | { models: Awaited<ReturnType<typeof listClaudeCodeModels>> }
   | {
       action: Awaited<ReturnType<PluginRuntime["authorize"]>>;
       snapshot: PluginCatalogSnapshot;
@@ -92,7 +94,10 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
         sendJson(response, 404, { error: "Not found." });
         return;
       }
-
+      if (url.pathname === "/models/claude") {
+        sendJson(response, 200, { models: await listClaudeCodeModels() });
+        return;
+      }
       const input = await readJson(request);
       const workspaceId = parseRequiredString(input.workspaceId, "workspaceId");
       if (url.pathname === "/projects/query") {
