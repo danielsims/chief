@@ -294,6 +294,7 @@ private struct ConversationRow: View {
         } else if conversation.kind == .direct {
           AgentMark(
             name: conversation.name,
+            id: conversation.directAgentID,
             size: 24,
             working: model.isAgentWorking(
               workspaceID: model.workspace?.id,
