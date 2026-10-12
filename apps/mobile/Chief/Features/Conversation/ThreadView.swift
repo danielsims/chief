@@ -69,7 +69,7 @@ struct ThreadView: View {
     }
     .modifier(ScheduledRunTracking(messages: [root], conversationID: conversationID))
     .background(ChiefTheme.background)
-    .navigationTitle("Thread")
+    .navigationTitle(conversation?.name ?? "Thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
