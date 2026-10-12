@@ -3,9 +3,10 @@ import SwiftUI
 struct ProjectsView: View {
   @Environment(AppModel.self) private var model
   @State private var showsAddProject = false
+  @State private var search = ""
 
   var body: some View {
-    VStack(spacing: 0) {
+    VStack(alignment: .leading, spacing: 14) {
       HStack {
         Text("Projects")
           .font(.system(size: 26, weight: .regular, design: .rounded))
@@ -20,9 +21,12 @@ struct ProjectsView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Add project")
       }
+      .frame(height: 34)
       .padding(.horizontal, ChiefTheme.pagePadding)
       .padding(.top, 16)
-      .padding(.bottom, 14)
+      if !projects.isEmpty {
+        ChiefSearchField(prompt: "Search projects", text: $search)
+      }
       Group {
       if projects.isEmpty {
         EmptyProjectsView(showsAddProject: $showsAddProject)
@@ -32,7 +36,7 @@ struct ProjectsView: View {
       } else {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(projects) { project in
+            ForEach(filteredProjects) { project in
               NavigationLink {
                 ProjectDetailView(project: project)
               } label: {
@@ -42,7 +46,8 @@ struct ProjectsView: View {
               .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
             }
           }
-          .padding(ChiefTheme.pagePadding)
+          .padding(.horizontal, ChiefTheme.pagePadding)
+          .padding(.bottom, ChiefTheme.pagePadding)
         }
       }
     }
@@ -56,19 +61,27 @@ struct ProjectsView: View {
   }
 
   private var projects: [ProjectSummary] { model.workspace?.projects ?? [] }
+
+  private var filteredProjects: [ProjectSummary] {
+    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return projects }
+    return projects.filter {
+      $0.name.localizedCaseInsensitiveContains(query)
+        || $0.repository.localizedCaseInsensitiveContains(query)
+    }
+  }
 }
 
-/// A project row, styled like the Agents list: quiet, no card chrome.
+/// A project row, matching the Plugins rows: quiet, no card chrome.
 private struct ProjectCard: View {
   let project: ProjectSummary
 
   var body: some View {
     HStack(spacing: 12) {
-      RepositoryMark(size: 32)
-      VStack(alignment: .leading, spacing: 4) {
+      RepositoryMark(size: 40)
+      VStack(alignment: .leading, spacing: 3) {
         Text(project.name)
-          .font(.system(size: 16, weight: .medium))
-          .foregroundStyle(ChiefTheme.accent)
+          .font(.system(size: 15, weight: .medium))
         Text("\(project.providerName) · \(project.defaultBranch)")
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
@@ -79,7 +92,7 @@ private struct ProjectCard: View {
         .font(.system(size: 10))
         .foregroundStyle(ChiefTheme.tertiary)
     }
-    .frame(minHeight: 58)
+    .frame(minHeight: 62)
     .contentShape(Rectangle())
   }
 }
