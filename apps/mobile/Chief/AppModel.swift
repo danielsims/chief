@@ -2094,6 +2094,15 @@ final class AppModel {
     conversationID: String,
     isWorking: Bool
   ) {
+    // A confirmed run supersedes the optimistic marker, so it can't keep the
+    // agent shown after the run ends.
+    if isWorking {
+      pendingAgentReplies = pendingAgentReplies.filter {
+        $0.value.workspaceID != workspaceID
+          || $0.value.conversationID != conversationID
+          || $0.value.agentID != agentID
+      }
+    }
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     var agents = workingAgents[key] ?? []
     agents =
