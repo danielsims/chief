@@ -12,7 +12,7 @@ struct AgentTreeRow: View {
         NavigationLink(value: agent.id) {
           HStack(spacing: 12) {
             AgentMark(
-              name: agent.name, size: avatarSize, working: model.isAgentWorking(agentID: agent.id))
+              name: agent.name, id: agent.id, size: avatarSize, working: model.isAgentWorking(agentID: agent.id))
             VStack(alignment: .leading, spacing: 4) {
               Text(agent.name).font(.system(size: 16, weight: .medium)).foregroundStyle(
                 ChiefTheme.accent)
@@ -48,7 +48,7 @@ struct AgentTreeRow: View {
             NavigationLink(value: specialist.id) {
               HStack(spacing: 10) {
                 AgentMark(
-                  name: specialist.name, size: 24,
+                  name: specialist.name, id: specialist.id, size: 24,
                   working: model.isAgentWorking(agentID: specialist.id))
                 Text(specialist.name).font(.system(size: 14)).foregroundStyle(ChiefTheme.secondary)
                 Spacer()
