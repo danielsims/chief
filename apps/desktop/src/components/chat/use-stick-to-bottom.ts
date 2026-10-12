@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 
 const BOTTOM_THRESHOLD_PX = 80;
 
@@ -14,7 +14,7 @@ export function useStickToBottom(
   key: string | null,
   startAtBottom: () => boolean,
 ) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!key || !container) return;
     let pinned = startAtBottom();

@@ -14,6 +14,7 @@ import type { ComposerImageAttachment } from "./composer-image-attachments";
 import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
+import { useStickToBottom } from "./use-stick-to-bottom";
 
 type Core = ReturnType<typeof useChiefChatCore>;
 
@@ -36,16 +37,13 @@ export function useChiefChatComposer({
     | "initialMessageId"
     | "initialPrompt"
     | "initialThreadRootId"
-    | "isNew"
     | "onInitialPromptSent"
     | "onOpenProfile"
     | "onThreadRootChange"
   >;
 }) {
   const {
-    channelResolved,
     chatReady,
-    childSessions,
     controls,
     messages,
     runtimeStatus,
@@ -61,7 +59,6 @@ export function useChiefChatComposer({
     initialMessageId,
     initialPrompt,
     initialThreadRootId,
-    isNew,
     onInitialPromptSent,
     onOpenProfile,
     onThreadRootChange,
@@ -158,7 +155,6 @@ export function useChiefChatComposer({
   const threadBottomRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const threadScrollRef = useRef<HTMLDivElement>(null);
-  const mainHasEnteredRef = useRef(false);
   const sentInitial = useRef(false);
   const approveRecurringWork = useEffectEvent(
     (proposed: (typeof workspaceData.recurringWork)[number]) => {
@@ -179,10 +175,6 @@ export function useChiefChatComposer({
     send(initialPrompt ?? "", undefined, [], initialAttachments);
     onInitialPromptSent?.();
   });
-
-  useEffect(() => {
-    mainHasEnteredRef.current = false;
-  }, [chatId]);
 
   const [mainScrolledUp, setMainScrolledUp] = useState(false);
   useEffect(() => {
@@ -216,34 +208,12 @@ export function useChiefChatComposer({
     approveRecurringWork(proposed);
   }, [workspaceData.recurringWork]);
 
-  useEffect(() => {
-    if (suppressMainAutoScrollRef.current) {
-      if (
-        initialMessageId &&
-        !document.getElementById(`chief-message-${initialMessageId}`)
-      )
-        return;
-      suppressMainAutoScrollRef.current = false;
-      return;
-    }
-    const container = mainScrollRef.current;
-    if (!container || (!channelResolved && !isNew)) return;
-    if (!mainHasEnteredRef.current) {
-      mainHasEnteredRef.current = true;
-      container.scrollTop = container.scrollHeight;
-      return;
-    }
-    const nearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      120;
-    if (nearBottom) container.scrollTop = container.scrollHeight;
-  }, [
-    channelResolved,
-    childSessions.length,
-    initialMessageId,
-    isNew,
-    messages.length,
-  ]);
+  // A conversation opened to show a specific message stays on that message.
+  useStickToBottom(
+    mainScrollRef,
+    chatId,
+    () => !suppressMainAutoScrollRef.current,
+  );
 
   useEffect(() => {
     if (

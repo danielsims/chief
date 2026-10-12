@@ -94,7 +94,6 @@ export function ChiefChat({
       initialMessageId,
       initialPrompt,
       initialThreadRootId,
-      isNew,
       onInitialPromptSent,
       onOpenProfile,
       onThreadRootChange,
