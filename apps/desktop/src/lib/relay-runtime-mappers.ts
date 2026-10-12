@@ -220,7 +220,7 @@ export function toChannelMessageEvent(
   message: ConversationMessage,
   snapshot: WorkspaceSnapshot,
 ): ChannelEvent {
-  const actor =
+  const author =
     message.author.kind === "agent"
       ? {
           type: "agent" as const,
@@ -244,6 +244,15 @@ export function toChannelMessageEvent(
             id: message.author.id,
             name: message.author.kind === "system" ? "Chief" : "You",
           };
+  // A relay notice that someone was added is that person's action, so the event
+  // carries them and the targets, matching the history projection.
+  const added = message.components
+    .map(channelActionFromComponent)
+    .find((action) => action?.type === "member-added");
+  const actor =
+    added?.actorId && added.actorType
+      ? { type: added.actorType, id: added.actorId, name: added.actorName }
+      : author;
   return {
     protocol: "nip29",
     id: message.id,
@@ -265,6 +274,13 @@ export function toChannelMessageEvent(
           component.payload.type === "member-joined",
       )
         ? [["action", "member-joined"]]
+        : []),
+      ...(added
+        ? [
+            ["action", "member-added"],
+            ...added.agentIds.map((id) => ["agent", id]),
+            ...(added.userIds ?? []).map((id) => ["user", id]),
+          ]
         : []),
     ],
     content: message.deleted ? "" : message.body,
