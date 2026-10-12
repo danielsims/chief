@@ -31,7 +31,7 @@ struct ProjectsView: View {
           .padding(.bottom, 60)
       } else {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 12) {
+          LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(projects) { project in
               NavigationLink {
                 ProjectDetailView(project: project)
@@ -58,39 +58,29 @@ struct ProjectsView: View {
   private var projects: [ProjectSummary] { model.workspace?.projects ?? [] }
 }
 
+/// A project row, styled like the Agents list: quiet, no card chrome.
 private struct ProjectCard: View {
   let project: ProjectSummary
 
   var body: some View {
-    ChiefCard {
-      HStack(alignment: .top, spacing: 13) {
-        RepositoryMark()
-        VStack(alignment: .leading, spacing: 7) {
-          Text(project.name)
-            .font(.system(size: 16, weight: .semibold))
-            .lineLimit(1)
-          Text(project.cardDescription)
-            .font(.system(size: 13))
-            .foregroundStyle(ChiefTheme.secondary)
-            .lineLimit(2)
-          HStack(spacing: 12) {
-            Label(project.defaultBranch, systemImage: "arrow.triangle.branch")
-            Label(project.providerName, systemImage: "chevron.left.forwardslash.chevron.right")
-            if let count = project.repositoryFiles?.count {
-              Text("\(count) \(count == 1 ? "file" : "files")")
-            }
-          }
+    HStack(spacing: 12) {
+      RepositoryMark(size: 32)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(project.name)
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(ChiefTheme.accent)
+        Text("\(project.providerName) · \(project.defaultBranch)")
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
-          .lineLimit(1)
-        }
-        Spacer(minLength: 4)
-        Image(systemName: "chevron.right")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(ChiefTheme.tertiary)
-          .padding(.top, 5)
       }
+      .lineLimit(1)
+      Spacer(minLength: 8)
+      Image(systemName: "chevron.right")
+        .font(.system(size: 10))
+        .foregroundStyle(ChiefTheme.tertiary)
     }
+    .frame(minHeight: 58)
+    .contentShape(Rectangle())
   }
 }
 
