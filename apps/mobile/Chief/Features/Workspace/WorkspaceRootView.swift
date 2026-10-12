@@ -412,32 +412,16 @@ struct PluginsView: View {
   @State private var connectionError: String?
 
   var body: some View {
-    VStack(spacing: 0) {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Plugins")
+        .font(.system(size: 26, weight: .regular, design: .rounded))
+        .tracking(-0.6)
+        .frame(height: 34)
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.top, 16)
+      ChiefSearchField(prompt: "Search plugins", text: $search)
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Plugins")
-              .font(.system(size: 26, weight: .regular, design: .rounded))
-              .tracking(-0.6)
-            Text("Give your agents access to the tools you already use.")
-              .font(.system(size: 14))
-              .foregroundStyle(ChiefTheme.secondary)
-          }
-          .padding(.horizontal, ChiefTheme.pagePadding)
-
-          HStack(spacing: 9) {
-            Image(systemName: "magnifyingglass")
-              .foregroundStyle(ChiefTheme.tertiary)
-            TextField("Search plugins", text: $search)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-          }
-          .padding(.horizontal, 13)
-          .frame(height: 44)
-          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
-          .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
-          .padding(.horizontal, ChiefTheme.pagePadding)
-
+        LazyVStack(alignment: .leading, spacing: 0) {
           if loading && plugins.isEmpty {
             ChiefSpinner()
               .tint(ChiefTheme.accent)
@@ -447,26 +431,17 @@ struct PluginsView: View {
             ContentUnavailableView.search(text: search)
               .foregroundStyle(ChiefTheme.secondary)
           } else {
-            LazyVStack(spacing: 0) {
-              ForEach(filteredPlugins) { plugin in
-                PluginCatalogRow(
-                  plugin: plugin,
-                  installed: installedPluginIDs.contains(plugin.id),
-                  busy: busyPluginID == plugin.id,
-                  onSelect: { install(plugin) }
-                )
-                if plugin.id != filteredPlugins.last?.id {
-                  Divider().overlay(ChiefTheme.line).padding(.leading, 58)
-                }
-              }
+            ForEach(filteredPlugins) { plugin in
+              PluginCatalogRow(
+                plugin: plugin,
+                installed: installedPluginIDs.contains(plugin.id),
+                busy: busyPluginID == plugin.id,
+                onSelect: { install(plugin) }
+              )
             }
-            .padding(.horizontal, 13)
-            .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 15))
-            .overlay { RoundedRectangle(cornerRadius: 15).stroke(ChiefTheme.line) }
-            .padding(.horizontal, ChiefTheme.pagePadding)
           }
         }
-        .padding(.top, 16)
+        .padding(.horizontal, ChiefTheme.pagePadding)
         .padding(.bottom, WorkspaceChrome.bottomClearance)
       }
     }
@@ -536,6 +511,27 @@ struct PluginsView: View {
         Haptics.error()
       }
     }
+  }
+}
+
+/// The search field at the top of the Plugins and Projects pages.
+struct ChiefSearchField: View {
+  let prompt: String
+  @Binding var text: String
+
+  var body: some View {
+    HStack(spacing: 9) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(ChiefTheme.tertiary)
+      TextField(prompt, text: $text)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+    }
+    .padding(.horizontal, 13)
+    .frame(height: 44)
+    .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
+    .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
+    .padding(.horizontal, ChiefTheme.pagePadding)
   }
 }
 
