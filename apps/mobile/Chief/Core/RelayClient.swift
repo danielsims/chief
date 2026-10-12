@@ -20,6 +20,12 @@ protocol RelayServing: Sendable {
     remoteURL: String,
     providerID: String
   ) async throws -> ProjectSummary
+  /// Creates a repository hosted by the workspace's own relay.
+  func createWorkspaceGitRepository(workspaceID: String, name: String) async throws
+    -> ProjectSummary
+  func githubConnection(workspaceID: String) async throws -> GitHubConnection
+  /// Where GitHub asks which repositories to share with the workspace.
+  func githubInstallURL(workspaceID: String) async throws -> URL
   func loadWorkspace() async throws -> WorkspaceSnapshot
   func createWorkspace(
     from draft: OnboardingDraft,
@@ -252,6 +258,20 @@ extension RelayServing {
     remoteURL _: String,
     providerID _: String
   ) async throws -> ProjectSummary {
+    throw RelayError.unavailable
+  }
+
+  func createWorkspaceGitRepository(workspaceID _: String, name _: String) async throws
+    -> ProjectSummary
+  {
+    throw RelayError.unavailable
+  }
+
+  func githubConnection(workspaceID _: String) async throws -> GitHubConnection {
+    throw RelayError.unavailable
+  }
+
+  func githubInstallURL(workspaceID _: String) async throws -> URL {
     throw RelayError.unavailable
   }
 
@@ -517,6 +537,15 @@ struct AgentJobCompletion: Sendable, Equatable {
   var publishedMessage: AgentPublishedMessage?
 }
 
+/// The workspace's GitHub connection, as the relay reports it.
+struct GitHubConnection: Decodable, Sendable {
+  struct Installation: Decodable, Sendable {}
+  /// Whose GitHub App the workspace uses; nil until one is set up.
+  let app: String?
+  let canManage: Bool
+  let installations: [Installation]
+}
+
 struct AgentPublishedMessage: Sendable, Equatable, Codable {
   var conversationId: String
   /// The thread this reply belongs to. A direct-message session opener's reply
@@ -643,34 +672,76 @@ actor URLSessionRelayClient: RelayServing {
     return result.apnsConfigured ?? false
   }
 
+  private struct ProjectPayload: Encodable {
+    let name: String
+    let repositoryKind = "cloned"
+    let providerId: String
+    let canonicalRemoteUrl: String
+    var repositoryWebUrl: String?
+    let defaultBranch = "main"
+    var repositoryFiles: [ProjectRepositorySourceFile]?
+  }
+
   func createProject(
     workspaceID: String,
     name: String,
     remoteURL: String,
     providerID: String
   ) async throws -> ProjectSummary {
-    struct Payload: Encodable {
-      let name: String
-      let repositoryKind: String
-      let providerId: String
-      let canonicalRemoteUrl: String
-      let repositoryWebUrl: String
-      let defaultBranch: String
-    }
+    try await request(
+      path: "/v1/workspaces/\(workspaceID)/projects",
+      method: "POST",
+      body: try JSONEncoder().encode(
+        ProjectPayload(
+          name: name,
+          providerId: providerID,
+          canonicalRemoteUrl: remoteURL,
+          repositoryWebUrl: remoteURL
+        )
+      )
+    )
+  }
+
+  func createWorkspaceGitRepository(workspaceID: String, name: String) async throws
+    -> ProjectSummary
+  {
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let slug =
+      String(
+        name.lowercased()
+          .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+          .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+          .prefix(64)
+      )
+    var origin = URLComponents(url: configuration.relayURL, resolvingAgainstBaseURL: false)!
+    origin.path = "/git/\(workspaceID)/\(slug.isEmpty ? "agent" : slug).git"
+    origin.query = nil
     return try await request(
       path: "/v1/workspaces/\(workspaceID)/projects",
       method: "POST",
       body: try JSONEncoder().encode(
-        Payload(
+        ProjectPayload(
           name: name,
-          repositoryKind: "cloned",
-          providerId: providerID,
-          canonicalRemoteUrl: remoteURL,
-          repositoryWebUrl: remoteURL,
-          defaultBranch: "main"
+          providerId: "chief-git",
+          canonicalRemoteUrl: origin.url!.absoluteString,
+          repositoryFiles: [ProjectRepositorySourceFile(path: "README.md", content: "# \(name)\n")]
         )
       )
     )
+  }
+
+  func githubConnection(workspaceID: String) async throws -> GitHubConnection {
+    try await request(path: "/v1/workspaces/\(workspaceID)/github", method: "GET")
+  }
+
+  func githubInstallURL(workspaceID: String) async throws -> URL {
+    struct Result: Decodable { let url: URL }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/github/install",
+      method: "POST",
+      body: Data("{}".utf8)
+    )
+    return result.url
   }
 
   func loadWorkspace() async throws -> WorkspaceSnapshot {
