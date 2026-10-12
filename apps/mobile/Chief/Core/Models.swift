@@ -230,11 +230,14 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   var lastMessageAt: String?
   /// Set on a person-to-person DM: the other participant's user id.
   var directUserID: String?
+  /// Set on an agent DM: the agent it is with.
+  var directAgentID: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
     case lastMessageAt
     case directUserID = "directUserId"
+    case directAgentID = "directAgentId"
   }
 
   init(
@@ -271,6 +274,7 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
     lastMessageAt = try values.decodeIfPresent(String.self, forKey: .lastMessageAt)
     directUserID = try values.decodeIfPresent(String.self, forKey: .directUserID)
+    directAgentID = try values.decodeIfPresent(String.self, forKey: .directAgentID)
   }
 }
 

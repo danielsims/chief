@@ -504,7 +504,7 @@ final class AppModel {
     if let direct = workspace?.conversations.first(where: { $0.id == conversationID }),
       direct.kind == .direct
     {
-      return WorkspaceAgentCatalog.agent(forID: conversationID)?.id ?? "chief"
+      return direct.directAgentID ?? WorkspaceAgentCatalog.agent(forID: conversationID)?.id ?? "chief"
     }
     if let threadRootID,
       let root = conversations.messages(
