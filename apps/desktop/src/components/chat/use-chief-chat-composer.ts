@@ -196,6 +196,7 @@ export function useChiefChatComposer({
   const main = useConversationScroll(
     chatId,
     () => !suppressMainAutoScrollRef.current,
+    core.loadOlder,
   );
   const thread = useConversationScroll(
     threadRootId,
