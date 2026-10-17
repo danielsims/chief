@@ -39,8 +39,12 @@ import { cellRecordsDeleteCellSnapshot } from "./queries/cell-records/delete-cel
 import { cellRecordsFindCellSnapshot } from "./queries/cell-records/find-cell-snapshot";
 import { cellRecordsInsertPutRecord } from "./queries/cell-records/insert-put-record";
 import { initializeSocketTickets } from "./socket-ticket-store";
+import { metered, meterSql, requestOperation } from "./sql-metering";
 
 const enqueuedAgentJobSchema = z.object({ job: agentJobSchema });
+const stopConversationSchema = z.object({
+  conversationId: conversationIdSchema,
+});
 
 export class AgentObject extends DurableObject<Env> {
   private readonly workspace: Workspace;
@@ -50,6 +54,7 @@ export class AgentObject extends DurableObject<Env> {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    meterSql(state.storage);
     this.workspace = createWorkspace(state);
     this.computer = new CloudflareAgentComputer(this.workspace);
     const broadcast = (event: JsonObject) => this.broadcast(event);
@@ -61,13 +66,15 @@ export class AgentObject extends DurableObject<Env> {
       this.queue,
       broadcast,
     );
-    void state.blockConcurrencyWhile(async () => {
-      initializeAgentJobs(state.storage);
-      initializeSocketTickets(state.storage);
-      if (env.HOSTED_CELL_ENABLED === "true") {
-        await runEffect(this.runtime.scheduleNextAlarm(), env);
-      }
-    });
+    void state.blockConcurrencyWhile(() =>
+      metered("AgentObject", "constructor", async () => {
+        initializeAgentJobs(state.storage);
+        initializeSocketTickets(state.storage);
+        if (env.HOSTED_CELL_ENABLED === "true") {
+          await runEffect(this.runtime.scheduleNextAlarm(), env);
+        }
+      }),
+    );
   }
 
   executeComputer(command: string, cwd?: string) {
@@ -79,6 +86,12 @@ export class AgentObject extends DurableObject<Env> {
   }
 
   fetch(request: Request) {
+    return metered("AgentObject", requestOperation(request), () =>
+      this.receive(request),
+    );
+  }
+
+  private receive(request: Request) {
     const ctx = this.ctx;
     const route = this.route.bind(this);
     const program = Effect.gen(function* () {
@@ -105,10 +118,12 @@ export class AgentObject extends DurableObject<Env> {
   }
 
   async alarm() {
-    const workflowId = await this.runtime
-      .currentWorkflowId()
-      .catch(() => undefined);
-    return runEffect(this.runtime.runDueJob(), this.env, workflowId);
+    return metered("AgentObject", "alarm", async () => {
+      const workflowId = await this.runtime
+        .currentWorkflowId()
+        .catch(() => undefined);
+      return runEffect(this.runtime.runDueJob(), this.env, workflowId);
+    });
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
@@ -141,8 +156,16 @@ export class AgentObject extends DurableObject<Env> {
             const conversationId = conversationIdSchema.parse(
               command.payload.payload.conversationId,
             );
+            const threadRootId = z
+              .string()
+              .optional()
+              .catch(undefined)
+              .parse(command.payload.payload.threadRootId);
             yield* attempt("agent.turn.supersede", () =>
-              runtime.supersedeConversation(conversationId, command.payload.id),
+              runtime.supersedeConversation(
+                { conversationId, threadRootId },
+                command.payload.id,
+              ),
             );
           }
         }
@@ -188,6 +211,23 @@ export class AgentObject extends DurableObject<Env> {
         return yield* attempt("agent.job.renew", () =>
           queue.renew(request, context),
         );
+      }
+      if (request.method === "POST" && path.endsWith("/stop")) {
+        if (context.principal.kind !== "user") {
+          return relayError(
+            403,
+            "user_required",
+            "Only a person can stop a run.",
+          );
+        }
+        const { conversationId } = stopConversationSchema.parse(
+          yield* attempt("agent.stop.read", () => request.json()),
+        );
+        yield* attempt("agent.turn.stop", () =>
+          runtime.supersedeConversation({ conversationId, allThreads: true }),
+        );
+        yield* attempt("agent.alarm.schedule", () => queue.scheduleNextAlarm());
+        return new Response(null, { status: 204 });
       }
       if (request.method === "POST" && path.endsWith("/cancel-workflow"))
         return yield* attempt("agent.job.cancel_workflow", () =>

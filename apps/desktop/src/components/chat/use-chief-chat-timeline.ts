@@ -1,4 +1,3 @@
-import type { RefObject } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChiefUIMessage, SessionRecord } from "@chief/agent-runtime/types";
@@ -49,43 +48,33 @@ export function useChiefChatTimeline({
   anchorBrowserSession,
   browserRuns,
   browserSessions,
-  channel,
   chatId,
   childSessions,
   cloudOrganizationId,
   controlsStatus,
   destinationChannelId,
-  initialMessageId,
   knownAgentIds,
   markThreadRead,
   messages,
   optimisticInitialPrompt,
   setVisibleThread,
-  suppressThreadAutoScrollRef,
-  threadHasEnteredRef,
   threadRootId,
-  threadScrollRef,
 }: {
   activeChild?: SessionRecord;
   anchorBrowserSession: Runtime["anchorBrowserSession"];
   browserRuns: Runtime["browserRuns"];
   browserSessions: Runtime["browserSessions"];
-  channel?: { label: string; description: string; agentIds: readonly string[] };
   chatId: string;
   childSessions: readonly SessionRecord[];
   cloudOrganizationId: string | null;
   controlsStatus: string;
   destinationChannelId?: string;
-  initialMessageId?: string;
   knownAgentIds: ReadonlySet<string>;
   markThreadRead: ReadState["markThreadRead"];
   messages: readonly ChiefUIMessage[];
   optimisticInitialPrompt: string | null;
   setVisibleThread: ReadState["setVisibleThread"];
-  suppressThreadAutoScrollRef: RefObject<boolean>;
-  threadHasEnteredRef: RefObject<boolean>;
   threadRootId: string | null;
-  threadScrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const showOptimisticInitialPrompt = Boolean(
     optimisticInitialPrompt &&
@@ -190,7 +179,7 @@ export function useChiefChatTimeline({
   );
 
   useEffect(() => {
-    if (!channel || !destinationChannelId || !threadRootId) {
+    if (!destinationChannelId || !threadRootId) {
       if (destinationChannelId) setVisibleThread(destinationChannelId, null);
       return;
     }
@@ -199,42 +188,10 @@ export function useChiefChatTimeline({
     return () => setVisibleThread(destinationChannelId, null);
   }, [
     activeThreadReplies.length,
-    channel,
     destinationChannelId,
     markThreadRead,
     setVisibleThread,
     threadRootId,
-  ]);
-  useEffect(() => {
-    if (!threadRootId) return;
-    if (suppressThreadAutoScrollRef.current) {
-      if (
-        initialMessageId &&
-        !document.getElementById(`chief-message-${initialMessageId}`)
-      )
-        return;
-      suppressThreadAutoScrollRef.current = false;
-      return;
-    }
-    const container = threadScrollRef.current;
-    if (container && !threadHasEnteredRef.current) {
-      threadHasEnteredRef.current = true;
-      container.scrollTop = container.scrollHeight;
-      return;
-    }
-    if (container) {
-      const nearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        120;
-      if (nearBottom) container.scrollTop = container.scrollHeight;
-    }
-  }, [
-    activeThreadReplies.length,
-    initialMessageId,
-    suppressThreadAutoScrollRef,
-    threadHasEnteredRef,
-    threadRootId,
-    threadScrollRef,
   ]);
   const activeThreadAudience = useMemo(
     () =>

@@ -40,6 +40,22 @@ export function useRequestedDirectMessage({
     message: string;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const resolvedChatId =
+    chat?.id ??
+    (created && created.agentId === message?.id ? created.chatId : null);
+  // Once a conversation is open it stays open while the lists behind it
+  // refresh; a momentary gap must not swap it for the opening state.
+  const [opened, setOpened] = useState<{
+    agentId: string;
+    chatId: string;
+  } | null>(null);
+  if (
+    agentId &&
+    resolvedChatId &&
+    (opened?.agentId !== agentId || opened.chatId !== resolvedChatId)
+  ) {
+    setOpened({ agentId, chatId: resolvedChatId });
+  }
 
   useEffect(() => {
     if (!message || chat || loading || runtimeStatus !== "connected") return;
@@ -67,8 +83,7 @@ export function useRequestedDirectMessage({
   return {
     chat,
     chatId:
-      chat?.id ??
-      (created && created.agentId === message?.id ? created.chatId : null),
+      resolvedChatId ?? (opened?.agentId === agentId ? opened.chatId : null),
     error: failure && failure.agentId === message?.id ? failure.message : null,
     message,
     retry: () => {
@@ -95,14 +110,15 @@ export function DirectMessageOpening({
         <AgentAvatar agentId={agentId} className="size-7" />
         <span className="text-sm font-semibold">{agentName}</span>
       </header>
-      <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
-        <p>{error ?? "Opening conversation…"}</p>
-        {error ? (
+      {/* Opening is near-instant, so it shows only the conversation frame. */}
+      {error ? (
+        <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
+          <p>{error}</p>
           <Button variant="outline" size="sm" onClick={onRetry}>
             Try again
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

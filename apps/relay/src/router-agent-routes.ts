@@ -2,8 +2,10 @@ import { z } from "zod";
 
 import type { WorkspaceId, WorkspaceMember } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   agentRemovalResultSchema,
   agentSummarySchema,
+  conversationIdSchema,
   externalAgentDeliveryCommandSchema,
   invokeAgentSchema,
   jobIdSchema,
@@ -22,6 +24,7 @@ import {
   updateWorkspaceOrganizationMemberRole,
   usesOrganizationTenancy,
 } from "./organization-tenancy";
+import { routeAgentAvatar } from "./router-agent-avatar";
 import {
   authorizeNativeAgent,
   deterministicUuid,
@@ -54,11 +57,17 @@ const agentJobsRoute =
 const agentJobListRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs$/u;
 const agentJobRetryRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/([^/]+)\/retry$/u;
+const conversationStopRoute =
+  /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/stop$/u;
+const conversationStopSchema = z.object({
+  agentIds: z.array(agentIdSchema).min(1).max(16),
+});
 const agentSocketTicketRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/socket-tickets$/u;
 const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
+const agentConfigListRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/configs$/u;
 const agentResourceRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)$/u;
 const agentCollectionRoute = /^\/v1\/workspaces\/([^/]+)\/agents$/u;
 const agentCellSnapshotRoute =
@@ -83,6 +92,8 @@ export async function routeAgentRequest(
   if (external) return external;
   const profile = await routeOwnAgentProfile(env, request, requestId);
   if (profile) return profile;
+  const avatar = await routeAgentAvatar(env, request, requestId);
+  if (avatar) return avatar;
   const agentCollection = agentCollectionRoute.exec(url.pathname);
   if (agentCollection && request.method === "POST") {
     const workspaceId = parseWorkspaceId(agentCollection[1]);
@@ -252,6 +263,34 @@ export async function routeAgentRequest(
       workspaceId,
       agentId,
       artifact[3] ?? "",
+    );
+  }
+
+  const agentConfigList = agentConfigListRoute.exec(url.pathname);
+  if (agentConfigList) {
+    if (request.method !== "GET") {
+      return relayError(
+        405,
+        "method_not_allowed",
+        "Method not allowed.",
+        requestId,
+      );
+    }
+    const workspaceId = parseWorkspaceId(agentConfigList[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId)).fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal/agent-configs", {
+          method: "POST",
+          headers: { "x-chief-internal-operation": "agent-configs-list" },
+        }),
+        { principal, requestId, workspaceId },
+      ),
     );
   }
 
@@ -564,6 +603,48 @@ export async function routeAgentRequest(
       agentId,
       operation: "list",
     });
+  }
+
+  // Stop: anyone who may post in a conversation may stop the agents working
+  // in it. Each agent cancels its active turn and queued work there.
+  const conversationStop = conversationStopRoute.exec(url.pathname);
+  if (conversationStop && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(conversationStop[1]);
+    const conversationId = conversationIdSchema.parse(
+      decodeURIComponent(conversationStop[2] ?? ""),
+    );
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    await authorizeConversation(env, {
+      principal,
+      requestId,
+      workspaceId,
+      conversationId,
+      permission: "messages.send",
+    });
+    const { agentIds } = conversationStopSchema.parse(
+      await authenticated.request.json(),
+    );
+    for (const agentId of new Set(agentIds)) {
+      const response = await env.AGENTS.get(
+        env.AGENTS.idFromName(`${workspaceId}:${agentId}`),
+      ).fetch(
+        withTrustedContext(
+          new Request("https://agent.internal/stop", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ conversationId }),
+          }),
+          { principal, requestId, workspaceId, conversationId },
+        ),
+      );
+      await releaseInternalResponse(response);
+    }
+    return new Response(null, { status: 204 });
   }
 
   const jobRetry = agentJobRetryRoute.exec(url.pathname);

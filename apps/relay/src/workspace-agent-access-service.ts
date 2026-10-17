@@ -1,5 +1,6 @@
 import type { Principal } from "@chief/relay-contracts";
 import {
+  agentAvatarSetSchema,
   agentConfigSchema,
   agentIdSchema,
   agentSummarySchema,
@@ -10,10 +11,11 @@ import {
 
 import type { AgentConfigRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
-import { readTrustedContext } from "./internal-context";
+import { readTrustedContext, readTrustedIdentity } from "./internal-context";
 import { agentConfigsDeleteRemove } from "./queries/agent-configs/delete-remove";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentConfigsInsertConfigSet } from "./queries/agent-configs/insert-config-set";
+import { agentConfigsListAll } from "./queries/agent-configs/list-all";
 import { agentKeysDeleteRemove } from "./queries/agent-keys/delete-remove";
 import { channelMembersDeleteRemove } from "./queries/channel-members/delete-remove";
 import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
@@ -21,10 +23,12 @@ import { channelMembershipBatchesDeleteRemove } from "./queries/channel-membersh
 import { channelMembershipEventsDeleteRemove } from "./queries/channel-membership-events/delete-remove";
 import { channelsDeleteRemove } from "./queries/channels/delete-remove";
 import { channelsFindAgentDirects } from "./queries/channels/find-agent-directs";
+import { externalAgentRuntimesListAgentIds } from "./queries/external-agent-runtimes/list-agent-ids";
 import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
 import { membersInsertRegister } from "./queries/members/insert-register";
 import { projectsDeleteRemove } from "./queries/projects/delete-remove";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
+import { WorkspaceAccessService } from "./workspace-access-service";
 import { effectiveAgentConfigFor } from "./workspace-agent-config";
 import {
   requireAgentMessageAccess,
@@ -103,6 +107,43 @@ export class WorkspaceAgentAccessService {
     return json({ agent });
   }
 
+  /** Sets or clears how an agent appears. The router has already checked that
+   * an image or sprite is this agent's own upload. */
+  async avatarSet(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, true);
+    const agentId = requestedAgentId(request);
+    const { avatar } = agentAvatarSetSchema.parse(await parseJson(request));
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json) {
+      throw new HttpError(404, "agent_not_found", "This agent was not found.");
+    }
+    const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
+    const withAvatar = <Agent extends { id: string; avatar?: unknown }>(
+      agent: Agent,
+    ) => {
+      if (agent.id !== agentId) return agent;
+      const { avatar: _previous, ...rest } = agent;
+      return avatar ? { ...rest, avatar } : rest;
+    };
+    if (
+      !workspaceAgentProfiles(snapshot).some((agent) => agent.id === agentId)
+    ) {
+      throw new HttpError(404, "agent_not_found", "This agent was not found.");
+    }
+    workspaceUpdateVerifyConnection(
+      this.storage,
+      JSON.stringify({
+        ...snapshot,
+        agents: snapshot.agents.map((agent) => ({
+          ...withAvatar(agent),
+          subagents: agent.subagents.map(withAvatar),
+        })),
+      }),
+    );
+    return json({ agentId, avatar });
+  }
+
   configGet(request: Request) {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, false);
@@ -125,6 +166,51 @@ export class WorkspaceAgentAccessService {
         agentConfigSchema.parse(JSON.parse(row.config_json)),
       ),
       updatedAt: row.updated_at,
+    });
+  }
+
+  /** Every native agent's configuration in one read, so a client refresh is
+   * one request rather than one per agent. */
+  configList(request: Request) {
+    const context = readTrustedContext(request);
+    this.requireConfigAccess(context.principal, false);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    const snapshot = workspace.snapshot_json
+      ? decodeWorkspaceSnapshot(workspace.snapshot_json)
+      : undefined;
+    const external = new Set(
+      externalAgentRuntimesListAgentIds<{ agent_id: string }>(this.storage).map(
+        (row) => row.agent_id,
+      ),
+    );
+    const rows = new Map(
+      agentConfigsListAll<AgentConfigRow>(this.storage).map((row) => [
+        row.agent_id,
+        row,
+      ]),
+    );
+    const agentIds = (snapshot?.agents ?? [])
+      .filter((agent) => agent.runtime.kind === "native-cell")
+      .flatMap((agent) => [agent.id, ...agent.subagents.map(({ id }) => id)])
+      .filter((agentId) => !external.has(agentId));
+    return json({
+      configs: agentIds.map((agentId) => {
+        const row = rows.get(agentId);
+        return row
+          ? {
+              agentId,
+              config: effectiveAgentConfigFor(
+                agentId,
+                agentConfigSchema.parse(JSON.parse(row.config_json)),
+              ),
+              updatedAt: row.updated_at,
+            }
+          : {
+              agentId,
+              config: this.channels.agentConfiguration(agentId),
+              updatedAt: null,
+            };
+      }),
     });
   }
 
@@ -285,6 +371,30 @@ export class WorkspaceAgentAccessService {
   authorizeConversation(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
+    this.requireConversationAccess(request, context.principal);
+    return json({ ok: true });
+  }
+
+  /** Resolves the identity and checks the conversation in one call, so a
+   * conversation request costs one workspace round trip rather than two. */
+  authorizeIdentityConversation(request: Request) {
+    const { identity } = readTrustedIdentity(request);
+    const principal = new WorkspaceAccessService(
+      this.storage,
+      this.env,
+    ).principalFor(identity);
+    if (!principal) {
+      throw new HttpError(
+        403,
+        "workspace_access_denied",
+        "This identity is not a workspace member.",
+      );
+    }
+    this.requireConversationAccess(request, principal);
+    return json({ principal });
+  }
+
+  private requireConversationAccess(request: Request, principal: Principal) {
     const permission = request.headers.get("x-chief-required-permission");
     if (!isConversationPermission(permission)) {
       throw new HttpError(
@@ -293,27 +403,28 @@ export class WorkspaceAgentAccessService {
         "The internal conversation permission is required.",
       );
     }
-    this.channels.requireAgentCapability(context.principal, permission);
+    this.channels.requireAgentCapability(principal, permission);
     const conversationId = parseChannelId(
       new URL(request.url).searchParams.get("conversationId"),
     );
-    this.channels.requireChannelVisible(conversationId, context.principal);
-    const channel = this.channels.requireChannel(conversationId);
+    const channel = this.channels.requireChannelVisible(
+      conversationId,
+      principal,
+    );
     if (
       permission === "messages.send" &&
       channel.kind === "direct" &&
-      context.principal.kind === "user"
+      principal.kind === "user"
     ) {
       for (const member of this.channels.channelMemberRows(conversationId)) {
         if (member.kind === "agent")
           requireAgentMessageAccess(
             this.channels,
             member.principalId,
-            context.principal,
+            principal,
           );
       }
     }
-    return json({ ok: true });
   }
 
   authorizeRuntime(request: Request) {

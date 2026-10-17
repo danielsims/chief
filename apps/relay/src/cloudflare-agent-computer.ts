@@ -87,6 +87,29 @@ export class CloudflareAgentComputer implements AgentComputer {
     return await this.workspace.git.cli({ argv, cwd });
   }
 
+  async clone({
+    url,
+    dir,
+    depth,
+    headers,
+  }: {
+    url: string;
+    dir: string;
+    depth?: number;
+    headers?: Record<string, string>;
+  }) {
+    await this.workspace.git.clone({
+      url,
+      dir,
+      // The Cloudflare client clones shallow (depth 1) unless told otherwise,
+      // and the workspace Git host does not serve shallow fetches. Depth 0
+      // asks for the full history.
+      depth: depth ?? 0,
+      singleBranch: true,
+      ...(headers ? { headers } : undefined),
+    });
+  }
+
   private async ensureParent(path: string) {
     const separator = path.lastIndexOf("/");
     if (separator <= 0) return;

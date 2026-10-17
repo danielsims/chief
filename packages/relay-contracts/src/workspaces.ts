@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { agentAvatarSchema } from "./agent-avatar";
 import {
   commandIdSchema,
   conversationIdSchema,
@@ -293,6 +294,8 @@ export const conversationSummarySchema = z.object({
   lastMessageAt: isoDateTimeSchema.optional(),
   /** Set on a person-to-person DM: the other participant, for this viewer. */
   directUserId: z.string().trim().min(1).max(256).optional(),
+  /** Set on a DM with an agent: the agent it is with. */
+  directAgentId: z.string().trim().min(1).max(128).optional(),
 });
 
 export const agentDefinitionSourceSchema = z
@@ -382,6 +385,9 @@ export const agentProfileSchema = z
     description: z.string().trim().max(1_000).default(""),
     instructions: z.string().trim().max(40_000).default(""),
     capabilities: z.array(z.string().trim().min(1).max(128)).default([]),
+    avatar: agentAvatarSchema.optional(),
+    /** The inference provider a Chief-run agent uses, so clients can show it. */
+    provider: z.string().trim().min(1).max(64).optional(),
   })
   .strict();
 

@@ -16,6 +16,7 @@ import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { projectsFindWorkspaceProjects } from "./queries/projects/find-workspace-projects";
 import { workspaceScheduleRunsFindReceiveExternalAgentMessage } from "./queries/workspace-schedule-runs/find-receive-external-agent-message";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import {
@@ -26,6 +27,7 @@ import {
 import { workspaceAgentNames } from "./workspace-agent-runtime";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import { gitRepoSlug, isSafeGitRepoSlug } from "./workspace-git-store";
 import { refreshMemberDisplayNames } from "./workspace-member-names";
 import {
   readScheduleRun,
@@ -183,6 +185,9 @@ export async function dispatchWorkspaceMessage(
   const threadRootId = scheduleRunId
     ? workflowId
     : owningThreadRoot(channel.kind, message, mentions);
+  // When the workspace hosts exactly one Git project, the agent works in it.
+  // With none or several, the agent lists them and asks which to use.
+  const projectRepo = resolveWorkspaceProjectRepo(storage);
   const now = new Date().toISOString();
   const externalAgents = new ExternalAgentChannelService(storage, env);
 
@@ -234,6 +239,7 @@ export async function dispatchWorkspaceMessage(
             ...(scheduleStepId ? { scheduleStepId } : undefined),
             ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
+            ...(projectRepo ? { projectRepo } : undefined),
             mentions,
             instruction: scheduleRunId
               ? (instruction ?? message.body)
@@ -353,6 +359,12 @@ function owningThreadRoot(
   mentions: readonly string[],
 ) {
   if (message.threadRootId) return message.threadRootId;
+  // A session's opening message is answered in its own thread, which then
+  // holds the whole session's context.
+  if (
+    message.components.some((component) => component.kind === "session.start")
+  )
+    return message.id;
   if (channelKind === "channel" && mentions.length > 0) return message.id;
   return undefined;
 }
@@ -416,4 +428,17 @@ function displayNameOr(name: string | undefined, fallback: string) {
   const trimmed = name?.trim();
   if (trimmed) return trimmed;
   return fallback;
+}
+
+/** The repo slug of the workspace's sole Git project, if it has exactly one. */
+function resolveWorkspaceProjectRepo(storage: DurableObjectStorage) {
+  const rows = [
+    ...projectsFindWorkspaceProjects<{
+      canonical_remote_url: string | null;
+    }>(storage),
+  ];
+  if (rows.length !== 1) return undefined;
+  const remote = rows[0]?.canonical_remote_url ?? "";
+  const slug = gitRepoSlug(remote.split("/").at(-1) ?? "");
+  return isSafeGitRepoSlug(slug) ? slug : undefined;
 }

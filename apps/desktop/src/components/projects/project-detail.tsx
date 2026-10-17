@@ -260,9 +260,6 @@ export function ProjectDetail({
                     browser={browser.browser}
                     currentUser={user}
                     onSelectCommit={(commit) => openCommit(commit, "files")}
-                    onReviewCheckout={(branch) =>
-                      openCompare(project.defaultBranch, branch)
-                    }
                   />
                 ) : null}
               </div>

@@ -128,20 +128,42 @@ struct ChiefCard<Content: View>: View {
 
 struct AgentMark: View {
   let name: String
+  /// The agent's id when known; a renamed agent's name won't resolve to it.
+  var id: String? = nil
   var size: CGFloat = 32
   var working = false
+  @Environment(\.agentAvatars) private var avatars
+  @Environment(\.agentProviderLogos) private var providerLogos
 
-  private var color: Color {
-    let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name.lowercased()
-    return ChiefTheme.agentColor(agentID)
+  private var agentID: String {
+    id ?? WorkspaceAgentCatalog.agent(forID: name)?.id ?? name.lowercased()
   }
 
-  private var markColor: Color {
-    let agentID = WorkspaceAgentCatalog.agent(forID: name)?.id ?? name.lowercased()
-    return ChiefTheme.agentMarkColor(agentID)
+  private var avatar: AgentAvatar? {
+    avatars[agentID] ?? avatars[name.lowercased()]
   }
+
+  private var providerLogo: String? {
+    providerLogos[agentID] ?? providerLogos[name.lowercased()]
+  }
+
+  private var color: Color { ChiefTheme.agentColor(agentID) }
+
+  private var markColor: Color { ChiefTheme.agentMarkColor(agentID) }
 
   var body: some View {
+    if let avatar, !working {
+      AgentAvatarView(avatar: avatar, size: size)
+        .accessibilityLabel(name)
+    } else if let providerLogo, !working {
+      AgentProviderLogoView(asset: providerLogo, size: size)
+        .accessibilityLabel(name)
+    } else {
+      fallbackMark
+    }
+  }
+
+  private var fallbackMark: some View {
     ZStack {
       RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
         .fill(color)

@@ -4,22 +4,14 @@ import type { SessionRecord } from "@chief/agent-runtime/types";
 import type { ScheduleRun } from "@chief/relay-contracts";
 
 import type { WorkingAgent } from "../../lib/runtime-chat-controls";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { useRuntime } from "../../lib/runtime";
+import { workspaceAgentName } from "../../lib/workspace-channels";
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
   scheduledAgentActivityPresence,
   taskAgentActivityPresence,
 } from "./agent-activity-presence";
-
-function activityAgentName(agentId: string) {
-  return isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
-    : agentId;
-}
 
 export function useMainAgentActivity({
   activeRootTurn,
@@ -37,22 +29,30 @@ export function useMainAgentActivity({
   running: boolean;
   statusLabel: string;
   scheduleRuns: readonly ScheduleRun[];
-  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status">[];
+  tasks: readonly Pick<SessionRecord, "agent" | "id" | "status" | "provider">[];
   workingAgents: readonly WorkingAgent[];
 }) {
+  const { agents: roster } = useRuntime();
   const agents = useMemo(() => {
+    const activityAgentName = (agentId: string) =>
+      workspaceAgentName(agentId, roster) ?? agentId;
     const fallbackRootAgentId =
       directAgentId ??
       (channelAgentIds?.length === 1 ? channelAgentIds[0] : undefined) ??
       (!channelAgentIds ? "chief" : undefined);
     const rootAgentId = activeRootTurn?.agentId ?? fallbackRootAgentId;
+    // An agent DM answers every message in its own thread, so its working
+    // state belongs under the main composer, not on the thread.
+    const includeThreads = Boolean(directAgentId);
     const root =
-      running && !activeRootTurn?.threadRootId && rootAgentId
+      running &&
+      (includeThreads || !activeRootTurn?.threadRootId) &&
+      rootAgentId
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
     return mergeAgentActivityPresence(root, [
       ...workingAgents
-        .filter((agent) => !agent.threadRootId)
+        .filter((agent) => includeThreads || !agent.threadRootId)
         .map((agent) => ({
           id: agent.agentId,
           label: activityAgentName(agent.agentId),
@@ -64,6 +64,7 @@ export function useMainAgentActivity({
     activeRootTurn,
     channelAgentIds,
     directAgentId,
+    roster,
     running,
     tasks,
     scheduleRuns,

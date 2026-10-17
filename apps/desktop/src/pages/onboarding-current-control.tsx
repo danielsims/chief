@@ -45,7 +45,6 @@ interface OnboardingCurrentControlProps {
   setPluginIntegrations: (integrations: IntegrationSearchResult[]) => void;
   setSocial: (platform: SocialPlatform, handle: string) => void;
   step: StepKey;
-  workspaceReady: boolean;
 }
 
 export function OnboardingCurrentControl({
@@ -65,7 +64,6 @@ export function OnboardingCurrentControl({
   setPluginIntegrations,
   setSocial,
   step,
-  workspaceReady,
 }: OnboardingCurrentControlProps) {
   if (step === "mode") {
     return <ModeControl onContinue={advance} saving={saving} />;
@@ -209,7 +207,6 @@ export function OnboardingCurrentControl({
   return (
     <CompletionControl
       onContinue={() => void completeOnboarding()}
-      runtimeReady={workspaceReady}
       saving={saving}
     />
   );

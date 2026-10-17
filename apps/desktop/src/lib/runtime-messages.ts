@@ -96,6 +96,31 @@ function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
       !Array.isArray(data.plugins)
     ) {
       if (
+        candidate.type === "data-question" &&
+        data &&
+        isJsonObject(data) &&
+        isJsonString(data.messageId) &&
+        isJsonString(data.agentId) &&
+        isJsonString(data.question) &&
+        Array.isArray(data.options) &&
+        data.options.every(isJsonString)
+      ) {
+        return [
+          {
+            type: "data-question",
+            data: {
+              messageId: data.messageId,
+              agentId: data.agentId,
+              question: data.question,
+              options: data.options,
+              ...(isJsonString(data.threadRootId)
+                ? { threadRootId: data.threadRootId }
+                : undefined),
+            },
+          } as const,
+        ];
+      }
+      if (
         candidate.type === "data-project-recommendation" &&
         data &&
         isJsonObject(data) &&

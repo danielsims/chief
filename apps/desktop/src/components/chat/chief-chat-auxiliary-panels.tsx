@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useRef } from "react";
 
 import type {
-  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
   ContentBlock,
@@ -13,12 +12,8 @@ import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
-import { messageBlocks } from "../../lib/runtime";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
-import { TimelineActionRequestCard } from "./action-request-card";
+import { messageBlocks, useRuntime } from "../../lib/runtime";
+import { workspaceAgentName } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
 import {
@@ -27,8 +22,6 @@ import {
   scheduledAgentActivityPresence,
   taskAgentActivityPresence,
 } from "./agent-activity-presence";
-import { ApprovalCard } from "./approval-card";
-import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
 import { ChatDateSeparator } from "./chat-date-time";
@@ -43,12 +36,8 @@ import {
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
-import {
-  withActionTimelineEntries,
-  withSpecialistTimelineEntries,
-} from "./conversation-timeline-entries";
+import { withSpecialistTimelineEntries } from "./conversation-timeline-entries";
 import { ObservedChat } from "./observed-chat";
-import { QuestionCard } from "./question-card";
 import { ScheduledRunMessage } from "./scheduled-run-message";
 import {
   taskActivitySubtitle,
@@ -60,10 +49,13 @@ type Core = ReturnType<typeof useChiefChatCore>;
 type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
 
-function activityAgentName(agentId: string) {
-  return isWorkspaceAgentId(agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
-    : agentId;
+/**
+ * A thread in an agent DM. It behaves like a channel thread, but the agent's
+ * tool calls and file changes are shown inline so the thread is the whole
+ * picture of the work.
+ */
+export interface ThreadAgent {
+  name: string;
 }
 
 interface ThreadSummary {
@@ -77,17 +69,16 @@ interface ThreadSummary {
  * threads, agent activity, specialist work, and profiles, beside the main feed.
  */
 export function ChiefChatAuxiliaryPanels({
-  threadActions,
   activeThreadSummary,
   composer,
   core,
   imageParts,
   props,
   respondingAgentFor,
+  threadAgent,
   threadBlocks,
   timeline,
 }: {
-  threadActions: readonly ActionItem[];
   activeThreadSummary: ThreadSummary;
   composer: Composer;
   core: Core;
@@ -107,6 +98,7 @@ export function ChiefChatAuxiliaryPanels({
   respondingAgentFor: (
     message: ChiefUIMessage,
   ) => { id: WorkspaceAgentId; name: string; role: string } | undefined;
+  threadAgent?: ThreadAgent;
   threadBlocks: (message: ChiefUIMessage) => ContentBlock[];
   timeline: Timeline;
 }) {
@@ -131,8 +123,6 @@ export function ChiefChatAuxiliaryPanels({
     mentionCandidates,
     activityTurns,
     activityAgentId,
-    respondPermission,
-    respondQuestion,
     send,
     setActivityOpen,
     statusLabel,
@@ -151,6 +141,7 @@ export function ChiefChatAuxiliaryPanels({
     threadDraft,
     threadImageAttachments,
     threadRootId,
+    threadContentRef,
     threadScrollRef,
   } = composer;
   const {
@@ -167,14 +158,15 @@ export function ChiefChatAuxiliaryPanels({
   } = timeline;
   const threadTimelineEntries = useMemo(
     () =>
-      withActionTimelineEntries(
-        withSpecialistTimelineEntries(
-          threadReplyEntries,
-          activeThreadChildSessions,
-        ),
-        threadActions,
-      ),
-    [activeThreadChildSessions, threadActions, threadReplyEntries],
+      // An agent DM thread is a clean chat: the agent's run is not surfaced
+      // as a task card, and its tool calls live in the Activity panel.
+      threadAgent
+        ? threadReplyEntries
+        : withSpecialistTimelineEntries(
+            threadReplyEntries,
+            activeThreadChildSessions,
+          ),
+    [activeThreadChildSessions, threadReplyEntries, threadAgent],
   );
   const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadComposerRef = useRef<HTMLDivElement>(null);
@@ -182,7 +174,10 @@ export function ChiefChatAuxiliaryPanels({
     () => [threadComposerRef],
     [],
   );
+  const { agents: roster } = useRuntime();
   const threadActivityAgents = useMemo(() => {
+    const activityAgentName = (agentId: string) =>
+      workspaceAgentName(agentId, roster) ?? agentId;
     const root =
       controls.status === "running" &&
       activeRootTurn?.threadRootId === threadRootId
@@ -214,8 +209,23 @@ export function ChiefChatAuxiliaryPanels({
     activeThreadChildSessions,
     controls.status,
     controls.workingAgents,
+    roster,
     threadRootId,
   ]);
+  // In an agent DM the Activity panel opened from a thread shows that
+  // thread's work only, and returns to the thread.
+  const threadActivityTurns = useMemo(
+    () =>
+      threadAgent && threadRootId
+        ? activityTurns.filter((turn) => turn.threadRootId === threadRootId)
+        : [],
+    [activityTurns, threadAgent, threadRootId],
+  );
+  const threadActivitySteps = threadActivityTurns.reduce(
+    (count, turn) =>
+      count + turn.blocks.filter((block) => block.type === "tool_use").length,
+    0,
+  );
   const threadStatusLabel =
     threadActivityAgents.length === 1 &&
     threadActivityAgents[0]?.id === activeRootTurn?.agentId
@@ -290,17 +300,33 @@ export function ChiefChatAuxiliaryPanels({
     );
   }
 
-  if (channel && threadRootId && !activityOpen && !profileOpen) {
-    return (
+  if (
+    (channel || threadAgent) &&
+    threadRootId &&
+    !activityOpen &&
+    !profileOpen
+  ) {
+    const thread = (
       <ConversationAuxiliaryPanel
         onClose={() => setThreadRootId(null)}
         sizing={panelSizing}
       >
         <ConversationAuxiliaryPanelHeader
           title={
-            <ConversationAuxiliaryBreadcrumb current="Thread" items={[]} />
+            <ConversationAuxiliaryBreadcrumb
+              current={threadAgent ? threadAgent.name : "Thread"}
+              items={[]}
+            />
           }
-          subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
+          subtitle={
+            threadAgent && threadActivityAgents.length > 0 ? (
+              <span className="chief-shimmer-text">
+                {threadAgent.name} is working…
+              </span>
+            ) : (
+              `${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`
+            )
+          }
           onClose={() => setThreadRootId(null)}
         />
         <div
@@ -310,155 +336,124 @@ export function ChiefChatAuxiliaryPanels({
           <ConversationAuxiliaryPanelBody
             ref={threadScrollRef}
             data-chat-timeline
-            className="space-y-2 overflow-x-hidden px-4 py-4"
+            className="overflow-x-hidden px-4 py-4"
           >
-            <ChatDateSeparator
-              timestamp={activeThreadRoot?.metadata?.createdAt}
-            />
-            {activeThreadRoot?.metadata?.scheduledRun ? (
-              <div className="mx-auto w-full max-w-3xl py-2 pl-11">
-                <ScheduledRunMessage
-                  run={activeThreadRoot.metadata.scheduledRun}
-                  progress={core.scheduleRuns.find(
-                    (run) =>
-                      run.id === activeThreadRoot.metadata?.scheduledRun?.runId,
-                  )}
-                />
-              </div>
-            ) : null}
-            {activeThreadRoot?.role === "user" ? (
-              <div id={`chief-message-${activeThreadRoot.id}`}>
-                <UserMessage
-                  author={userAuthor}
-                  attachments={imageParts(activeThreadRoot)}
-                  metadata={null}
-                  channelReferences={channelReferences}
-                  onOpenChannel={onOpenChannel}
-                  onOpenProfile={openUserProfile}
-                  onOpenMention={openAgentMention}
-                  text={messageText(activeThreadRoot)}
-                  timestamp={activeThreadRoot.metadata?.createdAt}
-                />
-              </div>
-            ) : null}
-            {chatBrowserRuns.map((run) =>
-              run.threadRootId === threadRootId &&
-              browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
-                <Fragment key={`browser:root:${run.id}`}>
-                  {threadBrowserAttachmentNode(run)}
-                </Fragment>
-              ) : null,
-            )}
-            <ChatTimeline
-              entries={threadTimelineEntries}
-              initialTimestamp={activeThreadRoot?.metadata?.createdAt}
-              renderEntry={(entry) => {
-                if (entry.type === "browser") {
-                  return threadBrowserAttachmentNode(entry.run);
-                }
-                if (entry.type === "action") {
-                  return (
-                    <TimelineActionRequestCard
-                      action={entry.action}
-                      currentUser={core.currentUser}
-                      resolve={core.workspaceData.resolveActionRequest}
-                    />
-                  );
-                }
-                if (entry.type === "specialist") {
-                  return (
-                    <ThreadSpecialistTaskCard
-                      task={entry.task}
-                      onOpenTask={onOpenChild}
-                    />
-                  );
-                }
-                const { message } = entry;
-                if (message.role === "user") {
-                  return (
-                    <div id={`chief-message-${message.id}`}>
-                      <UserMessage
-                        author={authorFor(message)}
-                        {...(message.metadata?.guest
-                          ? { guest: message.metadata.guest }
-                          : undefined)}
-                        attachments={imageParts(message)}
-                        metadata={null}
-                        channelReferences={channelReferences}
-                        onOpenChannel={onOpenChannel}
-                        {...(message.metadata?.guest
-                          ? undefined
-                          : { onOpenProfile: openAuthorProfile(message) })}
-                        onOpenMention={openAgentMention}
-                        text={messageText(message)}
-                        timestamp={message.metadata?.createdAt}
-                      />
-                    </div>
-                  );
-                }
-                if (threadBlocks(message).length === 0) return null;
-                const respondingAgent = respondingAgentFor(message);
-                const specialist = threadRootId
-                  ? activeSpecialistByThread.get(threadRootId)
-                  : undefined;
-                return (
-                  <ChiefMessage
-                    messageId={message.id}
-                    activity={
-                      specialist && respondingAgent?.id === specialist.agent
-                        ? specialist
-                        : undefined
-                    }
-                    agent={respondingAgent}
-                    metadata={null}
-                    onOpenProfile={selectProfile}
-                    timestamp={message.metadata?.createdAt}
-                  >
-                    <MessageBlocksContent
-                      message={message}
-                      filter={threadBlocks}
-                      progress={controls.toolProgress}
-                      capabilities={activeCapabilities}
-                      active={controls.status === "running"}
-                      tasks={childSessions}
-                      taskOwners={childSessionOwners}
-                      ownerId={message.id}
-                      channelReferences={channelReferences}
-                      onOpenChannel={onOpenChannel}
-                      onOpenTask={onOpenChild}
-                    />
-                  </ChiefMessage>
-                );
-              }}
-            />
-            {controls.questions.map((pending) => (
-              <div key={pending.requestId} className="mx-auto max-w-3xl">
-                <QuestionCard
-                  pending={pending}
-                  onSubmit={(answers) =>
-                    respondQuestion(pending.requestId, answers)
-                  }
-                  onDismiss={() => respondQuestion(pending.requestId, null)}
-                />
-              </div>
-            ))}
-            {controls.approvals
-              .filter((approval) =>
-                approvalBelongsToSurface(approval, threadRootId),
-              )
-              .map((approval) => (
-                <div key={approval.requestId} className="w-full">
-                  <ApprovalCard
-                    approval={approval}
-                    onRespond={respondPermission}
+            <div ref={threadContentRef} className="space-y-2">
+              <ChatDateSeparator
+                timestamp={activeThreadRoot?.metadata?.createdAt}
+              />
+              {activeThreadRoot?.metadata?.scheduledRun ? (
+                <div className="mx-auto w-full max-w-3xl py-2 pl-11">
+                  <ScheduledRunMessage
+                    run={activeThreadRoot.metadata.scheduledRun}
+                    progress={core.scheduleRuns.find(
+                      (run) =>
+                        run.id ===
+                        activeThreadRoot.metadata?.scheduledRun?.runId,
+                    )}
                   />
                 </div>
-              ))}
-            <div ref={threadBottomRef} />
+              ) : null}
+              {activeThreadRoot?.role === "user" ? (
+                <div id={`chief-message-${activeThreadRoot.id}`}>
+                  <UserMessage
+                    author={userAuthor}
+                    attachments={imageParts(activeThreadRoot)}
+                    channelReferences={channelReferences}
+                    onOpenChannel={onOpenChannel}
+                    onOpenProfile={openUserProfile}
+                    onOpenMention={openAgentMention}
+                    text={messageText(activeThreadRoot)}
+                    timestamp={activeThreadRoot.metadata?.createdAt}
+                  />
+                </div>
+              ) : null}
+              {chatBrowserRuns.map((run) =>
+                run.threadRootId === threadRootId &&
+                browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
+                  <Fragment key={`browser:root:${run.id}`}>
+                    {threadBrowserAttachmentNode(run)}
+                  </Fragment>
+                ) : null,
+              )}
+              <ChatTimeline
+                entries={threadTimelineEntries}
+                initialTimestamp={activeThreadRoot?.metadata?.createdAt}
+                renderEntry={(entry) => {
+                  if (entry.type === "browser") {
+                    return threadBrowserAttachmentNode(entry.run);
+                  }
+                  if (entry.type === "specialist") {
+                    return (
+                      <ThreadSpecialistTaskCard
+                        task={entry.task}
+                        onOpenTask={onOpenChild}
+                      />
+                    );
+                  }
+                  const { message } = entry;
+                  if (message.role === "user") {
+                    return (
+                      <div id={`chief-message-${message.id}`}>
+                        <UserMessage
+                          author={authorFor(message)}
+                          {...(message.metadata?.guest
+                            ? { guest: message.metadata.guest }
+                            : undefined)}
+                          attachments={imageParts(message)}
+                          channelReferences={channelReferences}
+                          onOpenChannel={onOpenChannel}
+                          {...(message.metadata?.guest
+                            ? undefined
+                            : { onOpenProfile: openAuthorProfile(message) })}
+                          onOpenMention={openAgentMention}
+                          text={messageText(message)}
+                          timestamp={message.metadata?.createdAt}
+                        />
+                      </div>
+                    );
+                  }
+                  if (threadBlocks(message).length === 0) return null;
+                  const respondingAgent = respondingAgentFor(message);
+                  const specialist = threadRootId
+                    ? activeSpecialistByThread.get(threadRootId)
+                    : undefined;
+                  return (
+                    <ChiefMessage
+                      messageId={message.id}
+                      activity={
+                        specialist && respondingAgent?.id === specialist.agent
+                          ? specialist
+                          : undefined
+                      }
+                      agent={respondingAgent}
+                      onOpenProfile={selectProfile}
+                      timestamp={message.metadata?.createdAt}
+                    >
+                      <MessageBlocksContent
+                        message={message}
+                        filter={threadBlocks}
+                        progress={controls.toolProgress}
+                        capabilities={activeCapabilities}
+                        active={controls.status === "running"}
+                        tasks={childSessions}
+                        taskOwners={childSessionOwners}
+                        ownerId={message.id}
+                        channelReferences={channelReferences}
+                        onOpenChannel={onOpenChannel}
+                        onOpenTask={onOpenChild}
+                      />
+                    </ChiefMessage>
+                  );
+                }}
+              />
+              <div ref={threadBottomRef} />
+            </div>
           </ConversationAuxiliaryPanelBody>
           <div ref={threadComposerRef} className="relative shrink-0 px-3 pb-3">
-            <div className="relative space-y-2">
+            <div className="relative mx-auto w-full max-w-3xl space-y-2">
               <ChatComposer
+                storageKey={`${core.cloudOrganizationId}:thread:${threadRootId}`}
                 value={threadDraft}
                 onValueChange={setThreadDraft}
                 imageAttachments={threadImageAttachments}
@@ -481,13 +476,24 @@ export function ChiefChatAuxiliaryPanels({
                 showSuggestions={false}
                 showExecutionControls={false}
                 mentionCandidates={mentionCandidates}
-                placeholder={`Reply in #${channel.label}…`}
+                placeholder={
+                  threadAgent
+                    ? `Message ${threadAgent.name}…`
+                    : `Reply in #${channel?.label ?? ""}…`
+                }
               />
               <AgentActivityComposerRow
                 agents={threadActivityAgents}
                 agentLabel={activityAgentLabel}
                 running={threadActivityAgents.length > 0}
                 statusLabel={threadStatusLabel}
+                idleLabel={
+                  threadAgent && threadActivityTurns.length > 0
+                    ? threadActivitySteps > 0
+                      ? `${threadActivitySteps} ${threadActivitySteps === 1 ? "step" : "steps"}`
+                      : "Activity"
+                    : undefined
+                }
                 onOpen={() => {
                   const onlyAgent = threadActivityAgents[0];
                   if (
@@ -506,15 +512,29 @@ export function ChiefChatAuxiliaryPanels({
         </div>
       </ConversationAuxiliaryPanel>
     );
+    return thread;
   }
 
+  const threadScoped = Boolean(threadAgent && threadRootId);
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
       error={controls.error}
-      turns={activityTurns}
+      turns={threadScoped ? threadActivityTurns : activityTurns}
       activeAgentId={activityAgentId}
-      running={controls.status === "running"}
-      tasks={childSessions}
+      running={
+        threadScoped
+          ? threadActivityAgents.length > 0
+          : controls.status === "running"
+      }
+      tasks={threadScoped ? activeThreadChildSessions : childSessions}
+      flat={Boolean(threadAgent)}
+      title={threadAgent?.name}
+      {...(threadScoped
+        ? {
+            onBack: () => setActivityOpen(false),
+            backLabel: "Back to thread",
+          }
+        : undefined)}
       onClose={() => setActivityOpen(false)}
       onOpenTask={onOpenChild}
       sizing={panelSizing}

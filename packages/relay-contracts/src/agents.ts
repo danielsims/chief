@@ -159,6 +159,10 @@ export const agentConfigResultSchema = z
 
 export type AgentConfigResult = z.infer<typeof agentConfigResultSchema>;
 
+export const agentConfigListSchema = z
+  .object({ configs: z.array(agentConfigResultSchema) })
+  .strict();
+
 export const agentJobSchema = z.object({
   id: jobIdSchema,
   workspaceId: workspaceIdSchema,
@@ -249,6 +253,8 @@ export const claimAgentJobSchema = z
   .object({
     workerId: z.string().trim().min(1).max(128),
     leaseSeconds: z.int().min(5).max(300).default(60),
+    /** Claims this job only, to steer it into a run already going. */
+    jobId: jobIdSchema.optional(),
   })
   .strict();
 

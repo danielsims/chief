@@ -1,60 +1,23 @@
 import type { ReactNode } from "react";
 import { Hash } from "lucide-react";
-import { Link } from "react-router";
 
 import type {
   AgentApprovalMode,
-  AgentCapabilityId,
   AgentToolPermission,
   WorkspaceChannel,
 } from "@chief/agent-runtime/types";
 import { agentToolPermissionDefinitions } from "@chief/agent-runtime/agent-tool-permissions";
-import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
-export interface AgentIntegrationOption {
-  provider: string;
-  displayName: string;
-}
-
 const permissionGroups = [
   "Workspace",
+  "Projects",
   "Channels",
   "Messages",
   "Scheduled work",
   "Advanced",
 ] as const;
-
-const capabilityDetails: Record<
-  AgentCapabilityId,
-  { label: string; description: string }
-> = {
-  "analytics-chart": {
-    label: "Analytics charts",
-    description: "Create visual reports from reliable workspace data.",
-  },
-  "prospect-memory": {
-    label: "Prospect records",
-    description: "Save qualified prospects with their source evidence.",
-  },
-  "trend-memory": {
-    label: "Market signals",
-    description: "Keep supported market and audience observations.",
-  },
-  "content-calendar": {
-    label: "Content planning",
-    description: "Create and update content drafts and schedules.",
-  },
-  "campaign-memory": {
-    label: "Campaign planning",
-    description: "Maintain campaign plans, decisions and current status.",
-  },
-  "schedule-manager": {
-    label: "Scheduled work",
-    description: "Turn goals into recurring or event-triggered work.",
-  },
-};
 
 export function SectionHeading({
   title,
@@ -146,21 +109,11 @@ function ApprovalControl({
 export function AgentConfigurationTab({
   approvals,
   ready,
-  capabilities,
-  integrations,
-  assignedIntegrations,
   onApprovalChange,
-  onCapabilitiesChange,
-  onIntegrationsChange,
 }: {
   approvals: AgentApprovalMode;
   ready: boolean;
-  capabilities: AgentCapabilityId[];
-  integrations: AgentIntegrationOption[];
-  assignedIntegrations: string[];
   onApprovalChange: (value: AgentApprovalMode) => void;
-  onCapabilitiesChange: (value: AgentCapabilityId[]) => void;
-  onIntegrationsChange: (value: string[]) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -181,93 +134,6 @@ export function AgentConfigurationTab({
               />
             }
           />
-        </SettingGroup>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Workspace features"
-          description="Optional Chief records and views this agent can work with."
-        />
-        <SettingGroup>
-          {availableCapabilities.map((capability) => {
-            const checked = capabilities.includes(capability.id);
-            const detail = capabilityDetails[capability.id];
-            return (
-              <SettingRow
-                key={capability.id}
-                title={detail.label}
-                description={detail.description}
-                control={
-                  <Switch
-                    checked={checked}
-                    disabled={!ready}
-                    onCheckedChange={(next) =>
-                      onCapabilitiesChange(
-                        next
-                          ? [...capabilities, capability.id]
-                          : capabilities.filter((id) => id !== capability.id),
-                      )
-                    }
-                  />
-                }
-              />
-            );
-          })}
-        </SettingGroup>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Connections"
-          description="Connected services this agent may use when its Executor permissions allow it."
-          trailing={
-            <Link
-              to="/plugins"
-              className="text-muted-foreground hover:text-foreground text-[11px] transition-colors"
-            >
-              Manage plugins
-            </Link>
-          }
-        />
-        <SettingGroup>
-          {integrations.length > 0 ? (
-            integrations.map((integration) => {
-              const checked = assignedIntegrations.includes(
-                integration.provider,
-              );
-              return (
-                <SettingRow
-                  key={integration.provider}
-                  title={integration.displayName}
-                  description="Make this connected service available to the agent."
-                  control={
-                    <Switch
-                      checked={checked}
-                      disabled={!ready}
-                      onCheckedChange={(next) =>
-                        onIntegrationsChange(
-                          next
-                            ? [...assignedIntegrations, integration.provider]
-                            : assignedIntegrations.filter(
-                                (provider) => provider !== integration.provider,
-                              ),
-                        )
-                      }
-                    />
-                  }
-                />
-              );
-            })
-          ) : (
-            <div className="px-4 py-5">
-              <p className="text-[13px] font-medium">No connected services</p>
-              <p className="text-muted-foreground mt-1 text-[13px] leading-5 font-normal">
-                Add integrations at the workspace level before assigning them to
-                this agent.
-              </p>
-            </div>
-          )}
         </SettingGroup>
       </section>
     </div>

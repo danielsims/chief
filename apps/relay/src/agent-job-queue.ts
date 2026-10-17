@@ -9,12 +9,16 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
+  isJsonString,
   messageIdSchema,
   parseJsonObject,
+  parseJsonString,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
+import type { ConversationScope } from "./agent-turn-supersession";
 import type { readTrustedContext } from "./internal-context";
+import { publishAgentActivity } from "./agent-activity";
 import {
   cancelAgentWorkflow,
   listAgentJobs,
@@ -29,11 +33,13 @@ import {
 } from "./agent-job-store";
 import { validateSpecialistKickoff } from "./agent-kickoff-verification";
 import { publishAgentMessage } from "./agent-message-publisher";
+import { hostedPrincipal } from "./agent-object-values";
 import { publishOnboardingResult } from "./agent-onboarding";
 import {
   HOSTED_JOB_MAX_ATTEMPTS,
   hostedAutomaticRetryAt,
 } from "./agent-runtime-support";
+import { inConversationScope } from "./agent-turn-supersession";
 import { HttpError, json, parseJson } from "./http";
 import { jobsFindClaim } from "./queries/jobs/find-claim";
 import { jobsFindComplete } from "./queries/jobs/find-complete";
@@ -115,7 +121,12 @@ export class AgentJobQueue {
     const input = claimAgentJobSchema.parse(await parseJson(request));
     const now = new Date();
     const candidate = firstAgentRow<{ job_id: string; job_json: string }>(
-      jobsFindClaim(this.storage, now.toISOString(), now.toISOString()),
+      jobsFindClaim(
+        this.storage,
+        now.toISOString(),
+        now.toISOString(),
+        input.jobId,
+      ),
     );
     if (!candidate) {
       await this.scheduleNextAlarm();
@@ -146,6 +157,7 @@ export class AgentJobQueue {
       jobId: job.id,
     });
     await this.scheduleNextAlarm();
+    await this.publishRun(job, "working");
     return json({ job, leaseToken });
   }
 
@@ -233,12 +245,33 @@ export class AgentJobQueue {
     } else {
       await this.scheduleNextAlarm();
     }
+    await this.publishRun(previous, "completed");
     return json({ job, outcome: input.outcome });
+  }
+
+  /** One activity row per run, bounded by its lease, so clients show an agent
+   * working for the whole run rather than per tool call. Best effort. */
+  private async publishRun(job: AgentJob, status: "working" | "completed") {
+    const conversationId = parseJsonString(job.payload.conversationId);
+    if (!conversationId) return;
+    const threadRootId = parseJsonString(job.payload.threadRootId);
+    await publishAgentActivity(this.env, {
+      principal: hostedPrincipal(job),
+      conversationId,
+      ...(threadRootId ? { threadRootId } : undefined),
+      seed: `${job.id}:run`,
+      component: {
+        kind: "agent.activity",
+        version: 1,
+        payload: { status, jobId: job.id },
+      },
+    }).catch(() => undefined);
   }
 
   private async exhaustAutomaticRetries(previous: AgentJob, now: string) {
     markJobFailed(this.storage, previous, now);
     await this.scheduleNextAlarm();
+    await this.publishRun(previous, "completed");
     return new Response(null, { status: 204 });
   }
 
@@ -269,34 +302,51 @@ export class AgentJobQueue {
     return json({ leaseExpiresAt });
   }
 
-  supersedeConversation(conversationId: string, replacementJobId: string) {
+  /**
+   * Ends conversation work a new message or Stop replaces. With `steer`, a
+   * new message joins a run already going in its thread instead: every
+   * message is kept and the device running the thread folds them in, so
+   * nothing is replaced while that run lasts.
+   */
+  async supersedeConversation(
+    scope: ConversationScope,
+    replacementJobId?: string,
+    steer = false,
+  ) {
+    const inScope = [
+      ...jobsFindSupersedeConversation<{ job_json: string }>(this.storage),
+    ]
+      .map((row) => agentJobSchema.parse(JSON.parse(row.job_json)))
+      .filter(
+        (job) =>
+          job.id !== replacementJobId &&
+          job.kind === "conversation.message" &&
+          inConversationScope(
+            scope,
+            job.payload.conversationId,
+            job.payload.threadRootId,
+          ),
+      );
+    if (steer && inScope.some((job) => job.status === "leased")) return [];
     const now = new Date().toISOString();
-    const superseded: string[] = [];
-    for (const row of jobsFindSupersedeConversation<{ job_json: string }>(
-      this.storage,
-    )) {
-      const previous = agentJobSchema.parse(JSON.parse(row.job_json));
-      if (
-        previous.id === replacementJobId ||
-        previous.kind !== "conversation.message" ||
-        previous.payload.conversationId !== conversationId
-      ) {
-        continue;
-      }
-      const job = agentJobSchema.parse({
-        ...previous,
-        status: "completed",
-        leaseExpiresAt: null,
-        updatedAt: now,
-      });
+    for (const previous of inScope) {
       jobsUpdateSupersedeConversation(this.storage, {
-        jobJson: JSON.stringify(job),
+        jobJson: JSON.stringify(
+          agentJobSchema.parse({
+            ...previous,
+            status: "completed",
+            leaseExpiresAt: null,
+            updatedAt: now,
+          }),
+        ),
         updatedAt: now,
-        jobId: job.id,
+        jobId: previous.id,
       });
-      superseded.push(job.id);
+      if (previous.status === "leased") {
+        await this.publishRun(previous, "completed");
+      }
     }
-    return superseded;
+    return inScope.map((job) => job.id);
   }
 
   maintainHostedLease(
@@ -449,7 +499,18 @@ export class AgentJobQueue {
     this.broadcast({
       type: "agent.job.available",
       occurredAt,
-      payload: { agentId: job.agentId, jobId: job.id, kind: job.kind },
+      payload: {
+        agentId: job.agentId,
+        jobId: job.id,
+        kind: job.kind,
+        // Lets a device already working in this thread claim it to steer.
+        ...(isJsonString(job.payload.conversationId)
+          ? { conversationId: job.payload.conversationId }
+          : undefined),
+        ...(isJsonString(job.payload.threadRootId)
+          ? { threadRootId: job.payload.threadRootId }
+          : undefined),
+      },
     });
   }
 

@@ -15,8 +15,10 @@ import type { EmojiOption } from "./emoji-catalog";
 import { composerShortcutFormat } from "./composer-editing";
 import { ComposerExecutionControls } from "./composer-execution-controls";
 import {
+  attachImageFiles,
   ComposerImageInput,
   ComposerImagePreviews,
+  imageFiles,
 } from "./composer-image-attachments";
 import { ComposerMentionPopover } from "./composer-mention-popover";
 import { ComposerRichText } from "./composer-rich-text";
@@ -33,6 +35,7 @@ import {
 import { EmojiAutocomplete } from "./emoji-autocomplete";
 import { emojiForShortcode, matchingEmoji } from "./emoji-catalog";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
+import { useComposerMemory } from "./use-composer-memory";
 
 export type { MentionCandidate } from "./composer-mention-popover";
 
@@ -53,6 +56,7 @@ export function ChatComposer({
   autoFocus = false,
   className,
   recipient,
+  storageKey,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -71,7 +75,16 @@ export function ChatComposer({
   className?: string;
   /** Shown beside Send: who the message goes to. */
   recipient?: ReactNode;
+  /** Where this composer is, such as a conversation or thread. Its draft
+   * survives reloads and Arrow Up recalls prompts sent from it. */
+  storageKey?: string;
 }) {
+  const memory = useComposerMemory({ storageKey, value, onValueChange });
+  const [dropping, setDropping] = useState(false);
+  const submit = () => {
+    memory.remember(value);
+    onSubmit();
+  };
   const editorRef = useRef<ComposerRichTextHandle>(null);
   const imageInputId = useId();
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -184,9 +197,23 @@ export function ChatComposer({
         return true;
       }
     }
+    // Arrow keys walk prompt history only from the first or last line, so
+    // they still move the caret inside a multi-line draft.
+    if (
+      (event.key === "ArrowUp" && !textBeforeCursor.includes("\n")) ||
+      (event.key === "ArrowDown" &&
+        !value.slice(textBeforeCursor.length).includes("\n"))
+    ) {
+      const recalled = memory.step(event.key === "ArrowUp" ? -1 : 1);
+      if (recalled !== undefined) {
+        event.preventDefault();
+        editorRef.current?.setMarkdown(recalled);
+        return true;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      onSubmit();
+      submit();
       return true;
     }
     return false;
@@ -201,7 +228,47 @@ export function ChatComposer({
           }}
         />
       ) : null}
-      <div className="bg-card/80 relative rounded-xl border backdrop-blur-lg">
+      <div
+        className={cn(
+          "bg-card/80 relative rounded-xl border backdrop-blur-lg transition-colors",
+          dropping && "border-foreground/40",
+        )}
+        onDragOver={(event) => {
+          if (!onImageAttachmentsChange || running) return;
+          if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+          event.preventDefault();
+          setDropping(true);
+        }}
+        onDragLeave={(event) => {
+          const next = event.relatedTarget;
+          if (!(next instanceof Node && event.currentTarget.contains(next)))
+            setDropping(false);
+        }}
+        onDrop={(event) => {
+          setDropping(false);
+          const files = imageFiles(event.dataTransfer);
+          if (!onImageAttachmentsChange || running || files.length === 0)
+            return;
+          event.preventDefault();
+          void attachImageFiles(
+            files,
+            imageAttachments,
+            onImageAttachmentsChange,
+          );
+        }}
+        onPasteCapture={(event) => {
+          const files = imageFiles(event.clipboardData);
+          if (!onImageAttachmentsChange || running || files.length === 0)
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          void attachImageFiles(
+            files,
+            imageAttachments,
+            onImageAttachmentsChange,
+          );
+        }}
+      >
         <ComposerMentionPopover
           suggestions={visibleMentions}
           selectedIndex={mentionIndex}
@@ -362,11 +429,7 @@ export function ChatComposer({
           <div className="flex shrink-0 items-center gap-2">
             {recipient}
             {value.trim() ? (
-              <Button
-                size="icon-xs"
-                aria-label="Send message"
-                onClick={onSubmit}
-              >
+              <Button size="icon-xs" aria-label="Send message" onClick={submit}>
                 <ArrowUp size={14} />
               </Button>
             ) : running && onInterrupt ? (
@@ -380,11 +443,7 @@ export function ChatComposer({
                 <Square size={9} fill="currentColor" />
               </Button>
             ) : (
-              <Button
-                size="icon-xs"
-                aria-label="Send message"
-                onClick={onSubmit}
-              >
+              <Button size="icon-xs" aria-label="Send message" onClick={submit}>
                 <ArrowUp size={14} />
               </Button>
             )}

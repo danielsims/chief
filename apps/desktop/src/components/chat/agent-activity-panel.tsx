@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { ArrowRight, CircleAlert, LoaderCircle } from "lucide-react";
 import { Link } from "react-router";
@@ -33,6 +34,10 @@ export function AgentActivityPanel({
   activeAgentId,
   running,
   tasks,
+  flat = false,
+  title,
+  onBack,
+  backLabel,
   onClose,
   onOpenTask,
   sizing,
@@ -42,6 +47,14 @@ export function AgentActivityPanel({
   activeAgentId?: string;
   running: boolean;
   tasks: SessionRecord[];
+  /** A single-agent surface (a DM) shows its activity directly, with no
+   * intermediate list of agents. */
+  flat?: boolean;
+  /** Overrides the header title, e.g. the agent a DM is with. */
+  title?: string;
+  /** Where the header's back control returns to, e.g. the thread. */
+  onBack?: () => void;
+  backLabel?: string;
   onClose: () => void;
   onOpenTask?: (taskId: string) => void;
   sizing: ConversationAuxiliaryPanelSizing;
@@ -85,34 +98,56 @@ export function AgentActivityPanel({
   const ordered = [...groups.values()].sort(
     (a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name),
   );
-  const selected = selectedId ? groups.get(selectedId) : undefined;
+  // A DM is one agent's surface: its work is shown as a single list, even
+  // when its runs report under more than one identity.
+  const selected = flat
+    ? ordered.length > 0
+      ? {
+          id: activeAgentId ?? ordered[0]?.id ?? "agent",
+          name: title ?? ordered[0]?.name ?? "Activity",
+          updatedAt: Math.max(...ordered.map((group) => group.updatedAt)),
+          running: ordered.some((group) => group.running),
+          turns: ordered.flatMap((group) => group.turns),
+          tasks: ordered.flatMap((group) => group.tasks),
+        }
+      : undefined
+    : selectedId
+      ? groups.get(selectedId)
+      : undefined;
+  const headerBack = !flat && selected ? () => setSelectedId(null) : onBack;
+  // A run's failure is shown on the turn it stopped, not repeated up top.
+  const failureShownOnTurn = Boolean(
+    selected?.turns.some(
+      (turn) => relayJobForTurn(turn, selected.tasks)?.status === "failed",
+    ),
+  );
   return (
     <ConversationAuxiliaryPanel onClose={onClose} sizing={sizing}>
       <ConversationAuxiliaryPanelHeader
-        title={selected?.name ?? "Activity"}
+        title={selected?.name ?? title ?? "Activity"}
+        subtitle={flat ? "Activity" : undefined}
         onClose={onClose}
-        onBack={selected ? () => setSelectedId(null) : undefined}
-        backLabel="Back to agents"
+        onBack={headerBack}
+        backLabel={!flat && selected ? "Back to agents" : backLabel}
       />
       <ConversationAuxiliaryPanelBody>
-        {error ? (
-          <div className="border-border border-b p-4">
-            <p className="text-destructive flex items-center gap-2 text-sm">
-              <CircleAlert size={14} />
-              {error.title ?? "Error"}
-            </p>
-            <p className="text-muted-foreground mt-2 text-sm">
-              {error.message}
-            </p>
-            {error.agentId ? (
-              <Link
-                to={`/agents?agent=${encodeURIComponent(error.agentId)}`}
-                onClick={onClose}
-                className="mt-2 inline-block text-sm underline"
-              >
-                Open agent settings
-              </Link>
-            ) : null}
+        {error && !failureShownOnTurn ? (
+          <div className="border-border border-b px-4 py-3">
+            <ActivityNotice
+              title={error.title ?? "Something went wrong"}
+              message={error.message}
+              action={
+                error.agentId ? (
+                  <Link
+                    to={`/agents?agent=${encodeURIComponent(error.agentId)}`}
+                    onClick={onClose}
+                    className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+                  >
+                    Agent settings
+                  </Link>
+                ) : undefined
+              }
+            />
           </div>
         ) : null}
         {!selected ? (
@@ -155,13 +190,13 @@ export function AgentActivityPanel({
           </div>
         ) : (
           <div>
-            {selected.tasks
+            {localTasks(selected.tasks)
               .sort((a, b) => b.updatedAt - a.updatedAt)
               .map((task) => (
                 <button
                   key={task.id}
                   type="button"
-                  disabled={!onOpenTask || task.provider === "relay"}
+                  disabled={!onOpenTask}
                   onClick={() => onOpenTask?.(task.id)}
                   className="border-border hover:bg-muted/40 flex w-full items-center gap-3 border-b px-4 py-4 text-left"
                 >
@@ -177,9 +212,7 @@ export function AgentActivityPanel({
                       </span>
                     ) : null}
                   </span>
-                  {onOpenTask && task.provider !== "relay" ? (
-                    <ArrowRight size={14} />
-                  ) : null}
+                  {onOpenTask ? <ArrowRight size={14} /> : null}
                 </button>
               ))}
             {[...selected.turns]
@@ -188,29 +221,52 @@ export function AgentActivityPanel({
                   (b.updatedAt ?? b.startedAt ?? 0) -
                   (a.updatedAt ?? a.startedAt ?? 0),
               )
-              .map((turn, index) => (
-                <section key={turn.id} className="border-border border-b">
-                  <div className="text-muted-foreground flex items-center gap-3 px-4 py-3 text-xs">
-                    <p className="min-w-0 flex-1 truncate">
-                      {turn.prompt || "Agent activity"}
-                    </p>
-                    <time className="shrink-0">
-                      {relativeActivityTime(turn.updatedAt ?? turn.startedAt)}
-                    </time>
-                  </div>
-                  <ToolActivityGroup
-                    flat
-                    blocks={turn.blocks}
-                    toolTimes={turn.toolTimes}
-                    active={
-                      selected.running &&
-                      selected.id === activeAgentId &&
-                      index === 0
-                    }
-                  />
-                </section>
-              ))}
-            {!selected.tasks.length && !selected.turns.length ? (
+              .map((turn, index) => {
+                const job = relayJobForTurn(turn, selected.tasks);
+                const working = job
+                  ? job.status === "running" || job.status === "waiting"
+                  : selected.running && index === 0;
+                return (
+                  <section key={turn.id} className="border-border border-b">
+                    <div className="flex items-start gap-3 px-4 pt-3 pb-2">
+                      <p className="min-w-0 flex-1 text-sm leading-5">
+                        {turn.prompt || "Agent activity"}
+                      </p>
+                      <time className="text-muted-foreground shrink-0 pt-0.5 text-xs">
+                        {relativeActivityTime(turn.updatedAt ?? turn.startedAt)}
+                      </time>
+                    </div>
+                    {turn.blocks.length > 0 ? (
+                      <ToolActivityGroup
+                        flat
+                        blocks={turn.blocks}
+                        toolTimes={turn.toolTimes}
+                        active={working}
+                      />
+                    ) : null}
+                    {job?.status === "failed" ? (
+                      <div className="px-4 pb-3">
+                        <ActivityNotice
+                          title="Run stopped"
+                          message={
+                            job.error ?? "The run ended before it finished."
+                          }
+                        />
+                      </div>
+                    ) : working ? (
+                      <p className="text-muted-foreground flex items-center gap-2 px-4 pb-3 text-xs">
+                        <LoaderCircle size={12} className="animate-spin" />
+                        Working…
+                      </p>
+                    ) : turn.blocks.length === 0 ? (
+                      <p className="text-muted-foreground px-4 pb-3 text-xs">
+                        Answered without using tools.
+                      </p>
+                    ) : null}
+                  </section>
+                );
+              })}
+            {!localTasks(selected.tasks).length && !selected.turns.length ? (
               <p className="text-muted-foreground p-4 text-sm">
                 Waiting for activity…
               </p>
@@ -223,7 +279,61 @@ export function AgentActivityPanel({
 }
 
 function latestTaskError(tasks: readonly SessionRecord[]) {
-  return [...tasks]
-    .filter((task) => task.status === "failed" && task.error)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.error;
+  // Only the most recent run's error is current. An older failed run must not
+  // keep showing once newer work has happened.
+  const latest = [...tasks].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return latest?.status === "failed" ? latest.error : undefined;
+}
+
+// A relay job is the run behind a turn, not separate work: its tool calls and
+// thinking arrive as conversation activity. Only local tasks have their own
+// transcript to open.
+function localTasks(tasks: readonly SessionRecord[]) {
+  return tasks.filter((task) => task.provider !== "relay");
+}
+
+/** The relay job that ran a turn: same thread, started closest to it. */
+function relayJobForTurn(
+  turn: ConversationActivityTurn,
+  tasks: readonly SessionRecord[],
+) {
+  if (!turn.threadRootId) return undefined;
+  const startedAt = turn.startedAt ?? 0;
+  return tasks
+    .filter(
+      (task) =>
+        task.provider === "relay" && task.triggerId === turn.threadRootId,
+    )
+    .sort(
+      (a, b) =>
+        Math.abs(a.createdAt - startedAt) - Math.abs(b.createdAt - startedAt),
+    )[0];
+}
+
+/** A quiet, contained notice for a stopped run or a runtime error. */
+function ActivityNotice({
+  title,
+  message,
+  action,
+}: {
+  title: string;
+  message: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl bg-black/[0.025] px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:bg-white/[0.03]">
+      <CircleAlert
+        size={13}
+        className="text-destructive/80 mt-[3px] shrink-0"
+        aria-hidden="true"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-foreground/90 text-xs font-medium">{title}</p>
+        <p className="text-muted-foreground mt-0.5 text-xs leading-5">
+          {message}
+        </p>
+      </div>
+      {action ? <div className="shrink-0 pt-px">{action}</div> : null}
+    </div>
+  );
 }

@@ -18,6 +18,7 @@ import {
 import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
 import { evaluateToolUse } from "../approvals.js";
 import { BaseDriver } from "./base.js";
+import { findClaudeCode } from "./claude-code-path.js";
 import { agentEnvironment } from "./environment.js";
 
 function parseQuestions(input: JsonObject): AgentQuestion[] {
@@ -93,11 +94,15 @@ export class ClaudeDriver extends BaseDriver {
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
 
+    const claudeCode = findClaudeCode();
     const activeQuery = query({
       prompt: this.inputMessages(),
       options: {
         env,
         cwd: opts.cwd,
+        ...(claudeCode
+          ? { pathToClaudeCodeExecutable: claudeCode }
+          : undefined),
         model: opts.model,
         mcpServers: Object.fromEntries(
           (opts.mcpServers ?? []).map((server) => [
@@ -373,15 +378,28 @@ export class ClaudeDriver extends BaseDriver {
   }
 
   sendPromptOnce(text: string): Promise<void> {
+    this.queueInput(text);
+    this.emitEvent({ type: "status", status: "running" });
+    return Promise.resolve();
+  }
+
+  /** Claude Code takes input sent mid-turn in at its next step. */
+  override canSteer() {
+    return this.turnInFlight();
+  }
+
+  override steer(text: string) {
+    this.queueInput(text);
+  }
+
+  private queueInput(text: string) {
     this.inputQueue.push({
       type: "user",
       message: { role: "user", content: text },
       parent_tool_use_id: null,
       session_id: this.sessionId ?? "",
     });
-    this.emitEvent({ type: "status", status: "running" });
     this.wake?.();
-    return Promise.resolve();
   }
 
   /** Recover from a failed prompt by restarting the Claude SDK session. */

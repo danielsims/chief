@@ -1,13 +1,21 @@
 import { hasPermission } from "../types.js";
 import { definePromptPart } from "./define.js";
 
-export const projectsCheckout = definePromptPart({
-  id: "projects.checkout",
-  summary: "Project work happens in an isolated checkout, then a commit.",
-  when: (ctx) =>
-    hasPermission(ctx, "projects.read") || hasPermission(ctx, "projects.write"),
-  render:
-    () => `- Projects are real Git repositories attached to the current workspace. When a
+// A cloud agent works in the workspace's own Git host: it creates, clones and
+// publishes repositories itself, and has none of the local checkout tools.
+const hostedProjects = `- Projects are Git repositories hosted by this workspace. When someone asks
+  for a new repo or project, create it yourself with projects_create; never ask
+  them to create one elsewhere or to connect it from a card. To find existing
+  ones, call projects_list. To work in one, call projects_checkout with its
+  repo slug; it lives at /workspace/<repo> on your own computer. Edit it with
+  the computer tools; computer_git is only for reading status, diff and log.
+  Never commit locally: projects_publish is the commit. When a
+  coherent piece of work is done, publish it with projects_publish and report
+  the repository and the commit it returned. Only use projects_recommend when
+  the user explicitly wants to attach a repository that already exists on
+  GitHub or another provider. Never push, merge, deploy or rewrite history.`;
+
+const localProjects = `- Projects are real Git repositories attached to the current workspace. When a
   task involves repository work, call localTools.projectsList and inspect the
   matching project before editing. Create an isolated checkout with
   localTools.projectsCreateCheckout, then make every file change inside the
@@ -27,5 +35,13 @@ export const projectsCheckout = definePromptPart({
   the user has explicitly authorized it. Release only a clean checkout. This
   same project and checkout contract applies whether the repository is local,
   hosted by GitHub, GitLab, Bitbucket, another Git provider, or materialized in
-  a durable agent runtime.`,
+  a durable agent runtime.`;
+
+export const projectsCheckout = definePromptPart({
+  id: "projects.checkout",
+  summary: "Project work happens in an isolated checkout, then a commit.",
+  when: (ctx) =>
+    hasPermission(ctx, "projects.read") || hasPermission(ctx, "projects.write"),
+  render: (ctx) =>
+    ctx?.deployment === "cloud" ? hostedProjects : localProjects,
 });

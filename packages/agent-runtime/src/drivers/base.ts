@@ -104,6 +104,32 @@ export abstract class BaseDriver extends EventEmitter {
     }
   }
 
+  /**
+   * Whether a message can be folded into the turn in flight, taken in at the
+   * backend's next step. Otherwise the caller runs it as the next turn.
+   */
+  canSteer() {
+    return false;
+  }
+
+  steer(_text: string): void {
+    throw new Error("This backend can't take a message mid-turn.");
+  }
+
+  protected turnInFlight() {
+    return this.promptCompletion?.state === "pending";
+  }
+
+  /**
+   * Ends the prompt in flight as interrupted. A stopped backend never emits the
+   * terminal event its prompt is waiting on, so stop() would otherwise leave
+   * sendPrompt pending forever.
+   */
+  settlePrompt() {
+    this.interrupted = true;
+    this.promptCompletion?.resolve();
+  }
+
   respondPermission(_requestId: string, _behavior: "allow" | "deny"): void {
     // default: no interactive permissions
   }

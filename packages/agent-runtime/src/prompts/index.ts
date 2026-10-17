@@ -25,7 +25,7 @@ export function assembleAgentPrompt(context: PromptContext): AssembledPrompt {
   );
   const sections = [
     context.identity.trim(),
-    ...included.map((part) => part.render()),
+    ...included.map((part) => part.render(context)),
   ];
   const workspace = context.workspaceContext?.trim();
   if (workspace) sections.push(`# Workspace\n\n${workspace}`);

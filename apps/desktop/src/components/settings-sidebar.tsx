@@ -1,5 +1,4 @@
 import {
-  Activity,
   ArrowLeft,
   Bell,
   Building2,
@@ -7,7 +6,6 @@ import {
   MonitorCog,
   MonitorUp,
   Radio,
-  Target,
   UserRound,
   Webhook,
 } from "lucide-react";
@@ -31,16 +29,9 @@ const groups = [
     items: [
       { to: "/settings/workspace", label: "Workspace", icon: Building2 },
       { to: "/settings/connection", label: "Connection", icon: Radio },
-      { to: "/settings/missions", label: "Missions", icon: Target },
       { to: "/settings/webhooks", label: "Webhooks", icon: Webhook },
       { to: "/settings/environment", label: "Environment", icon: KeyRound },
       { to: "/settings/machines", label: "Machines", icon: MonitorUp },
-    ],
-  },
-  {
-    label: "App",
-    items: [
-      { to: "/settings/diagnostics", label: "Diagnostics", icon: Activity },
     ],
   },
 ] as const;

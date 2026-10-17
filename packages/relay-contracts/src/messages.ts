@@ -83,6 +83,19 @@ export const projectRecommendationPayloadSchema = z
   })
   .strict();
 
+/** An agent's multiple-choice question. The answer is the user's next reply
+ * in the same place, so asking never blocks a run. */
+export const questionPayloadSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
+    agentId: agentIdSchema,
+    question: z.string().trim().min(1).max(500),
+    options: z.array(z.string().trim().min(1).max(80)).min(2).max(6),
+  })
+  .strict();
+
 /** A guest agent joined through the channel's share link. Only the relay
  * attaches this; guests cannot send components. */
 export const channelMemberJoinedPayloadSchema = z
@@ -184,9 +197,11 @@ export const messageComponentSchema = z
               ? pluginAuthorizationPayloadSchema
               : component.kind === "project.recommendation"
                 ? projectRecommendationPayloadSchema
-                : component.kind === "channel-action"
-                  ? channelActionPayloadSchema
-                  : undefined;
+                : component.kind === "question"
+                  ? questionPayloadSchema
+                  : component.kind === "channel-action"
+                    ? channelActionPayloadSchema
+                    : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {
@@ -217,6 +232,19 @@ const activityCorrelationSchema = {
  * string payload understood by both the TypeScript and Swift hosts.
  */
 export const agentActivityComponentSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      id: z.string().trim().min(1).max(128),
+      kind: z.literal("agent.activity"),
+      version: z.literal(1),
+      payload: z
+        .object({
+          status: z.enum(["working", "completed"]),
+          ...activityCorrelationSchema,
+        })
+        .strict(),
+    })
+    .strict(),
   z
     .object({
       id: z.string().trim().min(1).max(128),

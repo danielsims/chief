@@ -103,13 +103,20 @@ struct DMsGroup: View {
   @State private var startingAgentID: String?
   @State private var startFailed = false
   @State private var showNewMessage = false
+  @State private var collapsedTeams: Set<String> = []
 
   var body: some View {
     CollapsibleGroup(title: "DMs", count: rosterCount, isExpanded: $expanded) {
       ForEach(recentFirstEntries) { entry in
         switch entry {
-        case .conversation(let conversation): ConversationRow(conversation: conversation)
-        case .agent(let agent): agentDirectRow(agent)
+        case .conversation(let conversation):
+          if let agent = agent(for: conversation) {
+            agentTeam(agent) { ConversationRow(conversation: conversation) }
+          } else {
+            ConversationRow(conversation: conversation)
+          }
+        case .agent(let agent):
+          agentTeam(agent) { agentDirectRow(id: agent.id, name: agent.name, role: agent.role) }
         }
       }
     }
@@ -177,38 +184,87 @@ struct DMsGroup: View {
     model.workspace?.conversations.filter { $0.kind == .direct } ?? []
   }
 
+  /// DMs with no roster agent: people, and agents no longer in the roster.
+  /// A subagent's DM sits beneath its parent, so it is not listed twice.
   private var unmatchedDirectConversations: [ConversationSummary] {
-    directConversations.filter { conversation in
-      !(model.workspace?.agents.contains { directConversation(for: $0)?.id == conversation.id }
-        ?? false)
-    }
+    let rosterIDs = Set(
+      (model.workspace?.agents ?? []).flatMap { [$0.id] + $0.subagents.map(\.id) })
+    return directConversations.filter { !rosterIDs.contains($0.directAgentID ?? "") }
   }
 
   private var rosterCount: Int {
     (model.workspace?.agents.count ?? 0) + unmatchedDirectConversations.count
   }
 
+  private func agent(for conversation: ConversationSummary) -> AgentSummary? {
+    model.workspace?.agents.first { $0.id == conversation.directAgentID }
+  }
+
   private func directConversation(for agent: AgentSummary) -> ConversationSummary? {
-    directConversations.first { conversation in
-      guard conversation.directUserID == nil else { return false }
-      let normalizedName = conversation.name.lowercased()
-      return normalizedName.contains(agent.id.lowercased())
-        || normalizedName.contains(agent.name.lowercased())
+    directConversations.first { $0.directAgentID == agent.id }
+  }
+
+  /// An agent row with its subagents nested beneath it, mirroring the desktop sidebar.
+  private func agentTeam<Header: View>(
+    _ agent: AgentSummary,
+    @ViewBuilder header: () -> Header
+  ) -> some View {
+    let children = agent.subagents.filter { $0.canMessage != false }
+    let expanded = !collapsedTeams.contains(agent.id)
+    return VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 0) {
+        header()
+        if !children.isEmpty {
+          Button {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: 0.18)) {
+              if expanded {
+                collapsedTeams.insert(agent.id)
+              } else {
+                collapsedTeams.remove(agent.id)
+              }
+            }
+          } label: {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 11, weight: .medium))
+              .rotationEffect(.degrees(expanded ? 0 : -90))
+              .foregroundStyle(ChiefTheme.tertiary)
+              .frame(width: 32, height: 38)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(agent.name) subagents")
+          .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        }
+      }
+      if expanded && !children.isEmpty {
+        VStack(alignment: .leading, spacing: 2) {
+          ForEach(children) { child in
+            agentDirectRow(id: child.id, name: child.name, role: child.role)
+          }
+        }
+        .padding(.leading, 21)
+        .overlay(alignment: .leading) {
+          Rectangle().fill(ChiefTheme.line).frame(width: 1)
+            .padding(.leading, 11)
+            .allowsHitTesting(false)
+        }
+      }
     }
   }
 
-  private func agentDirectRow(_ agent: AgentSummary) -> some View {
+  private func agentDirectRow(id: String, name: String, role: String) -> some View {
     Button {
       guard startingAgentID == nil else { return }
       Haptics.medium()
-      startingAgentID = agent.id
+      startingAgentID = id
       startFailed = false
       Task {
         let recipient = DirectMessageRecipient(
           kind: "agent",
-          principalID: agent.id,
-          name: agent.name,
-          role: agent.role
+          principalID: id,
+          name: name,
+          role: role
         )
         if let conversationID = await model.startDirectMessage(with: recipient) {
           path.append(conversationID)
@@ -219,13 +275,13 @@ struct DMsGroup: View {
       }
     } label: {
       HStack(spacing: 9) {
-        AgentMark(name: agent.name, size: 24, working: model.isAgentWorking(agentID: agent.id))
-        Text(agent.name)
+        AgentMark(name: name, id: id, size: 24, working: model.isAgentWorking(agentID: id))
+        Text(name)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ChiefTheme.secondary)
           .lineLimit(1)
         Spacer(minLength: 8)
-        if startingAgentID == agent.id {
+        if startingAgentID == id {
           ChiefSpinner().controlSize(.small).tint(ChiefTheme.accent)
         }
       }
@@ -234,21 +290,7 @@ struct DMsGroup: View {
     }
     .buttonStyle(.plain)
     .disabled(startingAgentID != nil)
-    .accessibilityLabel("Message \(agent.name)")
-  }
-}
-
-/// The agent roster, used on the Agents tab.
-struct AgentsGroup: View {
-  @Environment(AppModel.self) private var model
-
-  var body: some View {
-    VStack(spacing: 8) {
-      ForEach(model.workspace?.agents ?? []) { agent in
-        AgentTreeRow(agent: agent)
-      }
-    }
-    .padding(.horizontal, ChiefTheme.pagePadding)
+    .accessibilityLabel("Message \(name)")
   }
 }
 
@@ -306,7 +348,15 @@ private struct ConversationRow: View {
             rounded: true
           )
         } else if conversation.kind == .direct {
-          AgentMark(name: conversation.name, size: 24)
+          AgentMark(
+            name: conversation.name,
+            id: conversation.directAgentID,
+            size: 24,
+            working: model.isAgentWorking(
+              workspaceID: model.workspace?.id,
+              conversationID: conversation.id
+            )
+          )
         } else {
           Image(systemName: conversation.isPrivate ? "lock" : "number")
             .font(.system(size: 14, weight: .semibold))

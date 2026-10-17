@@ -10,6 +10,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { AgentAvatar } from "../agent-avatar";
 import { GuestAvatar } from "../guest-avatar";
+import { UserAvatar } from "../user-avatar";
 
 export interface MentionCandidate {
   id: string;
@@ -20,6 +21,8 @@ export interface MentionCandidate {
   handle?: string;
   /** Present for outside guest agents. */
   guest?: GuestAppearance;
+  /** Present for human workspace members. */
+  user?: { image?: string };
 }
 
 export function ComposerMentionPopover({
@@ -77,6 +80,12 @@ export function ComposerMentionPopover({
                 <GuestAvatar
                   className="size-7 rounded-lg text-[10px]"
                   guest={candidate.guest}
+                />
+              ) : candidate.user ? (
+                <UserAvatar
+                  className="size-7"
+                  image={candidate.user.image}
+                  name={candidate.name}
                 />
               ) : (
                 <AgentAvatar

@@ -2,53 +2,49 @@ import SwiftUI
 
 struct ChiefTabBar: View {
   @Binding var selection: WorkspaceTab
+  /// The pager's position in pages; each label brightens as its page nears.
+  var progress: CGFloat
   let unreadCount: Int
 
   var body: some View {
-    HStack(spacing: 4) {
-      tab(.home, "Home", "house.fill", badge: unreadCount)
-      tab(.plugins, "Plugins", "puzzlepiece.extension.fill")
-      tab(.projects, "Projects", "shippingbox")
-      tab(.agents, "Agents", "person.2.fill")
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 20) {
+        tab(.home, "Home", badge: unreadCount)
+        tab(.plugins, "Plugins")
+        tab(.projects, "Projects")
+      }
+      .padding(.horizontal, 2)
     }
-    .padding(6)
-    .frame(maxWidth: 380, minHeight: 62)
-    .background(ChiefTheme.surface.opacity(0.85), in: Capsule())
-    .background(.regularMaterial, in: Capsule())
-    .overlay { Capsule().stroke(ChiefTheme.line, lineWidth: 0.5) }
-    .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
   }
 
-  private func tab(_ tab: WorkspaceTab, _ label: String, _ icon: String, badge: Int = 0)
-    -> some View
-  {
+  private func emphasis(of tab: WorkspaceTab) -> Double {
+    let index = CGFloat(WorkspaceTab.allCases.firstIndex(of: tab) ?? 0)
+    return Double(max(0, 1 - abs(progress - index)))
+  }
+
+  private func tab(_ tab: WorkspaceTab, _ label: String, badge: Int = 0) -> some View {
     Button {
       Haptics.selection()
       selection = tab
     } label: {
-      VStack(spacing: 3) {
-        ZStack(alignment: .topTrailing) {
-          Image(systemName: icon)
-            .font(.system(size: 18, weight: selection == tab ? .semibold : .regular))
-          if badge > 0 && tab == .home {
-            Text(badge > 99 ? "99+" : "\(badge)")
-              .font(.system(size: 9, weight: .bold))
-              .foregroundStyle(ChiefTheme.onPrimary)
-              .padding(.horizontal, 4)
-              .frame(minWidth: 16, minHeight: 16)
-              .background(ChiefTheme.primary, in: Capsule())
-              .offset(x: 12, y: -7)
-          }
+      HStack(spacing: 6) {
+        Text(label)
+          .font(.system(size: 16, weight: .semibold))
+          .tracking(-0.2)
+        if badge > 0 && tab == .home {
+          Text(badge > 99 ? "99+" : "\(badge)")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(ChiefTheme.onPrimary)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(ChiefTheme.primary, in: Capsule())
         }
-        Text(label).font(.system(size: 10.5, weight: selection == tab ? .semibold : .medium))
       }
-      .foregroundStyle(selection == tab ? ChiefTheme.accent : ChiefTheme.secondary)
-      .frame(maxWidth: .infinity, minHeight: 50)
-      .background(
-        selection == tab ? ChiefTheme.elevated : .clear,
-        in: Capsule()
-      )
-      .contentShape(Capsule())
+      // Each label brightens as its page scrolls in, so the highlight
+      // follows a drag instead of jumping when the page settles.
+      .foregroundStyle(ChiefTheme.tertiary.mix(with: .primary, by: emphasis(of: tab)))
+      .frame(minHeight: 44)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(label)

@@ -152,16 +152,6 @@ export function useWorkspaceChannelsState() {
       }
     >(),
   );
-  const pendingPolicies = useRef(
-    new Map<
-      string,
-      {
-        reject: (error: Error) => void;
-        resolve: () => void;
-        timeout: number;
-      }
-    >(),
-  );
   const [channels, setChannels] = useState<WorkspaceChannel[]>(() =>
     cloudOrganizationId
       ? (cachedWorkspaceChannels(cloudOrganizationId) ?? [])
@@ -242,35 +232,6 @@ export function useWorkspaceChannelsState() {
         if (pending) {
           window.clearTimeout(pending.timeout);
           pendingUpdates.current.delete(message.requestId);
-          pending.reject(new Error(message.message));
-        }
-      }
-      if (
-        message.type === "channelPolicyUpdated" &&
-        message.workspaceId === cloudOrganizationId
-      ) {
-        setChannels((current) => {
-          const next = current.map((channel) =>
-            channel.id === message.channel.id ? message.channel : channel,
-          );
-          cacheWorkspaceChannels(cloudOrganizationId, next);
-          return next;
-        });
-        const pending = pendingPolicies.current.get(message.requestId);
-        if (pending) {
-          window.clearTimeout(pending.timeout);
-          pendingPolicies.current.delete(message.requestId);
-          pending.resolve();
-        }
-      }
-      if (
-        message.type === "channelPolicyUpdateFailed" &&
-        message.workspaceId === cloudOrganizationId
-      ) {
-        const pending = pendingPolicies.current.get(message.requestId);
-        if (pending) {
-          window.clearTimeout(pending.timeout);
-          pendingPolicies.current.delete(message.requestId);
           pending.reject(new Error(message.message));
         }
       }
@@ -431,39 +392,6 @@ export function useWorkspaceChannelsState() {
     [capability, client, cloudOrganizationId, sessionToken],
   );
 
-  const setChannelPolicy = useCallback(
-    (
-      channelId: string,
-      agentPermissions: WorkspaceChannel["agentPermissions"],
-    ): Promise<void> => {
-      if (!cloudOrganizationId || !capability || !sessionToken) {
-        return Promise.reject(
-          new Error("Chief is still authorizing this workspace."),
-        );
-      }
-      const requestId = crypto.randomUUID();
-      return new Promise((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          pendingPolicies.current.delete(requestId);
-          reject(
-            new Error("Chief couldn't update agent access. Please try again."),
-          );
-        }, 8_000);
-        pendingPolicies.current.set(requestId, { reject, resolve, timeout });
-        client.send({
-          type: "setChannelPolicy",
-          requestId,
-          workspaceId: cloudOrganizationId,
-          channelId,
-          agentPermissions,
-          sessionToken,
-          executorCapability: capability,
-        });
-      });
-    },
-    [capability, client, cloudOrganizationId, sessionToken],
-  );
-
   const setChannelArchived = useCallback(
     (channelId: string, archived: boolean): Promise<void> => {
       if (!cloudOrganizationId || !capability || !sessionToken) {
@@ -525,7 +453,6 @@ export function useWorkspaceChannelsState() {
     startUserDirect,
     deleteChannel,
     setChannelArchived,
-    setChannelPolicy,
     updateChannel,
     updateChannelAgents,
   };

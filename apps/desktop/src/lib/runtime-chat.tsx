@@ -4,7 +4,6 @@ import { useChat } from "@ai-sdk/react";
 import type {
   ChatExecutionSelection,
   ChiefUIMessage,
-  InputRequest,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
 
@@ -168,6 +167,21 @@ export function useRuntimeChat(
       ) {
         setExecution(msg.execution);
         setSessionAgentId(msg.agentId);
+        return;
+      }
+      if (
+        msg.type === "history" &&
+        msg.workspaceId === cloudOrganizationId &&
+        msg.chatId === chatId &&
+        msg.older
+      ) {
+        setMessages((current) => {
+          const shown = new Set(current.map((message) => message.id));
+          return [
+            ...msg.messages.filter((message) => !shown.has(message.id)),
+            ...current,
+          ];
+        });
         return;
       }
       if (
@@ -339,46 +353,12 @@ export function useRuntimeChat(
     }
   };
 
-  const respondPermission = (requestId: string, behavior: "allow" | "deny") => {
+  const loadOlder = () => {
     if (chatId && cloudOrganizationId && executorCapability) {
       client.send({
-        type: "respondPermission",
+        type: "loadOlderHistory",
         workspaceId: cloudOrganizationId,
         chatId,
-        requestId,
-        behavior,
-        executorCapability,
-      });
-    }
-  };
-
-  const respondQuestion = (
-    requestId: string,
-    answers: Record<string, string> | null,
-  ) => {
-    if (chatId && cloudOrganizationId && executorCapability) {
-      client.send({
-        type: "respondQuestion",
-        workspaceId: cloudOrganizationId,
-        chatId,
-        requestId,
-        answers,
-        executorCapability,
-      });
-    }
-  };
-
-  const provideInput = (
-    request: InputRequest,
-    values: Record<string, string>,
-  ) => {
-    if (chatId && cloudOrganizationId && executorCapability) {
-      client.send({
-        type: "provideInput",
-        workspaceId: cloudOrganizationId,
-        chatId,
-        request,
-        values,
         executorCapability,
       });
     }
@@ -391,11 +371,14 @@ export function useRuntimeChat(
         threadRootId?: string;
         mentions?: string[];
         interruptActive?: boolean;
+        sessionStart?: boolean;
       },
       attachments?: MessageAttachment[],
     ) => {
+      // The caller may open the message's thread before the relay echoes it.
+      const id = crypto.randomUUID();
       void sendMessage({
-        text,
+        id,
         metadata: {
           createdAt: Date.now(),
           ...(context?.threadRootId
@@ -405,14 +388,19 @@ export function useRuntimeChat(
             ? { mentions: context.mentions }
             : undefined),
           ...(context?.interruptActive ? { interruptActive: true } : undefined),
+          ...(context?.sessionStart ? { sessionStart: true } : undefined),
         },
-        files: attachments?.map((attachment) => ({
-          type: "file" as const,
-          filename: attachment.name,
-          mediaType: attachment.mediaType,
-          url: attachment.url,
-        })),
+        parts: [
+          ...(attachments ?? []).map((attachment) => ({
+            type: "file" as const,
+            filename: attachment.name,
+            mediaType: attachment.mediaType,
+            url: attachment.url,
+          })),
+          { type: "text" as const, text },
+        ],
       });
+      return id;
     },
     [sendMessage],
   );
@@ -485,10 +473,8 @@ export function useRuntimeChat(
     sendMessage,
     sendMessageWithContext,
     interrupt,
+    loadOlder,
     stop,
-    respondPermission,
-    respondQuestion,
-    provideInput,
     chatReady: activeChatReady || conversationResolved,
     // The first visit waits for both transcript and channel events. Once that
     // conversation has hydrated, revisits render its cached timeline

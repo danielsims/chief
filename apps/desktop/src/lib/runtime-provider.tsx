@@ -42,6 +42,7 @@ import { useWorkspaceCapability } from "./workspace-capability";
 
 /** Durable NIP-29 events for channel timelines and message search. */
 
+const NO_AGENTS: AgentDefinition[] = [];
 const EMPTY_SETUP_PROGRESS: Readonly<Record<string, IntegrationSetupProgress>> =
   {};
 
@@ -57,12 +58,19 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
   const client = useRelayRuntimeTransport(relaySession);
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
-  const [agents, setAgents] = useState<AgentDefinition[]>([]);
-  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  const [roster, setRoster] = useState<{
+    workspaceId: string | null;
+    agents: AgentDefinition[];
+  }>({ workspaceId: null, agents: [] });
+  const agentsLoaded = roster.workspaceId === cloudOrganizationId;
+  const agents = agentsLoaded ? roster.agents : NO_AGENTS;
   const removeAgent = useCallback(
     async (agentId: string) => {
       await client.removeAgent(agentId);
-      setAgents((current) => removeAgentFromRoster(current, agentId));
+      setRoster((current) => ({
+        ...current,
+        agents: removeAgentFromRoster(current.agents, agentId),
+      }));
     },
     [client],
   );
@@ -261,18 +269,15 @@ export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const browserCursorTimers = browserCursorTimersRef.current;
     const browserOwners = browserOwnersRef.current;
+    // A reconnect keeps showing the last roster until the fresh one arrives.
+    // Clearing it would unmount every agent conversation and lose drafts.
     client.setStatusListener((s) => {
       setStatus(s);
-      if (s === "connecting") {
-        setAgents([]);
-        setAgentsLoaded(false);
-      }
       if (s === "connected") client.send({ type: "listAgents" });
     });
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") {
-        setAgents(msg.agents);
-        setAgentsLoaded(true);
+        setRoster({ workspaceId: cloudOrganizationId, agents: msg.agents });
       }
       if (
         msg.type === "browserRuns" &&

@@ -215,7 +215,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
             if (next === current) return current;
             return {
               ...next,
-              client: accountClient ?? current.client,
+              // Keep a working workspace client; only fall back to the
+              // account client when there is no workspace to keep.
+              client: current.snapshot
+                ? current.client
+                : (accountClient ?? current.client),
               workspaces: knownWorkspaceSummaries(RELAY_URL, accountId),
             };
           });

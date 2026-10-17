@@ -19,13 +19,5 @@ export function initializeWorkspaceLiveTables<
       conversation_id TEXT PRIMARY KEY,
       last_message_at TEXT NOT NULL
     );
-    -- One-time backfill from the retained live feed when the table is new.
-    INSERT OR IGNORE INTO conversation_activity (conversation_id, last_message_at)
-      SELECT conversation_id,
-        MAX(json_extract(event_json, '$.payload.message.createdAt'))
-      FROM workspace_live_events
-      WHERE json_extract(event_json, '$.type') = 'conversation.message.appended'
-        AND NOT EXISTS (SELECT 1 FROM conversation_activity)
-      GROUP BY conversation_id;
   `);
 }

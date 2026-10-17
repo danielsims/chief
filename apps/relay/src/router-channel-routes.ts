@@ -9,8 +9,8 @@ import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { authenticateRelayRequest } from "./router-auth";
 import {
-  authorizeConversation,
   authorizeWorkspace,
+  authorizeWorkspaceConversation,
   routeChannelOperation,
 } from "./workspace-authority";
 
@@ -258,13 +258,8 @@ async function authorizeAttachment(
     decodeURIComponent(rawConversationId ?? ""),
   );
   const authenticated = await authenticateRelayRequest(request, env);
-  const principal = await authorizeWorkspace(env, {
+  await authorizeWorkspaceConversation(env, {
     identity: authenticated.identity,
-    requestId,
-    workspaceId,
-  });
-  await authorizeConversation(env, {
-    principal,
     requestId,
     workspaceId,
     conversationId,

@@ -69,7 +69,7 @@ struct ThreadView: View {
     }
     .modifier(ScheduledRunTracking(messages: [root], conversationID: conversationID))
     .background(ChiefTheme.background)
-    .navigationTitle("Thread")
+    .navigationTitle(conversation?.name ?? "Thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -148,7 +148,11 @@ struct ThreadView: View {
         }
         .padding(ChiefTheme.pagePadding)
       }
-      .defaultScrollAnchor(.bottom)
+      // Short conversations start at the top and fill downwards; longer
+      // ones open at, and follow, the latest message.
+      .defaultScrollAnchor(.top, for: .alignment)
+      .defaultScrollAnchor(.bottom, for: .initialOffset)
+      .defaultScrollAnchor(.bottom, for: .sizeChanges)
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .onScrollGeometryChange(for: Bool.self) { geometry in

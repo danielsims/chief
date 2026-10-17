@@ -3,7 +3,6 @@ import { Hash, Mail, MessageCircle, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 
 import type { AgentDefinition } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
@@ -111,6 +110,12 @@ export function AgentProfilePanel({
             />
             {PRESENCE_COPY[presence]}
           </div>
+          <Link
+            to={`/agents?agent=${encodeURIComponent(agent.id)}`}
+            className="hover:bg-muted/55 mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_14%,transparent)] transition-colors"
+          >
+            <Settings2 size={15} /> View agent settings
+          </Link>
         </section>
 
         <div className="border-b px-4 pb-4">
@@ -237,17 +242,6 @@ export function AgentProfilePanel({
           </div>
         )}
       </ConversationAuxiliaryPanelBody>
-
-      <footer className="shrink-0 border-t p-3">
-        <Button
-          render={<Link to={`/agents?agent=${encodeURIComponent(agent.id)}`} />}
-          variant="outline"
-          className="w-full"
-        >
-          <Settings2 size={13} />
-          View agent settings
-        </Button>
-      </footer>
     </ConversationAuxiliaryPanel>
   );
 }

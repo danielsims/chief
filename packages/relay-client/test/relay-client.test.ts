@@ -399,11 +399,13 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
         type: "workspace.subscribe",
         conversationIds: ["general", "mission-control"],
         after: 41,
+        typing: false,
       },
       {
         type: "workspace.subscribe",
         conversationIds: ["engineering", "general"],
         after: 41,
+        typing: false,
       },
     ],
   );

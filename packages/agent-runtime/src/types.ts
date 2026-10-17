@@ -368,6 +368,8 @@ export type ServerMessage =
       messages: ChiefUIMessage[];
       events: AgentEvent[];
       running: boolean;
+      /** An earlier page, shown above what the chat already has. */
+      older?: boolean;
     }
   | {
       type: "message";

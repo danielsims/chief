@@ -27,9 +27,10 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { metered, meterSql, requestOperation } from "./sql-metering";
+import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
-import { WorkspaceAgentAccessService } from "./workspace-agent-access-service";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { runWorkspaceAlarm } from "./workspace-alarm";
 import {
@@ -40,6 +41,10 @@ import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
 import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
+import {
+  mintGitToken,
+  publishGitTreeFromAgent,
+} from "./workspace-git-operations";
 import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
@@ -68,19 +73,28 @@ import {
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+    meterSql(state.storage);
     registerGuestListeners(state);
     // Keep-alive pings are answered without waking the object, so idle
     // connections (members' and guest listeners') cost nothing.
     state.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong"),
     );
-    void state.blockConcurrencyWhile(async () => {
-      initializeWorkspaceSchema(state.storage, env);
-      await ensureWorkspaceAlarm(state.storage);
-    });
+    void state.blockConcurrencyWhile(() =>
+      metered("WorkspaceObject", "constructor", async () => {
+        initializeWorkspaceSchema(state.storage, env);
+        await ensureWorkspaceAlarm(state.storage);
+      }),
+    );
   }
 
   fetch(request: Request) {
+    return metered("WorkspaceObject", requestOperation(request), () =>
+      this.route(request),
+    );
+  }
+
+  private route(request: Request) {
     if (!this.eveAgentsUpdated) {
       this.eveAgentsUpdated = true;
       this.ctx.waitUntil(updateOutdatedEveAgents(this.ctx.storage, this.env));
@@ -105,6 +119,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         request.method === "GET" &&
         (operation === "github-connection" ||
           operation === "github-repositories");
+      // The Git wire protocol advertises refs with a GET before the POST pack
+      // exchange, so this one read is allowed over GET.
+      const readsGitRefs =
+        request.method === "GET" && operation === "git-info-refs";
       const deletesExternalAgent =
         request.method === "DELETE" &&
         operation === "external-agent-disconnect";
@@ -113,6 +131,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         !readsSecret &&
         !readsVercel &&
         !readsGitHub &&
+        !readsGitRefs &&
         !deletesExternalAgent
       ) {
         return relayError(405, "method_not_allowed", "Method not allowed.");
@@ -134,7 +153,9 @@ export class WorkspaceObject extends DurableObject<Env> {
   private eveAgentsUpdated = false;
 
   async alarm() {
-    await runWorkspaceAlarm(this.ctx.storage, this.env);
+    await metered("WorkspaceObject", "alarm", () =>
+      runWorkspaceAlarm(this.ctx.storage, this.env),
+    );
   }
 
   private routeOperation(request: Request, operation: string | null) {
@@ -172,6 +193,16 @@ export class WorkspaceObject extends DurableObject<Env> {
           routeWorkspaceDirect(ctx.storage, env, request),
         );
       }
+      if (operation === "git-token") {
+        return yield* attempt("workspace.git.token", () =>
+          mintGitToken(ctx.storage, env, request),
+        );
+      }
+      if (operation === "git-publish") {
+        return yield* attempt("workspace.git.publish", () =>
+          publishGitTreeFromAgent(ctx.storage, env, request),
+        );
+      }
       if (operation?.startsWith("data-") || operation?.startsWith("git-")) {
         return yield* attempt("workspace.data", () =>
           routeData(request, operation),
@@ -204,75 +235,10 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
 
-      const access = new WorkspaceAccessService(ctx.storage, env);
-      const agents = new WorkspaceAgentAccessService(ctx.storage, env);
-      if (operation === "members-list") {
-        return yield* attempt("workspace.members.list", () =>
-          access.membersList(request),
+      if (workspaceAccessRouter.matches(operation)) {
+        return yield* attempt("workspace.access", () =>
+          workspaceAccessRouter.route(ctx.storage, env, request, operation),
         );
-      }
-      if (operation === "member-role-set") {
-        return yield* attempt("workspace.member.role", () =>
-          access.memberRoleSet(request),
-        );
-      }
-      if (operation === "members-remove") {
-        return yield* attempt("workspace.members.remove", () =>
-          access.memberRemove(request),
-        );
-      }
-      if (operation === "agent-config-get") {
-        return yield* attempt("workspace.agent.config.get", () =>
-          agents.configGet(request),
-        );
-      }
-      if (operation === "agent-create") {
-        return yield* attempt("workspace.agent.create", () =>
-          agents.create(request),
-        );
-      }
-      if (operation === "agent-runtime-get") {
-        return yield* attempt("workspace.agent.runtime.get", () =>
-          agents.runtimeDescriptor(request),
-        );
-      }
-      if (operation === "agent-config-set") {
-        return yield* attempt("workspace.agent.config.set", () =>
-          agents.configSet(request),
-        );
-      }
-      if (operation === "agent-remove") {
-        return yield* attempt("workspace.agent.remove", () =>
-          agents.remove(request),
-        );
-      }
-      if (operation === "authorize-conversation") {
-        return yield* attempt("workspace.conversation.authorize", () =>
-          agents.authorizeConversation(request),
-        );
-      }
-      if (operation === "authorize-agent-runtime") {
-        return yield* attempt("workspace.agent.authorize", () =>
-          agents.authorizeRuntime(request),
-        );
-      }
-      if (operation === "authorize-native-agent") {
-        return yield* attempt("workspace.agent.native.authorize", () =>
-          agents.authorizeNativeAgent(request),
-        );
-      }
-      if (operation === "agent-hosting-context") {
-        return yield* attempt("workspace.agent.context", () =>
-          agents.hostingContext(request),
-        );
-      }
-      if (operation === "register-agent-key") {
-        return yield* attempt("workspace.agent.key.register", () =>
-          access.registerAgentKey(request, readTrustedIdentity(request)),
-        );
-      }
-      if (operation === "agent-keys") {
-        return yield* attempt("workspace.agent.keys", () => access.agentKeys());
       }
 
       const invitations = new WorkspaceInvitationService(ctx.storage, env);
@@ -410,7 +376,9 @@ export class WorkspaceObject extends DurableObject<Env> {
       const context = readTrustedIdentity(request);
       if (operation === "authorize") {
         return yield* attempt("workspace.authorize", () =>
-          access.authorize(context.identity),
+          new WorkspaceAccessService(ctx.storage, env).authorize(
+            context.identity,
+          ),
         );
       }
       if (operation === "claim") {
@@ -552,6 +520,15 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    return metered("WorkspaceObject", "websocket.message", () =>
+      this.receiveSocketMessage(socket, message),
+    );
+  }
+
+  private receiveSocketMessage(
+    socket: WebSocket,
+    message: string | ArrayBuffer,
+  ) {
     if (isGuestListener(this.ctx, socket)) {
       socket.close(1008, "Listeners only receive wake-ups");
       return;

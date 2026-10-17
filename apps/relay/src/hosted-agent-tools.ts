@@ -75,7 +75,7 @@ export async function executeHostedAgentTool(
   );
   try {
     return await handler.execute(
-      { computer, browser, env, job, principal },
+      { computer, browser, computerEnabled, env, job, principal },
       parsed.input,
     );
   } catch (error) {

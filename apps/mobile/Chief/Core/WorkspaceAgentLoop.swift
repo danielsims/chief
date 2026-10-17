@@ -89,7 +89,7 @@ actor WorkspaceAgentLoop {
           "agent mailbox disconnected for \(agentID): \(error.localizedDescription)"
         )
         do { try await Task.sleep(for: .seconds(reconnectDelay)) } catch { break }
-        reconnectDelay = min(reconnectDelay * 2, 30)
+        reconnectDelay = min(reconnectDelay * 2, 300)
       }
     }
   }
@@ -188,6 +188,7 @@ actor WorkspaceAgentLoop {
         completion: AgentJobCompletion(
           publishedMessage: alreadyPublished ? nil : AgentPublishedMessage(
             conversationId: conversationID,
+            threadRootId: lease.job.payload.threadRootId,
             body: turn.reply,
             components: []
           )

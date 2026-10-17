@@ -21,7 +21,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     await model.hydrateWorkspace()
     XCTAssertEqual(model.selectedConversationID, "marketing")
     XCTAssertEqual(model.selectedThread?.rootMessageID, "scheduled-root")
-    XCTAssertEqual(model.homeNavigationPath, ["marketing"])
+    XCTAssertEqual(model.navigationPath, ["marketing"])
     XCTAssertEqual(MobileNotifications.pendingOpen, newest)
     model.setVisibleConversation("general")
     XCTAssertEqual(MobileNotifications.pendingOpen, newest)
@@ -393,6 +393,9 @@ private struct FailingRelay: RelayServing {
     participantID: String
   ) async throws -> ConversationSummary { throw error }
   func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {
+    throw error
+  }
+  func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig] {
     throw error
   }
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {

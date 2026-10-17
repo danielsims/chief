@@ -39,12 +39,6 @@ struct PluginOption: Equatable, Identifiable, Sendable {
     .init(id: "slack", name: "Slack", domain: "slack.com"),
     .init(id: "granola", name: "Granola", domain: "granola.ai"),
     .init(id: "notion", name: "Notion", domain: "notion.com"),
-    .init(
-      id: "github",
-      name: "GitHub",
-      domain: "github.com",
-      description: "Work with repositories, issues, pull requests, and code on GitHub."
-    ),
     .init(id: "vercel", name: "Vercel", domain: "vercel.com"),
     .init(id: "posthog", name: "PostHog", domain: "posthog.com"),
     .init(id: "linear", name: "Linear", domain: "linear.app"),
@@ -72,7 +66,6 @@ final class PluginCatalogClient {
     "slack.com",
     "granola.ai",
     "notion.com",
-    "github.com",
     "vercel.com",
     "pscale.dev",
     "posthog.com",
@@ -205,6 +198,8 @@ final class PluginCatalogClient {
         !name.isEmpty,
         let domain = entry.domain?.trimmingCharacters(in: .whitespacesAndNewlines),
         domain.contains("."),
+        // GitHub is a project provider, connected as a Git repository.
+        domain != "github.com",
         let slug = entry.slug, !slug.isEmpty
       else { return nil }
       return PluginOption(
@@ -258,14 +253,6 @@ final class PluginCatalogClient {
           name: "drive",
           endpoint: URL(string: "https://file.googleapis.com/mcp")!
         ),
-      ]
-    }
-    if plugin.id == "github" {
-      return [
-        PluginRemoteServer(
-          name: "github",
-          endpoint: URL(string: "https://api.githubcopilot.com/mcp/")!
-        )
       ]
     }
     struct Surface: Decodable {

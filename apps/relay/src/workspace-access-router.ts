@@ -6,11 +6,15 @@ const operations = new Set([
   "members-list",
   "member-role-set",
   "members-remove",
+  "agent-configs-list",
   "agent-config-get",
   "agent-create",
   "agent-runtime-get",
   "agent-config-set",
+  "agent-avatar-set",
+  "agent-remove",
   "authorize-conversation",
+  "authorize-identity-conversation",
   "authorize-agent-runtime",
   "authorize-native-agent",
   "agent-hosting-context",
@@ -38,6 +42,8 @@ export const workspaceAccessRouter = {
         return access.memberRoleSet(request);
       case "members-remove":
         return access.memberRemove(request);
+      case "agent-configs-list":
+        return agents.configList(request);
       case "agent-config-get":
         return agents.configGet(request);
       case "agent-create":
@@ -46,8 +52,14 @@ export const workspaceAccessRouter = {
         return agents.runtimeDescriptor(request);
       case "agent-config-set":
         return agents.configSet(request);
+      case "agent-avatar-set":
+        return agents.avatarSet(request);
+      case "agent-remove":
+        return agents.remove(request);
       case "authorize-conversation":
         return agents.authorizeConversation(request);
+      case "authorize-identity-conversation":
+        return agents.authorizeIdentityConversation(request);
       case "authorize-agent-runtime":
         return agents.authorizeRuntime(request);
       case "authorize-native-agent":

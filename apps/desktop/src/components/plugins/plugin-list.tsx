@@ -334,7 +334,7 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
       </nav>
 
       <div className="border-border/60 -mx-6 mt-0 border-t px-6 pt-4">
-        <div className="flex flex-wrap items-center gap-3 pb-2">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-3 pb-2">
           <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
             <Popover>
               <PopoverTrigger asChild>
@@ -414,50 +414,52 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
         </div>
       </div>
 
-      {plugins.loading ? (
-        <div className="text-muted-foreground flex h-64 items-center justify-center gap-2 text-sm">
-          <LoaderCircle className="animate-spin" size={16} /> Loading plugins…
-        </div>
-      ) : (
-        <div className="space-y-8 py-5">
-          <PluginSections
-            key={`${view}:${type}:${status}:${deferredQuery}`}
-            grouped={view === "all" ? allGrouped : yoursGrouped}
-            busyPluginId={plugins.busyPluginId}
-            onInstall={install}
-            onAuthorize={authorize}
-          />
-        </div>
-      )}
-      {plugins.error ? (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-4 rounded-lg border p-4 text-sm"
-        >
-          <p>{plugins.error}</p>
-          <Button
-            variant="outline"
-            onClick={() => plugins.refresh(true)}
-            disabled={plugins.refreshing}
+      <div className="mx-auto w-full max-w-6xl">
+        {plugins.loading ? (
+          <div className="text-muted-foreground flex h-64 items-center justify-center gap-2 text-sm">
+            <LoaderCircle className="animate-spin" size={16} /> Loading plugins…
+          </div>
+        ) : (
+          <div className="space-y-8 py-5">
+            <PluginSections
+              key={`${view}:${type}:${status}:${deferredQuery}`}
+              grouped={view === "all" ? allGrouped : yoursGrouped}
+              busyPluginId={plugins.busyPluginId}
+              onInstall={install}
+              onAuthorize={authorize}
+            />
+          </div>
+        )}
+        {plugins.error ? (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-4 rounded-lg border p-4 text-sm"
           >
-            Try again
-          </Button>
-        </div>
-      ) : null}
+            <p>{plugins.error}</p>
+            <Button
+              variant="outline"
+              onClick={() => plugins.refresh(true)}
+              disabled={plugins.refreshing}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
 
-      {!plugins.loading && !plugins.error && visibleCount === 0 ? (
-        <p className="text-muted-foreground py-20 text-center text-sm">
-          {view === "yours"
-            ? "You have not added any plugins yet."
-            : "No plugins match those filters."}
-        </p>
-      ) : null}
-      {plugins.warning ? (
-        <p className="text-muted-foreground border-t py-3 text-xs">
-          Some plugin sources could not refresh. Showing the last available
-          list.
-        </p>
-      ) : null}
+        {!plugins.loading && !plugins.error && visibleCount === 0 ? (
+          <p className="text-muted-foreground py-20 text-center text-sm">
+            {view === "yours"
+              ? "You have not added any plugins yet."
+              : "No plugins match those filters."}
+          </p>
+        ) : null}
+        {plugins.warning ? (
+          <p className="text-muted-foreground border-t py-3 text-xs">
+            Some plugin sources could not refresh. Showing the last available
+            list.
+          </p>
+        ) : null}
+      </div>
       <PluginTrustDialog
         plugin={trustCandidate}
         open={Boolean(trustCandidate)}

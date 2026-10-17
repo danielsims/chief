@@ -1,196 +1,46 @@
 import { useState } from "react";
+import { Check } from "lucide-react";
 
-import type { AgentQuestion } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
-import { Input } from "@chief/ui/components/input";
+import type { GenerativeQuestionData } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { PendingQuestion } from "../../lib/runtime";
+import { useQuestionAnswers } from "./question-answers-context";
 
-const OTHER = "__other__";
-
-interface QuestionAnswerState {
-  selected: Set<string>;
-  other: string;
-}
-
-function answerText(
-  question: AgentQuestion,
-  state: QuestionAnswerState,
-): string {
-  const labels = question.options
-    .map((option) => option.label)
-    .filter((label) => state.selected.has(label));
-  if (state.selected.has(OTHER) && state.other.trim()) {
-    labels.push(state.other.trim());
-  }
-  return labels.join(", ");
-}
-
-function QuestionBlock({
-  question,
-  state,
-  onChange,
-}: {
-  question: AgentQuestion;
-  state: QuestionAnswerState;
-  onChange: (state: QuestionAnswerState) => void;
-}) {
-  const toggle = (label: string) => {
-    const selected = new Set(state.selected);
-    if (selected.has(label)) {
-      selected.delete(label);
-    } else {
-      if (!question.multiSelect) selected.clear();
-      selected.add(label);
-    }
-    onChange({ ...state, selected });
-  };
-
-  return (
-    <div className="space-y-2.5">
-      <div>
-        {question.header ? (
-          <p className="text-muted-foreground text-xs">{question.header}</p>
-        ) : null}
-        <p className="mt-0.5 text-sm font-medium">{question.question}</p>
-      </div>
-      {question.options.length > 0 ? (
-        <>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {question.options.map((option) => {
-              const active = state.selected.has(option.label);
-              return (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => toggle(option.label)}
-                  className={cn(
-                    "hover:bg-accent border px-3 py-2 text-left transition-colors",
-                    active && "border-foreground/40 bg-accent",
-                  )}
-                >
-                  <span className="block text-sm">{option.label}</span>
-                  {option.description ? (
-                    <span className="text-muted-foreground mt-0.5 block text-xs">
-                      {option.description}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-          {question.allowFreeform !== false ? (
-            <Input
-              value={state.other}
-              placeholder="Other…"
-              onFocus={() => {
-                if (!state.selected.has(OTHER)) {
-                  const selected = new Set(state.selected);
-                  if (!question.multiSelect) selected.clear();
-                  selected.add(OTHER);
-                  onChange({ ...state, selected });
-                }
-              }}
-              onChange={(e) => {
-                const selected = new Set(state.selected);
-                if (e.target.value) {
-                  if (!question.multiSelect) selected.clear();
-                  selected.add(OTHER);
-                } else {
-                  selected.delete(OTHER);
-                }
-                onChange({ selected, other: e.target.value });
-              }}
-              className={cn(
-                "h-9 text-sm",
-                state.selected.has(OTHER) && "border-foreground/40",
-              )}
-            />
-          ) : null}
-        </>
-      ) : (
-        <Input
-          value={state.other}
-          placeholder="Type your answer…"
-          aria-label="Type your answer"
-          onChange={(e) => {
-            const selected = new Set<string>();
-            if (e.target.value) selected.add(OTHER);
-            onChange({ selected, other: e.target.value });
-          }}
-          className="h-9 text-sm"
-        />
-      )}
-    </div>
-  );
-}
-
-/** The agent asked structured questions; answers return to the model. */
 export function QuestionCard({
-  pending,
-  onSubmit,
-  onDismiss,
+  question,
 }: {
-  pending: PendingQuestion;
-  onSubmit: (answers: Record<string, string>) => void;
-  onDismiss: () => void;
+  question: GenerativeQuestionData;
 }) {
-  const [states, setStates] = useState<QuestionAnswerState[]>(() =>
-    pending.questions.map(() => ({ selected: new Set<string>(), other: "" })),
-  );
-  const stateAt = (index: number) =>
-    states[index] ?? { selected: new Set<string>(), other: "" };
-  const answers = pending.questions.map((question, index) =>
-    answerText(question, stateAt(index)),
-  );
-  const complete = answers.every((answer) => answer.length > 0);
-
+  const answers = useQuestionAnswers();
+  const [picked, setPicked] = useState<string | null>(null);
+  const answered = picked ?? answers?.answerFor(question) ?? null;
   return (
-    <div className="bg-card space-y-5 rounded-xl border p-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]">
-      {pending.questions.map((question, index) => (
-        <QuestionBlock
-          key={`${pending.requestId}-${index}`}
-          question={question}
-          state={stateAt(index)}
-          onChange={(next) =>
-            setStates((current) =>
-              current.map((state, i) => (i === index ? next : state)),
-            )
-          }
-        />
-      ))}
-      <div className="flex items-center justify-between border-t pt-3">
-        {pending.questions.every(
-          (question) => question.dismissible !== false,
-        ) ? (
+    <div className="flex max-w-md min-w-0 flex-col gap-1.5">
+      {question.options.map((option) => {
+        const chosen = answered === option;
+        return (
           <button
+            key={option}
             type="button"
-            onClick={onDismiss}
-            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+            disabled={answered !== null || !answers}
+            onClick={() => {
+              setPicked(option);
+              answers?.answer(question, option);
+            }}
+            className={cn(
+              "bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm shadow-sm transition-colors",
+              answered === null
+                ? "hover:bg-muted/60 cursor-pointer"
+                : chosen
+                  ? "border-foreground/30"
+                  : "opacity-50",
+            )}
           >
-            Skip these questions
+            <span className="min-w-0 flex-1 truncate">{option}</span>
+            {chosen ? <Check size={14} className="text-emerald-500" /> : null}
           </button>
-        ) : (
-          <span />
-        )}
-        <Button
-          size="sm"
-          disabled={!complete}
-          onClick={() =>
-            onSubmit(
-              Object.fromEntries(
-                pending.questions.map((question, index) => [
-                  question.question,
-                  answers[index] ?? "",
-                ]),
-              ),
-            )
-          }
-        >
-          Send answers
-        </Button>
-      </div>
+        );
+      })}
     </div>
   );
 }

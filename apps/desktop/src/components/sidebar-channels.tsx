@@ -129,6 +129,7 @@ export function SidebarChannels({
   unreadChannelCounts,
   lastMessageAtByAgent,
   lastMessageAtByChannel,
+  workingAgentIds,
   unreadDirectMessageCounts,
   agents,
   onOpen,
@@ -136,7 +137,6 @@ export function SidebarChannels({
   onCreateChannel,
   onDeleteChannel,
   onSetChannelArchived,
-  onSetChannelPolicy,
   onUpdateChannel,
   onLeaveChannel,
   onPinnedChange,
@@ -158,6 +158,7 @@ export function SidebarChannels({
   unreadChannelCounts: ReadonlyMap<string, number>;
   lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
   lastMessageAtByChannel: ReadonlyMap<string, number>;
+  workingAgentIds: ReadonlySet<string>;
   unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
   agents: readonly { id: string; name: string; role: string }[];
   onOpen: (
@@ -176,10 +177,6 @@ export function SidebarChannels({
   onSetChannelArchived: (
     channelId: WorkspaceChannelId,
     archived: boolean,
-  ) => Promise<void>;
-  onSetChannelPolicy: (
-    channelId: WorkspaceChannelId,
-    agentPermissions: NonNullable<SidebarChannel["agentPermissions"]>,
   ) => Promise<void>;
   onUpdateChannel: (
     channelId: WorkspaceChannelId,
@@ -340,6 +337,7 @@ export function SidebarChannels({
                           unreadCount={
                             unreadDirectMessageCounts.get(item.id) ?? 0
                           }
+                          working={workingAgentIds.has(item.id)}
                         />
                       );
                     }
@@ -478,6 +476,7 @@ export function SidebarChannels({
         unreadChannelCounts={unreadChannelCounts}
         lastMessageAtByAgent={lastMessageAtByAgent}
         lastMessageAtByChannel={lastMessageAtByChannel}
+        workingAgentIds={workingAgentIds}
         agents={agents}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
@@ -528,7 +527,6 @@ export function SidebarChannels({
         }}
         onLeave={onLeaveChannel}
         onSetArchived={onSetChannelArchived}
-        onSetPolicy={onSetChannelPolicy}
         onUpdate={onUpdateChannel}
       />
     </DndContext>

@@ -123,4 +123,11 @@ export interface AgentComputer {
   remove(path: string, recursive?: boolean): Promise<void>;
   execute(command: string, cwd?: string): Promise<AgentComputerExecution>;
   git(argv: string[], cwd?: string): Promise<AgentComputerExecution>;
+  /** Clone a repository into the workspace, when the backend supports Git. */
+  clone?(options: {
+    url: string;
+    dir: string;
+    depth?: number;
+    headers?: Record<string, string>;
+  }): Promise<void>;
 }

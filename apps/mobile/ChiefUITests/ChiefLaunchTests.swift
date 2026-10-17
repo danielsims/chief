@@ -8,31 +8,26 @@ final class ChiefLaunchTests: XCTestCase {
     app.launch()
 
     XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["DMs"].exists)
+    XCTAssertTrue(app.buttons["Plugins"].exists)
     XCTAssertTrue(app.buttons["Projects"].exists)
-    XCTAssertTrue(app.buttons["Agents"].exists)
     XCTAssertTrue(app.staticTexts["Channels"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["DMs"].exists)
     XCTAssertFalse(app.navigationBars["Overview"].exists)
     XCTAssertTrue(
-      app.staticTexts["Good morning, Daniel"].exists
-        || app.staticTexts["Good afternoon, Daniel"].exists
-        || app.staticTexts["Good evening, Daniel"].exists)
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Good '")).firstMatch.exists)
+
+    app.buttons["Plugins"].tap()
+    XCTAssertTrue(app.staticTexts["Plugins"].waitForExistence(timeout: 3))
+    app.buttons["Projects"].tap()
+    XCTAssertTrue(app.buttons["Add project"].waitForExistence(timeout: 3))
+    app.buttons["Home"].tap()
 
     // Tapping a channel opens the conversation view with its messages.
     app.staticTexts["mission-control"].tap()
     XCTAssertTrue(
-      app.staticTexts[
-        "Morning Daniel. The team is moving. Engineering has the relay vertical slice ready for review."
+      app.textViews[
+        "The team is moving. Engineering has the relay vertical slice ready for review."
       ].waitForExistence(timeout: 4))
-
-    app.buttons["DMs"].tap()
-    XCTAssertTrue(app.staticTexts["DMs"].waitForExistence(timeout: 3))
-
-    app.buttons["Agents"].tap()
-    XCTAssertTrue(app.staticTexts["Agents"].waitForExistence(timeout: 3))
-
-    app.buttons["Projects"].tap()
-    XCTAssertTrue(app.buttons["Home"].exists)
   }
 
   func testSignedOutExperienceUsesTheAgentTeamPromise() {
@@ -57,7 +52,7 @@ final class ChiefLaunchTests: XCTestCase {
     XCTAssertTrue(app.buttons["Open profile"].waitForExistence(timeout: 5))
     app.buttons["workspace-switcher"].tap()
     XCTAssertTrue(app.navigationBars["Workspaces"].waitForExistence(timeout: 2))
-    XCTAssertTrue(app.buttons["Add workspace"].exists)
+    XCTAssertTrue(app.buttons["Create workspace"].exists)
   }
 
   func testOnboardingStaysRecoverableWhenRelayIsUnavailable() {
@@ -65,25 +60,25 @@ final class ChiefLaunchTests: XCTestCase {
     app.launchArguments = ["--preview-onboarding"]
     app.launch()
 
-    XCTAssertTrue(app.buttons["This iPhone"].waitForExistence(timeout: 5))
+    let company = app.textFields["Workspace name"]
+    XCTAssertTrue(company.waitForExistence(timeout: 5))
+    company.tap()
+    company.typeText("Chief Mobile QA")
+    app.buttons["Continue"].tap()
+    XCTAssertTrue(app.buttons["This iPhone"].waitForExistence(timeout: 2))
     app.buttons["This iPhone"].tap()
     app.buttons["Continue"].tap()
-    app.buttons["OpenCode Go"].tap()
+    app.buttons["OpenCode"].tap()
     let key = app.secureTextFields["OpenCode API key"]
     XCTAssertTrue(key.waitForExistence(timeout: 2))
     key.tap()
     key.typeText("chief-qa-key")
     app.buttons["Continue"].tap()
-    let company = app.textFields["Company name"]
-    XCTAssertTrue(company.waitForExistence(timeout: 2))
-    company.tap()
-    company.typeText("Chief Mobile QA")
-    app.buttons["Continue"].tap()
     app.buttons["Enter workspace"].tap()
 
     XCTAssertTrue(
-      app.staticTexts["Chief could not finish setting up this workspace. Try again."]
-        .waitForExistence(timeout: 5)
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Chief could not'"))
+        .firstMatch.waitForExistence(timeout: 5)
     )
     XCTAssertTrue(app.buttons["Enter workspace"].exists)
   }

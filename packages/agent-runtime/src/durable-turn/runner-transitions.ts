@@ -74,14 +74,18 @@ export function commitTurnInference(
 
   const result = response.content?.trim();
   if (!result || isBareSpeakerLabel(result)) {
-    if (turn.finalization && !hasEmptyFinalizationResponse(turn)) {
+    // A reasoning model occasionally ends a step with no user-facing text. Ask
+    // once more for the answer before failing the turn; the empty assistant
+    // message is retained so the retry is not repeated forever.
+    if (!hasEmptyFinalizationResponse(turn)) {
       return updatedTurn(turn, {
         messages: [
           ...messages,
           {
             role: "system",
-            content:
-              "Your previous finalization contained no user-facing answer. Return the concise final update now. Do not reason further and do not call a tool.",
+            content: turn.finalization
+              ? "Your previous finalization contained no user-facing answer. Return the concise final update now. Do not reason further and do not call a tool."
+              : "Your previous response contained no user-facing answer. Reply to the user now with a concise answer. Do not call a tool unless it is essential.",
           },
         ],
         inferenceSteps,
@@ -135,7 +139,8 @@ function hasEmptyFinalizationResponse(turn: DurableTurn) {
   return turn.messages.some(
     (message) =>
       message.role === "assistant" &&
-      !message.content?.trim() &&
+      (!message.content?.trim() ||
+        isBareSpeakerLabel(message.content.trim())) &&
       (message.toolCalls?.length ?? 0) === 0,
   );
 }

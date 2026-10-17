@@ -25,6 +25,7 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
+  agentConfigListSchema,
   agentConfigResultSchema,
   agentJobListSchema,
   agentLeaseSchema,
@@ -236,6 +237,13 @@ export class RelayClient extends RelayVercelProvisioning {
     );
     return await this.fetchJson(url, agentConfigResultSchema);
   }
+  async loadAgentConfigs(): Promise<AgentConfigResult[]> {
+    const { configs } = await this.fetchJson(
+      this.workspaceUrl("agents/configs"),
+      agentConfigListSchema,
+    );
+    return configs;
+  }
   async loadOwnAgentProfile(): Promise<AgentSummary> {
     return this.fetchJson(
       this.workspaceUrl("agents/self/profile"),
@@ -299,6 +307,23 @@ export class RelayClient extends RelayVercelProvisioning {
     );
   }
 
+  /** Stops the named agents' work in a conversation. */
+  async stopConversation(conversationId: string, agentIds: readonly string[]) {
+    const response = await this.fetchResponse(
+      this.workspaceUrl(
+        `conversations/${encodeURIComponent(conversationId)}/stop`,
+      ),
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentIds }),
+      },
+    );
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    await response.body?.cancel();
+  }
+
   async listAgentJobs(agentId: string) {
     const result = await this.fetchJson(
       this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/jobs`),
@@ -312,11 +337,12 @@ export class RelayClient extends RelayVercelProvisioning {
     agentId: string,
     workerId: string,
     leaseSeconds = 300,
+    jobId?: string,
   ): Promise<AgentLease | null> {
     const url = this.workspaceUrl(
       `agents/${encodeURIComponent(agentId)}/jobs/claim`,
     );
-    const body = JSON.stringify({ workerId, leaseSeconds });
+    const body = JSON.stringify({ workerId, leaseSeconds, jobId });
     const response = await this.fetchResponse(url, true, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -384,11 +410,19 @@ export class RelayClient extends RelayVercelProvisioning {
 
   async listMessages(
     conversationId: string,
-    input: { after?: number; limit?: number; recent?: boolean } = {},
+    input: {
+      after?: number;
+      limit?: number;
+      recent?: boolean;
+      /** With `recent`, the page before this sequence. */
+      before?: number;
+    } = {},
   ) {
     const url = this.conversationUrl(conversationId, "messages");
     appendPageQuery(url, input);
     if (input.recent) url.searchParams.set("recent", "true");
+    if (input.before !== undefined)
+      url.searchParams.set("before", String(input.before));
     return this.fetchJson(url, messagePageSchema);
   }
 

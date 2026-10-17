@@ -19,7 +19,7 @@ struct MessageComponentList: View {
   private var visibleComponents: [MessageComponent] {
     message.components.filter { component in
       switch component.kind {
-      case "artifact.reference", "action-request", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
+      case "artifact.reference", "question", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
       case "tool":
         component.payload["name"] == BrowserReleaseTool.name
           && component.payload["status"] == "completed"
@@ -33,9 +33,9 @@ struct MessageComponentList: View {
     switch component.kind {
     case "artifact.reference":
       ArtifactMessageComponent(message: message, component: component)
-    case "action-request":
-      ActionRequestMessageComponent(component: component) { option in
-        respond(to: component, with: option)
+    case "question":
+      QuestionMessageComponent(component: component) { option in
+        answer(with: option)
       }
     case "thinking":
       EmptyView()
@@ -66,7 +66,9 @@ struct MessageComponentList: View {
     }
   }
 
-  private func respond(to component: MessageComponent, with option: String) {
+  /// The answer is an ordinary reply in the question's thread, addressed to
+  /// the agent that asked, so it reaches that agent as its next turn.
+  private func answer(with option: String) {
     guard let workspaceID = model.workspace?.id else { return }
     guard let agentID = message.author.agentID else { return }
 
@@ -77,21 +79,14 @@ struct MessageComponentList: View {
           body: option,
           workspaceID: workspaceID,
           conversationID: message.conversationID,
-          threadRootID: message.threadRootID,
+          threadRootID: message.threadRootID ?? message.id,
           mentions: [agentID],
-          components: [
-            MessageComponent(
-              id: UUID().uuidString,
-              kind: "action-response",
-              payload: ["requestId": component.id, "selection": option]
-            )
-          ]
+          components: []
         )
         model.conversations.merge(response)
-        // The relay dispatches this response to the addressed agent cell.
       } catch {
         Haptics.error()
-        print("[Chief] action response failed: \(error)")
+        print("[Chief] question answer failed: \(error)")
       }
     }
   }
@@ -737,51 +732,42 @@ struct AgentRunErrorComponent: View {
   }
 }
 
-private struct ActionRequestMessageComponent: View {
+private struct QuestionMessageComponent: View {
   let component: MessageComponent
   let onSelect: (String) -> Void
   @State private var selectedOption: String?
 
   var body: some View {
-    ChiefCard {
-      VStack(alignment: .leading, spacing: 12) {
-        Label("Requires attention", systemImage: "exclamationmark.circle")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(ChiefTheme.accent)
-        Text(component.payload["title"] ?? "Choose an option")
-          .font(.system(size: 16, weight: .semibold))
-        ForEach(options, id: \.self) { option in
-          Button {
-            selectedOption = option
-            onSelect(option)
-          } label: {
-            HStack {
-              AgentMark(name: "Chief", size: 24)
-              Text(option)
-              Spacer()
-              if selectedOption == option {
-                Image(systemName: "checkmark")
-              }
-            }
-            .font(.system(size: 13, weight: .medium))
-            .padding(.horizontal, 10)
-            .frame(height: 42)
-            .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-              RoundedRectangle(cornerRadius: 10)
-                .stroke(selectedOption == option ? ChiefTheme.accent : ChiefTheme.line)
+    VStack(alignment: .leading, spacing: 8) {
+      ForEach(options, id: \.self) { option in
+        Button {
+          selectedOption = option
+          onSelect(option)
+        } label: {
+          HStack {
+            Text(option)
+            Spacer()
+            if selectedOption == option {
+              Image(systemName: "checkmark")
             }
           }
-          .buttonStyle(.plain)
+          .font(.system(size: 13, weight: .medium))
+          .padding(.horizontal, 10)
+          .frame(height: 42)
+          .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10))
+          .overlay {
+            RoundedRectangle(cornerRadius: 10)
+              .stroke(selectedOption == option ? ChiefTheme.accent : ChiefTheme.line)
+          }
         }
+        .buttonStyle(.plain)
+        .disabled(selectedOption != nil)
       }
     }
     .padding(.top, 4)
   }
 
-  private var options: [String] {
-    component.payload["options"]?.split(separator: "|").map(String.init) ?? []
-  }
+  private var options: [String] { component.payloadArrays["options"] ?? [] }
 }
 
 @MainActor

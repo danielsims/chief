@@ -401,21 +401,9 @@ export function SchedulePage() {
             },
             updatedAt: Date.now(),
           });
-          const actionItem = workspaceData.actionItems.find(
-            (item) =>
-              item.status === "open" &&
-              item.id === `action-${work.id}-approval`,
-          );
-          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
         }}
         onReject={(work) => {
           workspaceData.deleteRecurringWork(work.id);
-          const actionItem = workspaceData.actionItems.find(
-            (item) =>
-              item.status === "open" &&
-              item.id === `action-${work.id}-approval`,
-          );
-          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
         }}
         revision={{
           available: Boolean(revisionDriver),

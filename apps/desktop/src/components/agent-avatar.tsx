@@ -1,3 +1,7 @@
+import type { ComponentType } from "react";
+import { createContext, useContext } from "react";
+
+import type { AgentAvatar as AgentAvatarValue } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
@@ -5,40 +9,143 @@ import {
   WORKSPACE_AGENT_IDENTITIES,
   workspaceAgentIdentity,
 } from "../lib/workspace-channels";
+import { AgentAvatarSprite } from "./agent-avatar-sprite";
 import { ChiefMark } from "./chief-mark";
+
+/** A provider's logo and the tile it sits on, in its own brand colours. */
+export interface ProviderMark {
+  Mark: ComponentType<{ className?: string }>;
+  tileClassName: string;
+}
+
+/**
+ * What the app knows about how agents look: each agent's own avatar, and the
+ * provider logos used when an on-device agent has none. The app supplies it,
+ * so shared components never load workspace state or the icon library.
+ */
+export interface AgentAppearance {
+  avatars: ReadonlyMap<string, AgentAvatarValue>;
+  /** Agent ids by lowercased name, for views that only know an agent's name. */
+  agentIds: ReadonlyMap<string, string>;
+  /** Provider logos for on-device agents, by agent id. */
+  providerMarks: ReadonlyMap<string, ProviderMark>;
+}
+
+export const AgentAppearanceContext = createContext<AgentAppearance>({
+  avatars: new Map(),
+  agentIds: new Map(),
+  providerMarks: new Map(),
+});
+
+type Look =
+  | AgentAvatarValue
+  | ({ kind: "provider" } & ProviderMark)
+  | { kind: "mark"; color?: string };
+
+/** The one place that decides how an agent is drawn: its own avatar, then its
+ * provider's logo when it runs on this device, then Chief's mark. */
+function useAgentLook(requestedId: string | undefined, label: string): Look {
+  const { avatars, agentIds, providerMarks } = useContext(
+    AgentAppearanceContext,
+  );
+  const agentId = requestedId ?? agentIds.get(label.toLowerCase());
+  const identity = agentId
+    ? workspaceAgentIdentity(agentId)
+    : Object.values(WORKSPACE_AGENT_IDENTITIES).find(
+        (candidate) => candidate.name.toLowerCase() === label.toLowerCase(),
+      );
+  const avatar = agentId ? avatars.get(agentId) : undefined;
+  if (avatar) return avatar;
+  const provider =
+    agentId && !identity?.color ? providerMarks.get(agentId) : undefined;
+  if (provider) return { kind: "provider", ...provider };
+  return { kind: "mark", color: identity?.color };
+}
+
+const avatarCorners = {
+  circle: "rounded-full",
+  rounded: "rounded-[28%]",
+  square: "rounded-[14%]",
+} as const;
 
 export function AgentAvatar({
   className,
   agentId,
   label = "Chief agent",
   markClassName,
+  markTileClassName,
 }: {
   className?: string;
   agentId?: WorkspaceAgentId;
   label?: string;
   markClassName?: string;
+  /** Colours for Chief's own mark tile, leaving avatars and provider tiles
+   * in their own colours. */
+  markTileClassName?: string;
 }) {
-  const identity = agentId
-    ? workspaceAgentIdentity(agentId)
-    : Object.values(WORKSPACE_AGENT_IDENTITIES).find(
-        (candidate) => candidate.name.toLowerCase() === label.toLowerCase(),
-      );
-  return (
-    <span
-      style={
-        identity
-          ? {
-              backgroundColor: identity.color,
-              color: "#090909",
-            }
-          : undefined
-      }
-      className={cn(
-        "bg-foreground text-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-[28%] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
-        className,
-      )}
-    >
-      <ChiefMark className={cn("size-1/2", markClassName)} title={label} />
-    </span>
+  const look = useAgentLook(agentId, label);
+  const frame = cn(
+    "inline-flex size-8 shrink-0 items-center justify-center overflow-hidden",
+    look.kind === "style" ? avatarCorners[look.shape] : "rounded-[28%]",
+    className,
   );
+  switch (look.kind) {
+    case "image":
+      return (
+        <span className={cn(frame, "bg-muted")} title={label}>
+          <img src={look.url} alt="" className="size-full object-cover" />
+        </span>
+      );
+    case "sprite":
+      return (
+        <span className={frame} title={label}>
+          <AgentAvatarSprite sprite={look} />
+        </span>
+      );
+    case "style":
+      return (
+        <span
+          className={cn(frame, "text-[0.8em] font-semibold text-[#090909]")}
+          style={{ backgroundColor: look.color }}
+          title={label}
+        >
+          {look.glyph ?? (
+            <ChiefMark
+              className={cn("size-1/2", markClassName)}
+              title={label}
+            />
+          )}
+        </span>
+      );
+    case "provider":
+      return (
+        <span
+          className={cn(
+            frame,
+            "shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)]",
+            look.tileClassName,
+          )}
+          title={label}
+        >
+          <look.Mark className={cn("size-3/5", markClassName)} />
+        </span>
+      );
+    case "mark":
+      return (
+        <span
+          style={
+            look.color
+              ? { backgroundColor: look.color, color: "#090909" }
+              : undefined
+          }
+          className={cn(
+            frame,
+            "bg-foreground text-background shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
+            markTileClassName,
+          )}
+        >
+          <ChiefMark className={cn("size-1/2", markClassName)} title={label} />
+        </span>
+      );
+  }
 }
