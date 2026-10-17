@@ -249,9 +249,11 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     requiresAttention: Bool,
     lastMessage: String?,
     archived: Bool = false,
-    directUserID: String? = nil
+    directUserID: String? = nil,
+    directAgentID: String? = nil
   ) {
     self.directUserID = directUserID
+    self.directAgentID = directAgentID
     self.id = id
     self.name = name
     self.kind = kind
