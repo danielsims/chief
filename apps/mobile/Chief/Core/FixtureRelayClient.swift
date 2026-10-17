@@ -322,7 +322,8 @@ actor FixtureRelayClient: RelayServing {
             isPrivate: true,
             unreadCount: 0,
             requiresAttention: false,
-            lastMessage: nil
+            lastMessage: nil,
+            directAgentID: participantKind == "agent" ? participantID : nil
         )
     }
 
@@ -511,13 +512,16 @@ enum DemoWorkspace {
                 isPrivate: true,
                 unreadCount: 1,
                 requiresAttention: false,
-                lastMessage: "Morning. I pulled together your priorities."
+                lastMessage: "Morning. I pulled together your priorities.",
+                directAgentID: "chief"
             )
         ],
         agents: [
             .init(
                 id: "chief", name: "Chief", role: "Chief of staff", status: .working,
-                subagents: WorkspaceAgentCatalog.agents.filter { $0.id != "chief" }.map {
+                subagents: WorkspaceAgentCatalog.agents.filter {
+                    !["chief", "engineer", "brand"].contains($0.id)
+                }.map {
                     AgentProfile(id: $0.id, name: $0.name, role: $0.role)
                 }
             ),
