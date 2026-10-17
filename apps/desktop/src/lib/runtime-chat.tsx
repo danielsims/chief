@@ -172,6 +172,21 @@ export function useRuntimeChat(
       if (
         msg.type === "history" &&
         msg.workspaceId === cloudOrganizationId &&
+        msg.chatId === chatId &&
+        msg.older
+      ) {
+        setMessages((current) => {
+          const shown = new Set(current.map((message) => message.id));
+          return [
+            ...msg.messages.filter((message) => !shown.has(message.id)),
+            ...current,
+          ];
+        });
+        return;
+      }
+      if (
+        msg.type === "history" &&
+        msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
         pendingStreamRef.current = replayStreamingText(msg.events);
@@ -338,6 +353,17 @@ export function useRuntimeChat(
     }
   };
 
+  const loadOlder = () => {
+    if (chatId && cloudOrganizationId && executorCapability) {
+      client.send({
+        type: "loadOlderHistory",
+        workspaceId: cloudOrganizationId,
+        chatId,
+        executorCapability,
+      });
+    }
+  };
+
   const sendMessageWithContext = useCallback(
     (
       text: string,
@@ -447,6 +473,7 @@ export function useRuntimeChat(
     sendMessage,
     sendMessageWithContext,
     interrupt,
+    loadOlder,
     stop,
     chatReady: activeChatReady || conversationResolved,
     // The first visit waits for both transcript and channel events. Once that

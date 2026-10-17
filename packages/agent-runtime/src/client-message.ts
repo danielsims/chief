@@ -236,6 +236,13 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      /** Loads the page of a chat's history before what it has shown. */
+      type: "loadOlderHistory";
+      workspaceId: string;
+      chatId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
       type: "deleteChat";
       chatId: string;
       workspaceId: string;

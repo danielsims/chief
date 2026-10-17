@@ -44,12 +44,16 @@ import {
   relayRuntimeErrorMessage,
 } from "./relay-runtime-errors";
 import {
+  channelEventsMessage,
+  historyMessage,
+  HistoryPages,
+} from "./relay-runtime-history";
+import {
   agentRunEvent,
   agentWorkingChange,
   browserRuntimeEvent,
   directAgentId,
   isAgentActivityProjection,
-  toChannelEvents,
   toChannelMessageEvent,
   toChiefMessage,
 } from "./relay-runtime-mappers";
@@ -72,6 +76,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private subscribedConversationIds = new Set<string>();
   private workspaceCursor: number | undefined;
   private conversationIdsByChat = new Map<string, string>();
+  private readonly history: HistoryPages;
   private chatOpenRequests = new Map<string, symbol>();
   private messagesById = new Map<string, ConversationMessage>();
   private readonly devicePubkey = isTauri()
@@ -119,6 +124,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
   ) {
     this.snapshot = snapshot;
     this.workspaceCursor = loadWorkspaceCursor(snapshot.id);
+    this.history = new HistoryPages(relay, (message) =>
+      this.rememberMessage(message),
+    );
   }
   setStatusListener(listener: (status: RuntimeConnectionStatus) => void) {
     this.statusListener = listener;
@@ -216,6 +224,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.chatOpenRequests.delete(message.chatId);
         this.conversationIdsByChat.delete(message.chatId);
         return;
+      case "loadOlderHistory":
+        return this.loadOlderHistory(message.chatId);
     }
     if (isRelayWorkspaceDataCommand(message)) {
       await routeRelayWorkspaceDataCommand(message, {
@@ -482,13 +492,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const isCurrent = () =>
       !this.closed && this.chatOpenRequests.get(chatId) === request;
     try {
-      const page = await this.relay.listMessages(conversationId, {
-        limit: 200,
-        recent: true,
-      });
+      const messages = await this.history.newest(conversationId);
       if (!isCurrent()) return;
       const agentId = directAgentId(conversationId, this.snapshot);
-      for (const message of page.messages) this.rememberMessage(message);
       this.emit({
         type: "chatOpened",
         workspaceId: this.snapshot.id,
@@ -496,17 +502,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
         visibility: "user",
         ...(agentId ? { agentId } : undefined),
       });
-      this.emit({
-        type: "history",
-        workspaceId: this.snapshot.id,
-        chatId,
-        messages: page.messages.map((message) => toChiefMessage(message)),
-        events: page.messages.flatMap((message) => {
-          const event = agentRunEvent(message);
-          return event ? [event] : [];
-        }),
-        running: false,
-      });
+      this.emit(historyMessage(this.snapshot.id, chatId, messages));
       await this.subscribeConversation(conversationId);
     } catch (error) {
       // A late response from a closed or replaced view is no longer actionable.
@@ -515,21 +511,28 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
 
   private async openChannelEvents(conversationId: string) {
-    const page = await this.relay.listMessages(conversationId, {
-      limit: 200,
-      recent: true,
-    });
-    for (const message of page.messages) this.rememberMessage(message);
-    const currentPubkey = await this.devicePubkey;
-    this.emit({
-      type: "channelEvents",
-      workspaceId: this.snapshot.id,
-      channelId: conversationId,
-      events: page.messages.flatMap((message) =>
-        toChannelEvents(message, this.snapshot, currentPubkey),
-      ),
-    });
+    const messages = await this.history.newest(conversationId);
+    await this.emitChannelEvents(conversationId, messages);
     await this.subscribeConversation(conversationId);
+  }
+
+  private async emitChannelEvents(
+    conversationId: string,
+    messages: readonly ConversationMessage[],
+  ) {
+    const pubkey = await this.devicePubkey;
+    this.emit(
+      channelEventsMessage(this.snapshot, conversationId, messages, pubkey),
+    );
+  }
+
+  /** Shows the page before what a chat has, in both transcript and channel. */
+  private async loadOlderHistory(chatId: string) {
+    const conversationId = this.conversationIdForChat(chatId);
+    const messages = await this.history.older(conversationId);
+    if (!messages) return;
+    this.emit(historyMessage(this.snapshot.id, chatId, messages, true));
+    await this.emitChannelEvents(conversationId, messages);
   }
 
   private async subscribeConversation(conversationId: string) {
@@ -695,14 +698,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     message: Extract<ClientMessage, { type: "reactToChannelMessage" }>,
   ) {
     const pubkey = await this.devicePubkey;
-    let target = this.messagesById.get(message.messageId);
-    if (!target) {
-      const page = await this.relay.listMessages(message.channelId, {
-        limit: 200,
-      });
-      for (const item of page.messages) this.rememberMessage(item);
-      target = this.messagesById.get(message.messageId);
-    }
+    // A message someone can react to is already on screen, so it is known.
+    const target = this.messagesById.get(message.messageId);
     const reacted = Boolean(
       pubkey &&
       target?.reactions.some(
@@ -718,7 +715,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       !reacted,
     );
     this.rememberMessage(result.message);
-    await this.openChannelEvents(message.channelId);
+    await this.emitChannelEvents(message.channelId, [result.message]);
   }
   private emit(message: ServerMessage) {
     for (const listener of this.listeners) listener(message);
