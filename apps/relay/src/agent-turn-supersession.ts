@@ -38,6 +38,7 @@ export async function supersedeConversationTurn(input: {
   loadJob: (jobId: string) => ConversationJob | undefined;
 }) {
   const active = await input.turns.active();
+  let cancelledHostedTurn = false;
   if (
     active &&
     inConversationScope(input.scope, active.conversationId, active.threadRootId)
@@ -49,11 +50,15 @@ export async function supersedeConversationTurn(input: {
       job.kind === "conversation.message"
     ) {
       await input.turns.cancelActive();
+      cancelledHostedTurn = true;
     }
   }
+  // A new message steers a run already going on a device rather than
+  // replacing it; only Stop, or a hosted turn just cancelled, ends it.
   const superseded = await input.queue.supersedeConversation(
     input.scope,
     input.replacementJobId,
+    input.replacementJobId !== undefined && !cancelledHostedTurn,
   );
   return superseded.length > 0;
 }

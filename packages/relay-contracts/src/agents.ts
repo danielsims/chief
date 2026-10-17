@@ -253,6 +253,8 @@ export const claimAgentJobSchema = z
   .object({
     workerId: z.string().trim().min(1).max(128),
     leaseSeconds: z.int().min(5).max(300).default(60),
+    /** Claims this job only, to steer it into a run already going. */
+    jobId: jobIdSchema.optional(),
   })
   .strict();
 
