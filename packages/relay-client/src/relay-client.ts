@@ -410,11 +410,19 @@ export class RelayClient extends RelayVercelProvisioning {
 
   async listMessages(
     conversationId: string,
-    input: { after?: number; limit?: number; recent?: boolean } = {},
+    input: {
+      after?: number;
+      limit?: number;
+      recent?: boolean;
+      /** With `recent`, the page before this sequence. */
+      before?: number;
+    } = {},
   ) {
     const url = this.conversationUrl(conversationId, "messages");
     appendPageQuery(url, input);
     if (input.recent) url.searchParams.set("recent", "true");
+    if (input.before !== undefined)
+      url.searchParams.set("before", String(input.before));
     return this.fetchJson(url, messagePageSchema);
   }
 

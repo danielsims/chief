@@ -173,11 +173,20 @@ export class SqlConversationStore implements ConversationStore {
     });
   }
 
-  recent(limit: number) {
-    const rows = [...messagesFindRecent<MessageRow>(this.storage, limit)];
+  /** The newest page before `before`; `nextSequence` pages further back. */
+  recent(limit: number, before?: number) {
+    const messages = [
+      ...messagesFindRecent<MessageRow>(this.storage, limit, before),
+    ]
+      .reverse()
+      .map(toMessage);
+    const conversational = messages.filter(
+      (message) => message.author.kind !== "agent" || message.body !== "",
+    );
     return messagePageSchema.parse({
-      messages: rows.reverse().map(toMessage),
-      nextSequence: null,
+      messages,
+      nextSequence:
+        conversational.length === limit ? conversational[0]?.sequence : null,
     });
   }
 
