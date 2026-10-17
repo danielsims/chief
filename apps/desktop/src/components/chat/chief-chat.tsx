@@ -131,6 +131,7 @@ export function ChiefChat({
     composerOpen,
     draft,
     imageAttachments,
+    mainContentRef,
     mainScrolledUp,
     mainScrollRef,
     openAgentMention,
@@ -141,11 +142,10 @@ export function ChiefChat({
     setComposerOpen,
     setDraft,
     setImageAttachments,
+    scrollMainToBottom,
     setThreadRootId,
     submit,
-    suppressThreadAutoScrollRef,
     threadRootId,
-    threadScrollRef,
   } = composerState;
   const timelineState = useChiefChatTimeline({
     activeChild,
@@ -162,9 +162,7 @@ export function ChiefChat({
     messages,
     optimisticInitialPrompt,
     setVisibleThread,
-    suppressThreadAutoScrollRef,
     threadRootId,
-    threadScrollRef,
   });
   const {
     activeMainChildSessions,
@@ -240,139 +238,145 @@ export function ChiefChat({
               <div
                 ref={mainScrollRef}
                 data-chat-timeline
-                className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
+                className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-6 pr-2"
               >
-                {composerOpen && messages.length === 0 ? (
-                  <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center py-6">
-                    <RecurringWorkComposer
-                      mode={composer === "oneoff" ? "one-off" : "recurring"}
-                      date={composerDate}
-                      playbookId={composerPlaybookId}
-                      onCompose={composeSchedule}
-                      onSubmit={submit}
-                      onDismiss={() => setComposerOpen(false)}
+                <div
+                  ref={mainContentRef}
+                  className="flex min-h-full flex-col space-y-3"
+                >
+                  {composerOpen && messages.length === 0 ? (
+                    <div className="mx-auto flex w-full max-w-3xl flex-1 items-center justify-center py-6">
+                      <RecurringWorkComposer
+                        mode={composer === "oneoff" ? "one-off" : "recurring"}
+                        date={composerDate}
+                        playbookId={composerPlaybookId}
+                        onCompose={composeSchedule}
+                        onSubmit={submit}
+                        onDismiss={() => setComposerOpen(false)}
+                      />
+                    </div>
+                  ) : null}
+                  {!timelineReady &&
+                  !composerOpen &&
+                  !showOptimisticInitialPrompt ? (
+                    <ChatSkeleton />
+                  ) : null}
+                  {channelResolved &&
+                  agentsLoaded &&
+                  !composerOpen &&
+                  messages.length === 0 &&
+                  !showOptimisticInitialPrompt ? (
+                    <ConversationEmptyState
+                      channel={channel}
+                      directAgent={directAgent}
                     />
-                  </div>
-                ) : null}
-                {!timelineReady &&
-                !composerOpen &&
-                !showOptimisticInitialPrompt ? (
-                  <ChatSkeleton />
-                ) : null}
-                {channelResolved &&
-                agentsLoaded &&
-                !composerOpen &&
-                messages.length === 0 &&
-                !showOptimisticInitialPrompt ? (
-                  <ConversationEmptyState
-                    channel={channel}
-                    directAgent={directAgent}
-                  />
-                ) : null}
-                {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
-                  <UserMessage
-                    text={optimisticInitialPrompt}
-                    author={userAuthor}
-                    channelReferences={channelReferences}
-                    onOpenChannel={onOpenChannel}
-                    onOpenProfile={openUserProfile}
-                    onOpenMention={openAgentMention}
-                  />
-                ) : null}
-                {timelineReady ? (
-                  <ChatTimeline
-                    entries={timelineEntries}
-                    renderEntry={(entry) => {
-                      if (entry.type === "browser") {
-                        return browserAttachmentNode(entry.run);
-                      }
-                      if (entry.type === "specialist") return null;
-                      const { message } = entry;
-                      if (message.metadata?.scheduledRun)
-                        return (
-                          <div className="mx-auto w-full max-w-3xl py-2 pl-11">
-                            <ScheduledRunMessage
-                              run={message.metadata.scheduledRun}
-                              progress={core.scheduleRuns.find(
-                                (run) =>
-                                  run.id ===
-                                  message.metadata?.scheduledRun?.runId,
-                              )}
-                              onOpen={() => setThreadRootId(message.id)}
+                  ) : null}
+                  {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
+                    <UserMessage
+                      text={optimisticInitialPrompt}
+                      author={userAuthor}
+                      channelReferences={channelReferences}
+                      onOpenChannel={onOpenChannel}
+                      onOpenProfile={openUserProfile}
+                      onOpenMention={openAgentMention}
+                    />
+                  ) : null}
+                  {timelineReady ? (
+                    <ChatTimeline
+                      entries={timelineEntries}
+                      renderEntry={(entry) => {
+                        if (entry.type === "browser") {
+                          return browserAttachmentNode(entry.run);
+                        }
+                        if (entry.type === "specialist") return null;
+                        const { message } = entry;
+                        if (message.metadata?.scheduledRun)
+                          return (
+                            <div className="mx-auto w-full max-w-3xl py-2 pl-11">
+                              <ScheduledRunMessage
+                                run={message.metadata.scheduledRun}
+                                progress={core.scheduleRuns.find(
+                                  (run) =>
+                                    run.id ===
+                                    message.metadata?.scheduledRun?.runId,
+                                )}
+                                onOpen={() => setThreadRootId(message.id)}
+                              />
+                            </div>
+                          );
+                        if (message.metadata?.channelAction) {
+                          return (
+                            <ChannelMembershipMessage
+                              action={message.metadata.channelAction}
+                              currentUserId={currentUser?.id}
+                              timestamp={message.metadata.createdAt}
+                              userImage={userAuthor.image}
                             />
-                          </div>
-                        );
-                      if (message.metadata?.channelAction) {
+                          );
+                        }
+                        if (message.role === "user") {
+                          if (message.id === `${chatId}-kickoff`) return null;
+                          return (
+                            <div id={`chief-message-${message.id}`}>
+                              <UserMessage
+                                continued={continuedIds.has(message.id)}
+                                author={authorFor(message)}
+                                {...(message.metadata?.guest
+                                  ? { guest: message.metadata.guest }
+                                  : undefined)}
+                                attachments={imageParts(message)}
+                                channelReferences={channelReferences}
+                                onOpenChannel={onOpenChannel}
+                                {...(message.metadata?.guest
+                                  ? undefined
+                                  : {
+                                      onOpenProfile: openAuthorProfile(message),
+                                    })}
+                                onOpenMention={openAgentMention}
+                                timestamp={message.metadata?.createdAt}
+                                {...controlsForMessage(message)}
+                                text={messageBlocks(message)
+                                  .flatMap((part) =>
+                                    part.type === "text" ? [part.text] : [],
+                                  )
+                                  .join("\n")}
+                              />
+                            </div>
+                          );
+                        }
+                        if (message.role !== "assistant") return null;
+                        const timelineBlocks =
+                          visibleConversationBlocks(message);
+                        if (timelineBlocks.length === 0) return null;
+                        const timelineFilter = visibleConversationBlocks;
                         return (
-                          <ChannelMembershipMessage
-                            action={message.metadata.channelAction}
-                            currentUserId={currentUser?.id}
-                            timestamp={message.metadata.createdAt}
-                            userImage={userAuthor.image}
-                          />
-                        );
-                      }
-                      if (message.role === "user") {
-                        if (message.id === `${chatId}-kickoff`) return null;
-                        return (
-                          <div id={`chief-message-${message.id}`}>
-                            <UserMessage
-                              continued={continuedIds.has(message.id)}
-                              author={authorFor(message)}
-                              {...(message.metadata?.guest
-                                ? { guest: message.metadata.guest }
-                                : undefined)}
-                              attachments={imageParts(message)}
+                          <ChiefMessage
+                            messageId={message.id}
+                            agent={respondingAgentFor(message)}
+                            onOpenProfile={selectProfile}
+                            timestamp={message.metadata?.createdAt}
+                            {...controlsForMessage(message)}
+                          >
+                            <MessageBlocksContent
+                              message={message}
+                              filter={timelineFilter}
+                              progress={controls.toolProgress}
+                              capabilities={activeCapabilities}
+                              active={controls.status === "running"}
+                              tasks={childSessions}
+                              taskOwners={childSessionOwners}
+                              ownerId={message.id}
                               channelReferences={channelReferences}
                               onOpenChannel={onOpenChannel}
-                              {...(message.metadata?.guest
-                                ? undefined
-                                : {
-                                    onOpenProfile: openAuthorProfile(message),
-                                  })}
-                              onOpenMention={openAgentMention}
-                              timestamp={message.metadata?.createdAt}
-                              {...controlsForMessage(message)}
-                              text={messageBlocks(message)
-                                .flatMap((part) =>
-                                  part.type === "text" ? [part.text] : [],
-                                )
-                                .join("\n")}
+                              onOpenTask={onOpenChild}
                             />
-                          </div>
+                          </ChiefMessage>
                         );
-                      }
-                      if (message.role !== "assistant") return null;
-                      const timelineBlocks = visibleConversationBlocks(message);
-                      if (timelineBlocks.length === 0) return null;
-                      const timelineFilter = visibleConversationBlocks;
-                      return (
-                        <ChiefMessage
-                          messageId={message.id}
-                          agent={respondingAgentFor(message)}
-                          onOpenProfile={selectProfile}
-                          timestamp={message.metadata?.createdAt}
-                          {...controlsForMessage(message)}
-                        >
-                          <MessageBlocksContent
-                            message={message}
-                            filter={timelineFilter}
-                            progress={controls.toolProgress}
-                            capabilities={activeCapabilities}
-                            active={controls.status === "running"}
-                            tasks={childSessions}
-                            taskOwners={childSessionOwners}
-                            ownerId={message.id}
-                            channelReferences={channelReferences}
-                            onOpenChannel={onOpenChannel}
-                            onOpenTask={onOpenChild}
-                          />
-                        </ChiefMessage>
-                      );
-                    }}
-                  />
-                ) : null}
-                <div ref={bottomRef} />
+                      }}
+                    />
+                  ) : null}
+                  <div ref={bottomRef} />
+                </div>
               </div>
               <div
                 ref={pictureInPictureComposerRef}
@@ -382,12 +386,7 @@ export function ChiefChat({
                   <button
                     type="button"
                     aria-label="Scroll to latest"
-                    onClick={() =>
-                      mainScrollRef.current?.scrollTo({
-                        top: mainScrollRef.current.scrollHeight,
-                        behavior: "smooth",
-                      })
-                    }
+                    onClick={() => void scrollMainToBottom("smooth")}
                     className="bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring/30 absolute -top-12 left-1/2 z-20 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition-colors outline-none focus-visible:ring-2"
                   >
                     <ArrowDown size={16} />

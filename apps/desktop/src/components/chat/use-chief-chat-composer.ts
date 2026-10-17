@@ -14,7 +14,7 @@ import type { ComposerImageAttachment } from "./composer-image-attachments";
 import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
-import { useStickToBottom } from "./use-stick-to-bottom";
+import { useConversationScroll } from "./use-stick-to-bottom";
 
 type Core = ReturnType<typeof useChiefChatCore>;
 
@@ -153,8 +153,6 @@ export function useChiefChatComposer({
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadBottomRef = useRef<HTMLDivElement>(null);
-  const mainScrollRef = useRef<HTMLDivElement>(null);
-  const threadScrollRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
   const approveRecurringWork = useEffectEvent(
     (proposed: (typeof workspaceData.recurringWork)[number]) => {
@@ -176,20 +174,6 @@ export function useChiefChatComposer({
     onInitialPromptSent?.();
   });
 
-  const [mainScrolledUp, setMainScrolledUp] = useState(false);
-  useEffect(() => {
-    const container = mainScrollRef.current;
-    if (!container) return;
-    const onScroll = () => {
-      const nearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        120;
-      setMainScrolledUp(!nearBottom);
-    };
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
-  }, []);
-
   useEffect(() => {
     const intent = autoApproveRef.current;
     if (!intent) return;
@@ -208,11 +192,14 @@ export function useChiefChatComposer({
     approveRecurringWork(proposed);
   }, [workspaceData.recurringWork]);
 
-  // A conversation opened to show a specific message stays on that message.
-  useStickToBottom(
-    mainScrollRef,
+  // A conversation or thread opened to show one message stays on it.
+  const main = useConversationScroll(
     chatId,
     () => !suppressMainAutoScrollRef.current,
+  );
+  const thread = useConversationScroll(
+    threadRootId,
+    () => !suppressThreadAutoScrollRef.current,
   );
 
   useEffect(() => {
@@ -264,8 +251,10 @@ export function useChiefChatComposer({
     composerOpen,
     draft,
     imageAttachments,
-    mainScrolledUp,
-    mainScrollRef,
+    mainContentRef: main.contentRef,
+    mainScrolledUp: !main.isAtBottom,
+    mainScrollRef: main.scrollRef,
+    scrollMainToBottom: main.scrollToBottom,
     openAgentMention,
     openUserProfile,
     openAuthorProfile,
@@ -278,11 +267,11 @@ export function useChiefChatComposer({
     setThreadImageAttachments,
     setThreadRootId,
     submit,
-    suppressThreadAutoScrollRef,
     threadBottomRef,
+    threadContentRef: thread.contentRef,
     threadDraft,
     threadImageAttachments,
     threadRootId,
-    threadScrollRef,
+    threadScrollRef: thread.scrollRef,
   };
 }

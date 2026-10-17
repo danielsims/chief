@@ -1,4 +1,3 @@
-import type { RefObject } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChiefUIMessage, SessionRecord } from "@chief/agent-runtime/types";
@@ -20,7 +19,6 @@ import {
   specialistTaskBelongsToConversation,
   specialistTaskOwners,
 } from "./specialist-task-display";
-import { useStickToBottom } from "./use-stick-to-bottom";
 
 type ReadState = ReturnType<typeof useChannelReadState>;
 type Runtime = ReturnType<typeof useRuntime>;
@@ -60,9 +58,7 @@ export function useChiefChatTimeline({
   messages,
   optimisticInitialPrompt,
   setVisibleThread,
-  suppressThreadAutoScrollRef,
   threadRootId,
-  threadScrollRef,
 }: {
   activeChild?: SessionRecord;
   anchorBrowserSession: Runtime["anchorBrowserSession"];
@@ -78,9 +74,7 @@ export function useChiefChatTimeline({
   messages: readonly ChiefUIMessage[];
   optimisticInitialPrompt: string | null;
   setVisibleThread: ReadState["setVisibleThread"];
-  suppressThreadAutoScrollRef: RefObject<boolean>;
   threadRootId: string | null;
-  threadScrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const showOptimisticInitialPrompt = Boolean(
     optimisticInitialPrompt &&
@@ -199,12 +193,6 @@ export function useChiefChatTimeline({
     setVisibleThread,
     threadRootId,
   ]);
-  // A thread opened to show a specific message stays on that message.
-  useStickToBottom(
-    threadScrollRef,
-    threadRootId,
-    () => !suppressThreadAutoScrollRef.current,
-  );
   const activeThreadAudience = useMemo(
     () =>
       threadAgentAudience(

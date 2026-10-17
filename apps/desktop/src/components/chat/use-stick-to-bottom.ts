@@ -1,47 +1,23 @@
-import type { RefObject } from "react";
 import { useLayoutEffect } from "react";
-
-const BOTTOM_THRESHOLD_PX = 80;
+import { useStickToBottom } from "use-stick-to-bottom";
 
 /**
- * Keeps a scrolling timeline at its newest content while the reader is at the
- * bottom. Whether they are is decided by their own scrolling, before content
- * grows, so a long new message or streamed text never unpins them, and
- * scrolling up to read is never interrupted.
+ * Keeps a conversation at its newest content while the reader is at the
+ * bottom. use-stick-to-bottom stops following when they scroll up or select
+ * text, so reading and copying are never interrupted. Each newly opened
+ * conversation starts at the bottom, unless it opened to show one message.
  */
-export function useStickToBottom(
-  containerRef: RefObject<HTMLElement | null>,
+export function useConversationScroll(
   key: string | null,
   startAtBottom: () => boolean,
 ) {
+  const scroll = useStickToBottom({ initial: "instant", resize: "instant" });
   useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!key || !container) return;
-    let pinned = startAtBottom();
-    const follow = () => {
-      if (pinned) container.scrollTop = container.scrollHeight;
-    };
-    const onScroll = () => {
-      pinned =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        BOTTOM_THRESHOLD_PX;
-    };
-    follow();
-    container.addEventListener("scroll", onScroll, { passive: true });
-    const mutations = new MutationObserver(follow);
-    mutations.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    const resizes = new ResizeObserver(follow);
-    resizes.observe(container);
-    return () => {
-      container.removeEventListener("scroll", onScroll);
-      mutations.disconnect();
-      resizes.disconnect();
-    };
-    // startAtBottom is read once per opened timeline.
+    if (!key) return;
+    if (startAtBottom()) void scroll.scrollToBottom("instant");
+    else scroll.stopScroll();
+    // startAtBottom is read once per opened conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef, key]);
+  }, [key]);
+  return scroll;
 }
