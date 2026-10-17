@@ -11,7 +11,6 @@ import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
-import { channelMembersDeleteDirectBackfillOwners } from "./queries/channel-members/delete-direct-backfill-owners";
 import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
 import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
@@ -426,7 +425,6 @@ export class WorkspaceChannelStore {
       workspace.created_at,
     );
     this.seedSnapshotAgents(snapshot, workspace.created_at);
-    channelMembersDeleteDirectBackfillOwners(this.storage);
   }
 
   /** Managed agents exist independently of a device key. A phone/desktop may

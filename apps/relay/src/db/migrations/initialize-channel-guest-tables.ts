@@ -79,21 +79,4 @@ export function initializeChannelGuestTables(storage: DurableObjectStorage) {
       storage.sql.exec(`ALTER TABLE channel_guests ADD COLUMN ${name} TEXT`);
     }
   }
-  // Every agent now works for a member. Ones admitted anonymously by
-  // pre-release public links have no one vouching for them, so they go.
-  storage.sql.exec(`
-    DELETE FROM channel_guest_subscriptions WHERE guest_id IN (
-      SELECT guest_id FROM channel_guests WHERE operator_user_id IS NULL
-    );
-    DELETE FROM channel_guest_outbox WHERE guest_id IN (
-      SELECT guest_id FROM channel_guests WHERE operator_user_id IS NULL
-    );
-    UPDATE channel_guests
-       SET status = 'removed',
-           removed_at = COALESCE(removed_at, datetime('now')),
-           webhook_url = NULL,
-           webhook_authorization = NULL,
-           webhook_secret = NULL
-     WHERE operator_user_id IS NULL AND status = 'active';
-  `);
 }
