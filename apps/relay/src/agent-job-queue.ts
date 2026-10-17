@@ -9,6 +9,7 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
+  isJsonString,
   messageIdSchema,
   parseJsonObject,
   parseJsonString,
@@ -120,7 +121,12 @@ export class AgentJobQueue {
     const input = claimAgentJobSchema.parse(await parseJson(request));
     const now = new Date();
     const candidate = firstAgentRow<{ job_id: string; job_json: string }>(
-      jobsFindClaim(this.storage, now.toISOString(), now.toISOString()),
+      jobsFindClaim(
+        this.storage,
+        now.toISOString(),
+        now.toISOString(),
+        input.jobId,
+      ),
     );
     if (!candidate) {
       await this.scheduleNextAlarm();
@@ -296,44 +302,51 @@ export class AgentJobQueue {
     return json({ leaseExpiresAt });
   }
 
+  /**
+   * Ends conversation work a new message or Stop replaces. With `steer`, a
+   * new message joins a run already going in its thread instead: every
+   * message is kept and the device running the thread folds them in, so
+   * nothing is replaced while that run lasts.
+   */
   async supersedeConversation(
     scope: ConversationScope,
     replacementJobId?: string,
+    steer = false,
   ) {
+    const inScope = [
+      ...jobsFindSupersedeConversation<{ job_json: string }>(this.storage),
+    ]
+      .map((row) => agentJobSchema.parse(JSON.parse(row.job_json)))
+      .filter(
+        (job) =>
+          job.id !== replacementJobId &&
+          job.kind === "conversation.message" &&
+          inConversationScope(
+            scope,
+            job.payload.conversationId,
+            job.payload.threadRootId,
+          ),
+      );
+    if (steer && inScope.some((job) => job.status === "leased")) return [];
     const now = new Date().toISOString();
-    const superseded: string[] = [];
-    for (const row of jobsFindSupersedeConversation<{ job_json: string }>(
-      this.storage,
-    )) {
-      const previous = agentJobSchema.parse(JSON.parse(row.job_json));
-      if (
-        previous.id === replacementJobId ||
-        previous.kind !== "conversation.message" ||
-        !inConversationScope(
-          scope,
-          previous.payload.conversationId,
-          previous.payload.threadRootId,
-        )
-      ) {
-        continue;
-      }
-      const job = agentJobSchema.parse({
-        ...previous,
-        status: "completed",
-        leaseExpiresAt: null,
-        updatedAt: now,
-      });
+    for (const previous of inScope) {
       jobsUpdateSupersedeConversation(this.storage, {
-        jobJson: JSON.stringify(job),
+        jobJson: JSON.stringify(
+          agentJobSchema.parse({
+            ...previous,
+            status: "completed",
+            leaseExpiresAt: null,
+            updatedAt: now,
+          }),
+        ),
         updatedAt: now,
-        jobId: job.id,
+        jobId: previous.id,
       });
-      superseded.push(job.id);
       if (previous.status === "leased") {
         await this.publishRun(previous, "completed");
       }
     }
-    return superseded;
+    return inScope.map((job) => job.id);
   }
 
   maintainHostedLease(
@@ -486,7 +499,18 @@ export class AgentJobQueue {
     this.broadcast({
       type: "agent.job.available",
       occurredAt,
-      payload: { agentId: job.agentId, jobId: job.id, kind: job.kind },
+      payload: {
+        agentId: job.agentId,
+        jobId: job.id,
+        kind: job.kind,
+        // Lets a device already working in this thread claim it to steer.
+        ...(isJsonString(job.payload.conversationId)
+          ? { conversationId: job.payload.conversationId }
+          : undefined),
+        ...(isJsonString(job.payload.threadRootId)
+          ? { threadRootId: job.payload.threadRootId }
+          : undefined),
+      },
     });
   }
 
