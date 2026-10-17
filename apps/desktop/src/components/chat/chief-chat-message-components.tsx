@@ -120,7 +120,7 @@ function ConversationEmptyState({
   directAgent?: { name: string };
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
       <p className="text-2xl font-medium tracking-[-0.03em]">
         {channel ? `#${channel.label}` : (directAgent?.name ?? "Chief")}
       </p>
