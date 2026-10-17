@@ -1,4 +1,4 @@
-import { desc, sql } from "drizzle-orm";
+import { and, desc, lt, sql } from "drizzle-orm";
 
 import { relayDatabase } from "../../db/connection";
 import { executeDatabaseQuery } from "../../db/execute";
@@ -13,7 +13,7 @@ import { messages } from "../../db/schema/messages";
  */
 export function messagesFindRecent<
   Row extends Record<string, SqlStorageValue> = Record<string, SqlStorageValue>,
->(storage: DurableObjectStorage, limit: number) {
+>(storage: DurableObjectStorage, limit: number, before?: number) {
   const db = relayDatabase(storage);
   // Kept literal so SQLite can match messages_conversational_idx.
   const conversational = sql`(${messages.author_kind} <> 'agent' OR ${messages.body} <> '')`;
@@ -22,7 +22,7 @@ export function messagesFindRecent<
       db
         .select()
         .from(messages)
-        .where(where)
+        .where(and(where, before ? lt(messages.sequence, before) : undefined))
         .orderBy(desc(messages.sequence))
         .limit(limit),
     );

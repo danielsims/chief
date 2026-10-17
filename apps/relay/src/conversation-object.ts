@@ -320,7 +320,17 @@ export class ConversationObject extends DurableObject<Env> {
     );
     const query = url.searchParams.get("q")?.trim();
     if (!query && url.searchParams.get("recent") === "true") {
-      return json(fenceGuestMessages(reader, this.store.recent(limit)));
+      const before = parseConversationPageInteger(
+        url.searchParams.get("before"),
+        0,
+        0,
+      );
+      return json(
+        fenceGuestMessages(
+          reader,
+          this.store.recent(limit, before || undefined),
+        ),
+      );
     }
     return json(
       fenceGuestMessages(reader, this.store.list(after, limit, query)),
