@@ -223,15 +223,7 @@ export function FilesLibrary({
               >
                 Clear filters
               </Button>
-            ) : (
-              <Button
-                variant="outline"
-                className="mt-5"
-                onClick={() => navigate("/conversations")}
-              >
-                Start with your team <ArrowUpRight size={13} />
-              </Button>
-            )}
+            ) : null}
           </div>
         ) : (
           <div
