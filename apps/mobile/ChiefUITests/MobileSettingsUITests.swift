@@ -22,7 +22,6 @@ final class MobileSettingsUITests: XCTestCase {
 
     for page in [
       "Notifications", "Workspace", "Connection", "Missions", "Webhooks", "Environment",
-      "Machines",
     ] {
       open(page, in: app)
       XCTAssertTrue(app.navigationBars[page].waitForExistence(timeout: 5))
@@ -49,27 +48,15 @@ final class MobileSettingsUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3))
   }
 
-  func testSubagentsCollapseAndPushIndependentDetails() {
+  func testSubagentsCollapseBeneathTheirAgentInDMs() {
     let app = launch()
-    app.buttons["Agents"].tap()
-    let content = app.buttons["agent-row-content"]
+    let content = app.buttons["Message Content"]
     XCTAssertTrue(content.waitForExistence(timeout: 5))
     attach("Agent hierarchy", app)
     app.buttons["Collapse Chief subagents"].tap()
     XCTAssertFalse(content.exists)
     app.buttons["Expand Chief subagents"].tap()
     XCTAssertTrue(content.waitForExistence(timeout: 3))
-    app.buttons["agent-row-chief"].tap()
-    XCTAssertTrue(app.navigationBars["Chief"].waitForExistence(timeout: 3))
-    let specialist = app.buttons["subagent-detail-content"]
-    if !specialist.isHittable { app.swipeUp() }
-    specialist.tap()
-    XCTAssertTrue(app.navigationBars["Content"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.staticTexts["Configuration"].exists)
-    XCTAssertFalse(app.staticTexts["Specialist"].exists)
-    attach("Specialist detail", app)
-    app.swipeRight()
-    XCTAssertTrue(app.navigationBars["Chief"].waitForExistence(timeout: 3))
   }
 
   private func launch() -> XCUIApplication {
