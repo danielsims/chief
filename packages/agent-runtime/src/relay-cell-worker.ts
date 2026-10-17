@@ -36,6 +36,7 @@ import {
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
+import { RunSteering } from "./relay-cell-steering.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -119,6 +120,17 @@ function postedFinalToOrigin(
       : false,
   );
 }
+
+function socketEvent(data: Buffer) {
+  try {
+    return parseJsonObject(JSON.parse(String(data)));
+  } catch {
+    return undefined;
+  }
+}
+
+/** The thread run in progress, which a new message to it steers. */
+let steering: RunSteering | null = null;
 
 async function executeJob(
   cell: DesktopAgentCell,
@@ -284,7 +296,7 @@ async function executeJob(
       cellDirectory,
       parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
     );
-    await agentSession.sendPrompt(instruction, job.id, false, {
+    const promptContext = {
       threadRootId: activityContext.threadRootId,
       privateInstructions: [
         relayCellWorkspaceContext(job.payload, agentId),
@@ -295,7 +307,22 @@ async function executeJob(
       ]
         .filter(Boolean)
         .join("\n\n"),
-    });
+    };
+    if (job.kind === "conversation.message") {
+      steering = new RunSteering(
+        conversationId,
+        activityContext.threadRootId,
+        client,
+        agentId,
+        `${agentId}-${process.pid}`,
+        () => session,
+      );
+    }
+    await agentSession.sendPrompt(instruction, job.id, false, promptContext);
+    await steering?.drain((text, jobId) =>
+      agentSession.sendPrompt(text, jobId, false, promptContext),
+    );
+    steering = null;
     await activityPublisher.flush();
     if (agentSession.sessionId) {
       await cell.writeState(
@@ -348,6 +375,7 @@ async function executeJob(
       }),
     );
   } catch (error) {
+    steering = null;
     console.error(
       "[cell-activity]",
       JSON.stringify({
@@ -480,7 +508,20 @@ async function listenForJobs() {
           failures = 0;
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        socket.on("message", () => {
+        socket.on("message", (data: Buffer) => {
+          // A message for the thread this cell is running steers that run.
+          const ping = parseJsonObject(socketEvent(data)?.payload);
+          const jobId = parseJsonString(ping?.jobId);
+          if (
+            jobId &&
+            steering &&
+            ping?.conversationId === steering.conversationId &&
+            (parseJsonString(ping.threadRootId) ?? undefined) ===
+              steering.threadRootId
+          ) {
+            steering.admit(jobId);
+            return;
+          }
           void drain().catch((error) => console.error("[cell] job:", error));
         });
         // The relay pushes every job that becomes claimable, including delayed

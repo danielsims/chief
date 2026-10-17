@@ -378,15 +378,28 @@ export class ClaudeDriver extends BaseDriver {
   }
 
   sendPromptOnce(text: string): Promise<void> {
+    this.queueInput(text);
+    this.emitEvent({ type: "status", status: "running" });
+    return Promise.resolve();
+  }
+
+  /** Claude Code takes input sent mid-turn in at its next step. */
+  override canSteer() {
+    return this.turnInFlight();
+  }
+
+  override steer(text: string) {
+    this.queueInput(text);
+  }
+
+  private queueInput(text: string) {
     this.inputQueue.push({
       type: "user",
       message: { role: "user", content: text },
       parent_tool_use_id: null,
       session_id: this.sessionId ?? "",
     });
-    this.emitEvent({ type: "status", status: "running" });
     this.wake?.();
-    return Promise.resolve();
   }
 
   /** Recover from a failed prompt by restarting the Claude SDK session. */
