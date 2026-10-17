@@ -337,11 +337,12 @@ export class RelayClient extends RelayVercelProvisioning {
     agentId: string,
     workerId: string,
     leaseSeconds = 300,
+    jobId?: string,
   ): Promise<AgentLease | null> {
     const url = this.workspaceUrl(
       `agents/${encodeURIComponent(agentId)}/jobs/claim`,
     );
-    const body = JSON.stringify({ workerId, leaseSeconds });
+    const body = JSON.stringify({ workerId, leaseSeconds, jobId });
     const response = await this.fetchResponse(url, true, {
       method: "POST",
       headers: { "content-type": "application/json" },
