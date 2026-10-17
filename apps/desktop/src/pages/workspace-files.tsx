@@ -203,14 +203,12 @@ export function FilesLibrary({
               className="text-muted-foreground/40 mb-5"
             />
             <h2 className="text-xl tracking-tight">
-              {files.length
-                ? "No matching files"
-                : "Your team's work lives here"}
+              {files.length ? "No matching files" : "No files yet"}
             </h2>
             <p className="text-muted-foreground mt-2 max-w-md text-sm leading-6">
               {files.length
                 ? "Try another search or file type."
-                : "Ask an agent to draft a document or publish a finished image, recording, or PDF. It will be saved here for the workspace."}
+                : "Files your agents create will appear here."}
             </p>
             {files.length ? (
               <Button
