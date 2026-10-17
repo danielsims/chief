@@ -13,6 +13,7 @@ import { createChannelDefinition } from "./toolkits/channels/create-channel.js";
 import { joinChannelDefinition } from "./toolkits/channels/join-channel.js";
 import { listChannelMembersDefinition } from "./toolkits/channels/list-channel-members.js";
 import { listChannelsDefinition } from "./toolkits/channels/list-channels.js";
+import { askQuestionDefinition } from "./toolkits/channels/messages/ask-question.js";
 import { listChannelMessagesDefinition } from "./toolkits/channels/messages/list-channel-messages.js";
 import { postChannelMessageDefinition } from "./toolkits/channels/messages/post-channel-message.js";
 import { computerEditFileDefinition } from "./toolkits/computer/edit-file.js";
@@ -30,6 +31,12 @@ import {
 import { missionToolDefinitions } from "./toolkits/missions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
+import {
+  checkoutProjectDefinition,
+  createProjectDefinition,
+  listProjectsDefinition,
+  publishProjectDefinition,
+} from "./toolkits/projects/hosted.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
 import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
 import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
@@ -60,8 +67,13 @@ export const hostedAgentToolDefinitions = {
     listChannelMembersDefinition,
     listChannelMessagesDefinition,
     postChannelMessageDefinition,
+    askQuestionDefinition,
     listPluginsDefinition,
     recommendPluginsDefinition,
+    createProjectDefinition,
+    checkoutProjectDefinition,
+    listProjectsDefinition,
+    publishProjectDefinition,
     recommendProjectDefinition,
     getBrandProfileStatusDefinition,
     saveBrandProfileDefinition,

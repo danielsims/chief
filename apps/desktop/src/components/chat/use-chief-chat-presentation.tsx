@@ -12,8 +12,6 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import {
-  actionItemsInConversation,
-  actionItemsInThread,
   legacyThreadRootIdsNeedingUser,
   threadRootIdsNeedingUser,
 } from "../../lib/channel-action-items";
@@ -56,7 +54,7 @@ export function useChiefChatPresentation({
   timeline: Timeline;
 }) {
   const { authorFor, channelReactions, messages } = core;
-  const { setThreadRootId, threadRootId } = composer;
+  const { setThreadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
   const openActionSourceIds = useMemo(
@@ -92,34 +90,6 @@ export function useChiefChatPresentation({
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
     [],
   );
-  const threadActions = useMemo(
-    () =>
-      threadRootId
-        ? actionItemsInThread({
-            actionItems: core.workspaceData.actionItems,
-            chatId,
-            messages,
-            sessions: core.workspaceData.activity,
-            threadRootId,
-          })
-        : [],
-    [
-      chatId,
-      core.workspaceData.actionItems,
-      core.workspaceData.activity,
-      messages,
-      threadRootId,
-    ],
-  );
-  const conversationActions = useMemo(
-    () =>
-      actionItemsInConversation({
-        actionItems: core.workspaceData.actionItems,
-        chatId,
-        sessions: core.workspaceData.activity,
-      }),
-    [chatId, core.workspaceData.actionItems, core.workspaceData.activity],
-  );
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
       replies.map((reply) => ({
@@ -139,21 +109,21 @@ export function useChiefChatPresentation({
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
     const authoredId = message.metadata?.agentId;
-    const respondingId =
-      isJsonString(authoredId) && isWorkspaceAgentId(authoredId)
-        ? authoredId
-        : message.metadata?.mentions?.find(
-            (agentId) => isJsonString(agentId) && isWorkspaceAgentId(agentId),
-          );
-    const identity = respondingId
-      ? WORKSPACE_AGENT_IDENTITIES[respondingId]
-      : undefined;
-    return respondingId && identity
-      ? { id: respondingId, name: identity.name, role: identity.role }
-      : undefined;
+    const respondingId = isJsonString(authoredId)
+      ? authoredId
+      : message.metadata?.mentions?.find((agentId) =>
+          core.agentRoster.has(agentId),
+        );
+    if (!respondingId) return undefined;
+    return (
+      core.agentRoster.get(respondingId) ??
+      (isWorkspaceAgentId(respondingId)
+        ? { id: respondingId, ...WORKSPACE_AGENT_IDENTITIES[respondingId] }
+        : undefined)
+    );
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
-    if (!channel) return {};
+    if (!channel && !directAgent) return {};
     const replySummary = summarizeThreadReplies(
       threadReplies.get(message.id) ?? [],
     );
@@ -205,13 +175,17 @@ export function useChiefChatPresentation({
       },
     );
     return {
-      actions: (
-        <ChannelMessageActions
-          text={text}
-          onReply={openThread}
-          onToggleReaction={toggleReaction}
-        />
-      ),
+      ...(channel
+        ? {
+            actions: (
+              <ChannelMessageActions
+                text={text}
+                onReply={openThread}
+                onToggleReaction={toggleReaction}
+              />
+            ),
+          }
+        : undefined),
       footer: (
         <ChannelMessageMeta
           replies={replySummary.visibleReplies}
@@ -251,8 +225,6 @@ export function useChiefChatPresentation({
   const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
 
   return {
-    conversationActions,
-    threadActions,
     activeThreadSummary,
     controlsForMessage,
     imageParts,

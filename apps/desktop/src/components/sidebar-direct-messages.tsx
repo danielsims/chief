@@ -4,6 +4,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronDown, MoreHorizontal, Pin, PinOff, Plus } from "lucide-react";
 
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import {
   Popover,
   PopoverContent,
@@ -11,12 +12,15 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { SidebarDirectMessagesCache } from "../lib/sidebar-direct-messages-cache";
 import type {
   SidebarPinnedItem,
   WorkspaceAgentId,
 } from "../lib/workspace-channels";
 import { useAuth } from "../lib/auth/auth-context";
 import {
+  orderSidebarDirectMessages,
+  parseSidebarDirectMessagesCache,
   readSidebarDirectMessagesCache,
   writeSidebarDirectMessagesCache,
 } from "../lib/sidebar-direct-messages-cache";
@@ -27,6 +31,7 @@ import {
 import { useWorkspaceChannels } from "../lib/workspace-channels-context";
 import { AgentAvatar } from "./agent-avatar";
 import { AttentionPill } from "./attention-pill";
+import { agentLoaderColor } from "./chat/agent-activity-presence";
 import { useWorkspaceUsers } from "./chat/mention-people-context";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { UserAvatar } from "./user-avatar";
@@ -43,6 +48,7 @@ export function DirectMessageRow({
   onPinChange,
   pinned,
   unreadCount,
+  working = false,
   expanded,
   onExpand,
 }: {
@@ -58,6 +64,8 @@ export function DirectMessageRow({
   onPinChange: (pinned: boolean) => void;
   pinned: boolean;
   unreadCount: number;
+  /** A run is in progress, so the avatar becomes the working indicator. */
+  working?: boolean;
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
   const identity = workspaceAgentIdentity(
@@ -127,21 +135,35 @@ export function DirectMessageRow({
         onClick={onOpen}
         className={cn(
           "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-[padding,color,background-color] select-none active:cursor-grabbing",
-          needsUser
-            ? menuOpen
-              ? "pr-9"
-              : "pr-2 group-focus-within/direct:pr-9 group-hover/direct:pr-9"
-            : "pr-9",
+          // The expand chevron sits beside the options button, so the badge
+          // clears both.
+          onExpand
+            ? "pr-[3.75rem]"
+            : needsUser
+              ? menuOpen
+                ? "pr-9"
+                : "pr-2 group-focus-within/direct:pr-9 group-hover/direct:pr-9"
+              : "pr-9",
           active && "bg-sidebar-accent text-sidebar-foreground font-medium",
           !active && unreadCount > 0 && "text-sidebar-foreground font-semibold",
           isDragging && "cursor-grabbing",
         )}
       >
-        <AgentAvatar
-          agentId={agentId}
-          label={identity.name}
-          className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
-        />
+        {working ? (
+          <MatrixLoader
+            ariaLabel={`${identity.name} is working`}
+            className="text-sidebar-foreground [&_.matrix-loader-cell]:rounded-[24%]"
+            color={agentLoaderColor(agentId)}
+            size={16}
+          />
+        ) : (
+          <AgentAvatar
+            agentId={agentId}
+            label={identity.name}
+            className="size-4"
+            markTileClassName="bg-sidebar-foreground text-sidebar dark:bg-white dark:text-black"
+          />
+        )}
         <span className="min-w-0 flex-1 truncate">{identity.name}</span>
         {needsUser || unreadCount > 0 ? (
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -225,6 +247,7 @@ export function SidebarDirectMessages({
   unreadChannelCounts,
   lastMessageAtByAgent,
   lastMessageAtByChannel,
+  workingAgentIds,
   agents,
 }: {
   activeAgentId: WorkspaceAgentId | null;
@@ -248,6 +271,7 @@ export function SidebarDirectMessages({
   /** Latest message time (ms) in each agent's DM. */
   lastMessageAtByAgent: ReadonlyMap<WorkspaceAgentId, number>;
   lastMessageAtByChannel: ReadonlyMap<string, number>;
+  workingAgentIds: ReadonlySet<string>;
   agents: readonly {
     id: string;
     name: string;
@@ -273,10 +297,19 @@ export function SidebarDirectMessages({
   const { channels } = useWorkspaceChannels();
   // Painted until channels, members and history arrive, so launch shows the
   // same rows in the same order instead of filling in over a few seconds.
-  const cached = useMemo(
+  // After that it tracks the latest render, so a reload mid-session falls
+  // back to what was just on screen rather than the launch snapshot.
+  const stored = useMemo(
     () => readSidebarDirectMessagesCache(cloudOrganizationId),
     [cloudOrganizationId],
   );
+  const [shown, setShown] = useState<{
+    workspaceId: string | null;
+    json: string;
+    cache: SidebarDirectMessagesCache;
+  } | null>(null);
+  const cached =
+    shown?.workspaceId === cloudOrganizationId ? shown.cache : stored;
   // Every workspace has channels, so an empty list means it hasn't loaded.
   const channelsLoaded = channels.length > 0;
   const peopleDirects = channelsLoaded
@@ -370,6 +403,7 @@ export function SidebarDirectMessages({
         onPinChange={(pinned) => onPinChange(id, pinned)}
         pinned={false}
         unreadCount={unreadCounts.get(id) ?? 0}
+        working={workingAgentIds.has(id)}
         expanded={expanded}
         onExpand={
           id === agentId && children.length > 0
@@ -400,26 +434,23 @@ export function SidebarDirectMessages({
   );
   // People and agents together, most recent message first; DMs without
   // messages keep their roster order below.
-  const recentFirst = [
-    ...peopleDirects.map((direct) => ({
-      kind: "person" as const,
-      key: `channel:${direct.channelId}`,
-      direct,
-      live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
-    })),
-    ...messageableIds.map((agentId) => ({
-      kind: "agent" as const,
-      key: `agent:${agentId}`,
-      agentId,
-      live: lastMessageAtByAgent.get(agentId) ?? 0,
-    })),
-  ]
-    .map((entry) => ({
-      ...entry,
-      at: Math.max(entry.live, cached.lastMessageAt[entry.key] ?? 0),
-    }))
-    .map((entry, index) => ({ ...entry, index }))
-    .sort((a, b) => b.at - a.at || a.index - b.index);
+  const recentFirst = orderSidebarDirectMessages(
+    [
+      ...peopleDirects.map((direct) => ({
+        kind: "person" as const,
+        key: `channel:${direct.channelId}`,
+        direct,
+        live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
+      })),
+      ...messageableIds.map((agentId) => ({
+        kind: "agent" as const,
+        key: `agent:${agentId}`,
+        agentId,
+        live: lastMessageAtByAgent.get(agentId) ?? 0,
+      })),
+    ],
+    cached.lastMessageAt,
+  );
   const nextCache = JSON.stringify({
     people: peopleDirects,
     lastMessageAt: Object.fromEntries(
@@ -428,6 +459,17 @@ export function SidebarDirectMessages({
         .map((entry) => [entry.key, entry.at]),
     ),
   });
+  // Times only ever rise, so remembering them settles after one extra render.
+  if (
+    channelsLoaded &&
+    (shown?.workspaceId !== cloudOrganizationId || shown.json !== nextCache)
+  ) {
+    setShown({
+      workspaceId: cloudOrganizationId,
+      json: nextCache,
+      cache: parseSidebarDirectMessagesCache(nextCache),
+    });
+  }
   useEffect(() => {
     if (!channelsLoaded) return;
     writeSidebarDirectMessagesCache(cloudOrganizationId, nextCache);

@@ -15,6 +15,7 @@ import { assumeReversible } from "./assume-reversible.js";
 import { authorityHuman } from "./authority-human.js";
 import { browserSession } from "./browser-session.js";
 import { channelsDurable } from "./channels-durable.js";
+import { claimsVerified } from "./claims-verified.js";
 import { delegateSpecialist } from "./delegate-specialist.js";
 import { evidenceProbe } from "./evidence-probe.js";
 import { filesEditable } from "./files-editable.js";
@@ -52,6 +53,7 @@ export const promptParts: readonly PromptPart[] = [
   toolsQuiet,
   groundTruth,
   actPrimary,
+  claimsVerified,
   handoffLastResort,
   authorityHuman,
   actionMinimize,

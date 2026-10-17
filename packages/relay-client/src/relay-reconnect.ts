@@ -4,7 +4,7 @@ import type { RelaySocket } from "./relay-client-options";
 
 export const relayReconnectPolicy = {
   baseDelayMs: 1_000,
-  maxDelayMs: 30_000,
+  maxDelayMs: 300_000,
   stableResetMs: 60_000,
 } as const;
 

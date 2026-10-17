@@ -27,6 +27,7 @@ import {
 import { useWorkspaceUsers } from "../components/chat/mention-people-context";
 import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
+import { workspaceCardClassName } from "../components/workspace-content-surface";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   withConversationThread,
@@ -402,14 +403,21 @@ export function ConversationsPage() {
   );
 
   return (
-    <main className="bg-background relative flex h-full min-w-0 flex-col overflow-hidden min-[901px]:flex-row">
+    <main className="relative flex h-full min-w-0 flex-col min-[901px]:flex-row min-[901px]:gap-2">
       <section
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col",
           hasAuxiliaryPanel && "min-[901px]:min-w-[300px]",
         )}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col",
+            // The chat draws its own cards beside its thread panels.
+            !(activeChatId && !(activeView === "canvas" && !directIdentity)) &&
+              workspaceCardClassName,
+          )}
+        >
           {activeChatId && activeView === "canvas" && !directIdentity ? (
             <>
               {conversationHeader}

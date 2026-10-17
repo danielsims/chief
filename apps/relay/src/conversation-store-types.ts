@@ -51,7 +51,7 @@ export interface ConversationStore {
   };
   getMessage(messageId: string): ConversationMessage | null;
   list(after: number, limit: number, query?: string): MessagePage;
-  recent(limit: number): MessagePage;
+  recent(limit: number, before?: number): MessagePage;
   replies(rootId: string, after: number, limit: number): MessagePage;
   history(
     threadRootId: string | undefined,

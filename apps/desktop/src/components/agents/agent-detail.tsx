@@ -27,7 +27,6 @@ import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentOverride as LocalAgentOverride } from "../../lib/agent-overrides";
-import type { AgentIntegrationOption } from "./agent-detail-sections";
 import {
   agentExecution,
   relayDeploymentTarget,
@@ -39,7 +38,7 @@ import {
   setWorkspaceProvider,
 } from "../../lib/agent-overrides";
 import { useWorkspaceRole } from "../../lib/workspace-role";
-import { AgentAvatar as ChiefAgentAvatar } from "../agent-avatar";
+import { AgentAvatarEditor } from "./agent-avatar-editor";
 import { AgentCredentialsCard } from "./agent-credentials-card";
 import {
   AgentChannelsTab,
@@ -53,42 +52,18 @@ import {
 } from "./agent-identity-navigator";
 import { AgentMessageAccess } from "./agent-message-access";
 
-export type { AgentIntegrationOption } from "./agent-detail-sections";
-
-type DetailTab = "configuration" | "runtime" | "channels" | "permissions";
+type DetailTab = "configuration" | "channels" | "permissions";
 
 const standardDetailTabs: readonly { id: DetailTab; label: string }[] = [
   { id: "configuration", label: "Configuration" },
-  { id: "runtime", label: "Runtime" },
   { id: "channels", label: "Channels" },
   { id: "permissions", label: "Permissions" },
 ];
-
-function DetailAgentAvatar({
-  name,
-  enabled,
-}: {
-  name: string;
-  enabled: boolean;
-}) {
-  return (
-    <span className="relative flex size-14 shrink-0">
-      <ChiefAgentAvatar label={name} className="size-full" />
-      <span
-        className={cn(
-          "border-background absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-[3px]",
-          enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
-        )}
-      />
-    </span>
-  );
-}
 
 export function AgentDetail({
   agent,
   workspaceId,
   override,
-  integrations,
   channels,
   ready,
   saving,
@@ -99,14 +74,13 @@ export function AgentDetail({
   onUpdateChannelAgents,
   onRemove,
   relayClient,
-  onExternalAgentChanged,
+  onAgentChanged,
   selectedProfileId,
   onSelectProfile,
 }: {
   agent: AgentDefinition;
   workspaceId: string | null;
   override: AgentPreference | undefined;
-  integrations: AgentIntegrationOption[];
   channels: readonly WorkspaceChannel[];
   ready: boolean;
   saving: boolean;
@@ -121,7 +95,7 @@ export function AgentDetail({
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
   onRemove: (agentId: string) => Promise<void>;
   relayClient?: RelayClient | null;
-  onExternalAgentChanged?: () => Promise<void>;
+  onAgentChanged?: () => Promise<void>;
   selectedProfileId?: string;
   onSelectProfile?: (agentId: string) => void;
 }) {
@@ -161,8 +135,6 @@ export function AgentDetail({
     override?.deploymentTarget ?? (driver === "remote" ? "cloud" : "desktop");
   const approvals = override?.approvals ?? getToolApprovals(workspaceId);
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
-  const assignedIntegrations =
-    override?.integrations ?? integrations.map((item) => item.provider);
   const toolPermissions = effectiveAgentToolPermissions(
     agent.id,
     override?.toolPermissions,
@@ -185,7 +157,6 @@ export function AgentDetail({
     model?: string;
     approvals?: AgentApprovalMode;
     capabilities?: AgentCapabilityId[];
-    integrations?: string[];
     toolPermissions?: AgentToolPermission[];
   }) => {
     const mirror: LocalAgentOverride = {};
@@ -194,7 +165,6 @@ export function AgentDetail({
     if (patch.model !== undefined) mirror.model = patch.model || undefined;
     if (patch.approvals) mirror.approvals = patch.approvals;
     if (patch.capabilities) mirror.capabilities = patch.capabilities;
-    if (patch.integrations) mirror.integrations = patch.integrations;
     if (patch.toolPermissions) mirror.toolPermissions = patch.toolPermissions;
     if (workspaceId && Object.keys(mirror).length > 0) {
       setAgentOverride(workspaceId, agent.id, mirror);
@@ -211,7 +181,9 @@ export function AgentDetail({
       model: (patch.model ?? model) || undefined,
       approvals: patch.approvals ?? approvals,
       capabilities: patch.capabilities ?? capabilities,
-      integrations: patch.integrations ?? assignedIntegrations,
+      ...(override?.integrations
+        ? { integrations: override.integrations }
+        : undefined),
       toolPermissions: patch.toolPermissions ?? toolPermissions,
     });
   };
@@ -231,7 +203,7 @@ export function AgentDetail({
             onSelect={selectProfile}
           />
         ) : null}
-        <div className="min-w-0">
+        <div className="max-w-4xl min-w-0">
           {selectedSubagent ? (
             <SubagentDetail profile={selectedSubagent} parent={agent} />
           ) : (
@@ -239,7 +211,13 @@ export function AgentDetail({
               <header>
                 <div className="flex flex-wrap items-start justify-between gap-5">
                   <div className="flex min-w-0 items-center gap-4">
-                    <DetailAgentAvatar name={agent.name} enabled={enabled} />
+                    <AgentAvatarEditor
+                      agentId={agent.id}
+                      agentName={agent.name}
+                      relayClient={relayClient}
+                      ready={ready}
+                      onChanged={onAgentChanged}
+                    />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
@@ -330,19 +308,46 @@ export function AgentDetail({
               >
                 {activeTab === "configuration" ? (
                   <div className="space-y-10">
+                    <div className="space-y-4">
+                      <AgentExecutionCard
+                        agent={agent}
+                        execution={execution}
+                        ready={ready}
+                        saving={saving}
+                        error={preferenceError}
+                        relayClient={relayClient}
+                        onExternalAgentChanged={onAgentChanged}
+                        onApply={(draft) =>
+                          save({
+                            deploymentTarget: relayDeploymentTarget(
+                              draft.deployment,
+                            ),
+                            driver: draft.provider,
+                            model: draft.model,
+                          })
+                        }
+                        onApplyToTeam={(draft) =>
+                          onApplyExecutionToTeam(
+                            relayDeploymentTarget(draft.deployment),
+                            draft.provider,
+                            draft.model,
+                          )
+                        }
+                      />
+                      {isOwner &&
+                      relayClient &&
+                      execution.deployment.kind === "chief-cloud" &&
+                      execution.inference.kind === "configured" ? (
+                        <AgentCredentialsCard
+                          provider={execution.inference.provider}
+                          relayClient={relayClient}
+                        />
+                      ) : null}
+                    </div>
                     <AgentConfigurationTab
                       approvals={approvals}
                       ready={ready}
-                      capabilities={capabilities}
-                      integrations={integrations}
-                      assignedIntegrations={assignedIntegrations}
                       onApprovalChange={(value) => save({ approvals: value })}
-                      onCapabilitiesChange={(value) =>
-                        save({ capabilities: value })
-                      }
-                      onIntegrationsChange={(value) =>
-                        save({ integrations: value })
-                      }
                     />
                     <AgentDangerZone
                       agent={agent}
@@ -350,45 +355,6 @@ export function AgentDetail({
                       onRemove={onRemove}
                     />
                   </div>
-                ) : null}
-
-                {activeTab === "runtime" ? (
-                  <>
-                    <AgentExecutionCard
-                      agent={agent}
-                      execution={execution}
-                      ready={ready}
-                      saving={saving}
-                      error={preferenceError}
-                      relayClient={relayClient}
-                      onExternalAgentChanged={onExternalAgentChanged}
-                      onApply={(draft) =>
-                        save({
-                          deploymentTarget: relayDeploymentTarget(
-                            draft.deployment,
-                          ),
-                          driver: draft.provider,
-                          model: draft.model,
-                        })
-                      }
-                      onApplyToTeam={(draft) =>
-                        onApplyExecutionToTeam(
-                          relayDeploymentTarget(draft.deployment),
-                          draft.provider,
-                          draft.model,
-                        )
-                      }
-                    />
-                    {isOwner &&
-                    relayClient &&
-                    execution.deployment.kind === "chief-cloud" &&
-                    execution.inference.kind === "configured" ? (
-                      <AgentCredentialsCard
-                        provider={execution.inference.provider}
-                        relayClient={relayClient}
-                      />
-                    ) : null}
-                  </>
                 ) : null}
 
                 {activeTab === "channels" ? (

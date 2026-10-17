@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@chief/ui/components/select";
-import { cn } from "@chief/ui/lib/utils";
 
 export interface ConnectionResult {
   token: string;
@@ -164,40 +163,6 @@ export function EveFields({
           Add a project before connecting a Vercel Eve agent.
         </p>
       ) : null}
-    </div>
-  );
-}
-
-export function ChoiceGrid({
-  items,
-  onToggle,
-}: {
-  items: { id: string; label: string; selected: boolean }[];
-  onToggle: (id: string) => void;
-}) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={cn(
-            "flex items-center rounded-xl border px-4 py-3 text-left text-sm",
-            item.selected && "border-foreground bg-muted",
-          )}
-          onClick={() => onToggle(item.id)}
-        >
-          <span>{item.label}</span>
-          <span
-            className={cn(
-              "ml-auto flex size-4 items-center justify-center rounded border",
-              item.selected && "bg-foreground text-background",
-            )}
-          >
-            {item.selected ? <Check size={11} /> : null}
-          </span>
-        </button>
-      ))}
     </div>
   );
 }

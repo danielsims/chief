@@ -10,6 +10,8 @@ import { ChevronLeft, X } from "lucide-react";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
+import { workspaceCardClassName } from "../workspace-content-surface";
+
 const DEFAULT_PANEL_WIDTH = 380;
 const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 720;
@@ -93,14 +95,30 @@ export function useConversationAuxiliaryPanelSizing(): ConversationAuxiliaryPane
 export function ConversationAuxiliaryPanel({
   children,
   className,
+  fill = false,
   onClose,
   sizing,
 }: {
   children: ReactNode;
   className?: string;
+  /** Takes the remaining width as the main card, e.g. an open session. */
+  fill?: boolean;
   onClose: () => void;
   sizing: ConversationAuxiliaryPanelSizing;
 }) {
+  if (fill) {
+    return (
+      <section
+        className={cn(
+          workspaceCardClassName,
+          "flex min-h-0 min-w-0 flex-1 flex-col",
+          className,
+        )}
+      >
+        {children}
+      </section>
+    );
+  }
   return (
     <>
       <button
@@ -111,7 +129,8 @@ export function ConversationAuxiliaryPanel({
       />
       <aside
         className={cn(
-          "border-border/70 bg-background relative z-40 flex min-h-0 shrink-0 flex-col border-l",
+          workspaceCardClassName,
+          "z-40 flex min-h-0 shrink-0 flex-col overflow-visible",
           "max-w-[calc(100%-300px)] max-[900px]:absolute max-[900px]:inset-y-0 max-[900px]:right-0 max-[900px]:!w-[calc(100%-24px)] max-[900px]:max-w-none max-[900px]:shadow-2xl",
           className,
         )}
@@ -127,9 +146,9 @@ export function ConversationAuxiliaryPanel({
           }
           onPointerDown={sizing.onResizeStart}
           onDoubleClick={sizing.canReset ? sizing.onResetWidth : undefined}
-          className="group/resize absolute inset-y-0 left-0 z-50 w-3 -translate-x-1/2 cursor-col-resize max-[900px]:hidden"
+          className="group/resize absolute inset-y-0 -left-2 z-50 w-2 cursor-col-resize max-[900px]:hidden"
         >
-          <span className="bg-border/0 group-hover/resize:bg-border/80 group-focus-visible/resize:bg-border/80 absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors" />
+          <span className="bg-border/0 group-hover/resize:bg-border group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
         </button>
         {children}
       </aside>

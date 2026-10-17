@@ -10,9 +10,6 @@ import type {
 
 import {
   actionAttentionTarget,
-  actionItemsInConversation,
-  actionItemsInThread,
-  actionItemsNeedingUserInThread,
   channelAttentionTargets,
   channelIdsNeedingUser,
   directMessageAttentionTargets,
@@ -243,52 +240,6 @@ void test("keeps a pre-upgrade channel action discoverable on its latest root", 
     ],
     ["heartbeat-root"],
   );
-
-  const requestedAction = {
-    ...actionItem,
-    request: {
-      id: "first-move",
-      title: "Choose the first move",
-      fields: [],
-      questions: [
-        {
-          question: "What should Chief do next?",
-          options: [{ label: "Proceed" }, { label: "Wait" }],
-        },
-      ],
-    },
-  };
-  assert.deepEqual(
-    actionItemsNeedingUserInThread({
-      actionItems: [requestedAction],
-      chatId,
-      messages,
-      sessions: [],
-      threadRootId: "heartbeat-root",
-    }).map((item) => item.id),
-    [requestedAction.id],
-  );
-  assert.deepEqual(
-    actionItemsInThread({
-      actionItems: [
-        {
-          ...requestedAction,
-          status: "resolved",
-          threadRootId: "heartbeat-root",
-          resolution: {
-            answers: { "What should Chief do next?": "Proceed" },
-            resolvedAt: 40,
-            resolvedBy: { id: "workspace-owner", name: "Workspace" },
-          },
-        },
-      ],
-      chatId,
-      messages,
-      sessions: [],
-      threadRootId: "heartbeat-root",
-    }).map((item) => item.id),
-    [requestedAction.id],
-  );
 });
 
 void test("does not mark dismissed, direct-message, or unowned actions", () => {
@@ -312,53 +263,6 @@ void test("does not mark dismissed, direct-message, or unowned actions", () => {
   });
 
   assert.deepEqual([...result], []);
-});
-
-void test("shows one durable action card in its owning direct conversation", () => {
-  const request = {
-    id: "request-colour",
-    title: "Choose a colour",
-    fields: [],
-    questions: [
-      {
-        question: "Which colour do you like best?",
-        options: [{ label: "Blue" }, { label: "Green" }],
-      },
-    ],
-  };
-  const openAction = {
-    ...action("dm:workspace-a:chief"),
-    request,
-  };
-  const resolvedAction = {
-    ...openAction,
-    status: "resolved" as const,
-    resolution: {
-      answers: { "Which colour do you like best?": "Green" },
-      resolvedAt: 2,
-      resolvedBy: { id: "workspace-owner", name: "Workspace" },
-    },
-  };
-
-  assert.deepEqual(
-    actionItemsInConversation({
-      actionItems: [openAction, resolvedAction],
-      chatId: "dm:workspace-a:chief",
-      sessions: [],
-    }).map((item) => item.status),
-    ["open", "resolved"],
-  );
-  assert.deepEqual(
-    actionItemsInConversation({
-      actionItems: [
-        { ...openAction, threadRootId: "thread-a" },
-        { ...openAction, sourceId: "dm:workspace-a:marketer" },
-      ],
-      chatId: "dm:workspace-a:chief",
-      sessions: [],
-    }),
-    [],
-  );
 });
 
 void test("maps an open direct-message action to its sidebar conversation", () => {

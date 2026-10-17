@@ -322,12 +322,17 @@ actor FixtureRelayClient: RelayServing {
             isPrivate: true,
             unreadCount: 0,
             requiresAttention: false,
-            lastMessage: nil
+            lastMessage: nil,
+            directAgentID: participantKind == "agent" ? participantID : nil
         )
     }
 
     func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {
         nil
+    }
+
+    func loadAgentConfigs(workspaceID: String) async throws -> [String: AgentConfig] {
+        [:]
     }
 
     func removeChannelMember(
@@ -507,13 +512,16 @@ enum DemoWorkspace {
                 isPrivate: true,
                 unreadCount: 1,
                 requiresAttention: false,
-                lastMessage: "Morning. I pulled together your priorities."
+                lastMessage: "Morning. I pulled together your priorities.",
+                directAgentID: "chief"
             )
         ],
         agents: [
             .init(
                 id: "chief", name: "Chief", role: "Chief of staff", status: .working,
-                subagents: WorkspaceAgentCatalog.agents.filter { $0.id != "chief" }.map {
+                subagents: WorkspaceAgentCatalog.agents.filter {
+                    !["chief", "engineer", "brand"].contains($0.id)
+                }.map {
                     AgentProfile(id: $0.id, name: $0.name, role: $0.role)
                 }
             ),
@@ -573,10 +581,10 @@ enum DemoWorkspace {
             components: [
                 .init(
                     id: "attention-1",
-                    kind: "action-request",
-                    payload: [
-                        "title": "Choose the next move",
-                        "options": "Review the relay|Connect GitHub|Start mobile QA"
+                    kind: "question",
+                    payload: ["question": "Which move should I greenlight next?"],
+                    payloadArrays: [
+                        "options": ["Review the relay", "Connect GitHub", "Start mobile QA"]
                     ]
                 )
             ],

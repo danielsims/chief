@@ -18,6 +18,7 @@ enum ThreadParticipant: Identifiable, Equatable {
 }
 
 struct ThreadParticipantStack: View {
+  @Environment(AppModel.self) private var model
   let participants: [ThreadParticipant]
   let replyingAgentID: String?
 
@@ -57,14 +58,8 @@ struct ThreadParticipantStack: View {
       } else {
         AgentMark(name: name, size: 20)
       }
-    case .user(_, let name):
-      RoundedRectangle(cornerRadius: 5, style: .continuous)
-        .fill(ChiefTheme.elevated)
-        .overlay {
-          Text(name.prefix(1).uppercased())
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
+    case .user(let id, let name):
+      UserAvatar(user: model.person(userID: id, fallbackName: name), size: 20, rounded: true)
     }
   }
 }

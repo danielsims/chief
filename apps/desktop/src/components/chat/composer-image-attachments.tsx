@@ -53,6 +53,36 @@ async function attachmentFromFile(
   };
 }
 
+/** Attaches dropped, pasted or chosen images, up to the per-message limit. */
+export async function attachImageFiles(
+  files: readonly File[],
+  attachments: readonly ComposerImageAttachment[],
+  onAttachmentsChange: (attachments: ComposerImageAttachment[]) => void,
+) {
+  const accepted = files.slice(
+    0,
+    Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length),
+  );
+  if (accepted.length === 0) return;
+  try {
+    const additions = await Promise.all(accepted.map(attachmentFromFile));
+    onAttachmentsChange([...attachments, ...additions]);
+  } catch (error) {
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : "The image could not be attached.",
+    );
+  }
+}
+
+/** Image files carried by a drop or paste, ignoring text and other files. */
+export function imageFiles(data: DataTransfer | null) {
+  return Array.from(data?.files ?? []).filter((file) =>
+    file.type.startsWith("image/"),
+  );
+}
+
 export function ComposerImageInput({
   attachments,
   disabled,
@@ -72,24 +102,11 @@ export function ComposerImageInput({
       accept="image/png,image/jpeg,image/webp,image/gif"
       multiple
       disabled={disabled}
-      onChange={async (event) => {
+      onChange={(event) => {
         const input = event.currentTarget;
-        const files = Array.from(input.files ?? []).slice(
-          0,
-          Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length),
-        );
+        const files = Array.from(input.files ?? []);
         input.value = "";
-        if (files.length === 0) return;
-        try {
-          const additions = await Promise.all(files.map(attachmentFromFile));
-          onAttachmentsChange([...attachments, ...additions]);
-        } catch (error) {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "The image could not be attached.",
-          );
-        }
+        void attachImageFiles(files, attachments, onAttachmentsChange);
       }}
     />
   );

@@ -11,6 +11,7 @@ import { useLocation } from "react-router";
 
 import { messageMentionsPerson } from "@chief/agent-runtime/channel-message-mentions";
 
+import type { ConversationRouteChannel } from "./channel-conversation-route";
 import type {
   ChannelReadStateBlob,
   ObservedChannelMessage,
@@ -42,12 +43,34 @@ import {
 } from "./channel-read-state-storage";
 import { messageNotificationTarget, notifySystem } from "./notifications";
 import {
+  useLocalChats,
   useRuntime,
   useWorkspaceCapability,
   useWorkspaceChannels,
 } from "./runtime";
 import * as cache from "./workspace-conversation-cache";
 import { useWorkspaceUnreadCounts } from "./workspace-unread-counts";
+
+/**
+ * The conversation id the current route is reading. Channel routes resolve from
+ * the channel roster; an agent DM (`?dm=<agentId>`) resolves from the local
+ * chats, because agent DMs are not part of the channel roster. Both the sidebar
+ * badge and this id are keyed by the conversation id, so marking read clears
+ * the badge.
+ */
+function routeConversationId(
+  pathname: string,
+  search: string,
+  channels: readonly ConversationRouteChannel[],
+  chats: readonly { id: string; agent: string }[],
+): string | null {
+  const routed = channelForConversationRoute(pathname, search, channels);
+  if (routed) return routed.id;
+  if (!pathname.startsWith("/conversations")) return null;
+  const directAgentId = new URLSearchParams(search).get("dm");
+  if (!directAgentId) return null;
+  return chats.find((chat) => chat.agent === directAgentId)?.id ?? null;
+}
 
 export function ChannelReadStateProvider({
   children,
@@ -98,6 +121,7 @@ function ScopedChannelReadStateProvider({
   const { capability } = useWorkspaceCapability();
   const { client, status } = useRuntime();
   const { channels } = useWorkspaceChannels();
+  const { chats } = useLocalChats(workspaceId);
   const joinedChannels = useMemo(
     () => channels.filter(({ userIds }) => userIds.includes("workspace-owner")),
     [channels],
@@ -129,6 +153,7 @@ function ScopedChannelReadStateProvider({
   );
   const locationRef = useRef(location);
   const channelsRef = useRef(channels);
+  const chatsRef = useRef(chats);
 
   useEffect(() => {
     observedRef.current = observedByChannel;
@@ -139,6 +164,9 @@ function ScopedChannelReadStateProvider({
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
 
   const updateMarkers = useCallback(
     (update: (current: ChannelReadStateBlob) => ChannelReadStateBlob) => {
@@ -209,12 +237,11 @@ function ScopedChannelReadStateProvider({
     [],
   );
 
-  const activeChannelId = useMemo(() => {
-    return (
-      channelForConversationRoute(location.pathname, location.search, channels)
-        ?.id ?? null
-    );
-  }, [channels, location.pathname, location.search]);
+  const activeChannelId = useMemo(
+    () =>
+      routeConversationId(location.pathname, location.search, channels, chats),
+    [channels, chats, location.pathname, location.search],
+  );
 
   useEffect(() => {
     if (!activeChannelId || document.visibilityState !== "visible") return;
@@ -225,12 +252,13 @@ function ScopedChannelReadStateProvider({
     const markVisible = () => {
       if (document.visibilityState !== "visible") return;
       const current = locationRef.current;
-      const channel = channelForConversationRoute(
+      const channelId = routeConversationId(
         current.pathname,
         current.search,
         channelsRef.current,
+        chatsRef.current,
       );
-      if (channel) markChannelRead(channel.id);
+      if (channelId) markChannelRead(channelId);
       const thread = visibleThreadRef.current;
       if (thread) markThreadRead(thread.channelId, thread.rootId);
     };
@@ -250,14 +278,15 @@ function ScopedChannelReadStateProvider({
       content: string,
     ) => {
       const currentLocation = locationRef.current;
-      const routeChannel = channelForConversationRoute(
+      const routeChannelId = routeConversationId(
         currentLocation.pathname,
         currentLocation.search,
         channelsRef.current,
+        chatsRef.current,
       );
       const isVisibleTopLevel =
         !observed.rootId &&
-        routeChannel?.id === observed.channelId &&
+        routeChannelId === observed.channelId &&
         document.visibilityState === "visible" &&
         document.hasFocus();
       // When the user is actively viewing the channel, top-level messages are
@@ -291,7 +320,10 @@ function ScopedChannelReadStateProvider({
         (candidate) => candidate.id === observed.channelId,
       );
       const directAgentId =
-        channel?.visibility === "direct" ? channel.agentIds[0] : undefined;
+        channel?.visibility === "direct"
+          ? channel.agentIds[0]
+          : chatsRef.current.find((chat) => chat.id === observed.channelId)
+              ?.agent;
       const aliases = sourceAliasesRef.current.get(observed.channelId);
       const threadSourceId = observed.rootId
         ? ([...(aliases?.entries() ?? [])].find(

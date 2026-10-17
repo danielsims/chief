@@ -180,6 +180,15 @@ export type ChannelServerMessage =
       active: boolean;
     }
   | {
+      /** An agent started or finished a run in a channel or DM thread. */
+      type: "agentWorking";
+      workspaceId: string;
+      channelId: string;
+      threadRootId?: string;
+      agentId: string;
+      working: boolean;
+    }
+  | {
       type: "channels";
       workspaceId: string;
       channels: WorkspaceChannel[];

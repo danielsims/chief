@@ -8,6 +8,7 @@ import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
 import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
+import { initializeWorkspaceGitTables } from "./initialize-workspace-git-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
 export function initializeWorkspaceSchema(
@@ -203,6 +204,7 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
   initializeChannelGuestTables(storage);
+  initializeWorkspaceGitTables(storage);
 }
 
 function migrateExternalAgentSchema(storage: DurableObjectStorage) {
@@ -290,33 +292,4 @@ function migrateLegacyChannelSchema(storage: DurableObjectStorage) {
   add("version", "INTEGER NOT NULL DEFAULT 1");
   add("created_at", "TEXT NOT NULL DEFAULT ''");
   add("updated_at", "TEXT NOT NULL DEFAULT ''");
-
-  storage.sql.exec(`
-    UPDATE channels
-       SET workspace_id = COALESCE(
-             NULLIF(workspace_id, ''),
-             (SELECT workspace_id FROM workspace WHERE singleton = 1),
-             ''
-           ),
-           created_by_id = COALESCE(
-             NULLIF(created_by_id, ''),
-             (SELECT created_by_user_id FROM workspace WHERE singleton = 1),
-             ''
-           ),
-           created_at = COALESCE(
-             NULLIF(created_at, ''),
-             (SELECT created_at FROM workspace WHERE singleton = 1),
-             ''
-           ),
-           updated_at = COALESCE(
-             NULLIF(updated_at, ''),
-             (SELECT created_at FROM workspace WHERE singleton = 1),
-             ''
-           )
-     -- Runs on every start: only rows still missing a value are rewritten.
-     WHERE COALESCE(workspace_id, '') = ''
-        OR COALESCE(created_by_id, '') = ''
-        OR COALESCE(created_at, '') = ''
-        OR COALESCE(updated_at, '') = ''
-  `);
 }

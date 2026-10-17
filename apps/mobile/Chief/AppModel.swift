@@ -84,7 +84,7 @@ final class AppModel {
   /// Other people typing, by conversation and user id, with when they last were.
   private(set) var typingPeople: [String: [String: Date]] = [:]
   private var lastTypingSentAt: [String: Date] = [:]
-  var homeNavigationPath: [String] = []
+  var navigationPath: [String] = []
   var selectedConversationID: String?
   var selectedThread: SelectedThread?
   private var pendingConversationDeepLink: ConversationDeepLink?
@@ -504,7 +504,7 @@ final class AppModel {
     if let direct = workspace?.conversations.first(where: { $0.id == conversationID }),
       direct.kind == .direct
     {
-      return WorkspaceAgentCatalog.agent(forID: conversationID)?.id ?? "chief"
+      return direct.directAgentID ?? WorkspaceAgentCatalog.agent(forID: conversationID)?.id ?? "chief"
     }
     if let threadRootID,
       let root = conversations.messages(
@@ -1017,23 +1017,13 @@ final class AppModel {
   }
 
   private func refreshAgentConfigCache(for snapshot: WorkspaceSnapshot) async {
-    for agent in snapshot.agents.flatMap({ [$0.profile(id: $0.id)].compactMap { $0 } + $0.subagents }) {
-      do {
-        let config =
-          try await relay.loadAgentConfig(
-            workspaceID: snapshot.id,
-            agentID: agent.id
-          ) ?? AgentConfig.defaults(for: agent.id)
-        configStore.save(
-          workspaceID: snapshot.id,
-          agentID: agent.id,
-          config: config
-        )
-      } catch {
-        onboardingLog.warning(
-          "could not refresh config for \(agent.id): \(error.localizedDescription)"
-        )
+    do {
+      let configs = try await relay.loadAgentConfigs(workspaceID: snapshot.id)
+      for (agentID, config) in configs {
+        configStore.save(workspaceID: snapshot.id, agentID: agentID, config: config)
       }
+    } catch {
+      onboardingLog.warning("could not refresh agent configs: \(error.localizedDescription)")
     }
   }
 
@@ -1285,7 +1275,7 @@ final class AppModel {
     conversations.clearAll()
     session = nil
     workspace = nil
-    homeNavigationPath = []
+    navigationPath = []
     selectedConversationID = nil
     selectedThread = nil
     isWorkspaceReadyForPresentation = false
@@ -1818,7 +1808,7 @@ final class AppModel {
     let id = workspace?.conversationID(for: id) ?? id
     selectedTab = .home
     selectedConversationID = id
-    homeNavigationPath = [id]
+    navigationPath = [id]
     if let threadRootID, !threadRootID.isEmpty {
       selectedThread = SelectedThread(conversationID: id, rootMessageID: threadRootID)
     } else {
@@ -1938,7 +1928,7 @@ final class AppModel {
           failureCount = 0
         }
         failureCount += 1
-        let baseSeconds = min(pow(2.0, Double(min(failureCount - 1, 5))), 30)
+        let baseSeconds = min(pow(2.0, Double(min(failureCount - 1, 9))), 300)
         let jitter = Double.random(in: 0...0.5)
         do {
           try await Task.sleep(for: .seconds(baseSeconds + jitter))
@@ -1972,7 +1962,7 @@ final class AppModel {
   private func configureReadState(for workspaceID: String) {
     guard readStateWorkspaceID != workspaceID else { return }
     stopWorkspaceLiveStreams()
-    homeNavigationPath = []
+    navigationPath = []
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     readStateWorkspaceID = workspaceID
@@ -2036,7 +2026,6 @@ final class AppModel {
         updateRelayActivityPresence(message)
         return
       }
-      clearRelayActivityPresence(for: message)
       updateConversationPreview(with: message)
       if applyCurrentUserMembershipEvent(message) {
         scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: expectedWorkspaceID)
@@ -2063,7 +2052,6 @@ final class AppModel {
         updateRelayActivityPresence(message)
         return
       }
-      clearRelayActivityPresence(for: message)
       if case .edited = event, !message.isAgentActivityProjection {
         updateConversationPreview(with: message)
       }
@@ -2085,37 +2073,18 @@ final class AppModel {
     )
   }
 
+  /// The relay's run row starts and ends a run, so an agent stays working
+  /// between tool steps and through mid-run messages.
   private func updateRelayActivityPresence(_ message: ConversationMessage) {
-    guard case .agent(let agentID, _) = message.author else { return }
-    let failed = message.components.contains { $0.kind == "error" }
-    let running = message.components.contains { component in
-      component.payload["status"] == "running"
-        || component.payload["status"] == "working"
-    }
-    if failed {
-      setRelayAgentWorking(
-        agentID: agentID,
-        workspaceID: message.workspaceID,
-        conversationID: message.conversationID,
-        isWorking: false
-      )
-    } else {
-      setRelayAgentWorking(
-        agentID: agentID,
-        workspaceID: message.workspaceID,
-        conversationID: message.conversationID,
-        isWorking: running
-      )
-    }
-  }
-
-  private func clearRelayActivityPresence(for message: ConversationMessage) {
-    guard case .agent(let agentID, _) = message.author else { return }
+    guard case .agent(let agentID, _) = message.author,
+      let status = message.components.first(where: { $0.kind == "agent.activity" })?
+        .payload["status"]
+    else { return }
     setRelayAgentWorking(
       agentID: agentID,
       workspaceID: message.workspaceID,
       conversationID: message.conversationID,
-      isWorking: false
+      isWorking: status == "working"
     )
   }
 
@@ -2125,6 +2094,15 @@ final class AppModel {
     conversationID: String,
     isWorking: Bool
   ) {
+    // A confirmed run supersedes the optimistic marker, so it can't keep the
+    // agent shown after the run ends.
+    if isWorking {
+      pendingAgentReplies = pendingAgentReplies.filter {
+        $0.value.workspaceID != workspaceID
+          || $0.value.conversationID != conversationID
+          || $0.value.agentID != agentID
+      }
+    }
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     var agents = workingAgents[key] ?? []
     agents =
@@ -2314,15 +2292,20 @@ final class AppModel {
 
   func refreshConversation(workspaceID: String, conversationID: String) async throws {
     let baseline = conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
+    // History already held only needs what came after it; edits to older
+    // messages arrive through the socket's cursor replay.
     let remote = try await relay.messages(
-      workspaceID: workspaceID, conversationID: conversationID, after: nil
+      workspaceID: workspaceID, conversationID: conversationID,
+      after: baseline.map(\.sequence).max()
     )
     try Task.checkCancellation()
     guard workspace?.id == workspaceID else { return }
     // Preserve messages that arrived on the socket while history was in flight.
     conversations.reconcileHistory(
       workspaceID: workspaceID, conversationID: conversationID, messages: remote, baseline: baseline)
-    hydrateReadSnapshot(remote, workspaceID: workspaceID, conversationID: conversationID)
+    hydrateReadSnapshot(
+      conversations.messages(workspaceID: workspaceID, conversationID: conversationID),
+      workspaceID: workspaceID, conversationID: conversationID)
     if isAppActive, visibleConversationID == conversationID {
       markChannelRead(conversationID: conversationID)
       if let root = visibleThreadRootID {
@@ -3126,7 +3109,7 @@ final class AppModel {
     try? sessions.clear()
     session = nil
     workspace = nil
-    homeNavigationPath = []
+    navigationPath = []
     selectedConversationID = nil
     selectedThread = nil
     isWorkspaceReadyForPresentation = false
@@ -3283,9 +3266,8 @@ extension ConversationMessage {
   }
 }
 
-enum WorkspaceTab: Hashable {
+enum WorkspaceTab: Hashable, CaseIterable {
   case home
   case plugins
   case projects
-  case agents
 }

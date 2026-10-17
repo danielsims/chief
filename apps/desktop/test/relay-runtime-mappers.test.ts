@@ -9,6 +9,7 @@ import {
 
 import {
   agentRunEvent,
+  agentWorkingChange,
   browserRuntimeEvent,
   isAgentActivityProjection,
   toChannelEvents,
@@ -286,4 +287,27 @@ void test("project recommendation components become connect cards", () => {
       remoteUrl: "https://github.com/acme/program.git",
     },
   });
+});
+
+void test("working state follows the relay's run row, not its steps", () => {
+  const run = (status: string) =>
+    message([
+      { id: "run-1", kind: "agent.activity", version: 1, payload: { status } },
+    ]);
+  const step = message([
+    {
+      id: "tool-1",
+      kind: "tool",
+      version: 1,
+      payload: { name: "relay_channels_list", status: "completed" },
+    },
+  ]);
+
+  assert.deepEqual(agentWorkingChange(run("working")), {
+    agentId: "advertising",
+    working: true,
+  });
+  assert.equal(agentWorkingChange(step), undefined);
+  assert.equal(agentWorkingChange(message([], "On it.")), undefined);
+  assert.equal(agentWorkingChange(run("completed"))?.working, false);
 });

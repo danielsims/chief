@@ -1,4 +1,5 @@
 import {
+  agentIdSchema,
   guestIdSchema,
   userIdSchema,
   workspaceIdSchema,
@@ -14,6 +15,7 @@ import { publicOrigin, relayDiscovery } from "./relay-discovery";
 const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
 const publicWorkspaceImageRoute = /^\/v1\/assets\/workspaces\/([^/]+)$/u;
 const publicGuestImageRoute = /^\/v1\/assets\/guests\/([^/]+)$/u;
+const publicAgentImageRoute = /^\/v1\/assets\/agents\/([^/]+)\/([^/]+)$/u;
 
 export function routePublicRequest(request: Request, url: URL, env: Env) {
   if (request.method !== "GET") return undefined;
@@ -37,6 +39,16 @@ export function routePublicRequest(request: Request, url: URL, env: Env) {
       decodeURIComponent(guestImage[1] ?? ""),
     );
     return getPublicImageAsset(env, `guests/${guestId}`);
+  }
+  const agentImage = publicAgentImageRoute.exec(url.pathname);
+  if (agentImage) {
+    const workspaceId = workspaceIdSchema.parse(
+      decodeURIComponent(agentImage[1] ?? ""),
+    );
+    const agentId = agentIdSchema.parse(
+      decodeURIComponent(agentImage[2] ?? ""),
+    );
+    return getPublicImageAsset(env, `agents/${workspaceId}/${agentId}`);
   }
   if (url.pathname === "/health") {
     return json({ ok: true, protocolVersion: 1 });

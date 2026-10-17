@@ -11,7 +11,6 @@ import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
-import { channelMembersDeleteDirectBackfillOwners } from "./queries/channel-members/delete-direct-backfill-owners";
 import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
 import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
@@ -365,12 +364,12 @@ export class WorkspaceChannelStore {
     });
   }
 
-  channelMemberRows(conversationId: string) {
+  /** Pass `names` when listing many channels; building it reads every member. */
+  channelMemberRows(conversationId: string, names = this.principalNames()) {
     const rows = channelMembersFindChannelMemberRows(
       this.storage,
       conversationId,
     ).map((row) => channelMemberRowSchema.parse(row));
-    const names = this.principalNames();
     return rows.map((row) => ({
       kind: row.principal_kind,
       principalId: String(row.principal_id),
@@ -426,7 +425,6 @@ export class WorkspaceChannelStore {
       workspace.created_at,
     );
     this.seedSnapshotAgents(snapshot, workspace.created_at);
-    channelMembersDeleteDirectBackfillOwners(this.storage);
   }
 
   /** Managed agents exist independently of a device key. A phone/desktop may

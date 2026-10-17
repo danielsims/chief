@@ -4,7 +4,6 @@ import type {
   DriverType,
   ProviderModelOption,
 } from "@chief/agent-runtime/types";
-import { parseJsonObject } from "@chief/relay-contracts";
 
 import type { ChannelReactionSummary } from "./channel-reactions";
 import type { WorkspaceChatSummary } from "./workspace-conversation-cache";
@@ -13,10 +12,6 @@ import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
 } from "./channel-reactions";
-import {
-  pendingOnboardingWorkStorageKey,
-  readPendingOnboardingWork,
-} from "./pending-onboarding-work";
 import {
   readCachedProviderModels,
   retainUsefulProviderModels,
@@ -92,23 +87,6 @@ export function useLocalChats(workspaceId: string | null) {
     };
   }, [capability, client, cloudOrganizationId, status, workspaceId]);
 
-  const remove = (chatId: string) => {
-    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
-      return;
-    }
-    setChats((current) => {
-      const next = current.filter((chat) => chat.id !== chatId);
-      cacheWorkspaceChats(workspaceId, next);
-      return next;
-    });
-    client.send({
-      type: "deleteChat",
-      chatId,
-      workspaceId,
-      executorCapability: capability,
-    });
-  };
-
   const startDirectMessage = useCallback(
     async (agentId: string) => {
       if (!scopedWorkspaceId || status !== "connected") {
@@ -144,7 +122,6 @@ export function useLocalChats(workspaceId: string | null) {
   return {
     chats: visibleChats,
     loading: !visibleResolved,
-    remove,
     startDirectMessage,
   };
 }
@@ -283,23 +260,3 @@ export function useProviderModels(driver: DriverType | null) {
 }
 
 export const workspaceDataCache = new Map<string, WorkspaceDataState>();
-
-export function updatePendingOnboardingDriver(
-  workspaceId: string,
-  driver: DriverType,
-  model: string | null,
-) {
-  const stored = readPendingOnboardingWork(workspaceId);
-  if (!stored) return false;
-  try {
-    const pending = parseJsonObject(JSON.parse(stored));
-    if (!pending) return false;
-    window.localStorage.setItem(
-      pendingOnboardingWorkStorageKey(workspaceId),
-      JSON.stringify({ ...pending, driver, model }),
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}

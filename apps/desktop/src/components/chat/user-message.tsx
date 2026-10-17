@@ -26,7 +26,6 @@ export function UserMessage({
   actions,
   footer,
   acknowledgedBy,
-  metadata,
   timestamp,
   continued = false,
 }: {
@@ -43,9 +42,6 @@ export function UserMessage({
   footer?: ReactNode;
   /** Brief DM acknowledgement shown while the agent begins its reply. */
   acknowledgedBy?: string;
-  /** Secondary identity copy. Omit for the default "You" label; pass null
-   * when the surrounding channel already makes authorship clear. */
-  metadata?: ReactNode;
   timestamp?: number;
   /** Follows the same person's previous message: no avatar or name. */
   continued?: boolean;
@@ -62,11 +58,6 @@ export function UserMessage({
     .join("")
     .slice(0, 2)
     .toLocaleUpperCase();
-  const resolvedMetadata = guest
-    ? guestLabel(guest)
-    : metadata === undefined
-      ? "You"
-      : metadata;
 
   return (
     <div
@@ -100,9 +91,9 @@ export function UserMessage({
           <div className="mb-1 flex items-baseline gap-2">
             <strong className="text-[13px] font-semibold">{author.name}</strong>
             <MessageTimestamp timestamp={timestamp} />
-            {resolvedMetadata ? (
+            {guest ? (
               <span className="text-muted-foreground text-[10px]">
-                {resolvedMetadata}
+                {guestLabel(guest)}
               </span>
             ) : null}
           </div>

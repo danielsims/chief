@@ -110,30 +110,6 @@ function sessionThreadRootId(
   return null;
 }
 
-function sessionBelongsToConversation(
-  sourceId: string,
-  chatId: string,
-  sessionsById: ReadonlyMap<string, SessionRecord>,
-) {
-  if (sourceId === chatId) return true;
-  const visited = new Set<string>();
-  let session = sessionsById.get(sourceId);
-  while (session && !visited.has(session.id)) {
-    visited.add(session.id);
-    if (session.id === chatId || session.parentId === chatId) return true;
-    session = session.parentId ? sessionsById.get(session.parentId) : undefined;
-  }
-  return false;
-}
-
-function isRenderableConversationAction(action: ActionItem) {
-  if (action.status === "dismissed" || !action.request) return false;
-  return !(
-    action.status === "resolved" &&
-    (action.request.fields.length > 0 || !action.request.questions?.length)
-  );
-}
-
 export function actionAttentionTarget({
   action,
   recurringWork,
@@ -331,74 +307,6 @@ export function legacyThreadRootIdsNeedingUser({
   }
 
   return result;
-}
-
-export function actionItemsInThread({
-  actionItems,
-  chatId,
-  messages,
-  sessions,
-  threadRootId,
-}: {
-  actionItems: readonly ActionItem[];
-  chatId: string;
-  messages: readonly ChiefUIMessage[];
-  sessions: readonly SessionRecord[];
-  threadRootId: string;
-}) {
-  const sessionsById = new Map(
-    sessions.map((session) => [session.id, session]),
-  );
-  return actionItems.filter((action) => {
-    if (!isRenderableConversationAction(action)) return false;
-    if (action.threadRootId === threadRootId) return true;
-    if (
-      action.sourceId &&
-      sessionThreadRootId(action.sourceId, sessionsById) === threadRootId
-    ) {
-      return true;
-    }
-    return legacyThreadRootIdsNeedingUser({
-      actionItems: [action],
-      chatId,
-      messages,
-    }).has(threadRootId);
-  });
-}
-
-/** Actions raised in a main DM or channel timeline, excluding thread actions. */
-export function actionItemsInConversation({
-  actionItems,
-  chatId,
-  sessions,
-}: {
-  actionItems: readonly ActionItem[];
-  chatId: string;
-  sessions: readonly SessionRecord[];
-}) {
-  const sessionsById = new Map(
-    sessions.map((session) => [session.id, session]),
-  );
-  return actionItems.filter((action) => {
-    if (!isRenderableConversationAction(action) || !action.sourceId) {
-      return false;
-    }
-    if (
-      action.threadRootId ||
-      sessionThreadRootId(action.sourceId, sessionsById)
-    ) {
-      return false;
-    }
-    return sessionBelongsToConversation(action.sourceId, chatId, sessionsById);
-  });
-}
-
-export function actionItemsNeedingUserInThread(
-  input: Parameters<typeof actionItemsInThread>[0],
-) {
-  return actionItemsInThread(input).filter(
-    (action) => action.status === "open",
-  );
 }
 
 /**

@@ -230,11 +230,14 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   var lastMessageAt: String?
   /// Set on a person-to-person DM: the other participant's user id.
   var directUserID: String?
+  /// Set on an agent DM: the agent it is with.
+  var directAgentID: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
     case lastMessageAt
     case directUserID = "directUserId"
+    case directAgentID = "directAgentId"
   }
 
   init(
@@ -246,9 +249,11 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     requiresAttention: Bool,
     lastMessage: String?,
     archived: Bool = false,
-    directUserID: String? = nil
+    directUserID: String? = nil,
+    directAgentID: String? = nil
   ) {
     self.directUserID = directUserID
+    self.directAgentID = directAgentID
     self.id = id
     self.name = name
     self.kind = kind
@@ -271,6 +276,7 @@ struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
     lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
     lastMessageAt = try values.decodeIfPresent(String.self, forKey: .lastMessageAt)
     directUserID = try values.decodeIfPresent(String.self, forKey: .directUserID)
+    directAgentID = try values.decodeIfPresent(String.self, forKey: .directAgentID)
   }
 }
 
@@ -475,6 +481,8 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
   var description: String
   var instructions: String
   var capabilities: [String]
+  var avatar: AgentAvatar? = nil
+  var provider: String? = nil
 
   init(
     id: String,
@@ -501,6 +509,8 @@ struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
     description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
     instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    avatar = try? container.decodeIfPresent(AgentAvatar.self, forKey: .avatar)
+    provider = try container.decodeIfPresent(String.self, forKey: .provider)
   }
 }
 
@@ -528,6 +538,8 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
   var instructions: String
   var capabilities: [String]
   var subagents: [AgentProfile]
+  var avatar: AgentAvatar? = nil
+  var provider: String? = nil
   let status: Status
 
   init(
@@ -562,6 +574,8 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
     instructions = try container.decodeIfPresent(String.self, forKey: .instructions) ?? ""
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
     subagents = try container.decodeIfPresent([AgentProfile].self, forKey: .subagents) ?? []
+    avatar = try? container.decodeIfPresent(AgentAvatar.self, forKey: .avatar)
+    provider = try container.decodeIfPresent(String.self, forKey: .provider)
   }
 
   var subagentCountLabel: String? {
@@ -582,6 +596,8 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
     )
     result.canMessage = canMessage
     result.canRunOnDevice = canRunOnDevice
+    result.avatar = avatar
+    result.provider = provider
     return result
   }
 
@@ -967,12 +983,14 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     id: String,
     kind: String,
     version: Int = 1,
-    payload: [String: String]
+    payload: [String: String],
+    payloadArrays: [String: [String]] = [:]
   ) {
     self.id = id
     self.kind = kind
     self.version = version
     self.payload = payload
+    self.payloadArrays = payloadArrays
   }
 
   enum CodingKeys: String, CodingKey {

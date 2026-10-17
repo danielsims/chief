@@ -21,6 +21,10 @@ import {
 } from "@chief/relay-contracts";
 
 import type { HostedAgentTraceContext } from "./agent-tracing";
+import {
+  extractTextToolCalls,
+  hasTextToolCallMarkup,
+} from "./inference-text-tool-calls";
 
 const OPEN_CODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 // OpenCode Go requires a coding-agent User-Agent and a stable session header.
@@ -232,14 +236,31 @@ function completionFromResult(result: {
     input: unknown;
   }[];
 }) {
+  const toolCalls = result.toolCalls.map((call) => ({
+    id: call.toolCallId,
+    name: call.toolName,
+    arguments: toolArgumentsSchema.parse(call.input),
+  }));
+  let content = result.text;
+  // Tool-call markup written as text must never be posted. Recover the calls
+  // when the model made none through the interface, and drop the markup.
+  if (hasTextToolCallMarkup(content)) {
+    const recovered = extractTextToolCalls(content);
+    content = recovered.text;
+    if (toolCalls.length === 0) {
+      toolCalls.push(
+        ...recovered.calls.map((call) => ({
+          id: `text-call-${crypto.randomUUID()}`,
+          name: call.name,
+          arguments: toolArgumentsSchema.parse(call.arguments),
+        })),
+      );
+    }
+  }
   return {
-    content: result.text || null,
+    content: content || null,
     ...(result.reasoningText ? { reasoning: result.reasoningText } : undefined),
-    toolCalls: result.toolCalls.map((call) => ({
-      id: call.toolCallId,
-      name: call.toolName,
-      arguments: toolArgumentsSchema.parse(call.input),
-    })),
+    toolCalls,
   };
 }
 
@@ -484,9 +505,24 @@ function modelMessage(
         input: call.arguments,
       })) ?? []),
     ];
+    // Thinking-mode models (DeepSeek, Kimi) reject a follow-up request unless
+    // every earlier assistant message carries reasoning_content. The provider
+    // omits the field when a step produced no reasoning, so state it
+    // explicitly as empty. Only OpenAI-compatible providers read this key.
+    const providerOptions = message.reasoning
+      ? undefined
+      : { openaiCompatible: { reasoning_content: "" } };
     return content.length > 0
-      ? { role: "assistant", content }
-      : { role: "assistant", content: message.content ?? "" };
+      ? {
+          role: "assistant",
+          content,
+          ...(providerOptions ? { providerOptions } : undefined),
+        }
+      : {
+          role: "assistant",
+          content: message.content ?? "",
+          ...(providerOptions ? { providerOptions } : undefined),
+        };
   }
   if (message.role === "tool") {
     return {

@@ -268,6 +268,11 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 256
+                          },
+                          "directAgentId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
                           }
                         },
                         "required": [
@@ -324,6 +329,98 @@
                               "minLength": 1,
                               "maxLength": 128
                             }
+                          },
+                          "avatar": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "image"
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2048,
+                                    "format": "uri"
+                                  }
+                                },
+                                "required": ["kind", "url"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "sprite"
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2048,
+                                    "format": "uri"
+                                  },
+                                  "columns": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 32
+                                  },
+                                  "rows": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 32
+                                  },
+                                  "frames": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1024
+                                  },
+                                  "fps": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 30
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "url",
+                                  "columns",
+                                  "rows",
+                                  "frames",
+                                  "fps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "style"
+                                  },
+                                  "color": {
+                                    "type": "string",
+                                    "pattern": "^#[0-9a-f]{6}$"
+                                  },
+                                  "shape": {
+                                    "type": "string",
+                                    "enum": ["circle", "rounded", "square"]
+                                  },
+                                  "glyph": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2
+                                  }
+                                },
+                                "required": ["kind", "color", "shape"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "provider": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
                           },
                           "status": {
                             "type": "string",
@@ -590,6 +687,102 @@
                                     "minLength": 1,
                                     "maxLength": 128
                                   }
+                                },
+                                "avatar": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "image"
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "uri"
+                                        }
+                                      },
+                                      "required": ["kind", "url"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "sprite"
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "uri"
+                                        },
+                                        "columns": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 32
+                                        },
+                                        "rows": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 32
+                                        },
+                                        "frames": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1024
+                                        },
+                                        "fps": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 30
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url",
+                                        "columns",
+                                        "rows",
+                                        "frames",
+                                        "fps"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "style"
+                                        },
+                                        "color": {
+                                          "type": "string",
+                                          "pattern": "^#[0-9a-f]{6}$"
+                                        },
+                                        "shape": {
+                                          "type": "string",
+                                          "enum": [
+                                            "circle",
+                                            "rounded",
+                                            "square"
+                                          ]
+                                        },
+                                        "glyph": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2
+                                        }
+                                      },
+                                      "required": ["kind", "color", "shape"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                },
+                                "provider": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
                                 }
                               },
                               "required": [
@@ -1045,6 +1238,11 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 256
+                          },
+                          "directAgentId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
                           }
                         },
                         "required": [
@@ -1101,6 +1299,98 @@
                               "minLength": 1,
                               "maxLength": 128
                             }
+                          },
+                          "avatar": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "image"
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2048,
+                                    "format": "uri"
+                                  }
+                                },
+                                "required": ["kind", "url"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "sprite"
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "maxLength": 2048,
+                                    "format": "uri"
+                                  },
+                                  "columns": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 32
+                                  },
+                                  "rows": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 32
+                                  },
+                                  "frames": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1024
+                                  },
+                                  "fps": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 30
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "url",
+                                  "columns",
+                                  "rows",
+                                  "frames",
+                                  "fps"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "style"
+                                  },
+                                  "color": {
+                                    "type": "string",
+                                    "pattern": "^#[0-9a-f]{6}$"
+                                  },
+                                  "shape": {
+                                    "type": "string",
+                                    "enum": ["circle", "rounded", "square"]
+                                  },
+                                  "glyph": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2
+                                  }
+                                },
+                                "required": ["kind", "color", "shape"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "provider": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
                           },
                           "status": {
                             "type": "string",
@@ -1367,6 +1657,102 @@
                                     "minLength": 1,
                                     "maxLength": 128
                                   }
+                                },
+                                "avatar": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "image"
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "uri"
+                                        }
+                                      },
+                                      "required": ["kind", "url"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "sprite"
+                                        },
+                                        "url": {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "uri"
+                                        },
+                                        "columns": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 32
+                                        },
+                                        "rows": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 32
+                                        },
+                                        "frames": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1024
+                                        },
+                                        "fps": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 30
+                                        }
+                                      },
+                                      "required": [
+                                        "kind",
+                                        "url",
+                                        "columns",
+                                        "rows",
+                                        "frames",
+                                        "fps"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "style"
+                                        },
+                                        "color": {
+                                          "type": "string",
+                                          "pattern": "^#[0-9a-f]{6}$"
+                                        },
+                                        "shape": {
+                                          "type": "string",
+                                          "enum": [
+                                            "circle",
+                                            "rounded",
+                                            "square"
+                                          ]
+                                        },
+                                        "glyph": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2
+                                        }
+                                      },
+                                      "required": ["kind", "color", "shape"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                },
+                                "provider": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
                                 }
                               },
                               "required": [
@@ -13026,13 +13412,21 @@
                     "type": "string",
                     "format": "date-time",
                     "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "label": {
+                    "default": null,
+                    "anyOf": [
+                      { "type": "string", "minLength": 1, "maxLength": 60 },
+                      { "type": "null" }
+                    ]
                   }
                 },
                 "required": [
                   "commandId",
                   "secret",
                   "conversationId",
-                  "expiresAt"
+                  "expiresAt",
+                  "label"
                 ],
                 "additionalProperties": false
               }

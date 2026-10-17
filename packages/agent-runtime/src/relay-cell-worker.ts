@@ -36,6 +36,7 @@ import {
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
+import { RunSteering } from "./relay-cell-steering.js";
 import {
   relayCellToolNames,
   runRelayCellMcpServer,
@@ -119,6 +120,17 @@ function postedFinalToOrigin(
       : false,
   );
 }
+
+function socketEvent(data: Buffer) {
+  try {
+    return parseJsonObject(JSON.parse(String(data)));
+  } catch {
+    return undefined;
+  }
+}
+
+/** The thread run in progress, which a new message to it steers. */
+let steering: RunSteering | null = null;
 
 async function executeJob(
   cell: DesktopAgentCell,
@@ -241,7 +253,10 @@ async function executeJob(
       conversationId,
       {
         driver: normalizeDriver(config.inference.provider),
-        access: "guarded",
+        // A cell has no one to answer provider prompts. With automatic
+        // approvals the agent works freely on this device; otherwise only
+        // Chief's own tools are allowed below.
+        access: config.approvals === "auto" ? "full" : "guarded",
         workspaceId: job.workspaceId,
         model:
           config.inference.model.toLowerCase() === "auto"
@@ -281,18 +296,33 @@ async function executeJob(
       cellDirectory,
       parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
     );
-    await agentSession.sendPrompt(instruction, job.id, false, {
+    const promptContext = {
       threadRootId: activityContext.threadRootId,
       privateInstructions: [
         relayCellWorkspaceContext(job.payload, agentId),
         localCellExecutionContext(executionContext),
         job.kind === "conversation.message" || job.kind === "schedule.step"
-          ? relayCellFinalReply(conversationId)
+          ? relayCellFinalReply(conversationId, activityContext.threadRootId)
           : undefined,
       ]
         .filter(Boolean)
         .join("\n\n"),
-    });
+    };
+    if (job.kind === "conversation.message") {
+      steering = new RunSteering(
+        conversationId,
+        activityContext.threadRootId,
+        client,
+        agentId,
+        `${agentId}-${process.pid}`,
+        () => session,
+      );
+    }
+    await agentSession.sendPrompt(instruction, job.id, false, promptContext);
+    await steering?.drain((text, jobId) =>
+      agentSession.sendPrompt(text, jobId, false, promptContext),
+    );
+    steering = null;
     await activityPublisher.flush();
     if (agentSession.sessionId) {
       await cell.writeState(
@@ -345,6 +375,7 @@ async function executeJob(
       }),
     );
   } catch (error) {
+    steering = null;
     console.error(
       "[cell-activity]",
       JSON.stringify({
@@ -446,8 +477,13 @@ async function listenForJobs() {
     });
     return draining;
   };
+  const settled = async () => await draining?.catch(() => undefined);
 
+  // Each failed connection waits twice as long as the last. After ten in a row
+  // the cell exits rather than poll a relay that is down; the desktop starts it
+  // again the next time it loads the workspace.
   let delay = 1_000;
+  let failures = 0;
   while (true) {
     try {
       if (config.inference.provider === "codex") await ensureCodexSetup();
@@ -469,9 +505,23 @@ async function listenForJobs() {
         const socket = new WebSocket(socketUrl);
         socket.on("open", () => {
           delay = 1_000;
+          failures = 0;
           void drain().catch((error) => console.error("[cell] job:", error));
         });
-        socket.on("message", () => {
+        socket.on("message", (data: Buffer) => {
+          // A message for the thread this cell is running steers that run.
+          const ping = parseJsonObject(socketEvent(data)?.payload);
+          const jobId = parseJsonString(ping?.jobId);
+          if (
+            jobId &&
+            steering &&
+            ping?.conversationId === steering.conversationId &&
+            (parseJsonString(ping.threadRootId) ?? undefined) ===
+              steering.threadRootId
+          ) {
+            steering.admit(jobId);
+            return;
+          }
           void drain().catch((error) => console.error("[cell] job:", error));
         });
         // The relay pushes every job that becomes claimable, including delayed
@@ -498,8 +548,13 @@ async function listenForJobs() {
     } catch (error) {
       console.error("[cell] connection:", error);
     }
+    if (++failures >= 10) {
+      await settled();
+      console.error("[cell] relay unreachable, stopping");
+      process.exit(1);
+    }
     await new Promise((resolve) => setTimeout(resolve, delay));
-    delay = Math.min(delay * 2, 30_000);
+    delay = Math.min(delay * 2, 300_000);
   }
 }
 

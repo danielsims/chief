@@ -83,6 +83,7 @@ export function DashboardPage() {
         <ChatComposer
           className="mt-6 w-full"
           autoFocus
+          storageKey="overview"
           value={ask}
           onValueChange={setAsk}
           onSubmit={submit}

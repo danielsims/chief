@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 
-import { createChiefGitRepository } from "../../lib/chief-git";
 import { prepareDesktopPluginHost } from "../../lib/desktop-plugin-host";
 import {
   isGitHubConnected,
@@ -22,6 +21,7 @@ import {
 import { githubRepositoryName } from "../../lib/relay-runtime-project-connect";
 import { useRelaySession } from "../../lib/relay-session-context";
 import { useProjects } from "../../lib/runtime-projects";
+import { createWorkspaceGitRepository } from "../../lib/workspace-git";
 import { ChiefMark } from "../chief-mark";
 import { GitHubMark } from "./github-mark";
 
@@ -47,7 +47,7 @@ function ConnectedAddProjectDialog(props: AddProjectDialogProps) {
       workspaceName={snapshot?.name}
       createRepository={async (name) => {
         if (!client || !snapshot) throw new Error("Chief isn't connected yet.");
-        await createChiefGitRepository(client, snapshot.id, name);
+        await createWorkspaceGitRepository(client, snapshot.id, name);
         projects.refresh();
       }}
     />
@@ -68,7 +68,7 @@ interface AddProjectDialogFormProps extends AddProjectDialogProps {
   createRepository: (name: string) => Promise<void>;
 }
 
-type Step = "source" | "chief-git" | "github" | "name";
+type Step = "source" | "workspace-git" | "github" | "name";
 
 /**
  * Connecting source control: choose where the repository lives. Chief Git
@@ -170,7 +170,7 @@ function AddProjectDialogForm({
     else setStep("name");
   };
 
-  const createChiefGit = async () => {
+  const createWorkspaceGit = async () => {
     if (submitting.current) return;
     submitting.current = true;
     setAdding(true);
@@ -214,7 +214,7 @@ function AddProjectDialogForm({
               <SourceOption
                 icon={<ChiefMark className="size-4" />}
                 label="Continue with Chief Git Relay"
-                onSelect={() => goTo("chief-git")}
+                onSelect={() => goTo("workspace-git")}
               />
               <SourceOption
                 icon={<GitHubMark className="size-4" />}
@@ -222,7 +222,7 @@ function AddProjectDialogForm({
                 onSelect={() => goTo("github")}
               />
             </div>
-          ) : step === "chief-git" ? (
+          ) : step === "workspace-git" ? (
             <input
               autoFocus
               disabled={busy}
@@ -234,7 +234,7 @@ function AddProjectDialogForm({
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && repositoryName.trim())
-                  void createChiefGit();
+                  void createWorkspaceGit();
               }}
               placeholder="Repository name"
               aria-label="Repository name"
@@ -285,10 +285,10 @@ function AddProjectDialogForm({
             >
               Back
             </Button>
-            {step === "chief-git" ? (
+            {step === "workspace-git" ? (
               <Button
                 disabled={!repositoryName.trim() || busy}
-                onClick={() => void createChiefGit()}
+                onClick={() => void createWorkspaceGit()}
               >
                 {adding ? "Creating…" : "Create repository"}
               </Button>
@@ -324,14 +324,14 @@ function AddProjectDialogForm({
 
 const TITLES: Record<Step, string> = {
   source: "Connect Chief to source control",
-  "chief-git": "Create a repository",
+  "workspace-git": "Create a repository",
   github: "Add a GitHub repository",
   name: "Name your GitHub App",
 };
 
 const DESCRIPTIONS: Record<Step, string> = {
   source: "Choose where your agents' repositories live.",
-  "chief-git": "Chief hosts it on your relay.",
+  "workspace-git": "Chief hosts it on your relay.",
   github: "Paste a GitHub link for your agents to work in.",
   name: "GitHub shows this name when you share repositories.",
 };

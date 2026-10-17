@@ -12,6 +12,7 @@ interface PluginHostConnection {
 let connectionPromise: Promise<PluginHostConnection> | null = null;
 
 type PluginHostRequest =
+  | Record<string, never>
   | { workspaceId: string; operation: "snapshots" }
   | {
       workspaceId: string;
@@ -117,7 +118,8 @@ export async function requestDesktopPluginHost(
     | "/plugins/list"
     | "/plugins/install"
     | "/plugins/authorize"
-    | "/plugins/uninstall",
+    | "/plugins/uninstall"
+    | "/models/claude",
   body: PluginHostRequest,
 ): Promise<JsonObject> {
   const connection = await hostConnection();

@@ -10,7 +10,7 @@ export const recommendProjectDefinition = defineAgentTool({
     operationId: "projects.recommend",
     summary: "Ask the user to connect a Git repository",
     description:
-      "Publishes a durable connect-repository card in the current channel, thread, or direct message. Use this when the workspace has no Git project yet instead of asking the user to paste a URL in chat. This does not clone or attach a repository.",
+      "Publishes a durable connect-repository card in the current conversation so the user can attach a repository that already exists on GitHub or another Git provider. Use it only when the user wants to attach such a repository; it does not create, clone or attach anything itself. To make a new repository, create it directly instead.",
   },
   inputSchema: z.object({
     content: boundedText(1_000),

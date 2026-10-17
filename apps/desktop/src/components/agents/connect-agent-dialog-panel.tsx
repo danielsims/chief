@@ -14,14 +14,13 @@ import {
 
 import type { Provider } from "../../lib/providers";
 import type { RelayRuntimeIdentity } from "./agent-connection-model";
-import type { AgentIntegrationOption } from "./agent-detail-sections";
 import { PROVIDER_META } from "../../lib/providers";
 import { ChiefMark } from "../chief-mark";
 import {
   VercelConnection,
   VercelDestinationFields,
 } from "../vercel-connection";
-import { ChoiceGrid, Field, Section } from "./connect-agent-dialog-sections";
+import { Field, Section } from "./connect-agent-dialog-sections";
 
 export type Deployment = "chief-cloud" | "on-device" | "vercel-eve";
 
@@ -32,18 +31,6 @@ export function slug(value: string) {
     .replace(/[^a-z0-9-]+/gu, "-")
     .replace(/^-+|-+$/gu, "")
     .slice(0, 64);
-}
-
-export function toggle(
-  id: string,
-  values: string[],
-  setValues: (values: string[]) => void,
-) {
-  setValues(
-    values.includes(id)
-      ? values.filter((value) => value !== id)
-      : [...values, id],
-  );
 }
 
 export function isCreationProvider(value: string): value is Provider {
@@ -66,8 +53,6 @@ export function ConnectAgentForm({
   availableProviders,
   selectedProviderMeta,
   SelectedProviderIcon,
-  integrations,
-  selectedIntegrations,
   vercelCatalog,
   vercelLoading,
   vercelConnectionStatus,
@@ -85,7 +70,6 @@ export function ConnectAgentForm({
   onDeploymentChange,
   onProviderChange,
   onModelChange,
-  onToggleIntegration,
   onConnectVercel,
   onTeamChange,
   onProjectModeChange,
@@ -104,8 +88,6 @@ export function ConnectAgentForm({
   availableProviders: readonly Provider[];
   selectedProviderMeta: (typeof PROVIDER_META)[Provider];
   SelectedProviderIcon: (typeof PROVIDER_META)[Provider]["Icon"];
-  integrations: AgentIntegrationOption[];
-  selectedIntegrations: string[];
   vercelCatalog: VercelEveDestinationCatalog;
   vercelLoading: boolean;
   vercelConnectionStatus: "checking" | "connected" | "missing";
@@ -123,7 +105,6 @@ export function ConnectAgentForm({
   onDeploymentChange: (value: Deployment) => void;
   onProviderChange: (value: Provider) => void;
   onModelChange: (value: string) => void;
-  onToggleIntegration: (id: string) => void;
   onConnectVercel: (token: string) => Promise<void>;
   onTeamChange: (teamId: string) => void;
   onProjectModeChange: (value: "" | "new" | "existing") => void;
@@ -308,21 +289,6 @@ export function ConnectAgentForm({
             </>
           )}
         </Section>
-        {deployment !== "vercel-eve" && integrations.length > 0 ? (
-          <Section
-            title="Connections"
-            description="Give this agent access to connected services."
-          >
-            <ChoiceGrid
-              items={integrations.map((integration) => ({
-                id: integration.provider,
-                label: integration.displayName,
-                selected: selectedIntegrations.includes(integration.provider),
-              }))}
-              onToggle={onToggleIntegration}
-            />
-          </Section>
-        ) : null}
         {error ? <p className="text-destructive text-[13px]">{error}</p> : null}
       </div>
       <DialogFooter className="border-t px-6 py-4">

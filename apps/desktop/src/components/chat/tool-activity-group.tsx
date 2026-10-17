@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
 import {
   Check,
   ChevronDown,
@@ -12,10 +13,37 @@ import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ActivityToolCall } from "./activity-entries";
+import type { SessionChange } from "./session-work";
+import { useTheme } from "../../lib/theme";
 import { activityEntries } from "./activity-entries";
 import { formatActivityValue } from "./activity-tool-details";
 import { toolPresentation, toolSummary } from "./message-blocks";
 import { relativeActivityTime } from "./relative-activity-time";
+import { changeForTool } from "./session-work";
+
+/** Renders a file edit as a unified diff inside the tool row that made it. */
+export function ChangeDiff({ change }: { change: SessionChange }) {
+  const { resolved } = useTheme();
+  const options = {
+    diffStyle: "unified" as const,
+    overflow: "wrap" as const,
+    theme: { dark: "github-dark", light: "github-light" },
+    themeType: resolved,
+  };
+  return (
+    <div className="overflow-hidden rounded-lg border text-[12px]">
+      {change.kind === "patch" ? (
+        <PatchDiff patch={change.patch} options={options} />
+      ) : (
+        <MultiFileDiff
+          oldFile={{ name: change.file, contents: change.before }}
+          newFile={{ name: change.file, contents: change.after }}
+          options={options}
+        />
+      )}
+    </div>
+  );
+}
 
 function ActivityDetail({
   label,
@@ -72,6 +100,7 @@ function ActivityTool({
         : at
           ? relativeActivityTime(at)
           : "Done";
+  const change = result ? changeForTool(tool, result) : undefined;
   const [expanded, setExpanded] = useState(failed || running);
 
   return (
@@ -124,9 +153,23 @@ function ActivityTool({
         />
       </summary>
       <div className="space-y-3 px-3.5 pt-1 pb-3.5 pl-10">
-        <ActivityDetail label="Tool" value={tool.name} />
-        <ActivityDetail label="Parameters" value={parameters} />
-        {result ? (
+        {change ? (
+          <ChangeDiff change={change} />
+        ) : (
+          <>
+            <ActivityDetail label="Tool" value={tool.name} />
+            <ActivityDetail label="Parameters" value={parameters} />
+          </>
+        )}
+        {change ? (
+          failed ? (
+            <ActivityDetail
+              label="Error"
+              value={output || "The tool failed without an error message."}
+              error
+            />
+          ) : null
+        ) : result ? (
           <ActivityDetail
             label={failed ? "Error" : "Result"}
             value={

@@ -120,7 +120,7 @@ function ConversationEmptyState({
   directAgent?: { name: string };
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
       <p className="text-2xl font-medium tracking-[-0.03em]">
         {channel ? `#${channel.label}` : (directAgent?.name ?? "Chief")}
       </p>
@@ -226,7 +226,6 @@ function ChiefMessage({
   onOpenProfile,
   actions,
   footer,
-  metadata,
   timestamp,
 }: {
   activity?: SessionRecord;
@@ -236,15 +235,10 @@ function ChiefMessage({
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   actions?: ReactNode;
   footer?: ReactNode;
-  metadata?: ReactNode;
   timestamp?: number;
 }) {
-  const identity: { name: string; role: string } = agent ?? {
-    name: "Chief",
-    role: "Workspace Lead",
-  };
+  const identity = agent ?? { name: "Chief" };
   const agentId = agent?.id ?? "chief";
-  const resolvedMetadata = metadata === undefined ? identity.role : metadata;
   return (
     <div
       id={messageId ? `chief-message-${messageId}` : undefined}
@@ -270,18 +264,17 @@ function ChiefMessage({
             />
           </span>
         ) : (
-          <AgentAvatar className="rounded-lg" label={identity.name} />
+          <AgentAvatar
+            agentId={agentId}
+            className="rounded-lg"
+            label={identity.name}
+          />
         )}
       </button>
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{identity.name}</strong>
           <MessageTimestamp timestamp={timestamp} />
-          {resolvedMetadata ? (
-            <span className="text-muted-foreground text-[10px]">
-              {resolvedMetadata}
-            </span>
-          ) : null}
         </div>
         {children}
         {footer}

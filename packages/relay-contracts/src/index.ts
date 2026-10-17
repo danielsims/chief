@@ -1,4 +1,5 @@
 export * from "./agents";
+export * from "./agent-avatar";
 export * from "./attachments";
 export * from "./channels";
 export * from "./channel-guests";

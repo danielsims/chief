@@ -25,7 +25,11 @@ export function initializeConversationStorage(storage: DurableObjectStorage) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS messages_sequence_idx ON messages (sequence);
-    CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_root_id);
+    DROP INDEX IF EXISTS messages_thread_idx;
+    CREATE INDEX IF NOT EXISTS messages_thread_sequence_idx
+      ON messages (thread_root_id, sequence);
+    CREATE INDEX IF NOT EXISTS messages_conversational_idx ON messages (sequence)
+      WHERE author_kind <> 'agent' OR body <> '';
     CREATE TABLE IF NOT EXISTS events (
       sequence INTEGER PRIMARY KEY,
       event_id TEXT NOT NULL UNIQUE,

@@ -476,8 +476,18 @@ export class AgentSession extends EventEmitter {
   interrupt() {
     return this.driver.interrupt();
   }
+  canSteer() {
+    return this.driver.canSteer();
+  }
+
+  /** Folds a message into the turn in flight; check canSteer first. */
+  steer(text: string) {
+    this.driver.steer(text);
+  }
+
   async stop() {
     this.clearStallWatchdog();
+    this.driver.settlePrompt();
     await this.driver.stop();
     this.removeAllListeners();
   }

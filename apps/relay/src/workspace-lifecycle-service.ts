@@ -268,13 +268,14 @@ export class WorkspaceLifecycleService {
       pubkey: context.identity.pubkey,
       workspaceId: context.workspaceId,
     };
+    const names = this.channels.principalNames();
     return json({
       ...reconciled.snapshot,
       // Each person sees only the DMs they are in. A person-to-person DM is
       // named after the other participant, for this viewer.
       conversations: conversations.flatMap((conversation) => {
         if (conversation.kind !== "direct") return [conversation];
-        const members = this.channels.channelMemberRows(conversation.id);
+        const members = this.channels.channelMemberRows(conversation.id, names);
         if (
           !members.some(
             (member) =>
@@ -282,6 +283,9 @@ export class WorkspaceLifecycleService {
           )
         )
           return [];
+        const agent = members.find((member) => member.kind === "agent");
+        if (agent)
+          return [{ ...conversation, directAgentId: agent.principalId }];
         if (members.some((member) => member.kind !== "user"))
           return [conversation];
         const peer = members.find(
@@ -292,8 +296,7 @@ export class WorkspaceLifecycleService {
           {
             ...conversation,
             name: (
-              this.channels.principalNames().get(`user:${peer.principalId}`) ??
-              conversation.name
+              names.get(`user:${peer.principalId}`) ?? conversation.name
             ).slice(0, 120),
             directUserId: peer.principalId,
           },
@@ -301,12 +304,14 @@ export class WorkspaceLifecycleService {
       }),
       agents: reconciled.snapshot.agents.map((agent) => ({
         ...agent,
+        ...this.agentProvider(agent),
         canRunOnDevice:
           (agent.ownerUserId ?? workspace.created_by_user_id) ===
           principal.userId,
         canMessage: canMessageAgent(this.channels, agent.id, principal),
         subagents: agent.subagents.map((child) => ({
           ...child,
+          ...this.agentProvider({ ...child, runtime: agent.runtime }),
           canMessage: canMessageAgent(this.channels, child.id, principal),
         })),
       })),
@@ -496,6 +501,18 @@ export class WorkspaceLifecycleService {
         "This identity is not a workspace member.",
       );
     }
+  }
+
+  /** A Chief-run agent's provider name, which every member may see. */
+  private agentProvider(agent: { id: string; runtime: { kind: string } }): {
+    provider?: string;
+  } {
+    return agent.runtime.kind === "native-cell"
+      ? {
+          provider: this.channels.agentConfiguration(agent.id).inference
+            .provider,
+        }
+      : {};
   }
 
   private requireOwner(context: ReturnType<typeof readTrustedIdentity>) {

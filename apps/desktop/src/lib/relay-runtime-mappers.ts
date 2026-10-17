@@ -18,6 +18,7 @@ import {
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
+  questionPayloadSchema,
   scheduledRunMessagePayloadSchema,
 } from "@chief/relay-contracts";
 
@@ -89,6 +90,28 @@ export function isAgentActivityProjection(message: ConversationMessage) {
   );
 }
 
+/** The relay's run row starts and ends a run, so an agent stays working
+ * between tool steps and through mid-run messages. */
+function runStatus(message: ConversationMessage) {
+  return isAgentActivityProjection(message)
+    ? message.components.find(
+        (component) => component.kind === "agent.activity",
+      )?.payload.status
+    : undefined;
+}
+
+export function agentWorkingChange(message: ConversationMessage) {
+  const status = runStatus(message);
+  if (!status) return undefined;
+  return {
+    agentId: message.author.id,
+    ...(message.threadRootId
+      ? { threadRootId: message.threadRootId }
+      : undefined),
+    working: status === "working",
+  };
+}
+
 export function agentRunEvent(message: ConversationMessage) {
   if (isAgentActivityProjection(message)) {
     const error = message.components.find(
@@ -112,34 +135,18 @@ export function agentRunEvent(message: ConversationMessage) {
           : "The agent run was interrupted.",
       };
     }
-    // Completed steps can land after the reply; only unfinished work means
-    // the agent is still running.
-    const working = message.components.some(
-      (component) =>
-        component.payload.status === "running" ||
-        component.payload.status === "working",
-    );
-    return working
-      ? {
-          type: "status" as const,
-          status: "running" as const,
-          agentId: message.author.id,
-          ...(message.threadRootId
-            ? { threadRootId: message.threadRootId }
-            : undefined),
-        }
-      : undefined;
   }
-  return message.author.kind === "agent"
-    ? {
-        type: "result" as const,
-        ok: true,
-        agentId: message.author.id,
-        ...(message.threadRootId
-          ? { threadRootId: message.threadRootId }
-          : undefined),
-      }
-    : undefined;
+  const status = runStatus(message);
+  if (!status) return undefined;
+  const where = {
+    agentId: message.author.id,
+    ...(message.threadRootId
+      ? { threadRootId: message.threadRootId }
+      : undefined),
+  };
+  return status === "working"
+    ? { type: "status" as const, status: "running" as const, ...where }
+    : { type: "result" as const, ok: true, ...where };
 }
 
 export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
@@ -163,6 +170,11 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         : "assistant",
     metadata: {
       createdAt: Date.parse(message.createdAt),
+      ...(message.components.some(
+        (component) => component.kind === "session.start",
+      )
+        ? { sessionStart: true }
+        : undefined),
       ...(message.author.kind === "guest"
         ? {
             guest: guestAppearance(message.author),
@@ -208,7 +220,7 @@ export function toChannelMessageEvent(
   message: ConversationMessage,
   snapshot: WorkspaceSnapshot,
 ): ChannelEvent {
-  const actor =
+  const author =
     message.author.kind === "agent"
       ? {
           type: "agent" as const,
@@ -232,6 +244,15 @@ export function toChannelMessageEvent(
             id: message.author.id,
             name: message.author.kind === "system" ? "Chief" : "You",
           };
+  // A relay notice that someone was added is that person's action, so the event
+  // carries them and the targets, matching the history projection.
+  const added = message.components
+    .map(channelActionFromComponent)
+    .find((action) => action?.type === "member-added");
+  const actor =
+    added?.actorId && added.actorType
+      ? { type: added.actorType, id: added.actorId, name: added.actorName }
+      : author;
   return {
     protocol: "nip29",
     id: message.id,
@@ -253,6 +274,13 @@ export function toChannelMessageEvent(
           component.payload.type === "member-joined",
       )
         ? [["action", "member-joined"]]
+        : []),
+      ...(added
+        ? [
+            ["action", "member-added"],
+            ...added.agentIds.map((id) => ["agent", id]),
+            ...(added.userIds ?? []).map((id) => ["user", id]),
+          ]
         : []),
     ],
     content: message.deleted ? "" : message.body,
@@ -299,24 +327,7 @@ export function directAgentId(
   const conversation = snapshot.conversations.find(
     (candidate) => candidate.id === conversationId,
   );
-  return conversation?.kind === "direct" && !conversation.directUserId
-    ? agentForDirect(conversation.name, snapshot)
-    : undefined;
-}
-
-export function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
-  const normalized = name.toLowerCase();
-  const profiles = snapshot.agents.flatMap((agent) => [
-    agent,
-    ...agent.subagents,
-  ]);
-  return (
-    profiles.find(
-      (agent) =>
-        normalized.includes(agent.id.toLowerCase()) ||
-        normalized.includes(agent.name.toLowerCase()),
-    )?.id ?? "chief"
-  );
+  return conversation?.directAgentId;
 }
 
 function messageComponentParts(
@@ -326,6 +337,7 @@ function messageComponentParts(
     ...activityParts(message.components),
     ...pluginRecommendationParts(message),
     ...projectRecommendationParts(message),
+    ...questionParts(message),
     ...artifactParts(message),
   ];
 }
@@ -448,6 +460,29 @@ function projectRecommendationParts(
           description: parsed.data.description,
           ...(parsed.data.remoteUrl
             ? { remoteUrl: parsed.data.remoteUrl }
+            : undefined),
+        },
+      },
+    ];
+  });
+}
+
+function questionParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "question") return [];
+    const parsed = questionPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-question" as const,
+        data: {
+          messageId: message.id,
+          agentId: parsed.data.agentId,
+          question: parsed.data.question,
+          options: parsed.data.options,
+          ...(parsed.data.threadRootId
+            ? { threadRootId: parsed.data.threadRootId }
             : undefined),
         },
       },

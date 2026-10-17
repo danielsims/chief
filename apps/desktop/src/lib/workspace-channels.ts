@@ -103,6 +103,26 @@ export function workspaceAgentIdentity(
   return known ?? { name: agentId, role: "Agent" };
 }
 
+/** An agent's name from the workspace roster (including subagents), then the
+ * built-in identities. Undefined when neither knows the id. */
+export function workspaceAgentName(
+  agentId: string,
+  agents: readonly {
+    id: string;
+    name: string;
+    subagents?: readonly { id: string; name: string }[];
+  }[] = [],
+) {
+  for (const agent of agents) {
+    if (agent.id === agentId) return agent.name;
+    const subagent = agent.subagents?.find((child) => child.id === agentId);
+    if (subagent) return subagent.name;
+  }
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
+    : undefined;
+}
+
 export function isWorkspaceAgentId(
   value: string,
 ): value is StaticWorkspaceAgentId {

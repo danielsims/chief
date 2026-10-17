@@ -15,7 +15,7 @@ final class ScheduledRunUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Marketer working"].exists)
     attach("Mobile scheduled run", app)
     card.tap()
-    XCTAssertTrue(app.navigationBars["Thread"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["mission-control"].waitForExistence(timeout: 5))
     let artifact = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Launch draft"))
       .firstMatch
     XCTAssertTrue(artifact.waitForExistence(timeout: 5))

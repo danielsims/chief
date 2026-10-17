@@ -11,21 +11,20 @@ export { isDesktopNativeCell } from "./desktop-cell-runtime-selection";
 
 export async function ensureDesktopCells(
   snapshot: WorkspaceSnapshot,
-  workspace: Pick<RelayClient, "loadAgentConfig" | "registerAgentKey">,
+  workspace: Pick<RelayClient, "loadAgentConfigs" | "registerAgentKey">,
 ) {
   if (!isTauri()) return;
-  const configurations = await Promise.all(
+  const onDevice = new Set(
     snapshot.agents
       .filter(
         (agent) =>
           agent.runtime.kind === "native-cell" &&
           agent.canRunOnDevice !== false,
       )
-      .flatMap((agent) => [agent, ...agent.subagents])
-      .map(async (agent) => {
-        const configuration = await workspace.loadAgentConfig(agent.id);
-        return { agentId: agent.id, config: configuration.config };
-      }),
+      .flatMap((agent) => [agent.id, ...agent.subagents.map(({ id }) => id)]),
+  );
+  const configurations = (await workspace.loadAgentConfigs()).filter(
+    ({ agentId }) => onDevice.has(agentId),
   );
   const agents = await Promise.all(
     configurations

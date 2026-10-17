@@ -11,10 +11,7 @@ import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import { guestLabel, guestSummaryAppearance } from "../../lib/guest-appearance";
-import {
-  findPendingInputRequest,
-  withoutMarkerLines,
-} from "../../lib/integration-setup";
+import { withoutMarkerLines } from "../../lib/integration-setup";
 import {
   messageBlocks,
   useChannelReactions,
@@ -22,10 +19,7 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import {
-  isWorkspaceAgentId,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { workspaceAgentName } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { useChannelGuests } from "./channel-guests";
 import { channelRecipients } from "./channel-thread-audience";
@@ -65,6 +59,7 @@ export function useChiefChatCore({
     browserRuns,
     browserSessions,
     agents: runtimeAgents,
+    agentsLoaded,
   } = useRuntime();
   const workspacePeople = useMentionPeople();
   const { cloudOrganizationId, user } = useAuth();
@@ -157,12 +152,10 @@ export function useChiefChatCore({
             : undefined),
         }
       : null);
-  const activeRootIdentity =
-    visibleActiveRootTurn && isWorkspaceAgentId(visibleActiveRootTurn.agentId)
-      ? WORKSPACE_AGENT_IDENTITIES[visibleActiveRootTurn.agentId]
-      : undefined;
-  const activityAgentLabel =
-    activeRootIdentity?.name ?? directAgent?.name ?? "Chief";
+  const activeRootName = visibleActiveRootTurn
+    ? workspaceAgentName(visibleActiveRootTurn.agentId, runtimeAgents)
+    : undefined;
+  const activityAgentLabel = activeRootName ?? directAgent?.name ?? "Chief";
   const currentTurn = useMemo(
     () =>
       channelActivityState(
@@ -183,6 +176,9 @@ export function useChiefChatCore({
                   role: message.role,
                   createdAt: message.metadata?.createdAt,
                   agentId: message.metadata?.agentId ?? directAgent?.id,
+                  ...(message.metadata?.threadRootId
+                    ? { threadRootId: message.metadata.threadRootId }
+                    : undefined),
                   blocks: withoutMarkerLines(messageBlocks(message)),
                 },
               ]
@@ -193,13 +189,6 @@ export function useChiefChatCore({
   );
   const activeExecution =
     selectedExecution ?? chat.execution ?? initialExecution;
-  const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const pendingInput = useMemo(
-    () => findPendingInputRequest(chat.messages, answeredInputs),
-    [answeredInputs, chat.messages],
-  );
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -233,7 +222,12 @@ export function useChiefChatCore({
       }));
     const people = workspacePeople
       .filter((person) => person.id !== user?.id)
-      .map((person) => ({ ...person, role: "Workspace member", member: true }));
+      .map((person) => ({
+        ...person,
+        role: "Workspace member",
+        member: true,
+        user: { image: workspaceUsers.get(person.id)?.image },
+      }));
     // Agents members invited into this channel. The relay wakes them from the
     // @handle in the text; they never route to workspace agents.
     const guests = channelGuests.map((guest) => {
@@ -260,16 +254,24 @@ export function useChiefChatCore({
     user,
     runtimeAgents,
     workspacePeople,
+    workspaceUsers,
   ]);
-  const knownAgentIds = useMemo(
+  /** Every agent and subagent, so messages name their real author. */
+  const agentRoster = useMemo(
     () =>
-      new Set(
-        runtimeAgents.flatMap((agent) => [
-          agent.id,
-          ...(agent.subagents ?? []).map((child) => child.id),
-        ]),
+      new Map(
+        runtimeAgents
+          .flatMap((agent) => [agent, ...(agent.subagents ?? [])])
+          .map((agent) => [
+            agent.id,
+            { id: agent.id, name: agent.name, role: agent.role },
+          ]),
       ),
     [runtimeAgents],
+  );
+  const knownAgentIds = useMemo(
+    () => new Set(agentRoster.keys()),
+    [agentRoster],
   );
   const send = (
     text: string,
@@ -278,6 +280,9 @@ export function useChiefChatCore({
     attachments: readonly MessageAttachment[] = [],
     interruptActive = false,
   ) => {
+    // An agent DM is answered in threads: each top-level message opens its
+    // own, which carries that piece of work's context.
+    const sessionStart = Boolean(directAgent) && !threadRootId;
     const normalizedText = text.toLocaleLowerCase();
     const mentionedAgentIds = mentionCandidates
       .map((candidate) => ({
@@ -306,25 +311,42 @@ export function useChiefChatCore({
             ? channel.agentIds.find((agentId) => agentId !== "chief")
             : undefined))
       : (directAgent?.id ?? "chief");
+    const messageId = chat.sendMessageWithContext(
+      text,
+      {
+        threadRootId,
+        mentions,
+        interruptActive: interruptActive && !sessionStart,
+        sessionStart,
+      },
+      [...attachments],
+    );
+    // The reply lands in this message's own thread when it opens a session or
+    // mentions an agent, so track the turn against that root.
+    const turnThreadRootId =
+      threadRootId ??
+      (sessionStart || (channel && mentions.length > 0)
+        ? messageId
+        : undefined);
     setActiveRootTurn(
       routedAgentId
         ? {
             agentId: routedAgentId,
-            ...(threadRootId ? { threadRootId } : undefined),
+            ...(turnThreadRootId
+              ? { threadRootId: turnThreadRootId }
+              : undefined),
           }
         : null,
     );
-    chat.sendMessageWithContext(
-      text,
-      { threadRootId, mentions, interruptActive },
-      [...attachments],
-    );
+    return messageId;
   };
 
   const scheduleRuns = useScheduledRunProgress(chat.messages);
   return {
     scheduleRuns,
     ...chat,
+    agentRoster,
+    agentsLoaded,
     activeCapabilities: resolved.capabilities,
     activeExecution,
     activityAgentLabel,
@@ -342,14 +364,12 @@ export function useChiefChatCore({
     markThreadRead,
     mentionCandidates,
     channelGuests,
-    pendingInput,
     activityTurns,
     activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
     runtimeStatus,
     selectedExecution,
     send,
     setActivityOpen: onActivityOpenChange,
-    setAnsweredInputs,
     setSelectedExecution,
     setVisibleThread,
     statusLabel: currentTurn.statusLabel,

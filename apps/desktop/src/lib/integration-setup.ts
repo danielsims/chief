@@ -29,8 +29,6 @@ export const INPUT_REQUEST_MARKER = "CHIEF_INPUT_REQUEST";
 
 export const SETUP_ATTEMPT_PREFIX = "[chief-integration-setup:";
 
-/** The runtime confirms stored input with a user-turn starting with this. */
-export const INPUT_PROVIDED_PREFIX = "Provided:";
 const DIRECT_SETUP_CHAT_PREFIX = "integration-setup-v6-";
 
 export function integrationSetupChatId(workspaceId: string, domain: string) {
@@ -80,46 +78,6 @@ const setupResultSchema: z.ZodType<SetupResult> = z.object({
   accountName: z.string().optional(),
   series: z.array(z.object({ date: z.string(), value: z.number() })).optional(),
   metricLabel: z.string().optional(),
-});
-
-const inputRequestSchema: z.ZodType<InputRequest> = z.object({
-  id: z.string(),
-  title: z.string(),
-  reason: z.string().optional(),
-  steps: z
-    .array(z.object({ text: z.string(), url: z.string().optional() }))
-    .optional(),
-  questions: z
-    .array(
-      z.object({
-        question: z.string(),
-        header: z.string().optional(),
-        multiSelect: z.boolean().optional(),
-        allowFreeform: z.boolean().optional(),
-        dismissible: z.boolean().optional(),
-        options: z.array(
-          z.object({
-            label: z.string(),
-            description: z.string().optional(),
-            allowsFreeText: z.boolean().optional(),
-          }),
-        ),
-      }),
-    )
-    .optional(),
-  fields: z.array(
-    z.object({
-      key: z.string(),
-      label: z.string(),
-      type: z.enum(["text", "secret", "multiline"]).optional(),
-      save: z.union([
-        z.object({ file: z.string() }),
-        z.object({ envKey: z.string() }),
-        z.object({ contextKey: z.string() }),
-      ]),
-    }),
-  ),
-  contextAuthorization: z.string().optional(),
 });
 
 export interface SetupIntegration {
@@ -278,50 +236,6 @@ export function withoutMarkerLines(blocks: ContentBlock[]): ContentBlock[] {
         : block,
     )
     .filter((block) => block.type !== "text" || block.text.trim().length > 0);
-}
-
-export function parseInputRequest(text: string): InputRequest | null {
-  const line = text
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.startsWith(INPUT_REQUEST_MARKER));
-  if (!line) return null;
-  try {
-    const parsed = inputRequestSchema.safeParse(
-      JSON.parse(line.slice(INPUT_REQUEST_MARKER.length).trim()),
-    );
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The latest unanswered input request in a transcript: a request is pending
- * until a later user turn confirms values were provided (the runtime sends
- * that turn) or it was answered locally this mount.
- */
-export function findPendingInputRequest(
-  messages: ChiefUIMessage[],
-  answered: ReadonlySet<string>,
-): InputRequest | null {
-  let pending: InputRequest | null = null;
-  for (const message of messages) {
-    const texts = message.parts.flatMap((part) =>
-      part.type === "text" ? [part.text] : [],
-    );
-    if (message.role === "user") {
-      if (texts.some((text) => text.startsWith(INPUT_PROVIDED_PREFIX))) {
-        pending = null;
-      }
-      continue;
-    }
-    for (const text of texts) {
-      const request = parseInputRequest(text);
-      if (request && !answered.has(request.id)) pending = request;
-    }
-  }
-  return pending;
 }
 
 /**

@@ -434,21 +434,21 @@ void test("a visible browser request cannot finish before the page is open", asy
   });
 });
 
-void test("a bare speaker label is rejected as an empty response", async () => {
+void test("a bare speaker label is retried once then rejected as an empty response", async () => {
   const persistence = new MemoryCellPersistence();
   await runner(persistence).create(baseTurn());
-  await assert.rejects(
-    runner(persistence).advance({
-      inference: fakeInference(() => ({
-        content: "engineer: ",
-        toolCalls: [],
-      })),
-      tools: [],
-      scheduleRecovery: () => Promise.resolve(),
-      executor: { execute: () => Promise.resolve(null) },
-    }),
-    /empty response/u,
-  );
+  const options = {
+    inference: fakeInference(() => ({
+      content: "engineer: ",
+      toolCalls: [],
+    })),
+    tools: [],
+    scheduleRecovery: () => Promise.resolve(),
+    executor: { execute: () => Promise.resolve(null) },
+  };
+  // The first empty response asks the model again rather than failing the turn.
+  await runner(persistence).advance(options);
+  await assert.rejects(runner(persistence).advance(options), /empty response/u);
 });
 
 void test("a durable turn reports inference and tool lifecycle boundaries", async () => {

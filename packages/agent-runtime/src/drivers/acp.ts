@@ -31,6 +31,8 @@ import {
   openCodeTextContent as textContent,
 } from "./opencode-support.js";
 
+const SESSION_OPEN_TIMEOUT_MS = 120_000;
+
 export class AcpDriver extends BaseDriver {
   private process: ChildProcess | null = null;
   protected sessionId: string | undefined;
@@ -43,7 +45,7 @@ export class AcpDriver extends BaseDriver {
   >();
   private activeTools = new Map<
     string,
-    { name: string; input: JsonValue | undefined }
+    { name: string; input: JsonValue | undefined; announced: boolean }
   >();
   private terminals = new Map<string, OpenCodeTerminalState>();
   private stream = "";
@@ -126,7 +128,14 @@ export class AcpDriver extends BaseDriver {
     const initialized = await initializeOpenCodeSession(
       options,
       this.sessionId,
-      (method, params) => this.rpc(method, params),
+      // Opening a session can take well over the usual RPC budget the first
+      // time a provider sees a working directory and prepares its project.
+      (method, params) =>
+        this.rpc(
+          method,
+          params,
+          method.startsWith("session/") ? SESSION_OPEN_TIMEOUT_MS : undefined,
+        ),
     );
     this.sessionId = initialized.sessionId;
     this.emitEvent({
@@ -373,18 +382,15 @@ export class AcpDriver extends BaseDriver {
         ).slice(0, 300)}`,
       );
     }
-    if (!this.activeTools.has(id)) {
-      this.activeTools.set(id, { name, input });
-      const prefix: ContentBlock[] = this.thinking
-        ? [{ type: "thinking", thinking: this.thinking }]
-        : [];
-      this.thinking = "";
-      this.emitEvent({
-        type: "message",
-        role: "assistant",
-        content: [...prefix, { type: "tool_use", id, name, input }],
-      });
-    }
+    // A provider may announce a call before its arguments arrive, so the
+    // tool card waits for real input, or for the call to finish.
+    const tool = this.activeTools.get(id) ?? {
+      name,
+      input,
+      announced: false,
+    };
+    if (hasToolInput(input)) tool.input = input;
+    this.activeTools.set(id, tool);
     const status = (
       isJsonString(update.status) ? update.status : ""
     ).toLowerCase();
@@ -392,10 +398,32 @@ export class AcpDriver extends BaseDriver {
       eventType === "tool_call_end" ||
       status === "completed" ||
       status === "failed";
+    if (!tool.announced && (hasToolInput(tool.input) || complete)) {
+      tool.announced = true;
+      const prefix: ContentBlock[] = this.thinking
+        ? [{ type: "thinking", thinking: this.thinking }]
+        : [];
+      this.thinking = "";
+      this.emitEvent({
+        type: "message",
+        role: "assistant",
+        content: [
+          ...prefix,
+          { type: "tool_use", id, name: tool.name, input: tool.input },
+        ],
+      });
+    }
     if (!complete) return;
     const failed = status === "failed";
     const content = failed
-      ? text([update.error, update.message], "Tool call failed")
+      ? text(
+          [
+            update.error,
+            update.message,
+            textContent(update.content) || undefined,
+          ],
+          "Tool call failed",
+        )
       : textContent(update.content) ||
         (isJsonString(update.result)
           ? update.result
@@ -496,4 +524,9 @@ export class AcpDriver extends BaseDriver {
     }
     this.pending.clear();
   }
+}
+
+function hasToolInput(input: JsonValue | undefined) {
+  const object = parseJsonObject(input);
+  return input !== undefined && (!object || Object.keys(object).length > 0);
 }

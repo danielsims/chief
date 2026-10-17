@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 
-import type { OnboardingSchedule } from "@chief/agent-runtime/types";
 import { parseJsonObject, toJsonObject } from "@chief/relay-contracts";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-contracts";
@@ -18,7 +17,6 @@ import {
 } from "../lib/auth/better-auth-client";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-contracts";
 import { searchIntegrations } from "../lib/integrations";
-import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
 import {
   loadOnboardingDraft,
   loadPendingOnboardingDraft,
@@ -27,16 +25,9 @@ import {
   pendingOnboardingStorageKey,
 } from "../lib/onboarding-draft";
 import { isOnboardingStep, nextOnboardingStep } from "../lib/onboarding-flow";
-import { buildOnboardingWorkJobs } from "../lib/onboarding-work";
 import { onboardingPluginOptions } from "../lib/plugin-presentation";
-import {
-  updatePendingOnboardingDriver,
-  useAgentPreferences,
-  useRuntime,
-  useWorkspaceData,
-} from "../lib/runtime";
+import { useAgentPreferences, useRuntime } from "../lib/runtime";
 import { usePlugins } from "../lib/runtime-plugins";
-import { workspaceContextFromOrganization } from "../lib/workspace-context";
 import { OnboardingConversation } from "./onboarding-conversation";
 import { OnboardingCurrentControl } from "./onboarding-current-control";
 import {
@@ -52,7 +43,6 @@ export function OnboardingPage() {
   const navigate = useNavigate();
   const { cloudOrganizationId, user, signOut } = useAuth();
   const { status: runtimeStatus } = useRuntime();
-  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const plugins = usePlugins();
   const everydayIntegrations = useMemo(() => {
     const catalog = onboardingPluginOptions(plugins.plugins ?? [], 60).map(
@@ -199,7 +189,6 @@ export function OnboardingPage() {
       JSON.stringify(nextDraft),
     );
     localStorage.removeItem(pendingOnboardingStorageKey());
-    primeLocalIntegrationStatus(created.id, []);
     setOrg({
       ...created,
       metadata: {
@@ -273,7 +262,6 @@ export function OnboardingPage() {
     if (!draft) return;
     if (!draft.provider || !org) return;
     setWorkspaceProvider(org.id, draft.provider);
-    updatePendingOnboardingDriver(org.id, draft.provider, draft.model || null);
     const existing = agentPreferences.preferences.find(
       (preference) => preference.agentId === "chief",
     );
@@ -330,15 +318,6 @@ export function OnboardingPage() {
           automation: deferredAutomation,
         },
       };
-      const jobs = buildOnboardingWorkJobs({
-        workspaceId: org.id,
-        companyName: draft.companyName,
-        websiteUrl: draft.websiteUrl,
-        timezone: draft.automation.timezone,
-        brand: draft.brand,
-        plugins: draft.plugins,
-      });
-      const schedules: OnboardingSchedule[] = [];
       const completedMetadata = {
         ...kickoffMetadata,
         onboarding: {
@@ -350,39 +329,9 @@ export function OnboardingPage() {
         name: draft.companyName.trim() || org.name,
         metadata: completedMetadata,
       });
-      // Workspace access and channel preparation have different durability
-      // guarantees. Commit onboarding first, then let the runtime's persisted
-      // queue prepare or retry mission control without trapping the user here.
-      let onboardingRun: Promise<string> | null = null;
-      try {
-        onboardingRun = workspaceData.bootstrapOnboardingWork(
-          jobs,
-          schedules,
-          workspaceContextFromOrganization({
-            ...org,
-            name: draft.companyName.trim() || org.name,
-            metadata: toJsonObject(completedMetadata),
-          }),
-          draft.provider ?? undefined,
-          draft.model || null,
-        );
-      } catch (onboardingError) {
-        console.warn(
-          "[Onboarding] Mission control onboarding could not be queued yet",
-          onboardingError,
-        );
-      }
       localStorage.removeItem(onboardingStorageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       void navigate("/", { replace: true });
-      if (onboardingRun) {
-        void onboardingRun.catch((onboardingError: Error) => {
-          console.warn(
-            "[Onboarding] Mission control onboarding will retry in the background",
-            onboardingError,
-          );
-        });
-      }
     } catch (err) {
       sessionStorage.removeItem(`chief:onboarding:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));
@@ -390,15 +339,7 @@ export function OnboardingPage() {
       completionStartedRef.current = false;
       setSaving(false);
     }
-  }, [
-    draft,
-    org,
-    persistContext,
-    persistProvider,
-    persistSocials,
-    navigate,
-    workspaceData,
-  ]);
+  }, [draft, org, persistContext, persistProvider, persistSocials, navigate]);
 
   const advance = useCallback(async () => {
     if (!draft || saving) return;
@@ -464,7 +405,6 @@ export function OnboardingPage() {
       setPluginIntegrations={setPluginIntegrations}
       setSocial={setSocial}
       step={step}
-      workspaceReady={workspaceData.onboardingBootstrapReady}
     />
   );
 

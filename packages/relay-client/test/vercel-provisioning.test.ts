@@ -22,6 +22,7 @@ void test("streams Vercel Eve provisioning progress before returning the deploym
       result: {
         deploymentId: "dpl_123",
         deploymentUrl: "https://chief-test.vercel.app",
+        productionUrl: "https://chief-test.vercel.app",
         projectId: "prj_123",
       },
     },
