@@ -54,7 +54,7 @@ export function SettingRow({
   description,
   control,
 }: {
-  title: string;
+  title: ReactNode;
   description: ReactNode;
   control: ReactNode;
 }) {

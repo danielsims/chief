@@ -38,6 +38,7 @@ import { cellAgentDefinition } from "./relay-cell-agent.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
 import { RunSteering } from "./relay-cell-steering.js";
 import {
+  isRelayPluginToolName,
   relayCellToolNames,
   runRelayCellMcpServer,
   startRelayCellMcpHttpServer,
@@ -264,7 +265,12 @@ async function executeJob(
             : config.inference.model,
         mcpServers: [
           relayMcp.spec,
-          ...(await plugins.mcpServers(job.workspaceId)),
+          // Remote plugins belong to the workspace and reach this agent
+          // through the relay, which enforces assignment and approvals. Only
+          // plugins that run on this device attach directly.
+          ...(await plugins.mcpServers(job.workspaceId)).filter(
+            (server) => server.command !== "",
+          ),
         ],
         maxPromptAttempts: 3,
       },
@@ -276,12 +282,19 @@ async function executeJob(
       activityPublisher.accept(event);
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
-        const allow = relayCellToolNames.some(
-          (name) =>
-            tool === name ||
-            tool === `mcp__chief_relay__${name}` ||
-            tool === `mcp.chief_relay.${name}`,
-        );
+        // Plugin calls go through the relay, which refuses writes for an
+        // agent that asks before acting.
+        const allow =
+          (tool.startsWith("mcp__chief_relay__") ||
+            tool.startsWith("mcp.chief_relay.")) &&
+          isRelayPluginToolName(tool)
+            ? true
+            : relayCellToolNames.some(
+                (name) =>
+                  tool === name ||
+                  tool === `mcp__chief_relay__${name}` ||
+                  tool === `mcp.chief_relay.${name}`,
+              );
         agentSession.respondPermission(
           event.requestId,
           allow ? "allow" : "deny",

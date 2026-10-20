@@ -11,6 +11,8 @@ import {
 import type { RemotePluginCatalogEntry } from "./types.js";
 import { readPluginState } from "./store.js";
 
+export { parseMcpSurfaceFromDocument } from "./mcp-surface.js";
+
 const CATALOG_TTL_MS = 15 * 60_000;
 const PLUGIN_ID = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$/;
 const INTEGRATIONS_DISPLAY_NAMES: Record<string, string> = {
@@ -72,22 +74,6 @@ function strings(value: JsonValue | undefined) {
   return Array.isArray(value)
     ? value.filter((item): item is string => isJsonString(item))
     : [];
-}
-
-export function parseMcpSurfaceFromDocument(
-  raw: unknown,
-): { url: string; name?: string } | undefined {
-  const document = parseJsonObject(raw);
-  const surfaces = Array.isArray(document?.surfaces) ? document.surfaces : [];
-  const surface = surfaces.flatMap((candidate) => {
-    const item = parseJsonObject(candidate);
-    return item?.type === "mcp" && isJsonString(item.url) ? [item] : [];
-  })[0];
-  if (!surface || !isJsonString(surface.url)) return undefined;
-  return {
-    url: surface.url,
-    ...(isJsonString(surface.name) ? { name: surface.name } : undefined),
-  };
 }
 
 function displayName(id: string) {
