@@ -17,6 +17,8 @@ const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
 const projectRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)$/u;
 const machinesRoute = /^\/v1\/workspaces\/([^/]+)\/machines$/u;
 const machineRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/([^/]+)$/u;
+const boardRoute =
+  /^\/v1\/workspaces\/([^/]+)\/board(?:\/(lanes|items)(?:\/([^/]+))?)?$/u;
 
 export function routeWorkspaceDataRequest(
   env: Env,
@@ -34,6 +36,7 @@ export function routeWorkspaceDataRequest(
     const project = projectRoute.exec(url.pathname);
     const machines = machinesRoute.exec(url.pathname);
     const machine = machineRoute.exec(url.pathname);
+    const board = boardRoute.exec(url.pathname);
     let rawWorkspaceId: string | undefined;
     let operation: string | undefined;
     if (
@@ -81,6 +84,19 @@ export function routeWorkspaceDataRequest(
         request.method === "PUT"
           ? "data-machine-update"
           : "data-machine-delete";
+    } else if (board) {
+      const [, id, part, itemId] = board;
+      rawWorkspaceId = id;
+      operation =
+        !part && !itemId && request.method === "GET"
+          ? "data-board-list"
+          : part === "lanes" && !itemId && request.method === "PUT"
+            ? "data-board-lanes"
+            : part === "items" && !itemId && request.method === "POST"
+              ? "data-board-save"
+              : part === "items" && itemId && request.method === "DELETE"
+                ? "data-board-delete"
+                : undefined;
     }
     if (!operation) return undefined;
     const workspaceId = yield* sync("relay.workspace_data.scope", () =>
@@ -123,6 +139,9 @@ export function routeWorkspaceDataRequest(
                 : undefined),
               ...(machine?.[2]
                 ? { "x-chief-machine-id": decodeURIComponent(machine[2]) }
+                : undefined),
+              ...(board?.[3]
+                ? { "x-chief-board-item-id": decodeURIComponent(board[3]) }
                 : undefined),
               ...(body ? { "content-type": "application/json" } : undefined),
             },

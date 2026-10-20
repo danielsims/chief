@@ -19,8 +19,6 @@ import type {
   MachineCreate,
   MachineUpdate,
   MessageComponent,
-  MissionCreate,
-  MissionExperimentInput,
   RegisterAgentKeyResult,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -49,8 +47,6 @@ import {
   machinesResultSchema,
   machineUpdateSchema,
   messagePageSchema,
-  missionListSchema,
-  missionSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
@@ -65,11 +61,13 @@ import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
 } from "./relay-workspace-subscription";
+import { RelayBoardClient } from "./relay-board-client";
 import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { RelayGitHubClient } from "./relay-github-client";
+import { RelayPluginsClient } from "./relay-plugins-client";
 import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
@@ -83,10 +81,12 @@ export type WorkspaceSubscription = RelayWorkspaceSubscription;
 export type { RelayTypingEvent };
 
 export class RelayClient extends RelayVercelProvisioning {
+  readonly board: RelayBoardClient;
   readonly externalAgents: RelayExternalAgentsClient;
   readonly channelGuests: RelayChannelGuestsClient;
   readonly channelSettings: RelayChannelSettingsClient;
   readonly github: RelayGitHubClient;
+  readonly plugins: RelayPluginsClient;
   readonly schedules: Pick<
     RelaySchedulesClient,
     | "list"
@@ -96,62 +96,25 @@ export class RelayClient extends RelayVercelProvisioning {
     | "runs"
     | "runAction"
     | "reportStep"
+    | "webhook"
     | "webhooks"
-    | "createWebhook"
-    | "webhookAction"
+    | "webhookEvents"
+    | "revokeWebhook"
   >;
 
   constructor(options: RelayClientOptions) {
     super(options);
+    this.board = new RelayBoardClient(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
     this.channelGuests = new RelayChannelGuestsClient(options);
     this.channelSettings = new RelayChannelSettingsClient(options);
     this.github = new RelayGitHubClient(options);
+    this.plugins = new RelayPluginsClient(options);
     this.schedules = new RelaySchedulesClient(options);
   }
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
-  }
-  async listMissions() {
-    return (
-      await this.fetchJson(this.workspaceUrl("missions"), missionListSchema)
-    ).missions;
-  }
-  async createMission(input: MissionCreate) {
-    return this.fetchJson(this.workspaceUrl("missions"), missionSchema, true, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-    });
-  }
-  async recordMissionExperiment(id: string, input: MissionExperimentInput) {
-    return this.fetchJson(
-      this.workspaceUrl(`missions/${encodeURIComponent(id)}/experiments`),
-      missionSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      },
-    );
-  }
-  async updateMissionStatus(
-    id: string,
-    status: "active" | "paused" | "completed",
-    evidence: string,
-  ) {
-    return this.fetchJson(
-      this.workspaceUrl(`missions/${encodeURIComponent(id)}/status`),
-      missionSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status, evidence }),
-      },
-    );
   }
 
   async listMachines(): Promise<Machine[]> {

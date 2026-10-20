@@ -54,6 +54,21 @@ import { WorkspaceFilePage } from "./pages/workspace-file";
 import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
+const BoardPage = lazy(() =>
+  import("./pages/board").then((module) => ({
+    default: module.BoardPage,
+  })),
+);
+const AutomationsPage = lazy(() =>
+  import("./pages/automations").then((module) => ({
+    default: module.AutomationsPage,
+  })),
+);
+const AutomationBuilderPage = lazy(() =>
+  import("./pages/automation-builder").then((module) => ({
+    default: module.AutomationBuilderPage,
+  })),
+);
 const PluginsPage = lazy(() =>
   import("./pages/plugins").then((module) => ({ default: module.PluginsPage })),
 );
@@ -157,8 +172,11 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     window.sessionStorage,
   );
 
+  // Only the first load shows the entry screen. Once a workspace is on
+  // screen, background reconnects must never unmount the app and lose work.
   if (
     relay.loading &&
+    !relay.snapshot &&
     !(location.pathname === "/workspaces/new" && staysOnWorkspaceCreate)
   ) {
     return <WorkspaceEntryState />;
@@ -373,6 +391,22 @@ function AuthenticatedApp() {
                           <Route path="inbox" element={<InboxPage />} />
                           <Route path="schedule" element={<SchedulePage />} />
                           <Route
+                            path="schedule/automations"
+                            element={
+                              <Suspense fallback={null}>
+                                <AutomationsPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
+                            path="schedule/automations/:automationId"
+                            element={
+                              <Suspense fallback={null}>
+                                <AutomationBuilderPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
                             path="conversations"
                             element={<ConversationsPage />}
                           />
@@ -396,6 +430,14 @@ function AuthenticatedApp() {
                             element={
                               <Suspense fallback={null}>
                                 <PluginsPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
+                            path="board"
+                            element={
+                              <Suspense fallback={null}>
+                                <BoardPage />
                               </Suspense>
                             }
                           />

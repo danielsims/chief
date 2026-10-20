@@ -1,7 +1,10 @@
+import { automationBuildToolDefinitions } from "./toolkits/automation/build-tools.js";
 import {
   listRecurringWorkDefinition,
   proposeRecurringWorkDefinition,
 } from "./toolkits/automation/recurring-work-definitions.js";
+import { automationRunToolDefinitions } from "./toolkits/automation/run-tools.js";
+import { boardToolDefinitions } from "./toolkits/board/definitions.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
 import { closeBrowserDefinition } from "./toolkits/browser/close-browser.js";
 import { fillBrowserDefinition } from "./toolkits/browser/fill-browser.js";
@@ -28,7 +31,6 @@ import {
   readFileDefinition,
   writeFileDefinition,
 } from "./toolkits/files/definitions.js";
-import { missionToolDefinitions } from "./toolkits/missions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import {
@@ -47,7 +49,9 @@ import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-prof
 
 export const hostedAgentToolDefinitions = {
   base: [
-    ...missionToolDefinitions,
+    ...automationRunToolDefinitions,
+    ...automationBuildToolDefinitions,
+    ...boardToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
     listFilesDefinition,

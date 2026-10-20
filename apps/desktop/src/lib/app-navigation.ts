@@ -3,6 +3,7 @@ export const CHIEF_DEEP_LINK_SCHEME = "chief-desktop";
 export const CHIEF_VIEW_ROUTES = {
   overview: "/",
   inbox: "/inbox",
+  board: "/board",
   schedule: "/schedule",
   projects: "/projects",
   agents: "/agents",
@@ -25,6 +26,7 @@ export interface MessageNavigationTarget {
 
 export type ChiefNavigationDestination =
   | { kind: "view"; view: ChiefView }
+  | { kind: "automation"; id: string }
   | {
       kind: "conversation";
       channelId: string;
@@ -95,6 +97,8 @@ export function routeForChiefDestination(
   if (destination.kind === "view") {
     return CHIEF_VIEW_ROUTES[destination.view];
   }
+  if (destination.kind === "automation")
+    return `/schedule/automations/${encodeURIComponent(destination.id)}`;
   const params = new URLSearchParams();
   if (destination.directAgentId) params.set("dm", destination.directAgentId);
   else params.set("channel", destination.channelSlug ?? destination.channelId);
@@ -105,8 +109,10 @@ export function routeForChiefDestination(
 
 export function chiefDeepLinkUrl(destination: ChiefNavigationDestination) {
   const surface =
-    destination.kind === "view" ? destination.view : "conversation";
+    destination.kind === "view" ? destination.view : destination.kind;
   const url = new URL(`${CHIEF_DEEP_LINK_SCHEME}://navigate/${surface}`);
+  if (destination.kind === "automation")
+    url.searchParams.set("id", destination.id);
   if (destination.kind === "conversation") {
     url.searchParams.set("channelId", destination.channelId);
     if (destination.channelSlug)
@@ -141,6 +147,10 @@ export function parseChiefDeepLink(
   if (parts[0] !== "navigate" || !parts[1]) return null;
   if (parts[1] === "conversation") {
     return conversationFromParams(url.searchParams);
+  }
+  if (parts[1] === "automation") {
+    const id = nonEmpty(url.searchParams.get("id"));
+    return id ? { kind: "automation", id } : null;
   }
   const view = parts[1];
   return view && isChiefView(view) ? { kind: "view", view } : null;
