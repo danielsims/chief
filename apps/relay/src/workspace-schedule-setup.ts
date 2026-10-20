@@ -6,7 +6,7 @@ import type {
   WorkspaceSchedule,
   WorkspaceScheduleInput,
 } from "@chief/relay-contracts";
-import { conversationIdSchema, missionSchema } from "@chief/relay-contracts";
+import { conversationIdSchema } from "@chief/relay-contracts";
 
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { HttpError } from "./http";
@@ -14,10 +14,8 @@ import { channelMembersInsertPrepareScheduleChannel } from "./queries/channel-me
 import { channelMembersInsertPrepareScheduleChannelRow } from "./queries/channel-members/insert-prepare-schedule-channel-row";
 import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
 import { channelsInsertPrepareScheduleChannel } from "./queries/channels/insert-prepare-schedule-channel";
-import { missionsInsertPrepareScheduleChannel } from "./queries/missions/insert-prepare-schedule-channel";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { principalKindId } from "./workspace-channel-store";
-import { readWorkspaceMission } from "./workspace-missions";
 
 /** Called in the save transaction so failed validation leaves no partial setup. */
 export function prepareScheduleChannel(
@@ -38,13 +36,7 @@ export function prepareScheduleChannel(
       0,
       32,
     );
-    const conversationId = conversationIdSchema.parse(`mission-${suffix}`);
-    if (input.missionId && input.missionId !== conversationId)
-      throw new HttpError(
-        400,
-        "schedule_mission_conflict",
-        "Choose an existing mission or create a new channel, not both.",
-      );
+    const conversationId = conversationIdSchema.parse(`automation-${suffix}`);
     const exists =
       channelsFindCreateChannel(store.storage, conversationId).length > 0;
     if (!exists) {
@@ -63,7 +55,7 @@ export function prepareScheduleChannel(
           .replace(/[^\p{L}\p{N}]+/gu, "-")
           .replace(/^-+|-+$/gu, "")
           .slice(0, 64) ||
-          "mission");
+          "automation");
       channelsInsertPrepareScheduleChannel(store.storage, {
         conversationId: conversationId,
         workspaceId: workspaceId,
@@ -94,7 +86,6 @@ export function prepareScheduleChannel(
       });
     }
     input.conversationId = conversationId;
-    input.missionId = conversationId;
   }
   if (!input.conversationId)
     throw new HttpError(
@@ -130,39 +121,5 @@ export function prepareScheduleChannel(
         joinedAt: now,
       });
     }
-  }
-  if (
-    input.newChannel &&
-    input.missionId &&
-    !readWorkspaceMission(store.storage, input.missionId)
-  ) {
-    const mission = missionSchema.parse({
-      id: input.missionId,
-      conversationId: input.conversationId,
-      workspaceId,
-      title: input.title,
-      objective: input.instructions.slice(0, 4000),
-      ownerAgentId: input.agentId,
-      collaborators: input.collaborators,
-      success: {
-        kind: "deliverable",
-        description: input.expectedOutcome || input.instructions.slice(0, 2000),
-      },
-      constraints:
-        input.constraints ||
-        "Work within granted permissions. Ask before spending money or publishing externally.",
-      maxExperiments: 100,
-      deadline: new Date(Date.now() + 365 * 86_400_000).toISOString(),
-      status: "active",
-      experiments: [],
-      statusEvidence: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    missionsInsertPrepareScheduleChannel(
-      store.storage,
-      mission.id,
-      JSON.stringify(mission),
-    );
   }
 }

@@ -149,16 +149,17 @@ export function agentRunEvent(message: ConversationMessage) {
     : { type: "result" as const, ok: true, ...where };
 }
 
-export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
-  const scheduledRun =
-    message.author.kind === "system"
-      ? message.components.find(
-          (component) => component.kind === "schedule.run",
-        )
-      : undefined;
-  const schedulePayload = scheduledRunMessagePayloadSchema.safeParse(
-    scheduledRun?.payload,
+/** The automation run a relay announcement describes, if it is one. */
+function scheduledRunOf(message: ConversationMessage) {
+  if (message.author.kind !== "system") return undefined;
+  const component = message.components.find(
+    (candidate) => candidate.kind === "schedule.run",
   );
+  return scheduledRunMessagePayloadSchema.safeParse(component?.payload).data;
+}
+
+export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const scheduledRun = scheduledRunOf(message);
   const channelAction = message.components
     .map(channelActionFromComponent)
     .find((action) => action !== undefined);
@@ -205,9 +206,7 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
                 : channelAction,
           }
         : undefined),
-      ...(schedulePayload.success
-        ? { scheduledRun: schedulePayload.data }
-        : undefined),
+      ...(scheduledRun ? { scheduledRun } : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -249,6 +248,7 @@ export function toChannelMessageEvent(
   const added = message.components
     .map(channelActionFromComponent)
     .find((action) => action?.type === "member-added");
+  const scheduledRun = scheduledRunOf(message);
   const actor =
     added?.actorId && added.actorType
       ? { type: added.actorType, id: added.actorId, name: added.actorName }
@@ -285,6 +285,7 @@ export function toChannelMessageEvent(
     ],
     content: message.deleted ? "" : message.body,
     parts: messageComponentParts(message),
+    ...(scheduledRun ? { scheduledRun } : undefined),
     actor,
     createdAt: Date.parse(message.createdAt),
     kind: 9,

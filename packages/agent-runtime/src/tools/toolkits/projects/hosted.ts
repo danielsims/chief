@@ -13,7 +13,7 @@ export const createProjectDefinition = defineAgentTool({
   path: "/local-tools/projects",
   operation: {
     operationId: "projects.create",
-    summary: "Create a workspace Git project",
+    summary: "Create project",
     description:
       "Creates a new Git repository hosted by this workspace and adds it as a project, seeded with a README so it can be cloned straight away. Use this whenever someone asks for a new repo or project. No outside Git provider is needed.",
   },
@@ -42,7 +42,7 @@ export const listProjectsDefinition = defineAgentTool({
   path: "/local-tools/projects",
   operation: {
     operationId: "projects.list",
-    summary: "List workspace Git projects",
+    summary: "List projects",
     description:
       "Lists the Git repositories this workspace hosts, with the repository slug used to clone and publish them.",
   },

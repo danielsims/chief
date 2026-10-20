@@ -302,6 +302,7 @@ export function ChiefChat({
                                 )}
                                 onOpen={() => setThreadRootId(message.id)}
                               />
+                              {controlsForMessage(message).footer}
                             </div>
                           );
                         if (message.metadata?.channelAction) {

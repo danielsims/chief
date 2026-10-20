@@ -5,6 +5,7 @@ export const listProspectsDefinition = defineAgentTool({
   path: "/local-tools/prospects",
   operation: {
     operationId: "prospects.list",
-    summary: "List saved prospects",
+    summary: "List prospects",
+    description: "List saved prospects.",
   },
 });

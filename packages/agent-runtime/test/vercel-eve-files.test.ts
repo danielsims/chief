@@ -4,10 +4,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { z } from "zod";
 
-import {
-  externalAgentToolCallSchema,
-  missionCreateSchema,
-} from "@chief/relay-contracts";
+import { externalAgentToolCallSchema } from "@chief/relay-contracts";
 
 import { eveProjectFiles } from "../src/vercel-eve-provisioning.js";
 import { eveChiefToolClientSource } from "../src/vercel-eve-tool-files.js";
@@ -161,34 +158,26 @@ void test("generated Eve client sends strict workspace inputs without borrowing 
         .returns(z.promise(z.unknown())),
     })
     .parse(module);
-  const mission = missionCreateSchema.parse({
-    id: "launch-mission",
-    conversationId: "mission-channel",
-    title: "Launch",
-    objective: "Publish a reviewed launch brief",
-    ownerAgentId: "engineer",
-    collaborators: [],
-    success: { kind: "deliverable", description: "A reviewed launch brief" },
-    maxExperiments: 3,
-    deadline: "2026-12-01T00:00:00.000Z",
-    constraints: "Do not publish externally",
-  });
-  await client.callChiefTool("missions.create", mission, "researcher", {
+  const brief = {
+    title: "Launch brief",
+    content: "A reviewed launch brief",
+  };
+  await client.callChiefTool("files.write", brief, "researcher", {
     session: { id: "session-1" },
   });
-  assert.deepEqual(missionCreateSchema.parse(bodies[0]?.input), mission);
+  assert.deepEqual(bodies[0]?.input, brief);
   await client.callChiefTool(
     "channels.messages.post",
     {
       channelId: "different-channel",
-      content: "Mission ready",
+      content: "Brief ready",
     },
     "researcher",
     { session: { id: "session-1" } },
   );
   assert.deepEqual(bodies[1]?.input, {
     channelId: "different-channel",
-    content: "Mission ready",
+    content: "Brief ready",
   });
   await client.callChiefTool(
     "channels.reactions.add",

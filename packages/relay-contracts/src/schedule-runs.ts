@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { automationRunStateSchema } from "./automations";
 import { agentIdSchema } from "./identifiers";
 import { jsonObjectSchema } from "./json";
 import { workspaceScheduleSchema } from "./schedules";
@@ -8,7 +9,7 @@ export const scheduleRunStepSchema = z.object({
   id: z.uuid(),
   commandId: z.uuid(),
   agentId: agentIdSchema,
-  phase: z.enum(["plan", "contribute", "finish"]),
+  phase: z.enum(["plan", "contribute", "finish", "automation"]),
   state: z.enum(["pending", "running", "completed", "failed"]),
   jobId: z.string().optional(),
   assignment: z.string().trim().min(1).max(4000).optional(),
@@ -23,6 +24,11 @@ export const scheduleRunSchema = z.object({
   source: z.enum(["cron", "manual", "webhook", "retry"]),
   sourceId: z.string().optional(),
   retryOf: z.string().optional(),
+  /**
+   * A test before turning an automation on: reads and agents run for real,
+   * write tools are only previewed, and it may run before approval.
+   */
+  test: z.boolean().optional(),
   input: jsonObjectSchema.default({}),
   schedule: workspaceScheduleSchema,
   threadRootId: z.uuid(),
@@ -34,7 +40,8 @@ export const scheduleRunSchema = z.object({
     "failed",
     "cancelled",
   ]),
-  steps: z.array(scheduleRunStepSchema).max(14),
+  steps: z.array(scheduleRunStepSchema).max(30),
+  automation: automationRunStateSchema.optional(),
   scheduledAt: z.number(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
@@ -59,32 +66,65 @@ export const scheduleRunReportSchema = z.object({
 export type ScheduleRun = z.infer<typeof scheduleRunSchema>;
 export type ScheduleRunStep = z.infer<typeof scheduleRunStepSchema>;
 
-export const scheduleWebhookSchema = z.object({
-  id: z.uuid(),
-  name: z.string().trim().min(1).max(100),
+/**
+ * An automation's inbound address. The token in its URL is the only
+ * credential unless a signing secret is set, in which case every delivery
+ * must also carry a valid Standard Webhooks signature.
+ */
+export const automationWebhookSchema = z.object({
   scheduleId: z.string().min(1).max(120),
-  enabled: z.boolean(),
-  url: z.string(),
+  url: z.url(),
+  /** Whether a signing secret is set. The secret itself is never returned. */
+  signed: z.boolean(),
   createdAt: z.number(),
-  updatedAt: z.number(),
   lastDeliveryAt: z.number().optional(),
   lastRunId: z.string().optional(),
 });
-export const scheduleWebhookListSchema = z.object({
-  webhooks: z.array(scheduleWebhookSchema).max(250),
+
+/** A Standard Webhooks secret, as senders such as Granola show it. */
+export const webhookSigningSecretSchema = z
+  .string()
+  .trim()
+  .max(200)
+  .regex(
+    /^whsec_[A-Za-z0-9+/]+={0,2}$/u,
+    "Paste the whole secret, starting with whsec_.",
+  );
+
+export const automationWebhookRequestSchema = z
+  .discriminatedUnion("action", [
+    z.object({ action: z.literal("get") }),
+    /** Replace the URL, so the old one stops working. */
+    z.object({ action: z.literal("reset") }),
+    z.object({
+      action: z.literal("set-signing-secret"),
+      secret: webhookSigningSecretSchema,
+    }),
+    z.object({ action: z.literal("remove-signing-secret") }),
+  ])
+  .default({ action: "get" });
+export type AutomationWebhookRequest = z.input<
+  typeof automationWebhookRequestSchema
+>;
+/** A recent delivery, kept so steps can be mapped to real fields and tested. */
+export const automationWebhookEventSchema = z.object({
+  receivedAt: z.number(),
+  input: jsonObjectSchema,
 });
-export const scheduleWebhookCreateSchema = scheduleWebhookSchema.pick({
-  name: true,
-  scheduleId: true,
+export const automationWebhookEventListSchema = z.object({
+  events: z.array(automationWebhookEventSchema).max(3),
 });
-export const scheduleWebhookActionSchema = z.object({
-  action: z.enum(["enable", "disable", "rotate", "delete"]),
+export type AutomationWebhookEvent = z.infer<
+  typeof automationWebhookEventSchema
+>;
+
+export const automationWebhookListSchema = z.object({
+  webhooks: z.array(automationWebhookSchema).max(250),
 });
-export const scheduleWebhookSecretSchema = z.object({
-  webhook: scheduleWebhookSchema,
-  secret: z.string().optional(),
+export const automationWebhookRevokedSchema = z.object({
+  revoked: z.literal(true),
 });
-export type ScheduleWebhook = z.infer<typeof scheduleWebhookSchema>;
+export type AutomationWebhook = z.infer<typeof automationWebhookSchema>;
 
 export const scheduleRunCollaboratorSchema = z.object({
   runId: z.string().min(1).max(256),

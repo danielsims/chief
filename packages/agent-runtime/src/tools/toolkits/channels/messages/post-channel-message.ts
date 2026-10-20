@@ -8,7 +8,7 @@ export const postChannelMessageDefinition = defineAgentTool({
   path: "/local-tools/channels/{channelId}/messages",
   operation: {
     operationId: "channels.messages.post",
-    summary: "Publish a message or thread reply",
+    summary: "Post message",
     description:
       "Publishes deliberate user-facing content into a shared channel. Address people and agents with @Name and include their principal IDs in mentions. Channel members.list returns each person's name, role, and id. Never invent a @chief (user) tag. To present work, first create or revise it with files.write (or publish binary media), then pass its file ID in artifactIds. This inserts clickable cards opening those artifacts in this channel’s Canvas. Only artifacts belonging to this channel can be attached. Ordinary agent working output is private and does not appear in the channel.",
   },

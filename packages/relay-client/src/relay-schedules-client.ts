@@ -1,14 +1,18 @@
 import type {
+  AutomationWebhookRequest,
   WorkspaceScheduleAction,
   WorkspaceScheduleInput,
 } from "@chief/relay-contracts";
 import {
+  automationWebhookEventListSchema,
+  automationWebhookListSchema,
+  automationWebhookRequestSchema,
+  automationWebhookRevokedSchema,
+  automationWebhookSchema,
   scheduleRunCollaboratorSchema,
   scheduleRunListSchema,
   scheduleRunReportSchema,
   scheduleRunSchema,
-  scheduleWebhookListSchema,
-  scheduleWebhookSecretSchema,
   workspaceScheduleActionSchema,
   workspaceScheduleDeleteResultSchema,
   workspaceScheduleInputSchema,
@@ -84,38 +88,55 @@ export class RelaySchedulesClient extends RelayClientBase {
       },
     );
   }
+  /** Every automation URL the caller can manage. */
   async webhooks() {
     return (
       await this.fetchJson(
         this.workspaceUrl("webhooks"),
-        scheduleWebhookListSchema,
+        automationWebhookListSchema,
       )
     ).webhooks;
   }
-  createWebhook(input: { name: string; scheduleId: string }) {
-    return this.fetchJson(
-      this.workspaceUrl("webhooks"),
-      scheduleWebhookSecretSchema,
+
+  /** The latest events sent to the automation's URL, newest first. */
+  async webhookEvents(scheduleId: string) {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl(
+          `schedules/${encodeURIComponent(scheduleId)}/webhook/events`,
+        ),
+        automationWebhookEventListSchema,
+      )
+    ).events;
+  }
+
+  /** Deletes the automation's URL. Opening its trigger issues a new one. */
+  async revokeWebhook(scheduleId: string) {
+    await this.fetchJson(
+      this.workspaceUrl(`schedules/${encodeURIComponent(scheduleId)}/webhook`),
+      automationWebhookRevokedSchema,
       true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      },
+      { method: "DELETE" },
     );
   }
-  webhookAction(
-    id: string,
-    action: "enable" | "disable" | "rotate" | "delete",
+
+  /**
+   * The automation's inbound URL, issued on first request, even for a draft.
+   * The same call resets the URL or sets and removes its signing secret,
+   * which is write-only and never comes back.
+   */
+  webhook(
+    scheduleId: string,
+    request: AutomationWebhookRequest = { action: "get" },
   ) {
     return this.fetchJson(
-      this.workspaceUrl(`webhooks/${encodeURIComponent(id)}/actions`),
-      scheduleWebhookSecretSchema,
+      this.workspaceUrl(`schedules/${encodeURIComponent(scheduleId)}/webhook`),
+      automationWebhookSchema,
       true,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(automationWebhookRequestSchema.parse(request)),
       },
     );
   }

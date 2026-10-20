@@ -112,7 +112,17 @@ async function threadOwner(
   );
   if (!root) return undefined;
   if (root.author.kind === "agent") return root.author.id;
-  return root.mentions[0];
+  if (root.author.kind !== "system" || root.mentions[0])
+    return root.mentions[0];
+  // A thread opened by Chief itself, such as an automation run, is answered
+  // by the agent who has been replying in it.
+  return page.messages
+    .filter((message) => message.author.kind === "agent")
+    .reduce<ConversationMessage | undefined>(
+      (latest, message) =>
+        !latest || message.createdAt > latest.createdAt ? message : latest,
+      undefined,
+    )?.author.id;
 }
 
 function isMessageAppend(

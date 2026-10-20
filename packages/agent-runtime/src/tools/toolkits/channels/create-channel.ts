@@ -14,7 +14,7 @@ export const createChannelDefinition = defineAgentTool({
   path: "/local-tools/channels",
   operation: {
     operationId: "channels.create",
-    summary: "Create a standard or feature channel",
+    summary: "Create channel",
     description:
       "Use a stable operationKey for retries. The calling agent is added automatically; additional agents are validated before the channel is written.",
   },

@@ -61,6 +61,7 @@ export function queueScheduleRun(
     sourceId?: string;
     retryOf?: string;
     input?: ScheduleRun["input"];
+    test?: boolean;
   },
 ) {
   const existing = readScheduleRun(storage, input.id);
@@ -97,17 +98,21 @@ export function queueScheduleRun(
       phase,
       state: "pending",
     });
-  if (collaborators.length) {
-    add(schedule.agentId, "plan");
-    collaborators.forEach((id) => add(id, "contribute"));
+  // An automation adds its agent hand-offs as it reaches them.
+  if (!schedule.automation) {
+    if (collaborators.length) {
+      add(schedule.agentId, "plan");
+      collaborators.forEach((id) => add(id, "contribute"));
+    }
+    add(schedule.agentId, "finish");
   }
-  add(schedule.agentId, "finish");
   const now = Date.now();
   const run = scheduleRunSchema.parse({
     ...input,
     scheduleId: schedule.id,
     schedule,
     steps,
+    ...(schedule.automation ? { automation: { nodes: {} } } : undefined),
     threadRootId: crypto.randomUUID(),
     state: "queued",
     createdAt: now,

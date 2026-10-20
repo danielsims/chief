@@ -19,12 +19,18 @@ import { loadAgentWorkMemory } from "./agent-cell-projection";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { assignedPluginTools } from "./mcp/agent-plugin-tools";
 import { isSafeGitRepoSlug } from "./workspace-git-store";
 import { peopleContextLines } from "./workspace-member-names";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
-export const HOSTED_MAX_INFERENCE_STEPS = 24;
+/**
+ * A backstop, not a working limit: the turn engine already ends a turn that
+ * repeats an identical call three times or fails six times in a row, so a
+ * long build-test-fix loop that is still making progress can finish.
+ */
+export const HOSTED_MAX_INFERENCE_STEPS = 100;
 export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
 export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_MENTION_CONTEXT_GUIDANCE =
@@ -82,7 +88,10 @@ export async function prepareHostedAgentTurn(
   context: HostingContext,
   storage?: DurableObjectStorage,
 ) {
-  const durableMemory = storage ? loadAgentWorkMemory(storage) : "";
+  // An automation step works from its own brief, step and run thread only:
+  // what earlier runs did must not steer this one.
+  const durableMemory =
+    storage && job.kind !== "schedule.step" ? loadAgentWorkMemory(storage) : "";
   const assignedCapabilities = new Set(
     context.machines?.flatMap((machine) => machine.capabilities) ?? [],
   );
@@ -123,6 +132,12 @@ export async function prepareHostedAgentTurn(
   const instruction =
     stringPayload(job, "instruction") ??
     "Respond helpfully to the latest message.";
+  const boundTools = await assignedPluginTools(
+    env,
+    job,
+    principal,
+    context.config?.integrations ?? [],
+  ).catch(() => []);
   const completion = hostedCompletionContract(
     instruction,
     browserEnabled,
@@ -136,6 +151,7 @@ export async function prepareHostedAgentTurn(
     systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\n${hostedRuntimeContext({ conversationId, threadRootId, computerEnabled })}${projectRepo ? `\n\n# Project repository\nThe workspace repository "${projectRepo}" is checked out at /workspace/${projectRepo}. Work in it with computer_read, computer_write, computer_edit, and computer_exec, and run Git through computer_git with cwd set to that directory. When you finish a coherent piece of work, publish it with projects_publish so it is durable and reviewable. Never re-clone it yourself. If the directory is missing, the checkout failed: say so rather than working around it.` : ""}\n\nThe messages of this thread are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need the surrounding conversation. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
+    boundTools,
     maxInferenceSteps: hostedInferenceStepBudget(job.kind),
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
@@ -181,7 +197,13 @@ export function hostedCompletionContract(
   browserEnabled: boolean,
   jobKind?: string,
 ): { requiredToolNames: string[]; browserMustRemainOpen: boolean } {
-  if (jobKind?.startsWith("workspace.kickoff.")) {
+  // These briefs are written by Chief, not asked by a person, so guessing
+  // required tools from their wording misfires. An automation step's run
+  // engine judges whether the step is done.
+  if (
+    jobKind?.startsWith("workspace.kickoff.") ||
+    jobKind === "schedule.step"
+  ) {
     return { requiredToolNames: [], browserMustRemainOpen: false };
   }
   const normalized = instruction.toLowerCase();

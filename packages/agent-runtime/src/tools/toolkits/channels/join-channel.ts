@@ -6,7 +6,8 @@ export const joinChannelDefinition = defineAgentTool({
   path: "/local-tools/channels/{channelId}/join",
   operation: {
     operationId: "channels.join",
-    summary: "Join an active public channel",
+    summary: "Join channel",
+    description: "Join an active public channel.",
   },
   inputSchema: channelVersionInputSchema,
 });

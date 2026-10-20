@@ -5,7 +5,10 @@ import { withTrustedContext } from "./internal-context";
 import { publicOrigin } from "./relay-discovery";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
-import { boundedWebhookBody } from "./workspace-schedule-webhooks";
+import {
+  boundedWebhookBody,
+  webhookTokenPattern,
+} from "./workspace-schedule-webhooks";
 
 export async function routeScheduleRunRequest(
   env: Env,
@@ -13,8 +16,13 @@ export async function routeScheduleRunRequest(
   requestId: string,
 ) {
   const url = new URL(request.url);
-  const hooks =
-    /^\/v1\/workspaces\/([^/]+)\/webhooks(?:\/([^/]+)\/(actions|deliveries))?$/u.exec(
+  const hooks = /^\/v1\/workspaces\/([^/]+)\/webhooks$/u.exec(url.pathname);
+  const hook =
+    /^\/v1\/workspaces\/([^/]+)\/schedules\/([^/]+)\/webhook(\/events)?$/u.exec(
+      url.pathname,
+    );
+  const delivery =
+    /^\/v1\/workspaces\/([^/]+)\/automations\/([^/]+)\/webhook\/([^/]+)$/u.exec(
       url.pathname,
     );
   const runs =
@@ -25,11 +33,13 @@ export async function routeScheduleRunRequest(
     /^\/v1\/workspaces\/([^/]+)\/schedule-runs\/(report|collaborators)$/u.exec(
       url.pathname,
     );
-  if (!hooks && !runs && !report) return undefined;
+  if (!hooks && !hook && !delivery && !runs && !report) return undefined;
   const workspaceId = workspaceIdSchema.parse(
-    decodeURIComponent((hooks ?? runs ?? report)?.[1] ?? ""),
+    decodeURIComponent(
+      (hooks ?? hook ?? delivery ?? runs ?? report)?.[1] ?? "",
+    ),
   );
-  const delivery = hooks?.[3] === "deliveries";
+  const scheduleId = (hook ?? delivery ?? runs)?.[2];
   const operation = report
     ? report[2] === "collaborators"
       ? "schedules-runs-add-collaborator"
@@ -37,15 +47,22 @@ export async function routeScheduleRunRequest(
     : delivery
       ? "webhooks-deliver"
       : hooks
-        ? hooks[2]
-          ? "webhooks-action"
-          : request.method === "GET"
-            ? "webhooks-list"
-            : "webhooks-create"
-        : runs?.[3]
-          ? "schedules-runs-action"
-          : "schedules-runs-list";
-  const method = operation.endsWith("-list") ? "GET" : "POST";
+        ? "webhooks-list"
+        : hook
+          ? hook[3]
+            ? "webhooks-events"
+            : request.method === "DELETE"
+              ? "webhooks-revoke"
+              : "webhooks-issue"
+          : runs?.[3]
+            ? "schedules-runs-action"
+            : "schedules-runs-list";
+  const method =
+    operation.endsWith("-list") || operation === "webhooks-events"
+      ? "GET"
+      : operation === "webhooks-revoke"
+        ? "DELETE"
+        : "POST";
   if (request.method !== method)
     return new Response(null, { status: 405, headers: { allow: method } });
   const headers = new Headers({
@@ -53,11 +70,8 @@ export async function routeScheduleRunRequest(
     "x-chief-workspace-id": workspaceId,
     "x-chief-public-origin": publicOrigin(request, url, env),
     "content-type": "application/json",
-    ...(hooks?.[2]
-      ? { "x-chief-webhook-id": decodeURIComponent(hooks[2]) }
-      : undefined),
-    ...(runs?.[2]
-      ? { "x-chief-schedule-id": decodeURIComponent(runs[2]) }
+    ...(scheduleId
+      ? { "x-chief-schedule-id": decodeURIComponent(scheduleId) }
       : undefined),
     ...(runs?.[3]
       ? { "x-chief-run-id": decodeURIComponent(runs[3]) }
@@ -65,19 +79,26 @@ export async function routeScheduleRunRequest(
   });
   const workspace = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
   if (delivery) {
+    // The token in the path is the credential; the sender is not signed in.
+    // Malformed tokens are refused here, without waking the workspace.
+    const token = delivery[3] ?? "";
+    if (!webhookTokenPattern.test(token))
+      throw new HttpError(404, "webhook_not_found", "Webhook not found.");
+    headers.set("x-chief-webhook-token", token);
+    headers.set("content-type", request.headers.get("content-type") ?? "");
+    const deliveryId =
+      request.headers.get("webhook-id") ??
+      request.headers.get("idempotency-key");
+    if (deliveryId && deliveryId.length <= 256)
+      headers.set("x-chief-delivery-id", deliveryId);
+    // Standard Webhooks headers, checked when the automation has a secret.
     for (const name of [
       "webhook-id",
       "webhook-timestamp",
       "webhook-signature",
     ]) {
       const value = request.headers.get(name);
-      if (!value || value.length > 1024)
-        throw new HttpError(
-          401,
-          "webhook_signature_missing",
-          "Send the webhook signature headers.",
-        );
-      headers.set(name, value);
+      if (value && value.length <= 1024) headers.set(name, value);
     }
     return workspace.fetch(
       new Request("https://workspace.internal", {
@@ -98,7 +119,8 @@ export async function routeScheduleRunRequest(
       new Request("https://workspace.internal", {
         method: "POST",
         headers,
-        body: method === "GET" ? undefined : await authenticated.request.text(),
+        body:
+          method === "POST" ? await authenticated.request.text() : undefined,
       }),
       { principal, workspaceId, requestId },
     ),

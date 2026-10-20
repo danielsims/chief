@@ -13,6 +13,7 @@ import {
   enqueueAgentJobCommandSchema,
 } from "@chief/relay-contracts";
 
+import { runAutomationTool } from "./agent-automation-tool";
 import {
   exportComputerFiles,
   importComputerFiles,
@@ -138,6 +139,8 @@ export class AgentObject extends DurableObject<Env> {
     const queue = this.queue;
     const runtime = this.runtime;
     const cellSnapshot = this.cellSnapshot.bind(this);
+    const env = this.env;
+    const computer = this.computer;
     return Effect.gen(function* () {
       const path = new URL(request.url).pathname;
       if (
@@ -197,6 +200,10 @@ export class AgentObject extends DurableObject<Env> {
           headers,
         });
       }
+      if (request.method === "POST" && path.endsWith("/automation-tool"))
+        return yield* attempt("agent.automation_tool", () =>
+          runAutomationTool(env, computer, request, context),
+        );
       if (request.method === "POST" && path.endsWith("/claim")) {
         return yield* attempt("agent.job.claim", () =>
           queue.claim(request, context),
