@@ -27,7 +27,7 @@ export const saveProspectDefinition = defineAgentTool({
   path: "/local-tools/prospects",
   operation: {
     operationId: "prospects.save",
-    summary: "Save a researched prospect",
+    summary: "Save prospect",
     description:
       "Stores evidence-backed research. sourceUrl must link directly to the supporting public source.",
   },

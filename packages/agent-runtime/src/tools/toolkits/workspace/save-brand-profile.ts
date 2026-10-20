@@ -8,7 +8,7 @@ export const saveBrandProfileDefinition = defineAgentTool({
   path: "/local-tools/brand-profile",
   operation: {
     operationId: "brandProfile.save",
-    summary: "Save the workspace brand profile",
+    summary: "Save brand profile",
     description:
       "Stores researched or user-supplied context for future agent sessions.",
   },

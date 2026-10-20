@@ -1,6 +1,8 @@
 import type { Principal, WorkspaceSchedule } from "@chief/relay-contracts";
 import { validateCron } from "@chief/agent-runtime/recurring-work";
 import {
+  agentIdSchema,
+  automationAgents,
   workspaceScheduleActionSchema,
   workspaceScheduleInputSchema,
 } from "@chief/relay-contracts";
@@ -13,10 +15,14 @@ import { workspaceScheduleRunsListScheduledTimes } from "./queries/workspace-sch
 import { workspaceSchedulesDeleteRouteWorkspaceSchedule } from "./queries/workspace-schedules/delete-route-workspace-schedule";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
+import { queueAutomationTest } from "./workspace-automation-agent";
+import { validateAutomationForSave } from "./workspace-automation-validation";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
-import { readWorkspaceMission } from "./workspace-missions";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
-import { cancelQueuedScheduleRuns } from "./workspace-schedule-runs";
+import {
+  cancelQueuedScheduleRuns,
+  listScheduleRuns,
+} from "./workspace-schedule-runs";
 import { prepareScheduleChannel } from "./workspace-schedule-setup";
 import {
   ensureWorkspaceAlarm,
@@ -27,6 +33,7 @@ import {
   wakeWorkspaceSchedules,
   writeWorkspaceSchedule,
 } from "./workspace-schedule-store";
+import { deleteAutomationWebhook } from "./workspace-schedule-webhooks";
 
 export async function routeWorkspaceSchedule(
   storage: DurableObjectStorage,
@@ -101,9 +108,17 @@ export async function routeWorkspaceSchedule(
           previous.schedule.conversationId,
           context.principal,
         );
-      input.collaborators = [...new Set(input.collaborators)].filter(
-        (id) => id !== input.agentId,
-      );
+      // Steps name the agents that work on them, so with steps they are the
+      // team and can't drift from what actually runs.
+      input.collaborators = [
+        ...new Set(
+          input.automation
+            ? automationAgents(input.automation).map((agentId) =>
+                agentIdSchema.parse(agentId),
+              )
+            : input.collaborators,
+        ),
+      ].filter((id) => id !== input.agentId);
       if (id && id !== input.id)
         throw new HttpError(
           409,
@@ -132,23 +147,7 @@ export async function routeWorkspaceSchedule(
             : "Choose a valid schedule and timezone.",
         );
       }
-      if (input.missionId) {
-        const mission = readWorkspaceMission(storage, input.missionId);
-        if (
-          !mission ||
-          mission.conversationId !== input.conversationId ||
-          ![input.agentId, ...input.collaborators].every(
-            (id) =>
-              mission.ownerAgentId === id || mission.collaborators.includes(id),
-          )
-        ) {
-          throw new HttpError(
-            409,
-            "schedule_mission_invalid",
-            "Choose a mission in this channel and an agent on its team.",
-          );
-        }
-      }
+      validateAutomationForSave(storage, env, context.workspaceId, input);
       const current = readWorkspaceSchedule(storage, input.id);
       if (!current && readWorkspaceSchedules(storage).length >= 250)
         throw new HttpError(
@@ -173,13 +172,24 @@ export async function routeWorkspaceSchedule(
         context.principal.kind === "user" &&
         current?.approvedBy !== null &&
         current !== null;
+      // A new title doesn't change what runs, so anyone may rename an
+      // approved schedule without sending it back for review.
+      const renamedOnly =
+        current?.approvedBy != null &&
+        JSON.stringify(
+          workspaceScheduleInputSchema.parse({
+            ...current.schedule,
+            title: input.title,
+          }),
+        ) === JSON.stringify(workspaceScheduleInputSchema.parse(input));
       const now = Math.max(Date.now(), (current?.schedule.updatedAt ?? 0) + 1);
       const schedule: WorkspaceSchedule = {
         ...current?.schedule,
         ...input,
-        status: userEditingApproved
-          ? current.schedule.status
-          : "needs_approval",
+        status:
+          current && (userEditingApproved || renamedOnly)
+            ? current.schedule.status
+            : "needs_approval",
         placement: "cloud",
         createdAt: current?.schedule.createdAt ?? now,
         updatedAt: now,
@@ -195,7 +205,11 @@ export async function routeWorkspaceSchedule(
               : nextScheduleTime(schedule, now);
       writeWorkspaceSchedule(storage, {
         schedule,
-        approvedBy: userEditingApproved ? context.principal : null,
+        approvedBy: userEditingApproved
+          ? context.principal
+          : renamedOnly
+            ? current.approvedBy
+            : null,
       });
       return json(presentWorkspaceSchedule(schedule));
     });
@@ -220,6 +234,7 @@ export async function routeWorkspaceSchedule(
   );
   if (operation === "schedules-delete") {
     workspaceSchedulesDeleteRouteWorkspaceSchedule(storage, stored.schedule.id);
+    deleteAutomationWebhook(storage, stored.schedule.id);
     cancelQueuedScheduleRuns(storage, stored.schedule.id);
     await wakeWorkspaceSchedules(storage);
     return json({ deleted: true });
@@ -248,18 +263,47 @@ export async function routeWorkspaceSchedule(
       );
     return json(presentWorkspaceSchedule(stored.schedule));
   }
-  if (action === "approve" && expectedUpdatedAt !== stored.schedule.updatedAt)
+  if (
+    (action === "approve" || action === "test") &&
+    expectedUpdatedAt !== stored.schedule.updatedAt
+  )
     throw new HttpError(
       409,
       "schedule_changed",
-      "This schedule changed since you reviewed it. Review the latest version before approving.",
+      "This schedule changed since you reviewed it. Review the latest version first.",
     );
-  if (action === "approve" || action === "run" || action === "resume") {
+  if (action === "approve" && stored.schedule.automation?.steps.length)
+    requirePassingTest(storage, stored.schedule);
+  if (
+    action === "approve" ||
+    action === "run" ||
+    action === "resume" ||
+    action === "test"
+  ) {
     for (const agentId of [
       stored.schedule.agentId,
       ...stored.schedule.collaborators,
     ])
       requireAgentMessageAccess(channels, agentId, context.principal);
+  }
+  if (action === "test") {
+    // A test leaves the schedule untouched so it still matches the version
+    // that was tested.
+    storage.transactionSync(() => {
+      queueAutomationTest(
+        storage,
+        stored.schedule,
+        context.principal,
+        commandId,
+      );
+      workspaceScheduleCommandsInsertRouteWorkspaceSchedule(storage, {
+        commandId,
+        scheduleId: stored.schedule.id,
+        action,
+      });
+    });
+    await wakeWorkspaceSchedules(storage);
+    return json(presentWorkspaceSchedule(stored.schedule));
   }
   const now = Math.max(Date.now(), stored.schedule.updatedAt + 1);
   storage.transactionSync(() => {
@@ -300,6 +344,25 @@ export async function routeWorkspaceSchedule(
   });
   await wakeWorkspaceSchedules(storage);
   return json(presentWorkspaceSchedule(stored.schedule));
+}
+
+/** An automation with steps turns on only after its latest test, of this version, passed. */
+function requirePassingTest(
+  storage: DurableObjectStorage,
+  schedule: WorkspaceSchedule,
+) {
+  const latestTest = listScheduleRuns(storage, schedule.id).find(
+    (run) => run.test,
+  );
+  if (
+    latestTest?.state !== "completed" ||
+    latestTest.schedule.updatedAt !== schedule.updatedAt
+  )
+    throw new HttpError(
+      409,
+      "schedule_test_required",
+      "Test this version of the automation before turning it on.",
+    );
 }
 
 function requireScheduleApproval(principal: Principal | null) {

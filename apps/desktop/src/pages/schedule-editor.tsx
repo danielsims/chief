@@ -67,7 +67,12 @@ export function cronFromFields(fields: ScheduleFields): string {
   return `${m} ${h} ${Number(fields.dayOfMonth)} * *`;
 }
 
-export function friendlySchedule(work: RecurringWorkRecord) {
+export function friendlySchedule(
+  work: Pick<
+    RecurringWorkRecord,
+    "triggerMode" | "onceAt" | "cron" | "timezone"
+  >,
+) {
   if (work.triggerMode === "webhook") return "On webhook delivery";
   if (work.onceAt !== undefined) {
     return new Date(work.onceAt).toLocaleString([], {

@@ -22,7 +22,6 @@ export const recurringWorkInputSchema = z.object({
     .max(366)
     .default([]),
   playbookId: optionalBoundedText(120),
-  missionId: optionalBoundedText(120),
   agentId: boundedText(120),
   collaborators: z.array(boundedText(120)).max(12).default([]),
   expectedOutcome: z.string().max(2000).default(""),
@@ -41,6 +40,13 @@ export const recurringWorkInputSchema = z.object({
     .transform((addresses) => [...new Set(addresses)])
     .default([]),
   activate: z.boolean().default(false),
+  // Validated against the relay's automation schema; described here for the model.
+  automation: z
+    .record(z.unknown())
+    .optional()
+    .describe(
+      "Optional ordered steps instead of a free-form team run: {version:1, steps:[...]}. A step is one of: {id,type:'agent',title,agentId,prompt}; {id,type:'tool',title,tool:{source:'chief',name:'<operationId>'} or {source:'plugin',connectionId,name,readOnly},arguments:{...}}; {id,type:'condition',title,when:{value:'{{steps.<id>.output.<field>}}',operator:'equals'|'not_equals'|'contains'|'not_contains'|'greater_than'|'less_than'|'is_empty'|'is_not_empty',compare?:'text'},then:[steps],else:[steps]}; {id,type:'stop',title,outcome:'completed'|'skipped'}. Ids are lowercase a-z, 0-9, _ or -. Read an earlier step's result with {{steps.<id>.output}} or {{steps.<id>.output.<field>}}; agent steps output {text}. Webhook data is {{trigger.input.<field>}}. A step may only read steps that always run before it. Every agent step's agentId must be the lead or a collaborator. Use only tools found with automations.tools, with readOnly exactly as listed.",
+    ),
 });
 
 export const proposeRecurringWorkDefinition = defineAgentTool({
@@ -50,7 +56,7 @@ export const proposeRecurringWorkDefinition = defineAgentTool({
     operationId: "recurringWork.propose",
     summary: "Propose recurring or one-time agent work for user approval",
     description:
-      "Configure the complete scheduled team: lead agentId, collaborators, instructions, optional outcome/constraints/run limit, and a cron, onceAt or webhook trigger. Set newChannel to {} to create a mission channel automatically, or provide its name and inviteUserIds. Otherwise use conversationId; missing teammates are added with membership permission. Supply timezone and optionally skipDates. Use a stable id to revise a proposal. The user must approve the latest proposal before execution; webhook triggers are connected through workspace Webhooks settings.",
+      "Configure the complete scheduled team: lead agentId, collaborators, instructions, optional outcome/constraints/run limit, and a cron, onceAt or webhook trigger. Set newChannel to {} to create a dedicated channel automatically, or provide its name and inviteUserIds. Otherwise use conversationId; missing teammates are added with membership permission. Supply timezone and optionally skipDates. Use a stable id to revise a proposal. The user must approve the latest proposal before execution; a webhook trigger gets its URL from the trigger card in Automations.",
   },
   inputSchema: recurringWorkInputSchema,
 });
@@ -59,6 +65,7 @@ export const listRecurringWorkDefinition = defineAgentTool({
   path: "/local-tools/recurring-work",
   operation: {
     operationId: "recurringWork.list",
-    summary: "List schedules and their approval state",
+    summary: "List automations",
+    description: "List schedules and their approval state.",
   },
 });

@@ -6,7 +6,10 @@ import type {
   ChannelWorkstream,
 } from "@chief/channel-api";
 
-import type { GuestAppearance } from "./agent-message-types.js";
+import type {
+  ChiefMessageMetadata,
+  GuestAppearance,
+} from "./agent-message-types.js";
 import type { ExecutorCapability } from "./types.js";
 
 export interface WorkspaceChannel {
@@ -57,6 +60,8 @@ interface ChannelEventBase {
 export interface ChannelMessageEvent extends ChannelEventBase {
   kind: 9;
   parts?: unknown[];
+  /** Present when the message announces an automation run. */
+  scheduledRun?: ChiefMessageMetadata["scheduledRun"];
 }
 
 /** A NIP-25 kind:7 reaction targeting a channel message. */

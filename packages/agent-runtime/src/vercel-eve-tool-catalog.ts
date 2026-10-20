@@ -47,7 +47,7 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
   defineEveChannelTool({
     operationId: "channels.create",
     description:
-      "Create a channel for a feature, campaign, or mission. Reuse a stable operationKey on retries. You are added as its owner. Use channels.members.add next to invite the mission team and relevant people before creating the mission.",
+      "Create a channel for a feature, campaign or piece of work. Reuse a stable operationKey on retries. You are added as its owner. Use channels.members.add next to invite the team and relevant people.",
     input: {
       name: "z.string().trim().min(1).max(60)",
       description: "z.string().trim().max(160).optional()",
@@ -196,9 +196,9 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
     },
   },
   {
-    operationId: "missions.addRunCollaborator",
+    operationId: "automations.addRunCollaborator",
     method: "POST",
-    path: "/local-tools/missions/run-collaborators",
+    path: "/local-tools/automations/run-collaborators",
     execute: "relay",
     description:
       "Lead only: assign another teammate to an active run. Finish your current turn after the handoff. A successful call adds them to this run and queues their contribution after the plan. Supply a concrete assignment; repeating it is safe. This does not change future runs. Mentions alone do not queue work.",
@@ -209,18 +209,9 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
     },
   },
   {
-    operationId: "missions.list",
-    method: "GET",
-    path: "/local-tools/missions",
-    execute: "relay",
-    description:
-      "Read this business's visible missions, status, and experiment history.",
-    input: {},
-  },
-  {
-    operationId: "missions.reportRunStep",
+    operationId: "automations.reportRunStep",
     method: "POST",
-    path: "/local-tools/missions/run-step",
+    path: "/local-tools/automations/run-step",
     execute: "relay",
     description:
       "Report your scheduled step completed with concrete evidence, or blocked with what is needed. Only the assigned agent can report an active step.",
@@ -228,58 +219,6 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
       runId: "z.string().min(1).max(256)",
       stepId: "z.string().uuid()",
       status: 'z.enum(["completed", "blocked"])',
-      evidence: "z.string().min(1).max(4000)",
-    },
-  },
-  {
-    operationId: "missions.create",
-    method: "POST",
-    path: "/local-tools/missions",
-    execute: "relay",
-    description:
-      "Record a bounded business mission. Create its channel and invite the owner and collaborators first. Metric missions need a measured baseline, evidence source, and evaluation window. A mission record does not schedule execution; propose recurring work separately for the user's approval.",
-    input: {
-      id: "z.string().regex(/^[a-z0-9][a-z0-9-]{4,99}$/)",
-      conversationId: "z.string().min(1).max(160)",
-      title: "z.string().min(1).max(200)",
-      objective: "z.string().min(1).max(4000)",
-      ownerAgentId: "z.string().min(1).max(120)",
-      collaborators: "z.array(z.string().min(1).max(120)).max(12).default([])",
-      projectId: "z.string().min(1).max(160).optional()",
-      success:
-        'z.discriminatedUnion("kind", [z.object({ kind: z.literal("deliverable"), description: z.string().min(1).max(2000) }).strict(), z.object({ kind: z.literal("metric"), name: z.string().min(1).max(120), unit: z.string().max(40), direction: z.enum(["increase", "decrease"]), baseline: z.number().finite(), target: z.number().finite(), source: z.string().min(1).max(2000), evaluationWindow: z.string().min(1).max(1000) }).strict()])',
-      maxExperiments: "z.number().int().min(1).max(100)",
-      deadline: "z.string().datetime()",
-      constraints: "z.string().min(1).max(4000)",
-    },
-  },
-  {
-    operationId: "missions.recordExperiment",
-    method: "POST",
-    path: "/local-tools/missions/{missionId}/experiments",
-    execute: "relay",
-    description:
-      "Record one mission experiment with a stable id, actual change, measurement, and evidence. Keep only measured improvements. Use a null value and inconclusive decision when evidence is insufficient.",
-    input: {
-      missionId: "z.string().min(1).max(100)",
-      id: "z.string().min(1).max(120)",
-      hypothesis: "z.string().min(1).max(2000)",
-      change: "z.string().min(1).max(4000)",
-      value: "z.number().finite().nullable()",
-      evidence: "z.string().min(1).max(4000)",
-      decision: 'z.enum(["keep", "discard", "inconclusive"])',
-    },
-  },
-  {
-    operationId: "missions.updateStatus",
-    method: "POST",
-    path: "/local-tools/missions/{missionId}/status",
-    execute: "relay",
-    description:
-      "Pause, resume, or complete a mission with evidence. The relay enforces its deadline, experiment budget, and measured target.",
-    input: {
-      missionId: "z.string().min(1).max(100)",
-      status: 'z.enum(["active", "paused", "completed"])',
       evidence: "z.string().min(1).max(4000)",
     },
   },
@@ -307,7 +246,6 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
       id: "z.string().min(1).max(120).optional()",
       conversationId: "z.string().min(1).max(160).optional()",
       agentId: "z.string().min(1).max(120)",
-      missionId: "z.string().min(1).max(120).optional()",
       title: "z.string().min(1).max(200)",
       instructions: "z.string().min(1).max(8000)",
       cron: 'z.string().max(120).default("0 9 * * *")',
@@ -322,6 +260,7 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
         "z.array(z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/)).max(366).default([])",
       playbookId: "z.string().min(1).max(120).optional()",
       activate: "z.boolean().default(false)",
+      automation: "z.record(z.unknown()).optional()",
     },
   },
 

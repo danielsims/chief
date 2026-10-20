@@ -1,6 +1,7 @@
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
 import type {
   AgentAvatar,
+  Automation,
   JsonObject,
   WorkspaceAgentRuntime,
 } from "@chief/relay-contracts";
@@ -82,7 +83,6 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
-  missionId?: string;
   collaborators?: string[];
   expectedOutcome?: string;
   constraints?: string;
@@ -123,6 +123,8 @@ export interface RecurringWorkRecord {
   /** Computed by the runtime for calendar rendering, never persisted. */
   upcomingRuns?: number[];
   recordedRuns?: number[];
+  /** The steps a relay schedule runs; without them the team works from the brief. */
+  automation?: Automation;
 }
 
 export interface OnboardingWorkJob {

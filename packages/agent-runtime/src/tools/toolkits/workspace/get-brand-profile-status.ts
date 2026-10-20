@@ -5,6 +5,7 @@ export const getBrandProfileStatusDefinition = defineAgentTool({
   path: "/local-tools/brand-profile",
   operation: {
     operationId: "brandProfile.status",
-    summary: "Check whether the workspace has a brand profile",
+    summary: "Get brand profile",
+    description: "Check whether the workspace has a brand profile.",
   },
 });

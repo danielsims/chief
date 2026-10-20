@@ -123,7 +123,7 @@ export function useChiefChatPresentation({
     );
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
-    if (!channel && !directAgent) return {};
+    if (!channel && !directAgent) return { footer: null };
     const replySummary = summarizeThreadReplies(
       threadReplies.get(message.id) ?? [],
     );

@@ -27,12 +27,14 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { routeMcpConnections } from "./mcp/route";
 import { metered, meterSql, requestOperation } from "./sql-metering";
 import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { runWorkspaceAlarm } from "./workspace-alarm";
+import { routeAutomationAgent } from "./workspace-automation-agent";
 import {
   routeWorkspaceChannel,
   routeWorkspaceDirect,
@@ -51,7 +53,6 @@ import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
-import { routeWorkspaceMissions } from "./workspace-missions";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
@@ -169,15 +170,18 @@ export class WorkspaceObject extends DurableObject<Env> {
         return yield* attempt("workspace.webhooks", () =>
           routeScheduleWebhooks(ctx.storage, env, request, operation),
         );
+      if (operation?.startsWith("mcp-"))
+        return yield* attempt("workspace.plugins", () =>
+          routeMcpConnections(ctx.storage, env, request, operation),
+        );
+      if (operation?.startsWith("automations-"))
+        return yield* attempt("workspace.automations", () =>
+          routeAutomationAgent(ctx.storage, env, request, operation),
+        );
       if (operation?.startsWith("schedules-runs-"))
         return yield* attempt("workspace.schedule_runs", () =>
           routeScheduleRuns(ctx.storage, env, request, operation),
         );
-      if (operation?.startsWith("missions-")) {
-        return yield* attempt("workspace.missions", () =>
-          routeWorkspaceMissions(ctx.storage, env, request, operation),
-        );
-      }
       if (operation?.startsWith("schedules-")) {
         return yield* attempt("workspace.schedules", () =>
           routeWorkspaceSchedule(ctx.storage, env, request, operation),

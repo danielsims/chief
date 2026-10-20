@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Workflow } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -32,12 +32,11 @@ import {
   startOfWeek,
   workOccurrences,
 } from "./schedule-calendar-core";
-import { ScheduleComposer } from "./schedule-composer";
 import {
   RecurringWorkApprovalDialog,
   ScheduleEventDetailDialog,
 } from "./schedule-dialogs";
-import { MonthJump, ScheduleList } from "./schedule-inbox";
+import { MonthJump } from "./schedule-inbox";
 import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
@@ -72,8 +71,6 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
@@ -126,7 +123,8 @@ export function SchedulePage() {
     }
     return null;
   }, [revisionChat.messages]);
-  const createSchedule = () => setCreating(true);
+  const openAutomation = (id = "new") =>
+    void navigate(`/schedule/automations/${encodeURIComponent(id)}`);
   const openWorkReview = (work: RecurringWorkRecord) => {
     if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
@@ -142,7 +140,6 @@ export function SchedulePage() {
       agentId: approvalWork.agentId,
       title: approvalWork.title,
       collaborators: approvalWork.collaborators,
-      missionId: approvalWork.missionId,
       expectedOutcome: approvalWork.expectedOutcome,
       constraints: approvalWork.constraints,
       maxDurationMinutes: approvalWork.maxDurationMinutes,
@@ -160,7 +157,7 @@ export function SchedulePage() {
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields from the current draft, including the team, mission, outcome, constraints, trigger mode and time limit, changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields from the current draft, including the team, outcome, constraints, trigger mode and time limit, changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -193,10 +190,6 @@ export function SchedulePage() {
       updatedAt: Date.now(),
     });
   };
-  const editWork = editWorkId
-    ? (workspaceData.recurringWork.find((work) => work.id === editWorkId) ??
-      null)
-    : null;
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
@@ -263,10 +256,20 @@ export function SchedulePage() {
         title="Schedule"
         description="Plan and manage your team's scheduled work."
         actions={
-          <Button size="sm" onClick={() => createSchedule()}>
-            <Plus size={14} />
-            New schedule
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void navigate("/schedule/automations")}
+            >
+              <Workflow size={13} />
+              Automations
+            </Button>
+            <Button size="sm" onClick={() => openAutomation()}>
+              <Plus size={14} />
+              New automation
+            </Button>
+          </>
         }
       />
 
@@ -282,10 +285,6 @@ export function SchedulePage() {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <ScheduleList
-              work={workspaceData.recurringWork}
-              onOpen={openWorkReview}
-            />
             <ScheduleFilters
               visibleKinds={visibleKinds}
               onToggle={(kind) => {
@@ -423,7 +422,7 @@ export function SchedulePage() {
         }}
         onEditWork={(work) => {
           setDetailWorkId(null);
-          setEditWorkId(work.id);
+          openAutomation(work.id);
         }}
         onOpenWorkChannel={(work) => {
           setDetailWorkId(null);
@@ -451,27 +450,9 @@ export function SchedulePage() {
         context={workMenu}
         onClose={() => setWorkMenu(null)}
         onSkip={skipOccurrence}
-        onEdit={(work) => setEditWorkId(work.id)}
+        onEdit={(work) => openAutomation(work.id)}
         onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
       />
-      {creating || editWork ? (
-        <ScheduleComposer
-          key={editWork?.id ?? "new"}
-          work={editWork}
-          onClose={() => {
-            setCreating(false);
-            setEditWorkId(null);
-          }}
-          onSaved={() => {
-            if (cloudOrganizationId && capability)
-              client.send({
-                type: "listWorkspaceData",
-                workspaceId: cloudOrganizationId,
-                executorCapability: capability,
-              });
-          }}
-        />
-      ) : null}
     </div>
   );
 }
