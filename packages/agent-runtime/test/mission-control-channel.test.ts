@@ -28,7 +28,7 @@ void test("the assigned mission channel is an ordinary protected channel", async
       channelStore.setArchived("workspace-a", channel.id, true, {
         actor: { type: "user", id: "workspace", name: "Workspace" },
       }),
-      /assigned in Missions settings/u,
+      /is the workspace's main channel/u,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

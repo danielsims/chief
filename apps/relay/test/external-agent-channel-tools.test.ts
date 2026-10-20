@@ -4,7 +4,6 @@ import type { JsonObject } from "@chief/relay-contracts";
 import {
   channelDetailSchema,
   externalAgentToolResultSchema,
-  missionSchema,
   workspaceFileSchema,
   workspaceScheduleSchema,
 } from "@chief/relay-contracts";
@@ -174,46 +173,10 @@ describe("external agent channel tools", () => {
     });
     expect(wrongChannel.status).toBeGreaterThanOrEqual(400);
 
-    const missionResponse = await invokeWorkspace("missions.create", {
-      id: "launch-conversion",
-      conversationId: createdChannel.id,
-      title: "Improve launch conversion",
-      objective: "Measure and improve the signup page",
-      ownerAgentId: "eve-tools",
-      collaborators: ["brand"],
-      success: {
-        kind: "metric",
-        name: "Signups",
-        unit: "percent",
-        direction: "increase",
-        baseline: 2,
-        target: 5,
-        source: "Verified signup analytics",
-        evaluationWindow: "Seven days",
-      },
-      maxExperiments: 4,
-      deadline: new Date(Date.now() + 86400000).toISOString(),
-      constraints: "Do not publish changes without review.",
-    });
-    expect(missionResponse.status).toBe(200);
-    const mission = missionSchema.parse(
-      externalAgentToolResultSchema.parse(await missionResponse.json()).result,
-    );
-    const experiment = await invokeWorkspace("missions.recordExperiment", {
-      missionId: mission.id,
-      id: "headline-test",
-      hypothesis: "Clearer copy increases signups",
-      change: "Tested a clearer heading",
-      value: 3,
-      evidence: "Three signups per hundred visitors",
-      decision: "keep",
-    });
-    expect(experiment.status).toBe(200);
     const proposalInput = {
       id: "launch-weekly",
       conversationId: createdChannel.id,
       agentId: "eve-tools",
-      missionId: mission.id,
       title: "Measure launch performance",
       instructions: "Read the current analytics and publish a report",
       cron: "0 9 * * 1",
@@ -256,16 +219,6 @@ describe("external agent channel tools", () => {
         })
       ).status,
     ).toBe(400);
-    expect(
-      (
-        await invokeWorkspace("missions.updateStatus", {
-          missionId: mission.id,
-          status: "paused",
-          evidence: "Waiting for the next measurement window",
-        })
-      ).status,
-    ).toBe(200);
-    expect((await invokeWorkspace("missions.list", {})).status).toBe(200);
     expect((await invokeWorkspace("recurringWork.list", {})).status).toBe(200);
 
     const listed = await receiveExternalTool(

@@ -25,7 +25,6 @@ import {
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
 import { useWorkspaceUsers } from "../components/chat/mention-people-context";
-import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { workspaceCardClassName } from "../components/workspace-content-surface";
 import { useAuth } from "../lib/auth/auth-context";
@@ -426,14 +425,7 @@ export function ConversationsPage() {
                 conversationId={
                   activeConversationChannel?.relayId ?? activeChannel.id
                 }
-              >
-                <MissionCanvas
-                  key={activeConversationChannel?.relayId ?? activeChannel.id}
-                  conversationId={
-                    activeConversationChannel?.relayId ?? activeChannel.id
-                  }
-                />
-              </ChannelCanvas>
+              />
             </>
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>
