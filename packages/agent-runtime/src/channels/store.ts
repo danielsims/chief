@@ -437,7 +437,9 @@ export class ChannelStore extends ChannelHistoryStore {
       waysOfWorking.mode === "mission-control" &&
       waysOfWorking.missionControlChannelId === channel.id
     ) {
-      throw new Error(`#${channel.name} is assigned in Missions settings.`);
+      throw new Error(
+        `#${channel.name} is the workspace's main channel, so it can't be archived.`,
+      );
     }
     const remainingActivePublicChannels = (await this.list(workspaceId)).filter(
       (candidate) =>

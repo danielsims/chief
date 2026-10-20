@@ -16,7 +16,7 @@ void test("a hosted cloud agent gets the full persona and the em-dash ban", () =
   assert.match(prompt.text, /Never use em dashes/u);
   assert.match(
     prompt.text,
-    /Treat an agent's subject channel as its mission cell/u,
+    /Treat an agent's subject channel as where its work lives/u,
   );
 });
 
@@ -62,5 +62,5 @@ void test("the router reports the included parts for diagnostics", () => {
   assert.ok(prompt.parts.length > 0);
   const ids = prompt.parts.map((part) => part.id);
   assert.ok(ids.includes("tone.teammate"));
-  assert.ok(ids.includes("mission.cell"));
+  assert.ok(ids.includes("subject.channel"));
 });
