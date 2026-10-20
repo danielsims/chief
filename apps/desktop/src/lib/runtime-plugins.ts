@@ -277,9 +277,9 @@ export function usePlugins() {
               plugin.status === "connected" ||
               plugin.status === "failed" ||
               plugin.status === "reconnect",
-            120_000,
+            600_000,
           );
-          const refreshTimer = window.setInterval(() => refresh(), 1_000);
+          const refreshTimer = window.setInterval(() => refresh(), 2_000);
           try {
             const plugin = await completed;
             if (plugin.status === "connected") return lastAction;

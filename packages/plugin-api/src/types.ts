@@ -41,12 +41,27 @@ export type AgentPluginStatus =
   | "reconnect"
   | "error";
 
+export interface AgentPluginTool {
+  name: string;
+  title?: string;
+  description: string;
+  /** Only tools the server marks read-only; everything else can change data. */
+  readOnly: boolean;
+}
+
 export interface AgentPluginSummary extends AgentPluginCatalogEntry {
   status: AgentPluginStatus;
   installedAt?: number;
   enabled: boolean;
   trusted: boolean;
   diagnostics?: string[];
+  /** Set for a workspace connection to a remote MCP server. */
+  connection?: {
+    id: string;
+    url: string;
+    auth: "none" | "headers" | "oauth";
+    tools: AgentPluginTool[];
+  };
 }
 
 interface PluginAuthorizationActionBase {

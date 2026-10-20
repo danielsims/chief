@@ -377,6 +377,9 @@ importers:
       "@ai-sdk/openai-compatible":
         specifier: 3.0.39
         version: 3.0.39(zod@4.4.3)
+      "@cfworker/json-schema":
+        specifier: ^4.1.1
+        version: 4.1.1
       "@chief/agent-computer":
         specifier: workspace:*
         version: link:../../packages/agent-computer
@@ -398,6 +401,9 @@ importers:
       "@cloudflare/puppeteer":
         specifier: 1.1.0
         version: 1.1.0
+      "@modelcontextprotocol/sdk":
+        specifier: ^1.29.0
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       "@noble/curves":
         specifier: ^2.3.0
         version: 2.3.0
@@ -425,6 +431,9 @@ importers:
       just-bash:
         specifier: 3.4.2
         version: 3.4.2
+      tldts:
+        specifier: ^7.4.18
+        version: 7.4.18
       zod:
         specifier: "catalog:"
         version: 4.4.3
@@ -14853,6 +14862,19 @@ packages:
     peerDependencies:
       "@tiptap/core": ^2.0.3
 
+  tldts-core@7.4.18:
+    resolution:
+      {
+        integrity: sha512-KI2PKvCmvQI/xD6ypPqkU0i7oxNXR/O58RLRaHR4svsgVUQ2JE/XC8BtMbG6PSehD27I8sZJRcC1ASnCy6lp3g==,
+      }
+
+  tldts@7.4.18:
+    resolution:
+      {
+        integrity: sha512-somxA8xKAUzlAxl0TX/jMSYIbRNFIVGnI96pVGJPeMc5BsHmfVXn6mOJT6U++ELnl04eGfzpfcEuZe8WiASkXg==,
+      }
+    hasBin: true
+
   to-vfile@8.0.0:
     resolution:
       {
@@ -24737,6 +24759,12 @@ snapshots:
       markdown-it: 14.3.0
       markdown-it-task-lists: 2.1.1
       prosemirror-markdown: 1.13.5
+
+  tldts-core@7.4.18: {}
+
+  tldts@7.4.18:
+    dependencies:
+      tldts-core: 7.4.18
 
   to-vfile@8.0.0:
     dependencies:

@@ -47,6 +47,7 @@ import type {
 
 export type {
   AgentPluginSummary,
+  AgentPluginTool,
   PluginAuthorizationAction,
 } from "@chief/plugin-api";
 

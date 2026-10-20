@@ -51,6 +51,7 @@ import {
   SubagentDetail,
 } from "./agent-identity-navigator";
 import { AgentMessageAccess } from "./agent-message-access";
+import { AgentPluginAccess } from "./agent-plugin-access";
 
 type DetailTab = "configuration" | "channels" | "permissions";
 
@@ -157,6 +158,7 @@ export function AgentDetail({
     model?: string;
     approvals?: AgentApprovalMode;
     capabilities?: AgentCapabilityId[];
+    integrations?: string[];
     toolPermissions?: AgentToolPermission[];
   }) => {
     const mirror: LocalAgentOverride = {};
@@ -181,8 +183,8 @@ export function AgentDetail({
       model: (patch.model ?? model) || undefined,
       approvals: patch.approvals ?? approvals,
       capabilities: patch.capabilities ?? capabilities,
-      ...(override?.integrations
-        ? { integrations: override.integrations }
+      ...((patch.integrations ?? override?.integrations)
+        ? { integrations: patch.integrations ?? override?.integrations }
         : undefined),
       toolPermissions: patch.toolPermissions ?? toolPermissions,
     });
@@ -378,6 +380,13 @@ export function AgentDetail({
                       permissions={toolPermissions}
                       ready={ready}
                       onChange={(value) => save({ toolPermissions: value })}
+                    />
+                    <AgentPluginAccess
+                      client={relayClient}
+                      assigned={override?.integrations ?? []}
+                      asksBeforeActing={approvals !== "auto"}
+                      ready={ready}
+                      onChange={(integrations) => save({ integrations })}
                     />
                   </>
                 ) : null}

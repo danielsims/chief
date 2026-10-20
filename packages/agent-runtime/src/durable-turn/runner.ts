@@ -71,6 +71,7 @@ export class DurableTurnRunner {
       systemPrompt: input.systemPrompt,
       browserEnabled: input.browserEnabled,
       computerEnabled: input.computerEnabled ?? true,
+      boundTools: [...(input.boundTools ?? [])],
       completion: {
         requiredToolNames: [...(input.completion?.requiredToolNames ?? [])],
         browserMustRemainOpen: input.completion?.browserMustRemainOpen ?? false,

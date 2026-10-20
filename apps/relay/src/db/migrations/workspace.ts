@@ -8,6 +8,7 @@ import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
 import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
+import { initializeMcpConnectionTables } from "./initialize-mcp-connection-tables";
 import { initializeWorkspaceGitTables } from "./initialize-workspace-git-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
@@ -16,8 +17,8 @@ export function initializeWorkspaceSchema(
   env: Env,
 ) {
   initializeWorkspaceSchedules(storage);
+  initializeMcpConnectionTables(storage);
   storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS missions (mission_id TEXT PRIMARY KEY, document_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workspace (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       workspace_id TEXT NOT NULL UNIQUE,
@@ -190,6 +191,9 @@ export function initializeWorkspaceSchema(
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
   addColumns(storage, "workspace_invites", [["label", "TEXT"]]);
+  addColumns(storage, "workspace_schedule_webhooks", [
+    ["signing_secret", "TEXT"],
+  ]);
   dropPreReleaseExternalLinks(storage);
   storage.sql.exec(`
     CREATE INDEX IF NOT EXISTS channels_workspace_idx
