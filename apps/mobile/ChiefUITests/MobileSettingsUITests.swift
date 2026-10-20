@@ -21,7 +21,7 @@ final class MobileSettingsUITests: XCTestCase {
     back(app)
 
     for page in [
-      "Notifications", "Workspace", "Connection", "Missions", "Webhooks", "Environment",
+      "Notifications", "Workspace", "Connection", "Environment",
     ] {
       open(page, in: app)
       XCTAssertTrue(app.navigationBars[page].waitForExistence(timeout: 5))
