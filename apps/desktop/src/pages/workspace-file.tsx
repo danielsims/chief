@@ -38,8 +38,8 @@ export function WorkspaceFilePage() {
   if (loading && !file) {
     return (
       <div className="mx-auto max-w-4xl py-16">
-        <div className="bg-card h-10 w-72 animate-pulse border" />
-        <div className="bg-card mt-8 h-[520px] animate-pulse border" />
+        <div className="bg-card h-10 w-72 animate-pulse rounded-lg border" />
+        <div className="bg-card mt-8 h-[520px] animate-pulse rounded-xl border" />
       </div>
     );
   }
@@ -161,17 +161,17 @@ function WorkspaceFileEditor({
                   ? "Saved to workspace"
                   : "Saved locally"}
         </span>
-        <div className="flex border p-0.5">
+        <div className="flex rounded-lg border p-0.5">
           <button
             type="button"
-            className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "edit" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+            className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${view === "edit" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
             onClick={() => setView("edit")}
           >
             <Pencil size={11} /> Edit
           </button>
           <button
             type="button"
-            className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "preview" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+            className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${view === "preview" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
             onClick={() => setView("preview")}
           >
             <Eye size={11} /> Preview
@@ -209,7 +209,7 @@ function WorkspaceFileEditor({
       </header>
 
       {newerRevision ? (
-        <div className="bg-muted/40 mt-3 flex items-center justify-between gap-4 rounded-lg border p-4 text-xs">
+        <div className="bg-muted/40 mt-3 flex items-center justify-between gap-4 rounded-xl border p-4 text-xs">
           <p>
             A newer revision is available. Your edits are still here. Copy any
             changes you need before loading the latest version.
@@ -220,21 +220,21 @@ function WorkspaceFileEditor({
         </div>
       ) : null}
       {error ? (
-        <div className="border-destructive/40 bg-destructive/5 text-destructive mt-3 border px-4 py-3 text-xs">
+        <div className="border-destructive/40 bg-destructive/5 text-destructive mt-3 rounded-lg border px-4 py-3 text-xs">
           {error}
         </div>
       ) : null}
 
       {file.mimeType !== "text/markdown" && file.mimeType !== "text/plain" ? (
-        <pre className="bg-card/20 mt-5 overflow-auto rounded-lg border p-8 text-xs leading-6">
+        <pre className="bg-card/20 mt-5 overflow-auto rounded-xl border p-8 text-xs leading-6">
           {content}
         </pre>
       ) : view === "preview" ? (
-        <article className="chat-markdown bg-card/20 mt-5 min-h-[520px] border px-14 py-12 text-[15px] leading-7">
+        <article className="chat-markdown bg-card/20 mt-5 min-h-[520px] rounded-xl border px-14 py-12 text-[15px] leading-7">
           <StreamingMarkdown>{content}</StreamingMarkdown>
         </article>
       ) : (
-        <div className="bg-card/20 mt-5 border px-14 py-12">
+        <div className="bg-card/20 mt-5 rounded-xl border px-14 py-12">
           <DocumentEditor value={content} onChange={setContent} />
         </div>
       )}
