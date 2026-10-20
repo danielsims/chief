@@ -6,5 +6,7 @@ export const workspaceScheduleWebhooks = sqliteTable(
     id: text("id").primaryKey(),
     document_json: text("document_json").notNull(),
     secret: text("secret").notNull(),
+    /** A sealed Standard Webhooks signing secret, never returned to clients. */
+    signing_secret: text("signing_secret"),
   },
 );
