@@ -110,6 +110,12 @@ export function workspaceDataCapability(operation: string) {
     return "machines.write";
   if (operation === "data-file-save" || operation === "data-file-asset-save")
     return "messages.send";
-  if (operation === "data-file-update") return "workspace.write";
+  if (
+    operation === "data-file-update" ||
+    operation === "data-board-save" ||
+    operation === "data-board-delete" ||
+    operation === "data-board-lanes"
+  )
+    return "workspace.write";
   return "workspace.read";
 }

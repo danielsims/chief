@@ -24,9 +24,11 @@ export * from "./workspaces";
 export * from "./workspace-data";
 export * from "./vercel";
 export * from "./message-preview";
-export * from "./missions";
 export * from "./schedules";
 export * from "./schedule-runs";
+export * from "./mcp-connections";
+export * from "./automations";
+export * from "./board";
 
 export * from "./artifacts";
 export * from "./typing";

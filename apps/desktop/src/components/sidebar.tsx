@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   CalendarClock,
+  Columns3,
   FolderGit2,
   FolderOpen,
   Inbox,
@@ -57,6 +58,7 @@ import { WorkspaceSearchButton } from "./workspace-search";
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
+  { to: "/board", label: "Board", icon: Columns3 },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },

@@ -33,6 +33,7 @@ import { workspaceFilesFindSaveFilePath } from "./queries/workspace-files/find-s
 import { workspaceFilesInsertSaveBrandProfile } from "./queries/workspace-files/insert-save-brand-profile";
 import { workspaceFilesInsertSaveFile } from "./queries/workspace-files/insert-save-file";
 import { workspaceFilesUpdateUpdateFile } from "./queries/workspace-files/update-update-file";
+import { routeWorkspaceBoard } from "./workspace-board";
 import {
   initializeWorkspaceMachines,
   routeWorkspaceMachines,
@@ -88,6 +89,14 @@ export async function routeWorkspaceData(
 ) {
   const canRead = (conversationId: string) =>
     channels.canReadConversation(conversationId, principal);
+  if (operation.startsWith("data-board-"))
+    return routeWorkspaceBoard(
+      storage,
+      request,
+      operation,
+      principal,
+      channels,
+    );
   if (operation === "data-brand-get") return getBrandProfile(storage);
   if (operation === "data-brand-save") {
     requireAgentPrincipal(principal);

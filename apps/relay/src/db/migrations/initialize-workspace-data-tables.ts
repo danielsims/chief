@@ -31,5 +31,15 @@ export function initializeWorkspaceDataTables<
     );
     CREATE INDEX IF NOT EXISTS prospects_recent_idx
       ON prospects (updated_at DESC);
+    CREATE TABLE IF NOT EXISTS board_items (
+      item_id TEXT PRIMARY KEY,
+      item_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS board_lanes (
+      board_id TEXT PRIMARY KEY,
+      lanes_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 }
