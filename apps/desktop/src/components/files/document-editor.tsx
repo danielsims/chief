@@ -187,9 +187,14 @@ function parseMarkdown(value: unknown): string {
 export function DocumentEditor({
   value,
   onChange,
+  compact = false,
+  placeholder = "Write, or press / for commands...",
 }: {
   value: string;
   onChange: (markdown: string) => void;
+  /** A short field inside a form: smaller text and Markdown shortcuts only. */
+  compact?: boolean;
+  placeholder?: string;
 }) {
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -205,16 +210,16 @@ export function DocumentEditor({
       StarterKit,
       TaskList,
       TaskItem.configure({ nested: true }),
-      Placeholder.configure({
-        placeholder: "Write, or press / for commands...",
-      }),
+      Placeholder.configure({ placeholder }),
       Markdown,
-      slashExtension(slashBridge),
+      ...(compact ? [] : [slashExtension(slashBridge)]),
     ],
     content: value,
     editorProps: {
       attributes: {
-        class: "chief-document-editor",
+        class: compact
+          ? "chief-document-editor chief-document-editor-compact"
+          : "chief-document-editor",
         spellcheck: "true",
       },
     },
@@ -235,18 +240,18 @@ export function DocumentEditor({
   }, [editor, value]);
 
   return (
-    <div className="relative min-h-[520px]">
+    <div className={compact ? "relative" : "relative min-h-[520px]"}>
       <EditorContent editor={editor} />
       {slash?.rect && slash.items.length > 0 ? (
         <div
-          className="bg-popover text-popover-foreground fixed z-50 w-56 overflow-hidden border p-1 shadow-xl"
+          className="bg-popover text-popover-foreground fixed z-50 w-56 overflow-hidden rounded-lg border p-1 shadow-xl"
           style={{ left: slash.rect.left, top: slash.rect.bottom + 6 }}
         >
           {slash.items.map((item, index) => (
             <button
               key={item.title}
               type="button"
-              className={`block w-full px-3 py-2 text-left ${index === selectedIndex ? "bg-accent" : ""}`}
+              className={`block w-full rounded-md px-3 py-2 text-left ${index === selectedIndex ? "bg-accent" : ""}`}
               onMouseDown={(event) => {
                 event.preventDefault();
                 slash.command(item);
