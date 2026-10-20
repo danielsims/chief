@@ -40,8 +40,6 @@ struct SettingsView: View {
           "Connection", icon: "dot.radiowaves.left.and.right",
           detail: model.isChiefCloudRelay ? "Chief Cloud" : "Self-hosted"
         ) { ConnectionSettingsView() }
-        link("Missions", icon: "scope") { MissionsSettingsView() }
-        link("Webhooks", icon: "arrow.triangle.branch") { WebhooksSettingsView() }
         link("Environment", icon: "key") { EnvironmentSettingsView() }
       }
 

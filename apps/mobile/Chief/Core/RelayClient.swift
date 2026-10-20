@@ -171,13 +171,6 @@ protocol RelayServing: Sendable {
   func workspaceSecretNames(workspaceID: String) async throws -> [String]
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
   func deleteWorkspaceSecret(workspaceID: String, name: String) async throws
-  func workspaceSchedules(workspaceID: String) async throws -> [WorkspaceScheduleSummary]
-  func scheduleWebhooks(workspaceID: String) async throws -> [ScheduleWebhook]
-  func createScheduleWebhook(workspaceID: String, name: String, scheduleID: String) async throws
-    -> ScheduleWebhookReveal
-  func scheduleWebhookAction(workspaceID: String, webhookID: String, action: String) async throws
-    -> ScheduleWebhookReveal
-  func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission]
   func replies(
     workspaceID: String,
     conversationID: String,

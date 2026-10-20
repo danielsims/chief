@@ -3,12 +3,12 @@ import Foundation
 struct WorkspaceScheduleProposeTool: RelayTool {
   static let name = "workspace_schedule_propose"
   static let description =
-    "Configure a durable team schedule in the relay. Supports cron, one-time and webhook triggers, collaborators, missionId, instructions, outcome, constraints, run limit and skipDates. Set newChannel to {} for automatic mission-channel creation, or include name and inviteUserIds. The relay enforces membership and messaging permissions. The user must approve the latest proposal before it runs."
+    "Configure a durable team schedule in the relay. Supports cron, one-time and webhook triggers, collaborators, instructions, outcome, constraints, run limit and skipDates. Set newChannel to {} to create a dedicated channel automatically, or include name and inviteUserIds. The relay enforces membership and messaging permissions. The user must approve the latest proposal before it runs."
   static let parameters: [RelayToolParameter] = [
     .init(
       name: "schedule", kind: .string,
       description:
-        "JSON object with stable id, title, agentId, instructions and timezone. Optional: conversationId, collaborators (agent IDs), newChannel ({name?, inviteUserIds?}), missionId, cron (five fields), onceAt (Unix milliseconds or ISO datetime), triggerMode (cron or webhook), expectedOutcome, constraints, maxDurationMinutes, skipDates (YYYY-MM-DD), approvalSummary and proposedToolPatterns. Omitted conversationId uses this conversation."
+        "JSON object with stable id, title, agentId, instructions and timezone. Optional: conversationId, collaborators (agent IDs), newChannel ({name?, inviteUserIds?}), cron (five fields), onceAt (Unix milliseconds or ISO datetime), triggerMode (cron or webhook), expectedOutcome, constraints, maxDurationMinutes, skipDates (YYYY-MM-DD), approvalSummary and proposedToolPatterns. Omitted conversationId uses this conversation."
     )
   ]
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
@@ -25,7 +25,7 @@ struct WorkspaceScheduleProposeTool: RelayTool {
 }
 
 struct ScheduleRunCollaboratorTool: RelayTool {
-  static let name = "missions_addRunCollaborator"
+  static let name = "automations_addRunCollaborator"
   static let description =
     "Lead only: add a teammate with a concrete assignment to this active scheduled run. The relay queues their work in the run thread. Finish your current turn after a successful handoff. Repeating the same assignment is safe. This does not change the recurring schedule or grant new permissions."
   static let parameters: [RelayToolParameter] = [
@@ -45,7 +45,7 @@ struct ScheduleRunCollaboratorTool: RelayTool {
 }
 
 struct ScheduleRunReportTool: RelayTool {
-  static let name = "missions_reportRunStep"
+  static let name = "automations_reportRunStep"
   static let description =
     "Report your assigned scheduled run step as completed or blocked, with evidence linking the saved work or explaining the blocker. Only the assigned agent can report the step."
   static let parameters: [RelayToolParameter] = [
