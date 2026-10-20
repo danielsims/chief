@@ -63,15 +63,24 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState(() =>
     initialRelaySessionState(accountId, sessionToken),
   );
+  // Access tokens refresh routinely. Connections read the latest one when
+  // they need it, so a refresh never reconnects or resets the workspace;
+  // only signing in or out, or another account, does.
+  const latestSessionToken = useRef(sessionToken);
+  useEffect(() => {
+    latestSessionToken.current = sessionToken;
+  }, [sessionToken]);
+  const signedIn = Boolean(sessionToken);
 
   const connect = useCallback(
     (intent: RelayConnectionIntent = "foreground") => {
       if (connectionPromise.current) return connectionPromise.current;
       const attempt = (async () => {
+        const sessionToken = latestSessionToken.current;
         const generation = ++connectionGeneration.current;
         let accountClient: RelayClient | null = null;
         let refreshedWorkspaces: WorkspaceSummary[] | null = null;
-        if (!sessionToken) {
+        if (!signedIn || !sessionToken) {
           relaySessionTransport.resetDeviceAuthorization();
           setRelayWorkspaceOverride(null);
           setState({
@@ -234,7 +243,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       });
       return attempt;
     },
-    [accountId, invalidateSession, sessionToken],
+    [accountId, invalidateSession, signedIn],
   );
 
   useEffect(() => {
@@ -243,9 +252,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer);
       connectionGeneration.current += 1;
       connectionPromise.current = null;
-      setRelayWorkspaceOverride(null);
     };
   }, [connect]);
+
+  // The workspace every hook is scoped to only changes with the account.
+  useEffect(() => () => setRelayWorkspaceOverride(null), [accountId]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
