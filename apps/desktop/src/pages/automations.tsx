@@ -1,91 +1,20 @@
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { CalendarDays, Plus } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import type { WorkspaceSchedule } from "@chief/relay-contracts";
-import { walkAutomation } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
-import { cn } from "@chief/ui/lib/utils";
 
-import type { AutomationCatalogue } from "./use-automation-catalogue";
-import { AgentAvatar } from "../components/agent-avatar";
+import { AutomationInvolved } from "../components/automation-involved";
+import { listColumnClass, ListRow } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
-import { ProviderLogo } from "../components/provider-logo";
 import { useRelaySession } from "../lib/relay-session-context";
 import { StatusPill } from "./automation-builder";
-import { agentName } from "./schedule-calendar-core";
 import { friendlySchedule } from "./schedule-editor";
-import { useAutomationCatalogue } from "./use-automation-catalogue";
-
-const ring =
-  "ring-background bg-background relative size-5 shrink-0 rounded-full ring-2";
-
-/** Who and what an automation involves, as one overlapping stack. */
-function Involved({
-  schedule,
-  catalogue,
-}: {
-  schedule: WorkspaceSchedule;
-  catalogue: AutomationCatalogue;
-}) {
-  const steps = [...walkAutomation(schedule.automation?.steps ?? [])].map(
-    ({ step }) => step,
-  );
-  const marks = new Map<string, ReactNode>();
-  for (const agentId of [
-    schedule.agentId,
-    ...schedule.collaborators,
-    ...steps.flatMap((step) => (step.type === "agent" ? [step.agentId] : [])),
-  ])
-    marks.set(
-      `agent:${agentId}`,
-      <AgentAvatar
-        agentId={agentId}
-        label={agentName(agentId)}
-        className={cn(ring, "rounded-full")}
-      />,
-    );
-  for (const step of steps) {
-    if (step.type !== "tool" || step.tool.source !== "plugin") continue;
-    const { connectionId } = step.tool;
-    const plugin = catalogue.plugins.find((item) => item.id === connectionId);
-    if (plugin?.domain)
-      marks.set(
-        `plugin:${plugin.id}`,
-        <ProviderLogo
-          domain={plugin.domain}
-          label={plugin.name}
-          className={ring}
-        />,
-      );
-  }
-  const shown = [...marks].slice(0, 6);
-  return (
-    <span className="flex items-center -space-x-1">
-      {shown.map(([key, mark]) => (
-        <span key={key} className="flex">
-          {mark}
-        </span>
-      ))}
-      {marks.size > shown.length ? (
-        <span
-          className={cn(
-            ring,
-            "bg-foreground/[0.06] text-muted-foreground flex items-center justify-center text-[9px] font-medium",
-          )}
-        >
-          +{marks.size - shown.length}
-        </span>
-      ) : null}
-    </span>
-  );
-}
 
 export function AutomationsPage() {
   const navigate = useNavigate();
   const { client } = useRelaySession();
-  const catalogue = useAutomationCatalogue();
   const [schedules, setSchedules] = useState<WorkspaceSchedule[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -158,27 +87,25 @@ export function AutomationsPage() {
             </Button>
           </div>
         ) : (
-          <ul className="mx-auto max-w-2xl pt-2">
+          <ul className={listColumnClass}>
             {(schedules ?? []).map((schedule) => (
-              <li key={schedule.id}>
-                <Link
-                  to={`/schedule/automations/${encodeURIComponent(schedule.id)}`}
-                  className="hover:bg-accent/50 -mx-3 flex items-center gap-4 rounded-lg px-3 py-2.5 transition-colors"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium tracking-[-0.01em]">
-                      {schedule.title}
+              <ListRow
+                key={schedule.id}
+                to={`/schedule/automations/${encodeURIComponent(schedule.id)}`}
+                title={schedule.title}
+                subtitle={friendlySchedule(schedule)}
+                trailing={
+                  <>
+                    <AutomationInvolved
+                      schedule={schedule}
+                      className="size-5"
+                    />
+                    <span className="w-28 shrink-0">
+                      <StatusPill status={schedule.status} />
                     </span>
-                    <span className="text-muted-foreground block truncate text-[12px]">
-                      {friendlySchedule(schedule)}
-                    </span>
-                  </span>
-                  <Involved schedule={schedule} catalogue={catalogue} />
-                  <span className="w-28 shrink-0">
-                    <StatusPill status={schedule.status} />
-                  </span>
-                </Link>
-              </li>
+                  </>
+                }
+              />
             ))}
           </ul>
         )}

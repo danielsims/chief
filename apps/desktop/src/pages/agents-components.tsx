@@ -21,6 +21,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { PlaybookCategory } from "../lib/playbook-types";
 import { AgentAvatar as ChiefAgentAvatar } from "../components/agent-avatar";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { ListRow } from "../components/list-row";
 import { PlaybookDocument } from "../components/playbooks/playbook-document";
 import { createChat } from "../lib/chat-log";
 import { PLAYBOOK_CATEGORIES, PLAYBOOKS } from "../lib/playbook-catalog";
@@ -101,58 +102,48 @@ export function AgentAvatar({
 }
 
 /** Laid out exactly like a plugin row, so the two lists read as one system. */
-export function TeamAgentCard({
+/** An agent as one row: who it is, its role and whether it's on. */
+export function TeamAgentRow({
   agent,
   override,
-  selected,
   onSelect,
 }: {
   agent: AgentDefinition;
   override: AgentOverride | undefined;
-  selected: boolean;
   onSelect: () => void;
 }) {
   const enabled = override?.enabled ?? true;
   const subagents = agent.subagents?.length ?? 0;
   return (
-    <button
-      type="button"
+    <ListRow
       onClick={onSelect}
-      className={cn(
-        "hover:bg-accent/30 flex w-full min-w-0 items-center gap-4 rounded-xl px-2 py-3 text-left transition-colors",
-        selected && "bg-accent/40",
-      )}
-    >
-      <ChiefAgentAvatar
-        agentId={agent.id}
-        label={agent.name}
-        className="size-12 shrink-0 rounded-[15px]"
-      />
-      <span className="min-w-0 flex-1 pr-5">
-        <span className="block truncate text-sm font-medium">{agent.name}</span>
-        <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
-          <span className="truncate">{agent.role}</span>
-          {subagents > 0 ? (
-            <span className="shrink-0">
-              · {subagents} {subagents === 1 ? "subagent" : "subagents"}
-            </span>
-          ) : null}
-        </span>
-      </span>
-      <span
-        className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs"
-        title={enabled ? "Active" : "Paused"}
-      >
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-1.5 rounded-full",
-            enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-          )}
+      leading={
+        <ChiefAgentAvatar
+          agentId={agent.id}
+          label={agent.name}
+          // A faint edge keeps light icons from melting into the page.
+          className="size-8 rounded-[10px] shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]"
         />
-        {enabled ? "Active" : "Paused"}
-      </span>
-    </button>
+      }
+      title={agent.name}
+      subtitle={
+        subagents > 0
+          ? `${agent.role} · ${subagents} ${subagents === 1 ? "subagent" : "subagents"}`
+          : agent.role
+      }
+      trailing={
+        <span className="text-muted-foreground flex w-28 shrink-0 items-center gap-1.5 text-[12px]">
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-1.5 rounded-full",
+              enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {enabled ? "Active" : "Paused"}
+        </span>
+      }
+    />
   );
 }
 

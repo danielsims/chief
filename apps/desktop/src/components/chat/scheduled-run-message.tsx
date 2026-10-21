@@ -8,6 +8,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { useRuntime } from "../../lib/runtime";
 import { AgentAvatar } from "../agent-avatar";
+import { AutomationInvolved } from "../automation-involved";
 import { insetBandClass, insetCardClass } from "../inset-card";
 
 export function ScheduledRunMessage({
@@ -80,16 +81,23 @@ export function ScheduledRunMessage({
           </span>
         ) : null}
         <span className="mt-2.5 flex items-center gap-2">
-          <span className="flex -space-x-1.5">
-            {team.map((id) => (
-              <AgentAvatar
-                key={id}
-                agentId={id}
-                label={roster.find((agent) => agent.id === id)?.name ?? id}
-                className="ring-background size-5 ring-2"
-              />
-            ))}
-          </span>
+          {progress ? (
+            <AutomationInvolved
+              schedule={progress.schedule}
+              className="size-5"
+            />
+          ) : (
+            <span className="flex -space-x-1.5">
+              {team.map((id) => (
+                <AgentAvatar
+                  key={id}
+                  agentId={id}
+                  label={roster.find((agent) => agent.id === id)?.name ?? id}
+                  className="ring-background size-5 ring-2"
+                />
+              ))}
+            </span>
+          )}
           <span className="text-muted-foreground truncate text-xs">
             {team
               .map((id) => roster.find((agent) => agent.id === id)?.name ?? id)

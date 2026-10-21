@@ -8,6 +8,7 @@ import { Button } from "@chief/ui/components/button";
 import { relayRuntimeIdentity } from "../components/agents/agent-connection-model";
 import { AgentDetail } from "../components/agents/agent-detail";
 import { ConnectAgentDialog } from "../components/agents/connect-agent-dialog";
+import { listColumnClass } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
 import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
 import { useAuth } from "../lib/auth/auth-context";
@@ -19,7 +20,7 @@ import {
   useWorkspaceChannels,
 } from "../lib/runtime";
 import { provisionEveAgent } from "../lib/vercel-eve-runtime";
-import { TeamAgentCard } from "./agents-components";
+import { TeamAgentRow } from "./agents-components";
 
 export function AgentsPage() {
   const relay = useRelaySession();
@@ -166,16 +167,15 @@ export function AgentsPage() {
               />
             </section>
           ) : (
-            <section className="mx-auto w-full max-w-6xl px-6 py-5">
-              <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
+            <section className="px-6 pb-6">
+              <ul className={listColumnClass}>
                 {agents.map((agent) => (
-                  <TeamAgentCard
+                  <TeamAgentRow
                     key={agent.id}
                     agent={agent}
                     override={overrides.find(
                       (entry) => entry.agentId === agent.id,
                     )}
-                    selected={false}
                     onSelect={() => {
                       setSearchParams((current) => {
                         const params = new URLSearchParams(current);
@@ -185,7 +185,7 @@ export function AgentsPage() {
                     }}
                   />
                 ))}
-              </div>
+              </ul>
               {agentsLoaded && agents.length === 0 ? (
                 <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed text-center">
                   <p className="text-sm font-medium">No agents yet</p>
