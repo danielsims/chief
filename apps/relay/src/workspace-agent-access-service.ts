@@ -4,6 +4,7 @@ import {
   agentConfigSchema,
   agentIdSchema,
   agentSummarySchema,
+  conversationIdSchema,
   createNativeAgentCommandSchema,
   isJsonObject,
   parseJsonObject,
@@ -40,6 +41,7 @@ import {
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { databasesForConversation } from "./workspace-databases";
 import {
   decodeWorkspaceSnapshot,
   workspaceAgentProfiles,
@@ -475,6 +477,9 @@ export class WorkspaceAgentAccessService {
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
     const agent = workspaceAgent(this.storage, agentId);
+    const conversationId = conversationIdSchema.safeParse(
+      new URL(request.url).searchParams.get("conversationId"),
+    );
     await refreshMemberDisplayNames(this.storage, this.env);
     return json({
       managed: true,
@@ -492,6 +497,18 @@ export class WorkspaceAgentAccessService {
           machine.status === "online" && machine.agentIds.includes(agentId),
       ),
       people: workspacePeople(this.storage),
+      databases: databasesForConversation(
+        this.storage,
+        this.channels,
+        context.principal,
+        conversationId.success ? conversationId.data : undefined,
+      ).map((database) => ({
+        id: database.id,
+        name: database.name,
+        conversationId: database.conversationId,
+        fields: database.fields,
+        views: database.views,
+      })),
     });
   }
 

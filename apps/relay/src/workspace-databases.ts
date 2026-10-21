@@ -437,6 +437,26 @@ function sourceChannel(
 }
 
 /** The databases a member can use, by id. */
+/**
+ * The databases a member can use, optionally only those attached to one
+ * conversation plus the workspace-wide ones.
+ */
+export function databasesForConversation(
+  storage: DurableObjectStorage,
+  channels: WorkspaceChannelStore,
+  principal: Principal,
+  conversationId?: string,
+) {
+  return databases(storage).filter(
+    (database) =>
+      (!database.conversationId ||
+        channels.canReadConversation(database.conversationId, principal)) &&
+      (!conversationId ||
+        !database.conversationId ||
+        database.conversationId === conversationId),
+  );
+}
+
 export function usableDatabaseIds(
   storage: DurableObjectStorage,
   channels: WorkspaceChannelStore,
