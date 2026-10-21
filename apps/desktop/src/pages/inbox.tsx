@@ -251,7 +251,7 @@ export function InboxPage() {
               })}
             </div>
 
-            <section className="flex min-w-0 flex-col">
+            <section className="flex min-h-0 min-w-0 flex-col">
               {selected && selectedChannel ? (
                 <>
                   <div className="border-border/60 flex items-center gap-3 border-b px-6 py-4">
