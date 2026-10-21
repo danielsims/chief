@@ -36,6 +36,8 @@ import {
   shouldStayOnWorkspaceCreate,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
+import { ArtifactDatabasePage } from "./pages/artifact-database";
+import { ArtifactsPage } from "./pages/artifacts";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { InboxPage } from "./pages/inbox";
@@ -51,12 +53,11 @@ import { WebhooksSettings } from "./pages/settings/webhooks";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
 import { WorkspaceFilePage } from "./pages/workspace-file";
-import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
-const BoardPage = lazy(() =>
-  import("./pages/board").then((module) => ({
-    default: module.BoardPage,
+const BoardsPage = lazy(() =>
+  import("./pages/boards").then((module) => ({
+    default: module.BoardsPage,
   })),
 );
 const AutomationsPage = lazy(() =>
@@ -418,7 +419,7 @@ function AuthenticatedApp() {
                             }
                           />
                           <Route
-                            path="projects/:projectId?"
+                            path="repositories/:projectId?"
                             element={
                               <Suspense fallback={null}>
                                 <ProjectsPage />
@@ -434,19 +435,20 @@ function AuthenticatedApp() {
                             }
                           />
                           <Route
-                            path="board"
+                            path="boards"
                             element={
                               <Suspense fallback={null}>
-                                <BoardPage />
+                                <BoardsPage />
                               </Suspense>
                             }
                           />
+                          <Route path="artifacts" element={<ArtifactsPage />} />
                           <Route
-                            path="files"
-                            element={<WorkspaceFilesPage />}
+                            path="artifacts/databases/:databaseId"
+                            element={<ArtifactDatabasePage />}
                           />
                           <Route
-                            path="files/:fileId"
+                            path="artifacts/:fileId"
                             element={<WorkspaceFilePage />}
                           />
                           <Route path="settings" element={<SettingsLayout />}>
