@@ -29,7 +29,7 @@ export function updatedTurn(
 }
 
 export function startTurnFinalization(turn: DurableTurn, reason: string) {
-  return updatedTurn(turn, {
+  return updatedTurn(closeUnrunTools(turn), {
     finalization: { reason },
     phase: { kind: "runnable", next: { kind: "infer" } },
     claim: null,
@@ -133,6 +133,33 @@ export function commitTurnInference(
     phase: { kind: "completed", result: finish.result },
     claim: null,
   });
+}
+
+/**
+ * Answers the calls a turn will no longer run, so every tool call the model
+ * made still has a result; providers reject a history that leaves one open.
+ */
+function closeUnrunTools(turn: DurableTurn): DurableTurn {
+  const unrun = turn.tools.filter((tool) => tool.state === "prepared");
+  if (!unrun.length) return turn;
+  const result = { ok: false, error: "Not run: the turn is finishing." };
+  return {
+    ...turn,
+    tools: turn.tools.map((tool) =>
+      tool.state === "prepared"
+        ? { ...tool, state: "completed" as const, result }
+        : tool,
+    ),
+    messages: [
+      ...turn.messages,
+      ...unrun.map((tool) => ({
+        role: "tool" as const,
+        toolCallId: tool.call.id,
+        name: tool.call.name,
+        content: JSON.stringify(result),
+      })),
+    ],
+  };
 }
 
 function hasEmptyFinalizationResponse(turn: DurableTurn) {
