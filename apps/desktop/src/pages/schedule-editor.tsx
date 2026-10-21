@@ -104,28 +104,3 @@ export function friendlySchedule(
 export function approvalTiming(work: RecurringWorkRecord) {
   return `${friendlySchedule(work)} · ${work.timezone}`;
 }
-
-export function conciseApprovalSummary(work: RecurringWorkRecord) {
-  const summary = work.approvalSummary.replace(/\s+/g, " ").trim();
-  if (
-    !summary ||
-    summary.toLocaleLowerCase() === work.title.toLocaleLowerCase()
-  ) {
-    return null;
-  }
-  if (summary.length <= 260) return summary;
-  const shortened = summary.slice(0, 257);
-  const lastSpace = shortened.lastIndexOf(" ");
-  return `${shortened.slice(0, lastSpace > 180 ? lastSpace : 257)}…`;
-}
-
-export function friendlyPermission(pattern: string) {
-  const action = pattern.split(".").at(-1) ?? pattern;
-  const words = action
-    .replaceAll(/[_-]+/g, " ")
-    .replaceAll(/([a-z])([A-Z])/g, "$1 $2")
-    .trim();
-  return words
-    ? words.charAt(0).toLocaleUpperCase() + words.slice(1)
-    : "Use connected data";
-}
