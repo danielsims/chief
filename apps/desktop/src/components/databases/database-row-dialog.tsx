@@ -20,7 +20,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { DatabasePersonOption } from "./database-model";
 import { DocumentEditor } from "../files/document-editor";
 import { bareFieldClass, CellEditor } from "./database-cells";
-import { fieldIcon, titleField } from "./database-model";
+import { fieldIcon, personOf, titleField } from "./database-model";
 
 /** What the dialog opens on: a row to edit, or the cells a new row starts with. */
 export type RowDialogTarget = DatabaseRow | { values: DatabaseRow["values"] };
@@ -182,6 +182,13 @@ export function DatabaseRowDialog({
             >
               Delete
             </Button>
+          ) : null}
+          {row?.createdBy ? (
+            <span className="text-muted-foreground truncate text-[11px]">
+              Added by{" "}
+              {personOf(people, row.createdBy)?.name ??
+                (row.createdBy.kind === "agent" ? "an agent" : "someone")}
+            </span>
           ) : null}
           <span className="text-muted-foreground ml-auto text-[11px]">⌘↵</span>
           <Button size="sm" disabled={!ready} onClick={submit}>

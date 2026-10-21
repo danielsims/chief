@@ -63,6 +63,7 @@ export const hostedDatabaseTools = [
               `${job.id}:row:${JSON.stringify(input.values ?? {})}`,
             )),
           values: input.values,
+          match: input.match,
           body: optionalString(input, "body"),
           // New rows link back to the thread they came from.
           ...(!id && conversationId

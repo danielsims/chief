@@ -16,6 +16,7 @@ import {
   cellAsText,
   databaseIdSchema,
   databaseLimits,
+  databasePersonSchema,
   databaseRowSaveSchema,
   databaseRowSchema,
   databaseSaveSchema,
@@ -357,9 +358,28 @@ export async function routeWorkspaceDatabases(
   const database = target();
   const input = databaseRowSaveSchema.parse(await parseJson(request));
   const rows = readRows(storage, database.id);
-  const current = input.id
-    ? rows.find((row) => row.id === input.id)
+  const normalized = (cells: NonNullable<typeof input.values>) =>
+    Object.fromEntries(
+      Object.entries(cells).map(([key, value]) => {
+        const field = fieldFor(database.fields, key);
+        if (!field) throw invalid(`${database.name} has no field "${key}".`);
+        return [field.id, value === null ? undefined : cellValue(field, value)];
+      }),
+    );
+  const match = input.match ? normalized(input.match) : undefined;
+  const matched = match
+    ? rows.find((row) =>
+        Object.entries(match).every(
+          ([fieldId, value]) =>
+            value !== undefined &&
+            JSON.stringify(row.values[fieldId]) === JSON.stringify(value),
+        ),
+      )
     : undefined;
+  // An id that names no row yet (a hosted turn's retry-safe id) still falls
+  // back to the match, so a duplicate updates the row it matches.
+  const current =
+    (input.id ? rows.find((row) => row.id === input.id) : undefined) ?? matched;
   if (!current && rows.length >= databaseLimits.rows)
     throw new HttpError(
       409,
@@ -379,6 +399,10 @@ export async function routeWorkspaceDatabases(
     if (cell === undefined) delete values[field.id];
     else values[field.id] = cell;
   }
+  const actor =
+    principal.kind === "user"
+      ? databasePersonSchema.parse({ kind: "user", id: principal.userId })
+      : databasePersonSchema.parse({ kind: "agent", id: principal.agentId });
   const source =
     input.source === undefined ? current?.source : (input.source ?? undefined);
   if (input.source) requireChannel(sourceChannel(storage, input.source) ?? "");
@@ -393,6 +417,8 @@ export async function routeWorkspaceDatabases(
       current?.position ??
       Math.min(0, ...rows.map((other) => other.position)) - 1,
     ...(source ? { source } : undefined),
+    createdBy: current?.createdBy ?? actor,
+    updatedBy: actor,
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
   };
