@@ -148,7 +148,8 @@ export function ConversationAuxiliaryPanel({
           onDoubleClick={sizing.canReset ? sizing.onResetWidth : undefined}
           className="group/resize absolute inset-y-0 -left-2 z-50 w-2 cursor-col-resize max-[900px]:hidden"
         >
-          <span className="bg-border/0 group-hover/resize:bg-border group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
+          {/* Hovering shows only the resize cursor; the line is for keyboard focus. */}
+          <span className="bg-border/0 group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
         </button>
         {children}
       </aside>
