@@ -17,8 +17,8 @@ const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
 const projectRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)$/u;
 const machinesRoute = /^\/v1\/workspaces\/([^/]+)\/machines$/u;
 const machineRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/([^/]+)$/u;
-const boardRoute =
-  /^\/v1\/workspaces\/([^/]+)\/board(?:\/(lanes|items)(?:\/([^/]+))?)?$/u;
+const databasesRoute =
+  /^\/v1\/workspaces\/([^/]+)\/databases(?:\/([^/]+)(?:\/rows(?:\/([^/]+))?)?)?$/u;
 
 export function routeWorkspaceDataRequest(
   env: Env,
@@ -36,7 +36,7 @@ export function routeWorkspaceDataRequest(
     const project = projectRoute.exec(url.pathname);
     const machines = machinesRoute.exec(url.pathname);
     const machine = machineRoute.exec(url.pathname);
-    const board = boardRoute.exec(url.pathname);
+    const database = databasesRoute.exec(url.pathname);
     let rawWorkspaceId: string | undefined;
     let operation: string | undefined;
     if (
@@ -84,19 +84,27 @@ export function routeWorkspaceDataRequest(
         request.method === "PUT"
           ? "data-machine-update"
           : "data-machine-delete";
-    } else if (board) {
-      const [, id, part, itemId] = board;
+    } else if (database) {
+      const [, id, databaseId, rowId] = database;
+      const rows = url.pathname.includes(`/databases/${databaseId}/rows`);
       rawWorkspaceId = id;
-      operation =
-        !part && !itemId && request.method === "GET"
-          ? "data-board-list"
-          : part === "lanes" && !itemId && request.method === "PUT"
-            ? "data-board-lanes"
-            : part === "items" && !itemId && request.method === "POST"
-              ? "data-board-save"
-              : part === "items" && itemId && request.method === "DELETE"
-                ? "data-board-delete"
-                : undefined;
+      operation = !databaseId
+        ? request.method === "GET"
+          ? "data-databases-list"
+          : request.method === "POST"
+            ? "data-database-save"
+            : undefined
+        : !rows
+          ? request.method === "GET"
+            ? "data-database-get"
+            : request.method === "DELETE"
+              ? "data-database-delete"
+              : undefined
+          : !rowId && request.method === "POST"
+            ? "data-database-row-save"
+            : rowId && request.method === "DELETE"
+              ? "data-database-row-delete"
+              : undefined;
     }
     if (!operation) return undefined;
     const workspaceId = yield* sync("relay.workspace_data.scope", () =>
@@ -140,8 +148,11 @@ export function routeWorkspaceDataRequest(
               ...(machine?.[2]
                 ? { "x-chief-machine-id": decodeURIComponent(machine[2]) }
                 : undefined),
-              ...(board?.[3]
-                ? { "x-chief-board-item-id": decodeURIComponent(board[3]) }
+              ...(database?.[2]
+                ? { "x-chief-database-id": decodeURIComponent(database[2]) }
+                : undefined),
+              ...(database?.[3]
+                ? { "x-chief-database-row-id": decodeURIComponent(database[3]) }
                 : undefined),
               ...(body ? { "content-type": "application/json" } : undefined),
             },

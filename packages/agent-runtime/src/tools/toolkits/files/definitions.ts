@@ -30,7 +30,7 @@ export const writeFileDefinition = defineAgentTool({
     operationId: "files.write",
     summary: "Write file",
     description:
-      "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. For interactive artifacts use format html with a self-contained HTML document, inline CSS and JavaScript, no external libraries or network calls. Use format csv or json for structured data. After saving, call channels.messages.post with artifactIds containing the file ID to place a Canvas card in chat. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
+      "Saves a versioned document in the current conversation. For revisions, pass the file's version as expectedVersionId, converted to a string. For a dashboard, tracker or form over the channel's data, use pages.save instead. Format html is for a self-contained document with inline CSS, no external libraries or network calls. Use format csv or json for structured data. After saving, call channels.messages.post with artifactIds containing the file ID to place a Canvas card in chat. Use computer.artifacts.publish for existing images, PDFs, recordings, and other binary files.",
   },
   inputSchema: z.object({
     id: optionalBoundedText(120),

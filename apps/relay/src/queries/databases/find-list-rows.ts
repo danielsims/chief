@@ -2,18 +2,18 @@ import { eq } from "drizzle-orm";
 
 import { relayDatabase } from "../../db/connection";
 import { executeDatabaseQuery } from "../../db/execute";
-import { boardLanes } from "../../db/schema/board-lanes";
+import { databaseRows } from "../../db/schema/databases";
 
-export function boardLanesFindGetLanes<
+export function databasesFindListRows<
   Row extends Record<string, SqlStorageValue> = Record<string, SqlStorageValue>,
->(storage: DurableObjectStorage, boardId: string) {
+>(storage: DurableObjectStorage, databaseId: string) {
   const db = relayDatabase(storage);
   return executeDatabaseQuery(() =>
     db.all<Row>(
       db
-        .select({ lanes_json: boardLanes.lanes_json })
-        .from(boardLanes)
-        .where(eq(boardLanes.board_id, boardId)),
+        .select({ row_json: databaseRows.row_json })
+        .from(databaseRows)
+        .where(eq(databaseRows.database_id, databaseId)),
     ),
   );
 }

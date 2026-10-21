@@ -28,7 +28,8 @@ export * from "./schedules";
 export * from "./schedule-runs";
 export * from "./mcp-connections";
 export * from "./automations";
-export * from "./board";
+export * from "./databases";
 
 export * from "./artifacts";
 export * from "./typing";
+export * from "./pages";

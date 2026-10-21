@@ -31,15 +31,21 @@ export function initializeWorkspaceDataTables<
     );
     CREATE INDEX IF NOT EXISTS prospects_recent_idx
       ON prospects (updated_at DESC);
-    CREATE TABLE IF NOT EXISTS board_items (
-      item_id TEXT PRIMARY KEY,
-      item_json TEXT NOT NULL,
+    DROP TABLE IF EXISTS board_items;
+    DROP TABLE IF EXISTS board_lanes;
+    CREATE TABLE IF NOT EXISTS databases (
+      database_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      database_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS board_lanes (
-      board_id TEXT PRIMARY KEY,
-      lanes_json TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS database_rows (
+      row_id TEXT PRIMARY KEY,
+      database_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS database_rows_database_idx
+      ON database_rows (database_id);
   `);
 }

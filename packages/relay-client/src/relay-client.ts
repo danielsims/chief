@@ -61,10 +61,10 @@ import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
 } from "./relay-workspace-subscription";
-import { RelayBoardClient } from "./relay-board-client";
 import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
+import { RelayDatabasesClient } from "./relay-databases-client";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { RelayGitHubClient } from "./relay-github-client";
 import { RelayPluginsClient } from "./relay-plugins-client";
@@ -81,7 +81,7 @@ export type WorkspaceSubscription = RelayWorkspaceSubscription;
 export type { RelayTypingEvent };
 
 export class RelayClient extends RelayVercelProvisioning {
-  readonly board: RelayBoardClient;
+  readonly databases: RelayDatabasesClient;
   readonly externalAgents: RelayExternalAgentsClient;
   readonly channelGuests: RelayChannelGuestsClient;
   readonly channelSettings: RelayChannelSettingsClient;
@@ -100,11 +100,12 @@ export class RelayClient extends RelayVercelProvisioning {
     | "webhooks"
     | "webhookEvents"
     | "revokeWebhook"
+    | "build"
   >;
 
   constructor(options: RelayClientOptions) {
     super(options);
-    this.board = new RelayBoardClient(options);
+    this.databases = new RelayDatabasesClient(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
     this.channelGuests = new RelayChannelGuestsClient(options);
     this.channelSettings = new RelayChannelSettingsClient(options);

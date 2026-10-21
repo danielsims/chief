@@ -2,30 +2,32 @@ import { sql } from "drizzle-orm";
 
 import { relayDatabase } from "../../db/connection";
 import { executeDatabaseQuery } from "../../db/execute";
-import { boardLanes } from "../../db/schema/board-lanes";
+import { databaseRows } from "../../db/schema/databases";
 
-export function boardLanesUpsertLanes(
+export function databasesUpsertRow(
   storage: DurableObjectStorage,
   {
-    boardId,
-    lanesJson,
+    rowId,
+    databaseId,
+    rowJson,
     updatedAt,
-  }: { boardId: string; lanesJson: string; updatedAt: number },
+  }: { rowId: string; databaseId: string; rowJson: string; updatedAt: number },
 ) {
   const db = relayDatabase(storage);
   return executeDatabaseQuery(() =>
     db.run(
       db
-        .insert(boardLanes)
+        .insert(databaseRows)
         .values({
-          board_id: boardId,
-          lanes_json: lanesJson,
+          row_id: rowId,
+          database_id: databaseId,
+          row_json: rowJson,
           updated_at: updatedAt,
         })
         .onConflictDoUpdate({
-          target: [boardLanes.board_id],
+          target: [databaseRows.row_id],
           set: {
-            lanes_json: sql`excluded.lanes_json`,
+            row_json: sql`excluded.row_json`,
             updated_at: sql`excluded.updated_at`,
           },
         }),

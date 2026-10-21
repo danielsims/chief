@@ -4,7 +4,6 @@ import {
   proposeRecurringWorkDefinition,
 } from "./toolkits/automation/recurring-work-definitions.js";
 import { automationRunToolDefinitions } from "./toolkits/automation/run-tools.js";
-import { boardToolDefinitions } from "./toolkits/board/definitions.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
 import { closeBrowserDefinition } from "./toolkits/browser/close-browser.js";
 import { fillBrowserDefinition } from "./toolkits/browser/fill-browser.js";
@@ -26,11 +25,13 @@ import { computerListFilesDefinition } from "./toolkits/computer/list-files.js";
 import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-artifact.js";
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
+import { databaseToolDefinitions } from "./toolkits/databases/definitions.js";
 import {
   listFilesDefinition,
   readFileDefinition,
   writeFileDefinition,
 } from "./toolkits/files/definitions.js";
+import { pageToolDefinitions } from "./toolkits/pages/definitions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import {
@@ -51,7 +52,8 @@ export const hostedAgentToolDefinitions = {
   base: [
     ...automationRunToolDefinitions,
     ...automationBuildToolDefinitions,
-    ...boardToolDefinitions,
+    ...databaseToolDefinitions,
+    ...pageToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
     listFilesDefinition,
