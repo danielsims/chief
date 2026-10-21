@@ -58,12 +58,12 @@ import { WorkspaceSearchButton } from "./workspace-search";
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
+  { to: "/agents", label: "Agents", icon: Network },
   { to: "/boards", label: "Boards", icon: Columns3 },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/repositories", label: "Repositories", icon: FolderGit2 },
-  { to: "/agents", label: "Agents", icon: Network },
-  { to: "/plugins", label: "Plugins", icon: Plug },
   { to: "/artifacts", label: "Artifacts", icon: FolderOpen },
+  { to: "/plugins", label: "Plugins", icon: Plug },
 ] as const;
 
 function sidebarChannelVisibility(visibility: string | undefined) {
