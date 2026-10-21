@@ -168,6 +168,15 @@ export async function routeWorkspaceSchedule(
           JSON.stringify(workspaceScheduleInputSchema.parse(input))
       )
         return json(presentWorkspaceSchedule(current.schedule));
+      // Creating it is the person's approval, unless it has steps, which
+      // turn on only once a test of them has passed.
+      const userCreated =
+        context.principal.kind === "user" &&
+        current === null &&
+        !input.automation?.steps.length;
+      if (userCreated)
+        for (const agentId of [input.agentId, ...input.collaborators])
+          requireAgentMessageAccess(channels, agentId, context.principal);
       const userEditingApproved =
         context.principal.kind === "user" &&
         current?.approvedBy !== null &&
@@ -186,8 +195,9 @@ export async function routeWorkspaceSchedule(
       const schedule: WorkspaceSchedule = {
         ...current?.schedule,
         ...input,
-        status:
-          current && (userEditingApproved || renamedOnly)
+        status: userCreated
+          ? "active"
+          : current && (userEditingApproved || renamedOnly)
             ? current.schedule.status
             : "needs_approval",
         placement: "cloud",
@@ -205,11 +215,12 @@ export async function routeWorkspaceSchedule(
               : nextScheduleTime(schedule, now);
       writeWorkspaceSchedule(storage, {
         schedule,
-        approvedBy: userEditingApproved
-          ? context.principal
-          : renamedOnly
-            ? current.approvedBy
-            : null,
+        approvedBy:
+          userCreated || userEditingApproved
+            ? context.principal
+            : renamedOnly
+              ? current.approvedBy
+              : null,
       });
       return json(presentWorkspaceSchedule(schedule));
     });

@@ -135,7 +135,7 @@ describe("durable relay schedules", () => {
     const schedule = workspaceScheduleSchema.parse(await response.json());
     expect(schedule.conversationId).toMatch(/^automation-/u);
     expect(schedule.triggerMode).toBe("webhook");
-    expect(schedule.status).toBe("needs_approval");
+    expect(schedule.status).toBe("active");
     const retry = await channelRpc(
       ctx,
       ctx.principal,
