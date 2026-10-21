@@ -201,6 +201,9 @@ export class RelaySchedulesClient extends RelayClientBase {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(automationBuildRequestSchema.parse(input)),
+        // Building waits on the model, up to twice, so it outlasts the
+        // default request bound.
+        signal: AbortSignal.timeout(180_000),
       },
     );
   }

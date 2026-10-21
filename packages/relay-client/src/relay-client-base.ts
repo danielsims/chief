@@ -490,7 +490,12 @@ export class RelayClientBase {
         `agents/${encodeURIComponent(asset.agentId)}/artifacts/${encodeURIComponent(asset.artifactId)}`,
       ),
       true,
-      { signal },
+      // The caller's signal replaces the transport's default bound, so keep one.
+      {
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+          : undefined,
+      },
     );
     if (!response.ok) throw await RelayClientError.fromResponse(response);
     return response.blob();

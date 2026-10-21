@@ -2,7 +2,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 /**
  * Bound startup-critical HTTP requests so a stalled native transport cannot
- * leave the desktop UI in a loading state forever.
+ * leave the desktop UI in a loading state forever. A request that brings its
+ * own signal sets its own bound, for calls that legitimately run long.
  */
 export async function fetchWithTimeout(
   fetcher: typeof fetch,
@@ -10,18 +11,8 @@ export async function fetchWithTimeout(
   init: RequestInit = {},
   timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
+  if (init.signal) return fetcher(input, init);
   const controller = new AbortController();
-  const upstreamSignal = init.signal;
-  const abortFromUpstream = () => controller.abort(upstreamSignal?.reason);
-
-  if (upstreamSignal?.aborted) {
-    abortFromUpstream();
-  } else {
-    upstreamSignal?.addEventListener("abort", abortFromUpstream, {
-      once: true,
-    });
-  }
-
   let rejectTimeout: (reason: DOMException) => void = () => undefined;
   const timedOut = new Promise<Response>((_resolve, reject) => {
     rejectTimeout = reject;
@@ -39,6 +30,5 @@ export async function fetchWithTimeout(
     ]);
   } finally {
     globalThis.clearTimeout(timeout);
-    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
   }
 }
