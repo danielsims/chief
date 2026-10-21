@@ -608,7 +608,7 @@ export function AutomationCanvas({
           </DndContext>
         </div>
       </div>
-      <div className="bg-background absolute bottom-3 left-3 flex h-7 items-center rounded-[8px] p-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
+      <div className="bg-background absolute bottom-3 left-3 z-20 flex h-7 items-center rounded-[8px] p-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
         <button
           type="button"
           aria-label="Zoom out"
@@ -634,7 +634,7 @@ export function AutomationCanvas({
         </button>
       </div>
       {composer ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
           <div className="pointer-events-auto">{composer}</div>
         </div>
       ) : null}
