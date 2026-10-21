@@ -94,7 +94,8 @@ function useTeamOptions() {
 export function AutomationBuilderPage() {
   const { automationId = "new" } = useParams();
   const navigate = useNavigate();
-  const { client } = useRelaySession();
+  const { client, snapshot } = useRelaySession();
+  const workspaceId = snapshot?.id;
   const catalogue = useAutomationCatalogue();
   const { channels, agents } = useTeamOptions();
   const plugins = usePlugins();
@@ -109,8 +110,9 @@ export function AutomationBuilderPage() {
   const [schedule, setSchedule] = useState<WorkspaceSchedule | null>(null);
   const [draft, setDraft] = useState<AutomationDraft>(
     () =>
-      (automationId === "new" ? readStoredDraft("new", null) : null) ??
-      draftFromWork(null, defaults),
+      (automationId === "new"
+        ? readStoredDraft(workspaceId, "new", null)
+        : null) ?? draftFromWork(null, defaults),
   );
   const [savedJson, setSavedJson] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(automationId === "new");
@@ -143,7 +145,11 @@ export function AutomationBuilderPage() {
         if (record) {
           adopt(record);
           // Pick up where a reload interrupted, if nothing changed since.
-          const unsaved = readStoredDraft(record.id, record.updatedAt);
+          const unsaved = readStoredDraft(
+            workspaceId,
+            record.id,
+            record.updatedAt,
+          );
           if (unsaved) setDraft(unsaved);
         } else toast.error("This automation no longer exists.");
       })
@@ -157,7 +163,7 @@ export function AutomationBuilderPage() {
     return () => {
       active = false;
     };
-  }, [adopt, automationId, client]);
+  }, [adopt, automationId, client, workspaceId]);
 
   const runs = useAutomationRuns(client, schedule);
 
@@ -243,11 +249,12 @@ export function AutomationBuilderPage() {
   useEffect(() => {
     if (!loaded) return;
     writeStoredDraft(
+      workspaceId,
       automationId,
       schedule?.updatedAt ?? null,
       dirty && (schedule || draft.steps.length || draft.title) ? draft : null,
     );
-  }, [automationId, dirty, draft, loaded, schedule]);
+  }, [automationId, dirty, draft, loaded, schedule, workspaceId]);
   const status = schedule?.status ?? "new";
   const patch = (next: Partial<AutomationDraft>) =>
     setDraft((current) => ({ ...current, ...next }));
@@ -286,7 +293,7 @@ export function AutomationBuilderPage() {
     setBusy(true);
     try {
       const saved = await client.schedules.save(draftToInput(draft));
-      writeStoredDraft(automationId, null, null);
+      writeStoredDraft(workspaceId, automationId, null, null);
       adopt(saved);
       if (automationId === "new")
         void navigate(`/schedule/automations/${encodeURIComponent(saved.id)}`, {
@@ -348,7 +355,7 @@ export function AutomationBuilderPage() {
           ? undefined
           : { draft: toJsonObject(draftToInput(draft)) }),
       });
-      writeStoredDraft(automationId, null, null);
+      writeStoredDraft(workspaceId, automationId, null, null);
       adopt(built.schedule);
       setSelected(null);
       setBuildNote(built.note);
