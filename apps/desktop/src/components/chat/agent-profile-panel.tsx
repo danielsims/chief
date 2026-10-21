@@ -27,19 +27,6 @@ const PRESENCE_TONE: Record<AgentPresence, string> = {
   offline: "bg-muted-foreground/45",
 };
 
-const CAPABILITY_LABELS: Record<string, string> = {
-  "campaign-memory": "Campaign planning",
-  "content-calendar": "Content calendar",
-  "prospect-memory": "Prospect intelligence",
-  "schedule-manager": "Scheduled work",
-  "trend-memory": "Market signals",
-};
-
-function sentenceCaseId(value: string) {
-  const words = value.replaceAll("-", " ");
-  return words.charAt(0).toLocaleUpperCase() + words.slice(1);
-}
-
 export function AgentPresenceAvatar({
   name,
   presence,
@@ -159,29 +146,10 @@ export function AgentProfilePanel({
               </p>
             </section>
 
-            {agent.capabilities?.length ? (
-              <section>
-                <h3 className="text-sm font-semibold tracking-[-0.01em]">
-                  Capabilities
-                </h3>
-                <div className="bg-muted/30 mt-3 overflow-hidden rounded-2xl">
-                  {agent.capabilities.map((capability) => (
-                    <div
-                      key={capability}
-                      className="border-border/55 flex min-h-10 items-center border-b px-4 py-2.5 text-[13px] last:border-b-0"
-                    >
-                      {CAPABILITY_LABELS[capability] ??
-                        sentenceCaseId(capability)}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
             {agent.subagents?.length ? (
               <section>
                 <h3 className="text-sm font-semibold tracking-[-0.01em]">
-                  Works with
+                  Subagents
                 </h3>
                 <div className="bg-muted/30 mt-3 overflow-hidden rounded-2xl">
                   {agent.subagents.map((subagent) => (
