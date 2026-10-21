@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { automationSchema } from "./automations";
 import { agentIdSchema, conversationIdSchema } from "./identifiers";
+import { jsonObjectSchema } from "./json";
 
 export const workspaceScheduleInputSchema = z.object({
   id: z.string().trim().min(1).max(120),
@@ -73,3 +74,28 @@ export type WorkspaceScheduleInput = z.infer<
 export type WorkspaceScheduleAction = z.infer<
   typeof workspaceScheduleActionSchema
 >["action"];
+
+/** A request to the automation builder, from the automation's own page. */
+export const automationBuildRequestSchema = z
+  .object({
+    request: z.string().trim().min(1).max(2_000),
+    /** The automation as it is on screen, when that isn't what's saved. */
+    draft: jsonObjectSchema
+      .refine(
+        (draft) => JSON.stringify(draft).length <= 60_000,
+        "The draft is too large.",
+      )
+      .optional(),
+  })
+  .strict();
+
+export const automationBuildResultSchema = z.object({
+  schedule: workspaceScheduleSchema,
+  /** What the builder did, in a sentence or two. */
+  note: z.string().max(2_000),
+});
+
+export type AutomationBuildRequest = z.input<
+  typeof automationBuildRequestSchema
+>;
+export type AutomationBuildResult = z.infer<typeof automationBuildResultSchema>;

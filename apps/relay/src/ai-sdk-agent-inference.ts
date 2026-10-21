@@ -551,3 +551,22 @@ function toolSet(definitions: readonly AgentInferenceTool[]): ToolSet {
     ]),
   );
 }
+
+/**
+ * One answer from an agent's model, for a feature that needs a result
+ * rather than an agent turn, such as the automation builder.
+ */
+export async function answerWithAgentModel(
+  inference: AgentInferenceConfig,
+  apiKey: string,
+  context: HostedAgentTraceContext,
+  input: { system: string; prompt: string },
+) {
+  const result = await tracedAI.generateText({
+    model: languageModel(inference, apiKey, undefined, context),
+    system: input.system,
+    prompt: input.prompt,
+    abortSignal: AbortSignal.timeout(HOSTED_INFERENCE_TIMEOUT_MS * 2),
+  });
+  return result.text;
+}

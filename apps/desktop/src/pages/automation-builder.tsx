@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -10,6 +10,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import type { JsonObject, WorkspaceSchedule } from "@chief/relay-contracts";
+import { toJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   DropdownMenu,
@@ -24,15 +25,11 @@ import type { CanvasSelection, PickerOptions } from "./automation-canvas";
 import type { AutomationDraft, StepSlot } from "./automation-draft";
 import type { PickedStep } from "./automation-step-picker";
 import { usePluginConnectFlow } from "../components/plugins/plugin-connect-flow";
-import { routeForChiefDestination } from "../lib/app-navigation";
-import { useAuth } from "../lib/auth/auth-context";
 import { useRelaySession } from "../lib/relay-session-context";
-import { messageBlocks, useChiefChat } from "../lib/runtime";
 import { usePlugins } from "../lib/runtime-plugins";
-import { channelChatId } from "../lib/workspace-channels";
 import { TriggerEventContext } from "./automation-arguments";
 import { AutomationCanvas } from "./automation-canvas";
-import { AutomationComposer, draftingMessage } from "./automation-describe";
+import { AutomationComposer } from "./automation-describe";
 import {
   draftFromWork,
   draftIssueMap,
@@ -98,7 +95,6 @@ export function AutomationBuilderPage() {
   const { automationId = "new" } = useParams();
   const navigate = useNavigate();
   const { client } = useRelaySession();
-  const { cloudOrganizationId } = useAuth();
   const catalogue = useAutomationCatalogue();
   const { channels, agents } = useTeamOptions();
   const plugins = usePlugins();
@@ -121,8 +117,10 @@ export function AutomationBuilderPage() {
   const [selected, setSelected] = useState<CanvasSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
-  /** When the latest request to Chief was sent, if one was. */
-  const [askedAt, setAskedAt] = useState<number | null>(null);
+  /** Chief is building from a request typed into the composer. */
+  const [building, setBuilding] = useState(false);
+  /** What Chief said about its last build. */
+  const [buildNote, setBuildNote] = useState<string | null>(null);
 
   const adopt = useCallback((record: WorkspaceSchedule) => {
     const next = draftFromWork(record, {
@@ -183,66 +181,6 @@ export function AutomationBuilderPage() {
       window.clearInterval(timer);
     };
   }, [client, draft.id, draft.mode]);
-
-  // The composer posts an ordinary @chief message in the automation's channel,
-  // exactly as the channel composer does. Chief builds, tests and fixes it
-  // there with the same tools as anywhere else, and the thread shows its work.
-  const chatChannel =
-    draft.channelId === "new" ? "mission-control" : draft.channelId;
-  const [threadRootId, setThreadRootId] = useState<string | null>(null);
-  const chat = useChiefChat(
-    askedAt === null ? null : channelChatId(chatChannel, cloudOrganizationId),
-    undefined,
-    undefined,
-    undefined,
-    {
-      channelId: chatChannel,
-      wakeOnMentionOnly: true,
-      conversationSurface: "channel",
-    },
-  );
-  const chatNote = useMemo(() => {
-    if (askedAt === null) return null;
-    for (const item of [...chat.messages].reverse()) {
-      if (item.role !== "assistant") continue;
-      if ((item.metadata?.createdAt ?? 0) < askedAt) break;
-      const text = messageBlocks(item)
-        .flatMap((block) => (block.type === "text" ? [block.text] : []))
-        .join(" ")
-        .trim();
-      if (text) return text;
-    }
-    return null;
-  }, [askedAt, chat.messages]);
-  // Working from the moment the request is sent until Chief's turn ends with
-  // a reply, or the request fails.
-  const chiefWorking =
-    askedAt !== null &&
-    !chat.controls.error &&
-    (chat.controls.status === "running" || chatNote === null);
-
-  // Show each version Chief saves while it works, and the last one once done.
-  const adoptedAt = useRef(0);
-  useEffect(() => {
-    if (askedAt === null || !client) return;
-    const refresh = () =>
-      void client.schedules.list().then((records) => {
-        const record = records.find((item) => item.id === draft.id);
-        if (
-          record &&
-          record.updatedAt >= askedAt &&
-          record.updatedAt > adoptedAt.current
-        ) {
-          adoptedAt.current = record.updatedAt;
-          adopt(record);
-          setSelected(null);
-        }
-      });
-    refresh();
-    if (!chiefWorking) return;
-    const timer = window.setInterval(refresh, 2_500);
-    return () => window.clearInterval(timer);
-  }, [adopt, askedAt, chiefWorking, client, draft.id]);
 
   // A plugin connected from the + menu shows up in the menu once it's ready.
   const connectedKey = (plugins.plugins ?? [])
@@ -397,14 +335,37 @@ export function AutomationBuilderPage() {
     void navigate("/schedule/automations");
   };
 
-  const describe = (description: string) => {
-    setAskedAt(Date.now());
-    setThreadRootId(
-      chat.sendMessageWithContext(
-        draftingMessage(description, draft, Boolean(schedule) && !dirty),
-        { mentions: ["chief"] },
-      ),
-    );
+  // Chief builds straight from the request, not through a chat, so the page
+  // only waits on the build itself. Unsaved changes on screen go with it.
+  const describe = async (request: string) => {
+    if (!client || building) return;
+    setBuilding(true);
+    setBuildNote(null);
+    try {
+      const built = await client.schedules.build(draft.id, {
+        request,
+        ...(schedule && !dirty
+          ? undefined
+          : { draft: toJsonObject(draftToInput(draft)) }),
+      });
+      writeStoredDraft(automationId, null, null);
+      adopt(built.schedule);
+      setSelected(null);
+      setBuildNote(built.note);
+      if (automationId === "new")
+        void navigate(
+          `/schedule/automations/${encodeURIComponent(built.schedule.id)}`,
+          { replace: true },
+        );
+    } catch (error) {
+      setBuildNote(
+        error instanceof Error && error.message
+          ? error.message
+          : "Chief couldn't build that. Try again.",
+      );
+    } finally {
+      setBuilding(false);
+    }
   };
 
   if (!loaded)
@@ -570,23 +531,10 @@ export function AutomationBuilderPage() {
             onMove={(id, overId) => setSteps(moveStep(draft.steps, id, overId))}
             composer={
               <AutomationComposer
-                busy={chiefWorking}
-                note={chiefWorking ? null : chatNote}
-                onOpenThread={
-                  threadRootId
-                    ? () =>
-                        void navigate(
-                          routeForChiefDestination({
-                            kind: "conversation",
-                            channelId: chatChannel,
-                            threadRootId,
-                            messageId: threadRootId,
-                          }),
-                        )
-                    : undefined
-                }
+                busy={building}
+                note={building ? null : buildNote}
                 disabled={catalogue.loading || !client}
-                onSubmit={describe}
+                onSubmit={(request) => void describe(request)}
               />
             }
           />
