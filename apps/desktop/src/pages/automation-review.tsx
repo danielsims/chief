@@ -9,10 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+import { cn } from "@chief/ui/lib/utils";
 
 import type { AutomationCatalogue } from "./use-automation-catalogue";
 import { AgentAvatar } from "../components/agent-avatar";
 import { ChiefMark } from "../components/chief-mark";
+import { insetCardClass } from "../components/inset-card";
 import { ProviderLogo } from "../components/provider-logo";
 import { AccessBadge } from "./automation-step-picker";
 import { agentName } from "./schedule-calendar-core";
@@ -107,73 +109,62 @@ export function AutomationReviewDialog({
   const people = steps.length ? agents : team;
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
-      <DialogContent className="w-[calc(100%-32px)] max-w-[460px] gap-0 overflow-hidden rounded-xl p-0">
-        <DialogHeader className="space-y-1 px-6 pt-6 pb-4 text-left">
-          <DialogTitle className="text-[17px] font-medium tracking-tight">
-            Turn on {title}?
+      <DialogContent className="w-[calc(100%-32px)] max-w-[440px] gap-0 rounded-[18px] border-0 bg-[color-mix(in_srgb,var(--foreground)_4%,var(--background))] p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_16px_64px_-12px_rgb(0_0_0/0.45)] [&>button:last-child]:top-1.5 [&>button:last-child]:right-1.5">
+        <DialogHeader className="flex h-8 justify-center px-3 text-left">
+          <DialogTitle className="text-muted-foreground text-[12px] font-normal">
+            Turn on automation
           </DialogTitle>
-          <DialogDescription className="text-xs">{timing}</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[55vh] space-y-4 overflow-y-auto px-6 pb-5">
-          {tools.length ? (
-            <section>
-              <p className="text-muted-foreground mb-2 text-[11px] font-medium">
-                It will use
-              </p>
-              <ul className="divide-y divide-black/[0.055] rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] dark:divide-white/[0.06]">
-                {tools.map((tool) => (
-                  <li
-                    key={tool.key}
-                    className="flex items-center gap-2.5 px-3 py-2.5"
-                  >
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                      {tool.icon}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px]">
-                        {tool.label}
-                      </span>
-                      <span className="text-muted-foreground block truncate text-[11px]">
-                        {tool.source}
-                      </span>
-                    </span>
-                    <AccessBadge readOnly={tool.readOnly} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          {people.length ? (
-            <section>
-              <p className="text-muted-foreground mb-2 text-[11px] font-medium">
-                {steps.length ? "Agents taking steps" : "Team"}
-              </p>
-              <ul className="flex flex-wrap gap-x-4 gap-y-2 text-[13px]">
-                {people.map((id) => (
-                  <li key={id} className="flex items-center gap-2">
-                    <AgentAvatar
-                      agentId={id}
-                      label={agentName(id)}
-                      className="size-5 rounded-[6px]"
-                    />
-                    {agentName(id)}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          <p className="text-muted-foreground text-[12px] leading-5">
-            Only these steps can run. Any change to them comes back to you.
-          </p>
+        <div className={cn(insetCardClass, "overflow-hidden px-0 py-0")}>
+          <div className="px-4 pt-3.5 pb-3">
+            <p className="text-[15px] leading-5 font-medium">{title}</p>
+            <DialogDescription className="mt-0.5 text-xs">
+              {timing}
+            </DialogDescription>
+          </div>
+          <ul className="max-h-[50vh] divide-y divide-black/[0.055] overflow-y-auto border-t border-black/[0.055] dark:divide-white/[0.06] dark:border-white/[0.06]">
+            {tools.map((tool) => (
+              <li
+                key={tool.key}
+                className="flex items-center gap-2.5 px-4 py-2.5"
+              >
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  {tool.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px]">
+                    {tool.label}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-[11px]">
+                    {tool.source}
+                  </span>
+                </span>
+                <AccessBadge readOnly={tool.readOnly} />
+              </li>
+            ))}
+            {people.map((id) => (
+              <li key={id} className="flex items-center gap-2.5 px-4 py-2.5">
+                <AgentAvatar
+                  agentId={id}
+                  label={agentName(id)}
+                  className="size-5 rounded-[6px]"
+                />
+                <span className="min-w-0 flex-1 truncate text-[13px]">
+                  {agentName(id)}
+                </span>
+                <span className="text-muted-foreground text-[11px]">Agent</span>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter className="border-t border-black/[0.055] px-3 py-2.5 dark:border-white/[0.06]">
+            <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+              Not yet
+            </Button>
+            <Button size="sm" disabled={busy} onClick={onApprove}>
+              {busy ? "Turning on…" : "Turn on"}
+            </Button>
+          </DialogFooter>
         </div>
-        <DialogFooter className="border-t border-black/[0.055] px-6 py-3 dark:border-white/[0.06]">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
-            Not yet
-          </Button>
-          <Button disabled={busy} onClick={onApprove}>
-            {busy ? "Turning on…" : "Approve and turn on"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
