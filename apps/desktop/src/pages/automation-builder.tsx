@@ -282,24 +282,36 @@ export function AutomationBuilderPage() {
     setSelected(step.id);
   };
 
-  const save = async () => {
-    if (!client || busy) return;
+  // Saves what's on screen; undefined when a step still needs finishing.
+  const persist = async () => {
+    if (!client) return undefined;
     if (issues.size) {
       toast.error(
         issues.values().next().value ?? "Finish the highlighted steps first.",
       );
-      return;
+      return undefined;
     }
+    const saved = await client.schedules.save(draftToInput(draft));
+    writeStoredDraft(workspaceId, automationId, null, null);
+    adopt(saved);
+    if (automationId === "new")
+      void navigate(`/schedule/automations/${encodeURIComponent(saved.id)}`, {
+        replace: true,
+      });
+    return saved;
+  };
+
+  const save = async () => {
+    if (!client || busy) return;
     setBusy(true);
     try {
-      const saved = await client.schedules.save(draftToInput(draft));
-      writeStoredDraft(workspaceId, automationId, null, null);
-      adopt(saved);
-      if (automationId === "new")
-        void navigate(`/schedule/automations/${encodeURIComponent(saved.id)}`, {
-          replace: true,
-        });
-      if (saved.status === "needs_approval" || saved.status === "draft")
+      const saved = await persist();
+      if (!saved) return;
+      // Steps turn on only after a test of this version, so review waits.
+      if (
+        (saved.status === "needs_approval" || saved.status === "draft") &&
+        !saved.automation?.steps.length
+      )
         setReviewing(true);
       else toast.success("Saved");
     } catch (error) {
@@ -313,9 +325,7 @@ export function AutomationBuilderPage() {
     }
   };
 
-  const act = async (
-    action: "approve" | "pause" | "resume" | "run" | "test",
-  ) => {
+  const act = async (action: "approve" | "pause" | "resume" | "run") => {
     if (!client || !schedule || busy) return;
     setBusy(true);
     try {
@@ -324,7 +334,29 @@ export function AutomationBuilderPage() {
       });
       if (action === "run")
         toast.success("Running now. Follow along here or in its channel.");
-      if (action === "test") runs.refresh();
+      adopt(next);
+      setReviewing(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "That didn't work. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // A test runs what's on screen, so unsaved changes are saved first. A new
+  // automation is created by its first test, not by opening the page.
+  const test = async () => {
+    if (!client || busy) return;
+    setBusy(true);
+    try {
+      const current = dirty || !schedule ? await persist() : schedule;
+      if (!current) return;
+      const next = await client.schedules.act(current.id, "test", {
+        expectedUpdatedAt: current.updatedAt,
+      });
+      runs.refresh();
       adopt(next);
       setReviewing(false);
     } catch (error) {
@@ -422,13 +454,13 @@ export function AutomationBuilderPage() {
                 />
               </label>
             ) : null}
-            {schedule && draft.steps.length > 0 ? (
+            {draft.steps.length > 0 ? (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={busy || dirty || runs.testing}
-                title="Runs it once now. Reads and agents run for real; writes are only previewed."
-                onClick={() => void act("test")}
+                disabled={busy || runs.testing}
+                title={`${dirty || !schedule ? "Saves, then runs" : "Runs"} it once now. Reads and agents run for real; writes are only previewed.`}
+                onClick={() => void test()}
               >
                 {runs.testing ? (
                   <Loader2 size={12} className="animate-spin text-sky-500" />
