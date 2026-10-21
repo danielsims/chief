@@ -35,6 +35,12 @@ import {
 } from "./prompts/relay-cell-turn.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
+import {
+  APPROVAL_WAIT_MS,
+  approvalGranted,
+  approvalSummary,
+  askForApproval,
+} from "./relay-cell-approvals.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
 import { RunSteering } from "./relay-cell-steering.js";
 import {
@@ -254,9 +260,9 @@ async function executeJob(
       conversationId,
       {
         driver: normalizeDriver(config.inference.provider),
-        // A cell has no one to answer provider prompts. With automatic
-        // approvals the agent works freely on this device; otherwise only
-        // Chief's own tools are allowed below.
+        // With automatic approvals the agent works freely on this device;
+        // otherwise Chief's own tools run and anything else is asked of the
+        // person in the thread below.
         access: config.approvals === "auto" ? "full" : "guarded",
         workspaceId: job.workspaceId,
         model:
@@ -277,6 +283,34 @@ async function executeJob(
       priorEvents,
     );
     session = agentSession;
+    // What the agent wasn't allowed to do, so the run can say so.
+    const refused: string[] = [];
+    // Anything else is the person's call. In a conversation they're asked in
+    // the thread and the run waits for their answer; a run nobody is
+    // watching, such as an automation step, is refused.
+    const decidePermission = async (
+      event: Extract<AgentEvent, { type: "permission" }>,
+    ) => {
+      const waiting = steering;
+      if (!waiting) return false;
+      try {
+        await askForApproval(client, {
+          workspaceId: job.workspaceId,
+          agentId,
+          conversationId,
+          ...(activityContext.threadRootId
+            ? { threadRootId: activityContext.threadRootId }
+            : undefined),
+          requestId: event.requestId,
+          toolName: event.toolName,
+          toolInput: event.input,
+        });
+        return approvalGranted(await waiting.awaitAnswer(APPROVAL_WAIT_MS));
+      } catch (error) {
+        console.error("[cell] approval:", error);
+        return false;
+      }
+    };
     agentSession.on("event", (event: AgentEvent) => {
       turnEvents.push(event);
       activityPublisher.accept(event);
@@ -295,10 +329,18 @@ async function executeJob(
                   tool === `mcp__chief_relay__${name}` ||
                   tool === `mcp.chief_relay.${name}`,
               );
-        agentSession.respondPermission(
-          event.requestId,
-          allow ? "allow" : "deny",
-        );
+        if (allow) {
+          agentSession.respondPermission(event.requestId, "allow");
+          return;
+        }
+        void decidePermission(event).then((granted) => {
+          if (!granted)
+            refused.push(approvalSummary(event.toolName, event.input).action);
+          agentSession.respondPermission(
+            event.requestId,
+            granted ? "allow" : "deny",
+          );
+        });
       }
       void cell
         .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
@@ -347,7 +389,20 @@ async function executeJob(
       `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
-    const reply = finalAssistantText(turnEvents) ?? "Work completed.";
+    const reply = finalAssistantText(turnEvents);
+    const posted = postedFinalToOrigin(
+      turnEvents,
+      conversationId,
+      activityContext.threadRootId,
+    );
+    // A run that ends without a word hasn't done what was asked; it fails
+    // and says why rather than claiming it finished.
+    if (!reply && !posted && job.kind !== "workspace.onboarding")
+      throw new LocalJobBlockedError(
+        refused.length
+          ? `Stopped without finishing: it wasn't allowed to ${[...new Set(refused)].join(", ")}.`
+          : "Stopped without replying.",
+      );
     await agentSession.stop();
     session = null;
     await client.completeAgentJob(agentId, {
@@ -360,11 +415,7 @@ async function executeJob(
                 openingMessage:
                   "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
               }
-            : postedFinalToOrigin(
-                  turnEvents,
-                  conversationId,
-                  activityContext.threadRootId,
-                )
+            : posted || !reply
               ? {}
               : {
                   publishedMessage: {
