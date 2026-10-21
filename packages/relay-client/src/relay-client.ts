@@ -43,10 +43,13 @@ import {
   logReceiptSchema,
   machineCreateSchema,
   machineDeleteResultSchema,
+  machinePairingSchema,
   machineSchema,
   machinesResultSchema,
   machineUpdateSchema,
   messagePageSchema,
+  pairedMachineRemovedSchema,
+  pairedMachinesSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
@@ -57,6 +60,7 @@ import {
 
 import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
+import type { RelayWebMachine } from "./relay-web-machine";
 import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
@@ -71,6 +75,7 @@ import { RelayPluginsClient } from "./relay-plugins-client";
 import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
+import { openRelayWebMachine } from "./relay-web-machine";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
 export type { RelayClientOptions } from "./relay-client-options";
@@ -531,6 +536,60 @@ export class RelayClient extends RelayVercelProvisioning {
         this.listEvents(conversationId, { after, limit: 200 }),
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
+      onError: input.onError,
+    });
+  }
+
+  /** A one-time code a headless machine pairs with, valid for 15 minutes. */
+  async createMachinePairing() {
+    return await this.fetchJson(
+      this.workspaceUrl("machines/pairings"),
+      machinePairingSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+
+  /** This member's paired machines, and whether each is serving now. */
+  async listPairedMachines() {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("machines/paired"),
+        pairedMachinesSchema,
+        true,
+      )
+    ).machines;
+  }
+
+  async removePairedMachine(machineId: string) {
+    await this.fetchJson(
+      this.workspaceUrl(`machines/paired/${encodeURIComponent(machineId)}`),
+      pairedMachineRemovedSchema,
+      true,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Lends this computer's connection to the workspace's agents. */
+  async serveWebMachine(input: {
+    policy: Parameters<typeof openRelayWebMachine>[0]["policy"];
+    fetch: Parameters<typeof openRelayWebMachine>[0]["fetch"];
+    onError?: (error: Error) => void;
+  }): Promise<RelayWebMachine> {
+    const workspaceId = this.requireWorkspaceId();
+    return await openRelayWebMachine({
+      workspaceId,
+      discovery: () => this.discovery(),
+      createTicket: () =>
+        this.fetchJson(
+          this.workspaceUrl("socket-tickets"),
+          workspaceSocketTicketSchema,
+          true,
+          { method: "POST" },
+        ),
+      createWebSocket: this.createWebSocket,
+      policy: input.policy,
+      fetch: input.fetch,
       onError: input.onError,
     });
   }

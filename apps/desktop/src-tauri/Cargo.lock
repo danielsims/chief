@@ -492,6 +492,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chief-machine"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -843,6 +854,7 @@ name = "desktop"
 version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
+ "chief-machine",
  "flate2",
  "hex",
  "k256",

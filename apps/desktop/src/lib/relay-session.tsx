@@ -44,6 +44,7 @@ import {
   workspaceSwitchMemory,
 } from "./relay-session-state";
 import { setRelayWorkspaceOverride } from "./relay-workspace-override";
+import { useWebMachineHost } from "./web-machine";
 import { hasActiveWorkspaceCreateSession } from "./workspace-entry";
 import {
   clearWorkspaceSwitch,
@@ -63,6 +64,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState(() =>
     initialRelaySessionState(accountId, sessionToken),
   );
+  useWebMachineHost(state.client, state.snapshot?.id);
   // Access tokens refresh routinely. Connections read the latest one when
   // they need it, so a refresh never reconnects or resets the workspace;
   // only signing in or out, or another account, does.

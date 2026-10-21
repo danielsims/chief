@@ -33,3 +33,4 @@ export * from "./databases";
 export * from "./artifacts";
 export * from "./typing";
 export * from "./pages";
+export * from "./web-machine";
