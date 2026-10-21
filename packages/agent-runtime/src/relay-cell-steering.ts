@@ -16,6 +16,8 @@ export class RunSteering {
   private readonly waiting: string[] = [];
   private readonly held: Lease[] = [];
   private folding = Promise.resolve();
+  /** Set while the run waits on a person's answer, such as an approval. */
+  private answering: ((answer: string) => void) | null = null;
 
   constructor(
     readonly conversationId: string,
@@ -30,6 +32,24 @@ export class RunSteering {
     this.folding = this.folding
       .then(() => this.fold(jobId))
       .catch((error) => console.error("[cell] steer:", error));
+  }
+
+  /**
+   * The next message in the run's thread, taken as an answer rather than
+   * steering, or undefined if none comes in time.
+   */
+  awaitAnswer(timeoutMs: number) {
+    return new Promise<string | undefined>((resolve) => {
+      const timer = setTimeout(() => {
+        this.answering = null;
+        resolve(undefined);
+      }, timeoutMs);
+      this.answering = (answer) => {
+        clearTimeout(timer);
+        this.answering = null;
+        resolve(answer);
+      };
+    });
   }
 
   /** Runs every message that missed the turn, then lets the run end. */
@@ -49,6 +69,14 @@ export class RunSteering {
   }
 
   private async fold(jobId: string) {
+    const answer = this.answering;
+    if (answer) {
+      const lease = await this.claim(jobId);
+      if (!lease) return;
+      answer(instructionOf(lease));
+      await this.complete(lease);
+      return;
+    }
     const session = this.session();
     if (!session?.canSteer()) {
       this.waiting.push(jobId);
