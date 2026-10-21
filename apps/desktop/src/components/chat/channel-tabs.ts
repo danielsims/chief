@@ -5,6 +5,8 @@ import { z } from "zod";
 export interface ChannelTab {
   kind: "file" | "database";
   id: string;
+  /** The name when the tab was opened, so a reload can label it at once. */
+  name?: string;
 }
 
 const tabsSchema = z
@@ -12,6 +14,7 @@ const tabsSchema = z
     z.object({
       kind: z.enum(["file", "database"]),
       id: z.string().min(1).max(160),
+      name: z.string().min(1).max(160).optional(),
     }),
   )
   .max(24);
@@ -72,15 +75,30 @@ export function useChannelTabs(channelId: string, active?: ChannelTab) {
   const stored = parseTabs(raw);
   const activeKind = active?.kind;
   const activeId = active?.id;
+  const activeName = active?.name;
 
   // Opening an artifact, from anywhere, keeps it as a tab.
   useEffect(() => {
     if (!activeKind || !activeId) return;
-    const tab = { kind: activeKind, id: activeId };
+    const tab: ChannelTab = {
+      kind: activeKind,
+      id: activeId,
+      ...(activeName ? { name: activeName } : undefined),
+    };
     const current = parseTabs(read(key));
-    if (!current.some((other) => same(other, tab)))
-      write(key, JSON.stringify([...current, tab].slice(-24)));
-  }, [activeId, activeKind, key]);
+    const existing = current.find((other) => same(other, tab));
+    if (existing) {
+      if (tab.name && existing.name !== tab.name)
+        write(
+          key,
+          JSON.stringify(
+            current.map((other) => (same(other, tab) ? tab : other)),
+          ),
+        );
+      return;
+    }
+    write(key, JSON.stringify([...current, tab].slice(-24)));
+  }, [activeId, activeKind, activeName, key]);
 
   const tabs =
     active && !stored.some((tab) => same(tab, active))

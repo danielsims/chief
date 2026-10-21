@@ -5,6 +5,7 @@ import { workspaceBoardId } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
 import { DatabaseDeleteDialog } from "../databases/database-delete-dialog";
+import { isBoard } from "../databases/database-model";
 import { DatabaseView } from "../databases/database-view";
 import {
   announceDatabasesChanged,
@@ -25,6 +26,8 @@ export function ChannelDatabaseViewer({
   const { databases, loaded } = useDatabases(conversationId);
   const [deleting, setDeleting] = useState(false);
   const database = databases.find((candidate) => candidate.id === databaseId);
+  // A board reads the same as on the Boards page: just the lanes and a filter.
+  const board = database ? isBoard(database) : false;
   if (loaded && !database)
     return (
       <div className="text-muted-foreground grid flex-1 place-items-center px-6 text-center text-sm">
@@ -36,6 +39,9 @@ export function ChannelDatabaseViewer({
       <DatabaseView
         key={databaseId}
         databaseId={databaseId}
+        boardOnly={board}
+        compact
+        {...(board ? { newLabel: null } : undefined)}
         actions={
           database && database.id !== workspaceBoardId ? (
             <Button

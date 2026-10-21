@@ -1,4 +1,11 @@
-import { ChevronsLeft, ChevronsRight, FileText, Table2, X } from "lucide-react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  Columns3,
+  FileText,
+  Table2,
+  X,
+} from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
@@ -6,6 +13,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelTab } from "./channel-tabs";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../../lib/runtime";
+import { isBoard } from "../databases/database-model";
 import { useDatabases, usePrefetchDatabase } from "../databases/use-database";
 import { useChannelTabs } from "./channel-tabs";
 
@@ -41,34 +49,68 @@ export function ChannelViewTabs({
   const prefetch = usePrefetchDatabase();
   const fileId = params.get("artifact");
   const databaseId = params.get("database");
+  const file = fileId
+    ? files.find((candidate) => candidate.id === fileId)
+    : undefined;
+  const openDatabase = databaseId
+    ? databases.find((candidate) => candidate.id === databaseId)
+    : undefined;
   const active: ChannelTab | undefined =
     activeView !== "artifacts"
       ? undefined
       : fileId
-        ? { kind: "file", id: fileId }
+        ? {
+            kind: "file",
+            id: fileId,
+            ...(file ? { name: file.name } : undefined),
+          }
         : databaseId
-          ? { kind: "database", id: databaseId }
+          ? {
+              kind: "database",
+              id: databaseId,
+              ...(openDatabase ? { name: openDatabase.name } : undefined),
+            }
           : undefined;
   const { tabs, collapsed, setCollapsed, close } = useChannelTabs(
     channelId,
     active,
   );
+  // A board assigned to the channel is part of it, so it stays in the header
+  // without being opened first.
+  const pinned: ChannelTab[] = databases.filter(isBoard).map((database) => ({
+    kind: "database",
+    id: database.id,
+    name: database.name,
+  }));
+  const pinnedIds = new Set(pinned.map((tab) => tab.id));
+  const visibleTabs = [
+    ...pinned,
+    ...tabs.filter(
+      (tab) => !(tab.kind === "database" && pinnedIds.has(tab.id)),
+    ),
+  ];
   const isActive = (tab: ChannelTab) =>
     active?.kind === tab.kind && active.id === tab.id;
-  const labelled = tabs.flatMap((tab) => {
+  const labelled = visibleTabs.flatMap((tab) => {
     if (tab.kind === "file") {
-      const file = files.find((candidate) => candidate.id === tab.id);
+      const candidate = files.find((file) => file.id === tab.id);
       // A file from another channel, or one that's gone, isn't offered.
-      if (files.length && file?.sourceConversationId !== channelId) return [];
-      return [{ tab, name: file?.name ?? "Artifact", icon: FileText }];
+      if (files.length && candidate?.sourceConversationId !== channelId)
+        return [];
+      return [
+        {
+          tab,
+          name: candidate?.name ?? tab.name ?? "Artifact",
+          icon: FileText,
+        },
+      ];
     }
     const database = databases.find((candidate) => candidate.id === tab.id);
-    if (!database && !isActive(tab)) return [];
     return [
       {
         tab,
-        name: database?.name ?? "Database",
-        icon: Table2,
+        name: database?.name ?? tab.name ?? "Database",
+        icon: database && isBoard(database) ? Columns3 : Table2,
       },
     ];
   });
@@ -140,21 +182,23 @@ export function ChannelViewTabs({
               <Icon size={12} className="shrink-0" />
               <span className="max-w-44 truncate">{name}</span>
             </button>
-            <button
-              type="button"
-              aria-label={`Close ${name}`}
-              title="Close"
-              onClick={() => {
-                close(tab);
-                if (selected) open(null);
-              }}
-              className={cn(
-                "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] mr-1 flex size-4 items-center justify-center rounded opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100",
-                selected && "opacity-100",
-              )}
-            >
-              <X size={10} />
-            </button>
+            {tab.kind === "database" && pinnedIds.has(tab.id) ? null : (
+              <button
+                type="button"
+                aria-label={`Close ${name}`}
+                title="Close"
+                onClick={() => {
+                  close(tab);
+                  if (selected) open(null);
+                }}
+                className={cn(
+                  "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06] mr-1 flex size-4 items-center justify-center rounded opacity-0 transition-opacity group-hover/tab:opacity-100 focus-visible:opacity-100",
+                  selected && "opacity-100",
+                )}
+              >
+                <X size={10} />
+              </button>
+            )}
             {selected ? <Underline /> : null}
           </div>
         );
