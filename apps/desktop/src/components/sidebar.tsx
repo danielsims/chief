@@ -478,10 +478,8 @@ export function Sidebar({
         aria-orientation="vertical"
         aria-label="Resize sidebar"
         onPointerDown={onResizeStart}
-        className="group absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize"
-      >
-        <span className="bg-foreground/30 absolute inset-y-0 left-[3px] w-px opacity-0 transition-opacity group-hover:opacity-100" />
-      </div>
+        className="absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize"
+      />
     </aside>
   );
 }
