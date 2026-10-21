@@ -2,10 +2,13 @@ import { z } from "zod";
 
 import { normalizedChannelMentions } from "@chief/agent-runtime/channel-message-mentions";
 import {
+  agentAttachmentSchema,
   agentIdSchema,
+  attachmentLocation,
   channelMemberAddCommandSchema,
   conversationMessageSchema,
   externalAgentDeliveryCommandSchema,
+  messageAttachments,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
@@ -186,6 +189,7 @@ export async function dispatchWorkspaceMessage(
   // When the workspace hosts exactly one Git project, the agent works in it.
   // With none or several, the agent lists them and asks which to use.
   const projectRepo = resolveWorkspaceProjectRepo(storage);
+  const attachments = agentAttachments(message);
   const now = new Date().toISOString();
   const externalAgents = new ExternalAgentChannelService(storage, env);
 
@@ -214,6 +218,7 @@ export async function dispatchWorkspaceMessage(
                 : message.body,
               author: message.author,
               createdAt: message.createdAt,
+              ...(attachments.length ? { attachments } : undefined),
             },
           },
         }),
@@ -237,6 +242,7 @@ export async function dispatchWorkspaceMessage(
             ...(scheduleStepId ? { scheduleStepId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             ...(projectRepo ? { projectRepo } : undefined),
+            ...(attachments.length ? { attachments } : undefined),
             mentions,
             instruction: scheduleRunId
               ? (instruction ?? message.body)
@@ -364,6 +370,28 @@ function owningThreadRoot(
     return message.id;
   if (channelKind === "channel" && mentions.length > 0) return message.id;
   return undefined;
+}
+
+/**
+ * The message's images, for the agents it wakes. Each agent reads them
+ * through the relay as itself, so channel access is checked on every read.
+ */
+function agentAttachments(message: z.infer<typeof conversationMessageSchema>) {
+  return messageAttachments(message.components).flatMap((attachment) => {
+    const location = attachmentLocation(attachment.url);
+    if (
+      location?.workspaceId !== message.workspaceId ||
+      location.conversationId !== message.conversationId
+    )
+      return [];
+    return [
+      agentAttachmentSchema.parse({
+        name: attachment.name,
+        mediaType: location.mediaType,
+        url: attachment.url,
+      }),
+    ];
+  });
 }
 
 function dispatchedInstruction(

@@ -54,6 +54,8 @@ const tracedAI = wrapAISDK(aiSdk, {
 export class AiSdkAgentInference implements AgentInference {
   readonly model;
   private readonly languageModel: LanguageModel;
+  /** Images already read this turn, so each step doesn't read them again. */
+  private readonly images: AttachedImages = new Map();
 
   constructor(
     apiKey: string,
@@ -64,6 +66,7 @@ export class AiSdkAgentInference implements AgentInference {
       model: "opencode-go/deepseek-v4-flash",
       secretRef: "opencode",
     },
+    private readonly readAttachment?: AttachmentReader,
   ) {
     this.model = {
       id: inference.model,
@@ -78,7 +81,10 @@ export class AiSdkAgentInference implements AgentInference {
     input: AgentInferenceRequest,
     onProgress?: AgentInferenceProgressObserver,
   ) {
-    const prompt = aiSdkPrompt(input.messages);
+    const prompt = aiSdkPrompt(
+      input.messages,
+      await attachedImages(input.messages, this.readAttachment, this.images),
+    );
     const options = {
       model: this.languageModel,
       ...prompt,
@@ -190,13 +196,51 @@ export function createAiSdkAgentInference(
   apiKey: string | undefined,
   inference: AgentInferenceConfig,
   context: HostedAgentTraceContext,
+  readAttachment?: AttachmentReader,
 ) {
   if (!apiKey?.trim()) {
     throw new Error(
       `${inferenceProviderName(inference)} is not configured for hosted agents.`,
     );
   }
-  return new AiSdkAgentInference(apiKey, context, undefined, inference);
+  return new AiSdkAgentInference(
+    apiKey,
+    context,
+    undefined,
+    inference,
+    readAttachment,
+  );
+}
+
+/** Reads an attached image's bytes from relay storage, or undefined. */
+export type AttachmentReader = (
+  url: string,
+) => Promise<{ bytes: Uint8Array; mediaType: string } | undefined>;
+
+type AttachedImages = Map<string, { bytes: Uint8Array; mediaType: string }>;
+
+/** Every image the turn's user messages carry, read once per step. */
+async function attachedImages(
+  messages: readonly AgentInferenceMessage[],
+  read: AttachmentReader | undefined,
+  images: AttachedImages,
+): Promise<AttachedImages> {
+  if (!read) return images;
+  const urls = new Set(
+    messages.flatMap((message) =>
+      message.role === "user"
+        ? (message.attachments ?? []).map((item) => item.url)
+        : [],
+    ),
+  );
+  await Promise.all(
+    [...urls].map(async (url) => {
+      if (images.has(url)) return;
+      const image = await read(url).catch(() => undefined);
+      if (image) images.set(url, image);
+    }),
+  );
+  return images;
 }
 
 function languageModel(
@@ -468,7 +512,10 @@ function inferenceProviderName(inference: AgentInferenceConfig) {
   }
 }
 
-function aiSdkPrompt(messages: readonly AgentInferenceMessage[]): {
+function aiSdkPrompt(
+  messages: readonly AgentInferenceMessage[],
+  images: AttachedImages,
+): {
   instructions: Extract<ModelMessage, { role: "system" }>[] | undefined;
   messages: ModelMessage[];
 } {
@@ -478,7 +525,9 @@ function aiSdkPrompt(messages: readonly AgentInferenceMessage[]): {
     if (message.role === "system") {
       instructions.push({ role: "system", content: message.content ?? "" });
     } else {
-      conversation.push(modelMessage({ ...message, role: message.role }));
+      conversation.push(
+        modelMessage({ ...message, role: message.role }, images),
+      );
     }
   }
   return {
@@ -489,6 +538,7 @@ function aiSdkPrompt(messages: readonly AgentInferenceMessage[]): {
 
 function modelMessage(
   message: AgentInferenceMessage & { role: "user" | "assistant" | "tool" },
+  images: AttachedImages,
 ): ModelMessage {
   if (message.role === "assistant") {
     const content = [
@@ -537,7 +587,33 @@ function modelMessage(
       ],
     };
   }
-  return { role: "user", content: message.content ?? "" };
+  const attached = (message.attachments ?? []).flatMap((item) => {
+    const image = images.get(item.url);
+    return image
+      ? [
+          {
+            type: "image" as const,
+            image: image.bytes,
+            mediaType: image.mediaType,
+          },
+        ]
+      : [];
+  });
+  // An image that couldn't be read is named, so the agent can say so.
+  const missing = (message.attachments ?? []).filter(
+    (item) => !images.has(item.url),
+  );
+  const text = [
+    message.content ?? "",
+    ...missing.map(
+      (item) => `[Attached image ${item.name} couldn't be loaded.]`,
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return attached.length
+    ? { role: "user", content: [{ type: "text", text }, ...attached] }
+    : { role: "user", content: text };
 }
 
 function toolSet(definitions: readonly AgentInferenceTool[]): ToolSet {

@@ -12,12 +12,14 @@ import {
   RelayClientError,
 } from "@chief/relay-client";
 import {
+  agentAttachmentSchema,
   agentConfigSchema,
+  attachmentLocation,
   parseJsonObject,
   parseJsonString,
 } from "@chief/relay-contracts";
 
-import type { AgentEvent, DriverType } from "./types.js";
+import type { AgentEvent, DriverType, MessageAttachment } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { ensureCodexSetup } from "./drivers/codex-install.js";
@@ -42,13 +44,14 @@ import {
   askForApproval,
 } from "./relay-cell-approvals.js";
 import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
-import { RunSteering } from "./relay-cell-steering.js";
+import { instructionOf, RunSteering } from "./relay-cell-steering.js";
 import {
   isRelayPluginToolName,
   relayCellToolNames,
   runRelayCellMcpServer,
   startRelayCellMcpHttpServer,
 } from "./relay-cell-tools.js";
+import { attachmentPromptContext } from "./session-prompt-context.js";
 import { AgentSession } from "./session.js";
 
 const mode = process.argv[2] ?? "worker";
@@ -371,9 +374,23 @@ async function executeJob(
         agentId,
         `${agentId}-${process.pid}`,
         () => session,
+        // A message sent mid-run brings its images as files the agent reads.
+        async (steered) =>
+          [
+            instructionOf(steered),
+            await attachmentPromptContext(
+              cellDirectory,
+              await jobAttachments(client, steered.job, conversationId),
+            ),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
       );
     }
-    await agentSession.sendPrompt(instruction, job.id, false, promptContext);
+    await agentSession.sendPrompt(instruction, job.id, false, {
+      ...promptContext,
+      attachments: await jobAttachments(client, job, conversationId),
+    });
     await steering?.drain((text, jobId) =>
       agentSession.sendPrompt(text, jobId, false, promptContext),
     );
@@ -648,4 +665,43 @@ if (mode === "mcp") {
 } else {
   healthEndpoint();
   await listenForJobs();
+}
+
+/**
+ * The images a job's message carried, read through the relay as this agent
+ * so the relay checks it can still see the conversation. An image that can't
+ * be read is left out rather than failing the run.
+ */
+async function jobAttachments(
+  client: RelayClient,
+  job: AgentJob,
+  conversationId: string,
+): Promise<MessageAttachment[]> {
+  const parsed = agentAttachmentSchema
+    .array()
+    .max(8)
+    .safeParse(job.payload.attachments ?? []);
+  if (!parsed.success) return [];
+  const read = await Promise.all(
+    parsed.data.map(async (attachment) => {
+      if (attachmentLocation(attachment.url)?.conversationId !== conversationId)
+        return [];
+      try {
+        const { bytes, mediaType } = await client.downloadAttachment(
+          attachment.url,
+        );
+        return [
+          {
+            name: attachment.name,
+            mediaType,
+            url: `data:${mediaType};base64,${Buffer.from(bytes).toString("base64")}`,
+          },
+        ];
+      } catch (error) {
+        console.error("[cell] attachment:", error);
+        return [];
+      }
+    }),
+  );
+  return read.flat();
 }

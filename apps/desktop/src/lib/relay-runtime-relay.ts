@@ -9,6 +9,7 @@ export type RelayRuntimeRelay = Pick<
   | "channelSettings"
   | "activeWorkspace"
   | "appendMessage"
+  | "uploadConversationAttachment"
   | "createChannel"
   | "createProject"
   | "deleteWorkspaceSecret"

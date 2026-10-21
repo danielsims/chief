@@ -11,6 +11,7 @@ import { guestLabel } from "../../lib/guest-appearance";
 import { stripPrivateSetupInstructions } from "../../lib/integration-setup";
 import { AvatarImage } from "../avatar-image";
 import { GuestAvatar } from "../guest-avatar";
+import { AttachmentImage } from "./attachment-image";
 import { MessageTimestamp } from "./chat-date-time";
 import { StreamingMarkdown } from "./streaming-markdown";
 
@@ -113,20 +114,16 @@ export function UserMessage({
             data-message-attachments
           >
             {attachments.map((attachment) => (
-              <a
+              <div
                 key={`${attachment.name}:${attachment.url.slice(-24)}`}
-                href={attachment.url}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open ${attachment.name}`}
-                className="bg-muted/60 focus-visible:ring-ring/30 group/image relative min-h-28 overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent)] outline-none only:col-span-2 focus-visible:ring-2"
+                className="bg-muted/60 focus-within:ring-ring/30 group/image relative min-h-28 overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent)] outline-none only:col-span-2 focus-within:ring-2"
               >
-                <img
-                  src={attachment.url}
-                  alt={attachment.name}
+                <AttachmentImage
+                  name={attachment.name}
+                  url={attachment.url}
                   className="size-full max-h-72 object-cover transition-transform duration-200 group-hover/image:scale-[1.01]"
                 />
-              </a>
+              </div>
             ))}
           </div>
         ) : null}

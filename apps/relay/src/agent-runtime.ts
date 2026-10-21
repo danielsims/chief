@@ -57,6 +57,7 @@ import {
 } from "./agent-tracing";
 import { supersedeConversationTurn } from "./agent-turn-supersession";
 import { createAiSdkAgentInference } from "./ai-sdk-agent-inference";
+import { conversationAttachmentReader } from "./attachments";
 import { asyncTracer, attempt, sync } from "./effect";
 import {
   hostedTurnResult,
@@ -352,6 +353,11 @@ export class AgentRuntime {
                   apiKey,
                   config.inference,
                   traceContext,
+                  conversationAttachmentReader(
+                    env,
+                    maintained.job.workspaceId,
+                    current.conversationId,
+                  ),
                 ),
                 traceContext,
                 turnTracer,

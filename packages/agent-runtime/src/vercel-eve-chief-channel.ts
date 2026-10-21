@@ -20,7 +20,12 @@ const deliverySchema = z.object({ payload: z.object({
   conversationId: z.string().optional(),
   threadRootId: z.string().optional(),
   continuation: z.object({ capability: z.string() }),
-  message: z.object({ id: z.string().optional(), body: z.string() }),
+  message: z.object({
+    id: z.string().optional(), body: z.string(),
+    attachments: z.array(z.object({
+      name: z.string(), mediaType: z.string(), url: z.string(),
+    })).max(8).optional(),
+  }),
   people: z.array(z.object({
     id: z.string(), name: z.string(), role: z.string(),
   })).optional(),
@@ -77,7 +82,7 @@ const bindDelivery = (
     threadRootId: channel.state.threadRootId,
   });
 };
-const relayUrl = (path: "activity" | "messages", agentId: string) => new URL(
+const relayUrl = (path: "activity" | "messages" | "attachment", agentId: string) => new URL(
   \`/v1/workspaces/\${encodeURIComponent(required("CHIEF_WORKSPACE_ID"))}/agents/\${encodeURIComponent(agentId)}/channel/\${path}\`,
   required("CHIEF_RELAY_URL"),
 );
@@ -88,6 +93,44 @@ const postToChief = async (path: "activity" | "messages", agentId: string, body:
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(\`Chief returned HTTP \${response.status}.\`);
+};
+// Each image the delivery carried, read from Chief with this delivery's
+// capability and handed to the turn as bytes. One that can't be read is
+// named in the text instead.
+const attachedFiles = async (
+  agentId: string,
+  payload: { deliveryId: string; continuation: { capability: string } },
+  attachments: { name: string; mediaType: string; url: string }[] = [],
+) => {
+  const files: { type: "file"; data: string; mediaType: string; filename: string }[] = [];
+  const missing: string[] = [];
+  for (const attachment of attachments) {
+    try {
+      const response = await fetch(relayUrl("attachment", agentId), {
+        method: "POST",
+        headers: { "authorization": \`Bearer \${required("CHIEF_CHANNEL_TOKEN")}\`, "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveryId: payload.deliveryId,
+          continuation: payload.continuation,
+          url: attachment.url,
+        }),
+      });
+      if (!response.ok) throw new Error(\`Chief returned HTTP \${response.status}.\`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      files.push({
+        type: "file",
+        data: \`data:\${attachment.mediaType};base64,\${bytes.toString("base64")}\`,
+        mediaType: attachment.mediaType,
+        filename: attachment.name,
+      });
+    } catch (error) {
+      console.error("[chief-attachment] read failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      missing.push(attachment.name);
+    }
+  }
+  return { files, missing };
 };
 export const postActivity = async (
   channel: { state: ChiefState },
@@ -211,7 +254,16 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
       // Eve keeps a session on the deployment that started it while it has pending
       // work, so scope sessions to this deployment for every redeploy to take effect.
       const sessionAddress = [input.payload.sessionAddress, process.env.VERCEL_DEPLOYMENT_ID].filter(Boolean).join(":");
-      const session = await from(sessionAddress).send(input.payload.message.body, {
+      const { files, missing } = await attachedFiles(
+        agentId,
+        input.payload,
+        input.payload.message.attachments,
+      );
+      const text = [
+        input.payload.message.body,
+        ...missing.map((name) => \`[Attached image \${name} couldn't be loaded.]\`),
+      ].filter(Boolean).join("\\n");
+      const session = await from(sessionAddress).send(files.length ? [{ type: "text", text }, ...files] : text, {
         auth: null,
         turnPolicy: "queue",
         context: [

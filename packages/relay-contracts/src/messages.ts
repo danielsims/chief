@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { artifactReferencePayloadSchema } from "./artifacts";
+import { messageAttachmentPayloadSchema } from "./attachments";
 import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
 import { guestProfileSchema } from "./guest-profile";
 import {
@@ -191,17 +192,19 @@ export const messageComponentSchema = z
         ? scheduledRunMessagePayloadSchema
         : component.kind === "artifact.reference"
           ? artifactReferencePayloadSchema
-          : component.kind === "plugin.recommendation"
-            ? pluginRecommendationPayloadSchema
-            : component.kind === "plugin.authorization"
-              ? pluginAuthorizationPayloadSchema
-              : component.kind === "project.recommendation"
-                ? projectRecommendationPayloadSchema
-                : component.kind === "question"
-                  ? questionPayloadSchema
-                  : component.kind === "channel-action"
-                    ? channelActionPayloadSchema
-                    : undefined;
+          : component.kind === "attachment"
+            ? messageAttachmentPayloadSchema
+            : component.kind === "plugin.recommendation"
+              ? pluginRecommendationPayloadSchema
+              : component.kind === "plugin.authorization"
+                ? pluginAuthorizationPayloadSchema
+                : component.kind === "project.recommendation"
+                  ? projectRecommendationPayloadSchema
+                  : component.kind === "question"
+                    ? questionPayloadSchema
+                    : component.kind === "channel-action"
+                      ? channelActionPayloadSchema
+                      : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {

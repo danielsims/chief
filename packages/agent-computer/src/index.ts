@@ -92,6 +92,17 @@ export interface AgentInferenceMessage {
   toolCalls?: AgentInferenceToolCall[];
   toolCallId?: string;
   name?: string;
+  /**
+   * Images a person sent with a user message, as relay attachment URLs. The
+   * host reads them itself; they are never fetched from the model provider.
+   */
+  attachments?: AgentInferenceAttachment[];
+}
+
+export interface AgentInferenceAttachment {
+  name: string;
+  mediaType: string;
+  url: string;
 }
 
 export interface AgentInferenceTool {

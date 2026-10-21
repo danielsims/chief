@@ -24,6 +24,7 @@ import {
   agentAvatarSetResultSchema,
   agentAvatarSetSchema,
   agentIdSchema,
+  attachmentLocation,
   attachmentUploadPayloadSchema,
   attachmentUploadResultSchema,
   brandProfileResultSchema,
@@ -591,6 +592,35 @@ export class RelayClientBase {
         body: JSON.stringify(workspaceFileSaveSchema.parse(input)),
       },
     );
+  }
+
+  /** Uploads an image to a conversation, for a message to reference. */
+  uploadConversationAttachment(
+    conversationId: string,
+    input: AttachmentUploadPayload,
+  ) {
+    return this.uploadImage(
+      this.conversationUrl(conversationId, "attachments"),
+      input,
+    );
+  }
+
+  /**
+   * Reads an image attached to a message, as whoever this client signs in
+   * as. Only the URL's attachment path is used, always against this relay,
+   * so a message can't send the request anywhere else.
+   */
+  async downloadAttachment(url: string) {
+    const location = attachmentLocation(url);
+    if (!location) throw new Error("That isn't a Chief attachment.");
+    const response = await this.fetchResponse(
+      new URL(location.path, this.relayUrl),
+    );
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      mediaType: location.mediaType,
+    };
   }
 
   private uploadImage(url: URL, input: AttachmentUploadPayload) {

@@ -11,8 +11,11 @@ import type {
 import { getAgent } from "@chief/agent-runtime/agents";
 import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
 import {
+  agentAttachmentSchema,
+  attachmentLocation,
   conversationIdSchema,
   isJsonString,
+  messageAttachments,
   messageIdSchema,
 } from "@chief/relay-contracts";
 
@@ -162,6 +165,7 @@ export async function prepareHostedAgentTurn(
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
+    attachments: jobAttachments(job, conversationId),
     systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\n${hostedRuntimeContext({ conversationId, threadRootId, computerEnabled })}${projectRepo ? `\n\n# Project repository\nThe workspace repository "${projectRepo}" is checked out at /workspace/${projectRepo}. Work in it with computer_read, computer_write, computer_edit, and computer_exec, and run Git through computer_git with cwd set to that directory. When you finish a coherent piece of work, publish it with projects_publish so it is durable and reviewable. Never re-clone it yourself. If the directory is missing, the checkout failed: say so rather than working around it.` : ""}\n\nThe messages of this thread are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need the surrounding conversation. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
@@ -395,13 +399,39 @@ function historyMessage(
   message: ConversationMessage,
   currentAgentId: string,
 ): AgentInferenceMessage {
+  const own =
+    message.author.kind === "agent" && message.author.id === currentAgentId;
+  const attachments = messageAttachments(message.components);
   return {
-    role:
-      message.author.kind === "agent" && message.author.id === currentAgentId
-        ? "assistant"
-        : "user",
+    role: own ? "assistant" : "user",
     content: `${message.author.id}: ${message.body}`,
+    // Images earlier in the thread stay in view; only user turns carry them.
+    ...(!own && attachments.length
+      ? {
+          attachments: attachments.map(({ name, mediaType, url }) => ({
+            name,
+            mediaType,
+            url,
+          })),
+        }
+      : undefined),
   };
+}
+
+/** The images the job's message carried, from its own conversation only. */
+function jobAttachments(job: AgentJob, conversationId: string) {
+  const parsed = agentAttachmentSchema
+    .array()
+    .max(8)
+    .safeParse(job.payload.attachments ?? []);
+  if (!parsed.success) return [];
+  return parsed.data.filter((attachment) => {
+    const location = attachmentLocation(attachment.url);
+    return (
+      location?.workspaceId === job.workspaceId &&
+      location.conversationId === conversationId
+    );
+  });
 }
 
 function stringPayload(job: AgentJob, key: string) {
