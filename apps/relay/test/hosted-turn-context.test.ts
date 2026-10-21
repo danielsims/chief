@@ -31,7 +31,7 @@ import { inheritedThreadRootId } from "../src/hosted-agent-tools/toolkits/channe
 describe("hosted agent turn context", () => {
   it("keeps research lightweight and interactive work off the computer", () => {
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Use web_read for ordinary public research",
+      "Find pages with web_search and read them with web_read",
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
       "browser or computer for ordinary questions or plugin setup",
