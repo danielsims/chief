@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Table2 } from "lucide-react";
+import { Columns3, Plus, Table2 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
@@ -77,27 +77,29 @@ export function ChannelArtifacts({
 
   // Newest first, whatever kind they are.
   const artifacts = [
-    ...databases
-      .filter((database) => !isBoard(database))
-      .map((database) => ({
-        key: `database:${database.id}`,
-        updatedAt: database.updatedAt,
-        row: (
-          <ListRow
-            key={`database:${database.id}`}
-            onClick={() => select("database", database.id)}
-            onHover={() => prefetch(database.id)}
-            leading={
-              <span className={markClass}>
+    ...databases.map((database) => ({
+      key: `database:${database.id}`,
+      updatedAt: database.updatedAt,
+      row: (
+        <ListRow
+          key={`database:${database.id}`}
+          onClick={() => select("database", database.id)}
+          onHover={() => prefetch(database.id)}
+          leading={
+            <span className={markClass}>
+              {isBoard(database) ? (
+                <Columns3 size={15} strokeWidth={1.5} />
+              ) : (
                 <Table2 size={15} strokeWidth={1.5} />
-              </span>
-            }
-            title={database.name}
-            subtitle="Database"
-            trailing={<When at={database.updatedAt} />}
-          />
-        ),
-      })),
+              )}
+            </span>
+          }
+          title={database.name}
+          subtitle={isBoard(database) ? "Board" : "Database"}
+          trailing={<When at={database.updatedAt} />}
+        />
+      ),
+    })),
     ...files
       .filter((file) => file.sourceConversationId === conversationId)
       .map((file) => ({
