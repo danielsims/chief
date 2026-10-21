@@ -12,7 +12,9 @@ import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
+import { usePluginTool } from "../../lib/use-plugin-connections";
 import { renderGenerativePart } from "../generative-ui/registry";
+import { ProviderLogo } from "../provider-logo";
 import { executorToolLabel } from "./executor-tool-label";
 import { PluginRecommendationCards, PluginToolCard } from "./plugin-tool-card";
 import { isPluginTool } from "./plugin-tool-data";
@@ -126,7 +128,8 @@ function ToolCard({
   onOpenTask?: (taskId: string) => void;
 }) {
   const kind = canonicalTool(block.name);
-  const label = toolPresentation(block.name, block.input);
+  const pluginTool = usePluginTool(block.name);
+  const label = pluginTool?.tool ?? toolPresentation(block.name, block.input);
   const summary = toolSummary(block.input);
   const output = result
     ? toolResultText(result.content).trim()
@@ -207,6 +210,13 @@ function ToolCard({
             result && !result.is_error && !warning && "bg-emerald-500",
           )}
         />
+        {pluginTool?.plugin.domain ? (
+          <ProviderLogo
+            domain={pluginTool.plugin.domain}
+            label={pluginTool.plugin.name}
+            className="size-4 shrink-0 rounded-[4px]"
+          />
+        ) : null}
         <span className="shrink-0 font-medium">{label}</span>
         <span className="text-muted-foreground min-w-0 flex-1 truncate">
           {summary}
