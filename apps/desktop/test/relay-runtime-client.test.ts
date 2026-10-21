@@ -155,6 +155,9 @@ void test("routes createChannel through the relay and emits the created channel"
         sendTyping: () => undefined,
       });
     },
+    uploadConversationAttachment() {
+      throw new Error("not used in this test");
+    },
     appendMessage() {
       throw new Error("not used in this test");
     },
@@ -321,6 +324,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       });
     },
     appendMessage: unused,
+    uploadConversationAttachment: unused,
     createProject: unused,
     createNativeAgent: unused,
     listChannelMembers: unused,

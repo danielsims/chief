@@ -13,8 +13,10 @@ import type {
 } from "@chief/relay-contracts";
 import {
   artifactReferencePayloadSchema,
+  attachmentLocation,
   isJsonObject,
   isJsonString,
+  messageAttachments,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
@@ -340,7 +342,22 @@ function messageComponentParts(
     ...projectRecommendationParts(message),
     ...questionParts(message),
     ...artifactParts(message),
+    ...attachmentParts(message),
   ];
+}
+
+/** Images attached to the message, read through the relay when shown. */
+function attachmentParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.deleted) return [];
+  return messageAttachments(message.components).map((attachment) => ({
+    type: "file" as const,
+    filename: attachment.name,
+    mediaType:
+      attachmentLocation(attachment.url)?.mediaType ?? attachment.mediaType,
+    url: attachment.url,
+  }));
 }
 
 function pluginRecommendationParts(

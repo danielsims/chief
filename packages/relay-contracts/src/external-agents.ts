@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { agentAttachmentSchema } from "./attachments";
 import { commandEnvelopeSchema } from "./envelopes";
 import {
   agentIdSchema,
@@ -131,6 +132,8 @@ export const externalAgentDeliveryPayloadSchema = z
           })
           .strict(),
         createdAt: z.iso.datetime({ offset: true }),
+        /** Images sent with the message, as links the agent can fetch. */
+        attachments: z.array(agentAttachmentSchema).max(8).optional(),
       })
       .strict(),
     thread: z

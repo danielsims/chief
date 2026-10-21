@@ -56,7 +56,13 @@ export function inferenceMessages(turn: DurableTurn) {
   );
   return [
     { role: "system", content: turn.systemPrompt },
-    { role: "user", content: turn.instruction },
+    {
+      role: "user",
+      content: turn.instruction,
+      ...(turn.attachments?.length
+        ? { attachments: turn.attachments }
+        : undefined),
+    },
     {
       role: "system",
       content: `Durable working checkpoint, generation ${turn.checkpoint.generation}:\n${JSON.stringify(turn.checkpoint.memory)}`,

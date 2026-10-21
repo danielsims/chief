@@ -26,6 +26,9 @@ export class RunSteering {
     private readonly agentId: string,
     private readonly workerId: string,
     private readonly session: () => AgentSession | null,
+    /** The message a lease brings, with anything attached made readable. */
+    private readonly instruction: (lease: Lease) => Promise<string> = (lease) =>
+      Promise.resolve(instructionOf(lease)),
   ) {}
 
   admit(jobId: string) {
@@ -63,7 +66,7 @@ export class RunSteering {
       }
       const lease = this.held.shift();
       if (!lease) return;
-      await run(instructionOf(lease), lease.job.id);
+      await run(await this.instruction(lease), lease.job.id);
       await this.complete(lease);
     }
   }
@@ -73,7 +76,7 @@ export class RunSteering {
     if (answer) {
       const lease = await this.claim(jobId);
       if (!lease) return;
-      answer(instructionOf(lease));
+      answer(await this.instruction(lease));
       await this.complete(lease);
       return;
     }
@@ -84,12 +87,13 @@ export class RunSteering {
     }
     const lease = await this.claim(jobId);
     if (!lease) return;
+    const instruction = await this.instruction(lease);
     // The turn may have ended while the claim was in flight.
     if (!session.canSteer()) {
       this.held.push(lease);
       return;
     }
-    session.steer(instructionOf(lease));
+    session.steer(instruction);
     await this.complete(lease);
   }
 
@@ -106,6 +110,6 @@ export class RunSteering {
   }
 }
 
-function instructionOf(lease: Lease) {
+export function instructionOf(lease: Lease) {
   return parseJsonString(lease.job.payload.instruction)?.trim() ?? "";
 }

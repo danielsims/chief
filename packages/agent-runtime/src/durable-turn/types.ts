@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  AgentInferenceAttachment,
   AgentInferenceMessage,
   AgentInferenceProgress,
   AgentInferenceRequest,
@@ -65,6 +66,11 @@ const messageSchema = z.object({
   toolCalls: durableToolCallSchema.array().optional(),
   toolCallId: z.string().optional(),
   name: z.string().optional(),
+  attachments: z
+    .object({ name: z.string(), mediaType: z.string(), url: z.string() })
+    .array()
+    .max(8)
+    .optional(),
 });
 
 const taskSchema = z.object({
@@ -150,6 +156,8 @@ export const durableTurnSchema = z.object({
   conversationId: z.string().min(1),
   threadRootId: z.string().optional(),
   instruction: z.string().min(1),
+  /** Images sent with the instruction, read by the host at inference. */
+  attachments: messageSchema.shape.attachments,
   systemPrompt: z.string().min(1),
   browserEnabled: z.boolean(),
   computerEnabled: z.boolean().default(true),
@@ -200,6 +208,7 @@ export interface CreateDurableTurn {
   conversationId: string;
   threadRootId?: string;
   instruction: string;
+  attachments?: readonly AgentInferenceAttachment[];
   systemPrompt: string;
   browserEnabled: boolean;
   computerEnabled?: boolean;

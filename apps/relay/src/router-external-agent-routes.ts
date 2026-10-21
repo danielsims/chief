@@ -20,6 +20,8 @@ const activityRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/activity$/u;
 const toolsRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/tools$/u;
+const attachmentRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/attachment$/u;
 const memoryRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/channel\/memory$/u;
 const requeueRoute =
@@ -191,7 +193,8 @@ export async function routeExternalAgentRequest(
     messageRoute.exec(url.pathname) ??
     activityRoute.exec(url.pathname) ??
     toolsRoute.exec(url.pathname) ??
-    memoryRoute.exec(url.pathname);
+    memoryRoute.exec(url.pathname) ??
+    attachmentRoute.exec(url.pathname);
   if (inbound && request.method === "POST") {
     const workspaceId = workspaceIdSchema.parse(inbound[1]);
     agentIdSchema.parse(inbound[2]);
@@ -252,5 +255,6 @@ function inboundChannelOperation(pathname: string) {
   if (toolsRoute.test(pathname)) return "external-agent-tools";
   if (memoryRoute.test(pathname)) return "external-agent-memory";
   if (activityRoute.test(pathname)) return "external-agent-activity";
+  if (attachmentRoute.test(pathname)) return "external-agent-attachment";
   return "external-agent-message";
 }
