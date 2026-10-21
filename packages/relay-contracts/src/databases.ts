@@ -171,6 +171,10 @@ export const databaseRowSchema = z.object({
   /** Order within the database, lowest first. */
   position: z.number().finite(),
   source: databaseRowSourceSchema.optional(),
+  /** Who first added the row, stamped by the relay. */
+  createdBy: databasePersonSchema.optional(),
+  /** Who last changed the row, stamped by the relay. */
+  updatedBy: databasePersonSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -188,6 +192,12 @@ export const databaseRowSaveSchema = z
     body: databaseRowSchema.shape.body.optional(),
     position: databaseRowSchema.shape.position.optional(),
     source: databaseRowSourceSchema.nullable().optional(),
+    /**
+     * Cells an existing row must match, keyed by field id or name. When one
+     * matches and no id is given, that row is updated instead of adding a
+     * duplicate.
+     */
+    match: z.record(z.string().min(1).max(40), databaseValueSchema).optional(),
   })
   .strict();
 
