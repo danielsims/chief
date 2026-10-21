@@ -28,9 +28,12 @@ export const hostedWorkspaceTools = [
             (await deterministicUuid(
               `${job.id}:schedule:${requiredString(input, "title")}`,
             )),
-          conversationId:
-            optionalString(input, "conversationId") ??
-            requiredString(job.payload, "conversationId"),
+          // A new channel is made for it; otherwise it posts where asked, or
+          // in the conversation it was set up from.
+          conversationId: input.newChannel
+            ? optionalString(input, "conversationId")
+            : (optionalString(input, "conversationId") ??
+              requiredString(job.payload, "conversationId")),
           onceAt: input.onceAt,
         }),
       }),
