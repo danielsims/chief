@@ -10,6 +10,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { JsonObject } from "@chief/relay-contracts";
 import {
   isJsonBoolean,
+  isJsonNumber,
   isJsonString,
   parseJsonObject,
   parseJsonValue,
@@ -208,6 +209,20 @@ export class ClaudeDriver extends BaseDriver {
         const blocks: ContentBlock[] = [];
         const message = parseJsonObject(msg.message);
         const content = Array.isArray(message?.content) ? message.content : [];
+        const usage = parseJsonObject(message?.usage);
+        if (usage) {
+          // Fresh, cached and newly cached input together fill the context.
+          let used = 0;
+          for (const key of [
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+          ]) {
+            const tokens = usage[key];
+            if (isJsonNumber(tokens)) used += tokens;
+          }
+          this.recordContextUsage(used);
+        }
         for (const candidate of content) {
           const block = parseJsonObject(candidate);
           if (block?.type === "text" && isJsonString(block.text)) {

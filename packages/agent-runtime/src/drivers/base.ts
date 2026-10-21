@@ -28,6 +28,11 @@ export abstract class BaseDriver extends EventEmitter {
   protected promptProducedOutput = false;
   /** Async-stream drivers finish a prompt when they emit a terminal event. */
   protected promptCompletesFromEvents = false;
+  /** How full the backend last reported its context, for compaction. */
+  private contextTokens = 0;
+  private contextWindow: number | undefined;
+  /** True while a compaction runs, so its output stays out of the chat. */
+  private compacting = false;
   private promptCompletion:
     | {
         promise: Promise<void>;
@@ -57,6 +62,39 @@ export abstract class BaseDriver extends EventEmitter {
    * time, and stops early after an interrupt or any output that could duplicate.
    */
   async sendPrompt(text: string): Promise<void> {
+    this.interrupted = false;
+    await this.compactIfFull();
+    if (this.promptWasInterrupted()) return;
+    await this.sendPromptWithRetries(text);
+  }
+
+  /** Drivers call this whenever their backend reports how full its context is. */
+  protected recordContextUsage(used: number, size?: number) {
+    this.contextTokens = used;
+    if (size) this.contextWindow = size;
+  }
+
+  /**
+   * Every model call resends the whole session, so a long session burns
+   * through usage limits fast. Past the threshold, the session is compacted
+   * with the backend's own /compact first, which keeps a summary of the work.
+   */
+  private async compactIfFull() {
+    if (this.contextTokens < compactionThreshold(this.contextWindow)) return;
+    this.contextTokens = 0;
+    this.compacting = true;
+    try {
+      await this.sendPromptWithRetries("/compact");
+    } catch (error) {
+      console.error(
+        `[driver] compaction failed (${error instanceof Error ? error.message : String(error)}); continuing uncompacted`,
+      );
+    } finally {
+      this.compacting = false;
+    }
+  }
+
+  private async sendPromptWithRetries(text: string): Promise<void> {
     const configuredAttempts = this.startOptions?.maxPromptAttempts;
     const retryDelays = promptRetryDelays(
       configuredAttempts === undefined
@@ -64,7 +102,6 @@ export abstract class BaseDriver extends EventEmitter {
         : String(configuredAttempts),
     );
     const maxAttempts = retryDelays.length + 1;
-    this.interrupted = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       this.promptProducedOutput = false;
       const completion = this.promptCompletesFromEvents
@@ -117,7 +154,8 @@ export abstract class BaseDriver extends EventEmitter {
   }
 
   protected turnInFlight() {
-    return this.promptCompletion?.state === "pending";
+    // A message sent during compaction waits for the next turn.
+    return !this.compacting && this.promptCompletion?.state === "pending";
   }
 
   /**
@@ -170,6 +208,7 @@ export abstract class BaseDriver extends EventEmitter {
         return;
       }
     }
+    if (this.compacting && event.type !== "init") return;
     this.emit("event", event);
   }
 
@@ -196,4 +235,23 @@ export abstract class BaseDriver extends EventEmitter {
     this.promptCompletion = completion;
     return completion;
   }
+}
+
+/**
+ * Context tokens at which a session compacts: CHIEF_COMPACT_PERCENT (default
+ * 60) of the model's window when the backend reports one, never more than
+ * CHIEF_COMPACT_TOKENS (default 150k).
+ */
+export function compactionThreshold(
+  contextWindow: number | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const cap = positiveNumber(env.CHIEF_COMPACT_TOKENS) ?? 150_000;
+  const percent = positiveNumber(env.CHIEF_COMPACT_PERCENT) ?? 60;
+  return contextWindow ? Math.min(cap, (contextWindow * percent) / 100) : cap;
+}
+
+function positiveNumber(value: string | undefined) {
+  const parsed = Number(value);
+  return parsed > 0 ? parsed : undefined;
 }
