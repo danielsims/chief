@@ -39,6 +39,7 @@ const tabClass =
 export function DatabaseView({
   databaseId,
   boardOnly = false,
+  compact = false,
   leading,
   newLabel = "New",
   actions,
@@ -46,9 +47,11 @@ export function DatabaseView({
   databaseId: string;
   /** Shows only the board, with no other views to switch to. */
   boardOnly?: boolean;
+  /** Opened inside a channel: switches between existing views, nothing more. */
+  compact?: boolean;
   leading?: ReactNode;
-  /** What adding a row is called here, such as "New action item". */
-  newLabel?: string;
+  /** What adding a row is called, such as "New action item"; null hides it. */
+  newLabel?: string | null;
   actions?: ReactNode;
 }) {
   const state = useDatabase(databaseId);
@@ -80,6 +83,8 @@ export function DatabaseView({
   const group = database.fields.find(
     (field) => field.id === view?.groupBy && field.type === "select",
   );
+  // A board is used as a board: never put table/view controls above it.
+  const hideViewControls = boardOnly || view?.layout === "board";
   const person = firstField(database, "person");
   const keyOf = (value: { kind: string; id: string }) =>
     `${value.kind}:${value.id}`;
@@ -133,7 +138,7 @@ export function DatabaseView({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-6 pb-3">
         {leading}
-        {boardOnly ? null : (
+        {hideViewControls || (compact && views.length < 2) ? null : (
           <div className="flex min-w-0 items-center gap-0.5" role="tablist">
             {views.map((candidate) => {
               const active = candidate.id === view?.id;
@@ -214,7 +219,7 @@ export function DatabaseView({
                 </button>
               );
             })}
-            {views.length < databaseLimits.views ? (
+            {!compact && views.length < databaseLimits.views ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   aria-label="Add view"
@@ -324,14 +329,16 @@ export function DatabaseView({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => openRow({ values: {} })}
-          >
-            <Plus size={13} />
-            {newLabel}
-          </Button>
+          {newLabel ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => openRow({ values: {} })}
+            >
+              <Plus size={13} />
+              {newLabel}
+            </Button>
+          ) : null}
           {actions}
         </div>
       </div>
