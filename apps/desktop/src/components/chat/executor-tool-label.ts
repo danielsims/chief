@@ -15,8 +15,6 @@ function humanizeExecutorOperation(operation: string) {
   if (operation === "filesList") return "Review workspace files";
   if (operation === "filesWrite") return "Save workspace document";
   if (operation === "brandProfileSave") return "Save brand profile";
-  if (operation === "prospectsList") return "Review saved prospects";
-  if (operation === "prospectsSave") return "Save qualified prospect";
   if (operation === "trendsList") return "Review saved trends";
   if (operation === "trendsSave") return "Save market signal";
   if (operation === "actionRaise") return "Create setup action";

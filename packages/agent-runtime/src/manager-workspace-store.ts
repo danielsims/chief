@@ -8,7 +8,6 @@ import type {
   AnalyticsDataset,
   CampaignRecord,
   ContentDraftRecord,
-  ProspectRecord,
   RecurringWorkRecord,
   ScheduleSessionActionTransition,
   SessionRecord,
@@ -34,9 +33,6 @@ export abstract class ManagerWorkspaceStore {
 
   workspaceData(workspaceId: string) {
     return workspaceData(this.store, workspaceId);
-  }
-  saveProspect(workspaceId: string, prospect: ProspectRecord) {
-    return this.store.saveProspect(workspaceId, prospect);
   }
   saveTrend(workspaceId: string, trend: TrendRecord) {
     return this.store.saveTrend(workspaceId, trend);

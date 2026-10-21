@@ -38,7 +38,6 @@ import type {
   ContentDraftRecord,
   DiagnosticEventRecord,
   DriverType,
-  ProspectRecord,
   RecurringWorkRecord,
   ScheduleSessionActionTransition,
   SessionRecord,
@@ -274,6 +273,9 @@ export class LocalStore {
         await migrate(db, {
           migrationsFolder: migrationFolder(),
         });
+        // The built-in prospect store is retired in favour of channel
+        // databases. Remove its table from databases created before that.
+        await client.execute("DROP TABLE IF EXISTS prospect");
         await ensureChannelManagementSchema(client);
       };
       try {
@@ -1135,61 +1137,6 @@ export class LocalStore {
         )
         .run();
     });
-  }
-
-  async listProspects(workspaceId: string): Promise<ProspectRecord[]> {
-    await this.ready;
-    const rows = await this.db
-      .select()
-      .from(schema.prospects)
-      .where(eq(schema.prospects.organizationId, workspaceId))
-      .orderBy(desc(schema.prospects.foundAt))
-      .all();
-    return rows.map((prospect) => ({
-      id: prospect.id,
-      name: prospect.name,
-      company: prospect.company ?? undefined,
-      source: prospect.source,
-      sourceUrl: prospect.sourceUrl ?? undefined,
-      summary: prospect.summary,
-      relevance: prospect.relevance,
-      status: prospect.status,
-      foundAt: prospect.foundAt,
-    }));
-  }
-
-  async saveProspect(workspaceId: string, prospect: ProspectRecord) {
-    await this.ready;
-    const existing = await this.db
-      .select({ organizationId: schema.prospects.organizationId })
-      .from(schema.prospects)
-      .where(eq(schema.prospects.id, prospect.id))
-      .get();
-    if (existing && existing.organizationId !== workspaceId) {
-      throw new Error("Prospect belongs to a different workspace.");
-    }
-    await this.db
-      .insert(schema.prospects)
-      .values({
-        ...prospect,
-        organizationId: workspaceId,
-        updatedAt: Date.now(),
-      })
-      .onConflictDoUpdate({
-        target: schema.prospects.id,
-        set: {
-          name: prospect.name,
-          company: prospect.company,
-          source: prospect.source,
-          sourceUrl: prospect.sourceUrl,
-          summary: prospect.summary,
-          relevance: prospect.relevance,
-          status: prospect.status,
-          foundAt: prospect.foundAt,
-          updatedAt: Date.now(),
-        },
-      })
-      .run();
   }
 
   async listTrends(workspaceId: string): Promise<TrendRecord[]> {

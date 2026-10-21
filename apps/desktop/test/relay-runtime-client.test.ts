@@ -198,9 +198,6 @@ void test("routes createChannel through the relay and emits the created channel"
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).channelSettings,
-    listProspects() {
-      throw new Error("not used in this test");
-    },
     listWorkspaceFiles() {
       throw new Error("not used in this test");
     },
@@ -350,7 +347,6 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).channelSettings,
-    listProspects: unused,
     listWorkspaceFiles: unused,
     reactToMessage: unused,
     removeAgent: unused,

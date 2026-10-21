@@ -34,7 +34,6 @@ struct AgentConfig: Codable, Equatable, Sendable {
 
   static let allCapabilities = [
     "analytics-chart",
-    "prospect-memory",
     "trend-memory",
     "content-calendar",
     "campaign-memory",
@@ -85,7 +84,6 @@ struct AgentConfig: Codable, Equatable, Sendable {
         AgentToolPermissionID.browserUse.rawValue,
       ])
     case "prospector":
-      config.capabilities.insert("prospect-memory")
       config.toolPermissions.formUnion([
         AgentToolPermissionID.workspaceWrite.rawValue,
         AgentToolPermissionID.browserUse.rawValue,
@@ -124,7 +122,6 @@ struct AgentConfig: Codable, Equatable, Sendable {
       "scheduled-work": ["schedules.read", "schedules.manage", "schedules.run"],
       "advanced": ["browser.use"],
       "brand-profile-write": ["workspace.write"],
-      "prospects-write": ["workspace.write"],
     ]
     for (old, exact) in legacy where result.contains(old) {
       result.formUnion(exact)
@@ -136,7 +133,7 @@ struct AgentConfig: Codable, Equatable, Sendable {
     var copy = self
     let legacy = Set([
       "workspace", "channels", "messages", "scheduled-work", "advanced",
-      "brand-profile-write", "prospects-write",
+      "brand-profile-write",
     ])
     copy.toolPermissions = effectiveToolPermissions.subtracting(legacy)
     return copy

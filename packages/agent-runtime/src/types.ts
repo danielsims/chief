@@ -34,7 +34,6 @@ import type {
   EveAgentProvisioningProgress,
   EveAgentProvisioningResult,
   LocalIntegrationStatus,
-  ProspectRecord,
   ProviderModelOption,
   RecurringWorkRecord,
   SessionRecord,
@@ -286,7 +285,6 @@ export type ServerMessage =
       type: "workspaceData";
       workspaceId: string;
       revision: number;
-      prospects: ProspectRecord[];
       trends: TrendRecord[];
       analyticsDatasets: AnalyticsDataset[];
       drafts: ContentDraftRecord[];

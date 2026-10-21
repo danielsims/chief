@@ -49,26 +49,6 @@ describe("workspace agent capability policy", () => {
     expect(
       hasAgentPermission(config.toolPermissions, "brand-profile-write"),
     ).toBe(true);
-    expect(hasAgentPermission(config.toolPermissions, "prospects-write")).toBe(
-      false,
-    );
-  });
-
-  it("restores Prospector's narrow write grant after a client settings save", () => {
-    const defaults = defaultAgentConfigFor("prospector");
-    const config = effectiveAgentConfigFor("prospector", {
-      ...defaults,
-      toolPermissions: defaults.toolPermissions.filter(
-        (permission) => permission !== "prospects-write",
-      ),
-    });
-
-    expect(hasAgentPermission(config.toolPermissions, "prospects-write")).toBe(
-      true,
-    );
-    expect(
-      hasAgentPermission(config.toolPermissions, "brand-profile-write"),
-    ).toBe(false);
   });
 
   it("does not derive specialist writes after workspace saving is disabled", () => {

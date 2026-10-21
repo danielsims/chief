@@ -16,7 +16,6 @@ export const chief = {
     "setup",
   ],
   capabilities: [
-    "prospect-memory",
     "trend-memory",
     "content-calendar",
     "campaign-memory",

@@ -85,6 +85,12 @@ export function initializeWorkspaceSchema(
       config_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    -- The retired prospects-write permission is stripped from stored configs.
+    UPDATE agent_configs
+      SET config_json = REPLACE(REPLACE(REPLACE(config_json,
+        ',"prospects-write"', ''), '"prospects-write",', ''),
+        '"prospects-write"', '')
+      WHERE config_json LIKE '%"prospects-write"%';
     CREATE TABLE IF NOT EXISTS external_agent_runtimes (
       agent_id TEXT PRIMARY KEY,
       endpoint_url TEXT NOT NULL,

@@ -30,7 +30,6 @@ interface WorkspaceDataContext {
     | "createProject"
     | "listAgentJobs"
     | "listProjects"
-    | "listProspects"
     | "listWorkspaceFiles"
     | "updateWorkspaceFile"
   > &
@@ -207,8 +206,7 @@ async function listProjects(context: WorkspaceDataContext) {
 }
 
 async function listWorkspaceData(context: WorkspaceDataContext) {
-  const [prospects, schedules, activity] = await Promise.all([
-    context.relay.listProspects(),
+  const [schedules, activity] = await Promise.all([
     context.relay.schedules.list(),
     loadRelayWorkspaceActivity(context.relay, context.snapshot),
   ]);
@@ -216,17 +214,6 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     type: "workspaceData",
     workspaceId: context.snapshot.id,
     revision: Date.now(),
-    prospects: prospects.map((prospect) => ({
-      id: prospect.id,
-      name: prospect.name,
-      ...(prospect.company ? { company: prospect.company } : undefined),
-      source: prospect.source,
-      sourceUrl: prospect.sourceUrl,
-      summary: prospect.summary,
-      relevance: prospect.relevance,
-      status: prospect.status === "reviewing" ? "researching" : prospect.status,
-      foundAt: Date.parse(prospect.foundAt),
-    })),
     trends: [],
     analyticsDatasets: [],
     drafts: [],

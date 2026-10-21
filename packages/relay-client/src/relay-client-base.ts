@@ -7,7 +7,6 @@ import type {
   CreateWorkspaceCommand,
   JsonValue,
   OnboardingTelemetryEvent,
-  Prospect,
   RelayDiscovery,
   RelayProject,
   RelayProjectCreate,
@@ -44,9 +43,6 @@ import {
   onboardingTelemetryEventSchema,
   onboardingTelemetryReceiptSchema,
   parseJsonValue,
-  prospectSaveSchema,
-  prospectSchema,
-  prospectsResultSchema,
   relayDiscoverySchema,
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
@@ -593,31 +589,6 @@ export class RelayClientBase {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(workspaceFileSaveSchema.parse(input)),
-      },
-    );
-  }
-
-  async listProspects(): Promise<Prospect[]> {
-    return (
-      await this.fetchJson(
-        this.workspaceUrl("data/prospects"),
-        prospectsResultSchema,
-      )
-    ).prospects;
-  }
-
-  async saveProspect(
-    input: Parameters<typeof prospectSaveSchema.parse>[0],
-  ): Promise<Prospect> {
-    return await this.fetchJson(
-      this.workspaceUrl("data/prospects"),
-      // The relay returns the saved prospect record directly.
-      prospectSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(prospectSaveSchema.parse(input)),
       },
     );
   }

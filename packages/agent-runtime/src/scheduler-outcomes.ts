@@ -104,29 +104,6 @@ export function artifactsFromSession(
     }
   }
 
-  const prospects = newIds(before.prospects, after.prospects).slice(0, 25);
-  if (prospects.length > 0) {
-    artifacts.push({
-      type: "data-table",
-      id: "prospects",
-      data: {
-        title: "Prospects found",
-        columns: [
-          { key: "name", label: "Name" },
-          { key: "company", label: "Company" },
-          { key: "relevance", label: "Relevance" },
-          { key: "source", label: "Source" },
-        ],
-        rows: prospects.map((item) => ({
-          name: item.name,
-          company: item.company ?? "",
-          relevance: item.relevance,
-          source: item.source,
-        })),
-      },
-    });
-  }
-
   const trends = newIds(before.trends, after.trends).slice(0, 25);
   if (trends.length > 0) {
     artifacts.push({

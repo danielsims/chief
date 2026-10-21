@@ -31,7 +31,6 @@ final class AgentTurnCheckpointTests: XCTestCase {
     XCTAssertTrue(names.contains(RelayChannelMembersAddTool.name))
     XCTAssertTrue(names.contains(BrowserNavigateTool.name))
     XCTAssertTrue(names.contains(BrandProfileSaveTool.name))
-    XCTAssertFalse(names.contains(ProspectSaveTool.name))
   }
 
   func testTurnGrantIntersectsTaskAndExactAgentPermission() {

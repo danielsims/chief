@@ -41,8 +41,6 @@ import {
   publishProjectDefinition,
 } from "./toolkits/projects/hosted.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
-import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
-import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
 import { readWebPageDefinition } from "./toolkits/web/read-web-page.js";
 import { getBrandProfileStatusDefinition } from "./toolkits/workspace/get-brand-profile-status.js";
@@ -83,8 +81,6 @@ export const hostedAgentToolDefinitions = {
     recommendProjectDefinition,
     getBrandProfileStatusDefinition,
     saveBrandProfileDefinition,
-    listProspectsDefinition,
-    saveProspectDefinition,
     delegateSpecialistDefinition,
     readWebPageDefinition,
   ],

@@ -10,7 +10,6 @@ import { authorizeWorkspace } from "./workspace-authority";
 const schedulesRoute =
   /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions)?$/u;
 const brandProfileRoute = /^\/v1\/workspaces\/([^/]+)\/data\/brand-profile$/u;
-const prospectsRoute = /^\/v1\/workspaces\/([^/]+)\/data\/prospects$/u;
 const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const fileRoute = /^\/v1\/workspaces\/([^/]+)\/files\/([^/]+)$/u;
 const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
@@ -29,7 +28,6 @@ export function routeWorkspaceDataRequest(
   return Effect.gen(function* () {
     const schedules = schedulesRoute.exec(url.pathname);
     const brand = brandProfileRoute.exec(url.pathname);
-    const prospects = prospectsRoute.exec(url.pathname);
     const files = filesRoute.exec(url.pathname);
     const file = fileRoute.exec(url.pathname);
     const projects = projectsRoute.exec(url.pathname);
@@ -56,10 +54,6 @@ export function routeWorkspaceDataRequest(
       rawWorkspaceId = brand[1];
       operation =
         request.method === "GET" ? "data-brand-get" : "data-brand-save";
-    } else if (prospects && ["GET", "POST"].includes(request.method)) {
-      rawWorkspaceId = prospects[1];
-      operation =
-        request.method === "GET" ? "data-prospects-list" : "data-prospect-save";
     } else if (files && ["GET", "POST"].includes(request.method)) {
       rawWorkspaceId = files[1];
       operation =

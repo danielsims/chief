@@ -1125,11 +1125,6 @@ export function startServer(port = PORT) {
         throw new Error(`Cloud record sync returned ${response.status}.`);
       }
       const records = cloudRecordsSchema.parse(await response.json());
-      await Promise.all(
-        (records.prospects ?? []).map((prospect) =>
-          manager.saveProspect(workspaceId, prospect),
-        ),
-      );
       for (const file of records.files ?? []) {
         const existing = await manager
           .workspaceFile(workspaceId, file.id)

@@ -232,7 +232,6 @@ const executorToolPermissionGroups: readonly (readonly [
   [
     "workspace.read",
     [
-      "prospectsList",
       "trendsList",
       "analyticsListDatasets",
       "contentList",
@@ -245,7 +244,6 @@ const executorToolPermissionGroups: readonly (readonly [
   [
     "workspace.write",
     [
-      "prospectsSave",
       "trendsSave",
       "analyticsSaveDataset",
       "contentSave",
@@ -364,7 +362,6 @@ export function combinedAgentToolPermissionCeiling(
 
 const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
   ...[
-    "/local-tools/prospects",
     "/local-tools/trends",
     "/local-tools/analytics/datasets",
     "/local-tools/content",
@@ -382,7 +379,6 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
   ["POST /local-tools/files/write", "messages.send"],
   ["POST /local-tools/pages", "messages.send"],
   ...[
-    "/local-tools/prospects",
     "/local-tools/trends",
     "/local-tools/analytics/datasets",
     "/local-tools/content",

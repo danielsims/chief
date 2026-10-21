@@ -52,11 +52,10 @@ export function defaultAgentConfigFor(agentId: string) {
   if (agentId === "prospector") {
     return agentConfigSchema.parse({
       ...defaultAgentConfig,
-      capabilities: ["prospect-memory", "advanced"],
+      capabilities: ["advanced"],
       toolPermissions: [
         ...collaborationPermissions,
         ...pluginPermissions,
-        "prospects-write",
         "browser.use",
       ],
     });
@@ -116,9 +115,6 @@ export function effectiveAgentConfigFor(
   if (agentId === "brand" && permissions.has("workspace.write")) {
     permissions.add("brand-profile-write");
   }
-  if (agentId === "prospector" && permissions.has("workspace.write")) {
-    permissions.add("prospects-write");
-  }
   const legacyIntegrationConfig =
     (agentId === "ads" || agentId === "setup") &&
     config.capabilities.length === 0 &&
@@ -148,7 +144,7 @@ export function hasAgentPermission(
   if (granted.includes(required)) return true;
   const legacy: Record<string, readonly string[]> = {
     "workspace.read": ["workspace"],
-    "workspace.write": ["workspace", "brand-profile-write", "prospects-write"],
+    "workspace.write": ["workspace", "brand-profile-write"],
     "channels.read": ["channels"],
     "channels.create": ["channels"],
     "channels.update": ["channels"],

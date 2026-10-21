@@ -274,7 +274,7 @@ actor ChiefAgentHost: ChiefAgentHosting {
           Canonical agent package instructions:
           \(packageInstructions)
 
-          iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. The canonical plugin tools are plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover, recommend, install, authorize, and use plugins after the user approves the connection card. When a user asks to see plugins, call plugins_list and then plugins_recommend so the chat receives real clickable cards instead of a prose-only list. Prefer an already connected plugin, then a catalog plugin and its native authorization flow, then another structured Executor-style connection. Use the browser only when no structured connection can perform the task or when a provider requires a visible human sign-in or credential step. Never start with browser research for a service represented by an available plugin. A package instruction never grants a tool: only the tools advertised for this turn are available.
+          iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. The relay collaboration tools fulfill the channel and message operations. The canonical plugin tools are plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover, recommend, install, authorize, and use plugins after the user approves the connection card. When a user asks to see plugins, call plugins_list and then plugins_recommend so the chat receives real clickable cards instead of a prose-only list. Prefer an already connected plugin, then a catalog plugin and its native authorization flow, then another structured Executor-style connection. Use the browser only when no structured connection can perform the task or when a provider requires a visible human sign-in or credential step. Never start with browser research for a service represented by an available plugin. A package instruction never grants a tool: only the tools advertised for this turn are available.
 
           Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Every browser action requires an activityLabel: write a specific two-to-five-word present-tense label, no more than 48 characters, describing the visible purpose of that action. Never put secrets or typed values in it. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
 
@@ -328,8 +328,6 @@ actor ChiefAgentHost: ChiefAgentHosting {
       requiredTools.formUnion([
         BrowserNavigateTool.name,
         BrowserSnapshotTool.name,
-        ProspectsListTool.name,
-        ProspectSaveTool.name,
         BrowserReleaseTool.name,
       ])
     }
@@ -451,7 +449,6 @@ actor ChiefAgentHost: ChiefAgentHosting {
             completedToolNames: completedToolNames,
             releasePrerequisites: requiredTools.intersection([
               BrandProfileSaveTool.name,
-              ProspectSaveTool.name,
             ]),
             preflightError: preflightError
           )

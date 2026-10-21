@@ -72,7 +72,6 @@ export function chiefToolGroup(name: string) {
     channels: "Channels",
     files: "Files",
     projects: "Projects",
-    prospects: "Prospects",
     brandProfile: "Brand",
     recurringWork: "Automations",
     web: "Web",

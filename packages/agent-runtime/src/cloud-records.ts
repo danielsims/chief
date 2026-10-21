@@ -1,21 +1,7 @@
 import { z } from "zod";
 
-import type { ActionItem, ProspectRecord } from "./types.js";
+import type { ActionItem } from "./types.js";
 import { inputRequestSchema } from "./input-request-schema.js";
-
-const prospectSchema: z.ZodType<ProspectRecord> = z.object({
-  id: z.string(),
-  name: z.string(),
-  company: z.string().optional(),
-  source: z.string(),
-  sourceUrl: z.string().optional(),
-  summary: z.string(),
-  evidence: z.string().optional(),
-  outreachAngle: z.string().optional(),
-  relevance: z.enum(["high", "medium", "low"]),
-  status: z.enum(["new", "researching", "contacted", "dismissed"]),
-  foundAt: z.number(),
-});
 
 const workspaceFileSchema = z.object({
   id: z.string(),
@@ -49,7 +35,6 @@ const actionItemSchema: z.ZodType<ActionItem> = z.object({
 });
 
 export const cloudRecordsSchema = z.object({
-  prospects: z.array(prospectSchema).optional(),
   files: z.array(workspaceFileSchema).optional(),
   actions: z.array(actionItemSchema).optional(),
 });
