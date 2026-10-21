@@ -7,6 +7,7 @@ import { TooltipProvider } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../lib/auth/auth-context";
+import { useRelaySession } from "../lib/relay-session";
 import { AppTopChrome } from "./app-top-chrome";
 import { SettingsSidebar } from "./settings-sidebar";
 import { Sidebar } from "./sidebar";
@@ -38,6 +39,7 @@ export function Layout({
 }) {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
+  const workspaceId = useRelaySession().snapshot?.id;
   const overview = location.pathname === "/";
   const channel = location.pathname.startsWith("/conversations");
   const settings = location.pathname.startsWith("/settings");
@@ -105,7 +107,7 @@ export function Layout({
             {activeSidebarOpen ? (
               <div
                 style={{ width: sidebarWidth }}
-                className="relative h-full shrink-0 overflow-hidden transition-[width] duration-200"
+                className="relative h-full shrink-0 overflow-hidden"
               >
                 <AnimatePresence initial={false} mode="wait">
                   <motion.div
@@ -132,7 +134,10 @@ export function Layout({
               balancedGutter={!activeSidebarOpen}
               split={Boolean(channel)}
             >
+              {/* Keyed by workspace so no page carries one workspace's
+                  state into another. */}
               <div
+                key={workspaceId ?? "none"}
                 className={cn(
                   "min-h-0 min-w-0 flex-1",
                   settings

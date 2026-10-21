@@ -403,7 +403,8 @@ export function draftTools(steps: readonly AutomationStep[]) {
 
 /**
  * Unsaved edits survive a reload of the app. Only this person's browser holds
- * them, and they are dropped once saved or once the automation changes.
+ * them, kept per workspace, and they are dropped once saved or once the
+ * automation changes.
  */
 const storedDraftSchema = z.object({
   base: z.number().nullable(),
@@ -415,14 +416,19 @@ const storedDraftSchema = z.object({
   ),
 });
 
-function storedDraftKey(automationId: string) {
-  return `chief:automation-draft:${automationId}`;
+function storedDraftKey(workspaceId: string, automationId: string) {
+  return `chief:automation-draft:${workspaceId}:${automationId}`;
 }
 
 /** The unsaved draft for this automation, if it was made from `base`. */
-export function readStoredDraft(automationId: string, base: number | null) {
+export function readStoredDraft(
+  workspaceId: string | undefined,
+  automationId: string,
+  base: number | null,
+) {
+  if (!workspaceId) return null;
   try {
-    const raw = localStorage.getItem(storedDraftKey(automationId));
+    const raw = localStorage.getItem(storedDraftKey(workspaceId, automationId));
     const parsed = raw ? storedDraftSchema.safeParse(JSON.parse(raw)) : null;
     return parsed?.success && parsed.data.base === base
       ? parsed.data.draft
@@ -433,17 +439,19 @@ export function readStoredDraft(automationId: string, base: number | null) {
 }
 
 export function writeStoredDraft(
+  workspaceId: string | undefined,
   automationId: string,
   base: number | null,
   draft: AutomationDraft | null,
 ) {
+  if (!workspaceId) return;
   try {
     if (draft)
       localStorage.setItem(
-        storedDraftKey(automationId),
+        storedDraftKey(workspaceId, automationId),
         JSON.stringify({ base, draft }),
       );
-    else localStorage.removeItem(storedDraftKey(automationId));
+    else localStorage.removeItem(storedDraftKey(workspaceId, automationId));
   } catch {
     /* Storage can be unavailable; the draft simply won't survive a reload. */
   }
