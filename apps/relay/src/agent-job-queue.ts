@@ -14,6 +14,7 @@ import {
   parseJsonObject,
   parseJsonString,
   renewAgentJobSchema,
+  scheduleRunStepTextLimit,
 } from "@chief/relay-contracts";
 
 import type { ConversationScope } from "./agent-turn-supersession";
@@ -285,7 +286,7 @@ export class AgentJobQueue {
             runId,
             stepId,
             status: "completed",
-            evidence: evidence.slice(0, 4_000),
+            evidence: evidence.slice(0, scheduleRunStepTextLimit),
           }),
         }),
         {

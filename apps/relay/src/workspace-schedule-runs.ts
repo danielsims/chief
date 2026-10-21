@@ -3,7 +3,11 @@ import type {
   ScheduleRun,
   WorkspaceSchedule,
 } from "@chief/relay-contracts";
-import { principalSchema, scheduleRunSchema } from "@chief/relay-contracts";
+import {
+  principalSchema,
+  scheduleRunSchema,
+  scheduleRunStepTextLimit,
+} from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
 import { workspaceScheduleRunsFindListScheduleRuns } from "./queries/workspace-schedule-runs/find-list-schedule-runs";
@@ -141,7 +145,7 @@ export function finishScheduleRun(
     {
       ...current.run,
       state,
-      summary: summary.slice(0, 4000),
+      summary: summary.slice(0, scheduleRunStepTextLimit),
       completedAt: now,
       updatedAt: now,
       nextCheckAt: state === "completed" ? undefined : now,
