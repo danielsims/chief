@@ -5,6 +5,7 @@ import type { WorkspaceSocketAttachment } from "./workspace-socket-state";
 import { isGuestListener } from "./channel-guest-listeners";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { workspaceSocketAttachment } from "./workspace-socket-state";
+import { isWebMachine } from "./workspace-web-machine";
 
 /**
  * Fans a person's typing signal out to the other people watching that
@@ -32,7 +33,12 @@ export function relayConversationTyping(
     active: input.active !== false,
   });
   for (const peer of ctx.getWebSockets()) {
-    if (peer === socket || isGuestListener(ctx, peer)) continue;
+    if (
+      peer === socket ||
+      isGuestListener(ctx, peer) ||
+      isWebMachine(ctx, peer)
+    )
+      continue;
     try {
       const reader = workspaceSocketAttachment(peer);
       if (

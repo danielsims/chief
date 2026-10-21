@@ -42,6 +42,7 @@ import {
   routeGitHubBrowser,
   routeWorkspaceGitHub,
 } from "./router-workspace-github";
+import { routeWorkspaceMachines } from "./router-workspace-machines";
 import { routeMcpBrowser, routeWorkspaceMcp } from "./router-workspace-mcp";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import { routeWorkspaceSettings } from "./router-workspace-settings";
@@ -601,6 +602,13 @@ function routeWorkspaceRequest(
         ),
       );
     }
+    const machines = yield* routeWorkspaceMachines(
+      env,
+      request,
+      requestId,
+      url,
+    );
+    if (machines) return machines;
     const secrets = workspaceSecretsRoute.exec(url.pathname);
     if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
       return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);

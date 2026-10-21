@@ -38,6 +38,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 tar = "0.4"
 flate2 = "1"
 url = "2"
+chief-machine = { path = "../../../packages/chief-machine" }
 tauri-plugin-dialog = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
