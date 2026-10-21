@@ -7,6 +7,7 @@ import {
   Lock,
   Pencil,
   Plus,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
@@ -25,9 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@chief/ui/components/dropdown-menu";
 import { Input } from "@chief/ui/components/input";
@@ -46,7 +44,6 @@ import {
 import { PageHeader } from "../components/page-header";
 import { parseRelayError } from "../lib/relay-runtime-errors";
 import { useRelaySession } from "../lib/relay-session-context";
-import { useWorkspaceChannels } from "../lib/workspace-channels-context";
 
 /** The workspace's boards, with the workspace board first. */
 function boardsOf(databases: readonly Database[]) {
@@ -65,7 +62,6 @@ const listed = new Map<string, Database[]>();
 
 export function BoardsPage() {
   const { client, snapshot } = useRelaySession();
-  const { channels } = useWorkspaceChannels();
   const prefetch = usePrefetchDatabase();
   const [params, setParams] = useSearchParams();
   const workspaceId = snapshot?.id ?? "";
@@ -105,17 +101,7 @@ export function BoardsPage() {
   const board =
     boards?.find((candidate) => candidate.id === params.get("board")) ??
     boards?.[0];
-  const channelOf = (database: Database) =>
-    channels.find((channel) => channel.id === database.conversationId);
   const choices = useChannelChoices();
-  const placeIcon = (database: Database) =>
-    !database.conversationId ? (
-      <Columns3 size={13} />
-    ) : channelOf(database)?.visibility === "private" ? (
-      <Lock size={13} />
-    ) : (
-      <Hash size={13} />
-    );
   const change = (
     target: Database,
     update: { conversationId?: string | null; name?: string },
@@ -141,6 +127,7 @@ export function BoardsPage() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="max-w-64">
+          <Columns3 size={13} className="text-muted-foreground" />
           <span className="truncate">{board.name}</span>
           <ChevronDown size={13} className="text-muted-foreground" />
         </Button>
@@ -155,9 +142,7 @@ export function BoardsPage() {
             onSelect={() => select(candidate.id)}
             onPointerEnter={() => prefetch(candidate.id)}
           >
-            <span className="text-muted-foreground">
-              {placeIcon(candidate)}
-            </span>
+            <Columns3 size={13} className="text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
             {candidate.id === board.id ? <Check size={13} /> : null}
           </DropdownMenuItem>
@@ -167,53 +152,66 @@ export function BoardsPage() {
           <Plus size={13} />
           New board
         </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
+  // The open board's own settings, beside the filter.
+  const settings = board ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Board settings"
+          title="Board settings"
+        >
+          <Settings2 size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <p className="text-muted-foreground px-2 pt-1 pb-1.5 text-[11px]">
+          Channel
+        </p>
+        <div className="max-h-56 overflow-y-auto">
+          <DropdownMenuItem
+            onSelect={() => change(board, { conversationId: null })}
+          >
+            <Columns3 size={13} />
+            Whole workspace
+            {!board.conversationId ? (
+              <Check size={13} className="ml-auto" />
+            ) : null}
+          </DropdownMenuItem>
+          {choices.map((channel) => (
+            <DropdownMenuItem
+              key={channel.id}
+              onSelect={() => change(board, { conversationId: channel.id })}
+            >
+              {channel.visibility === "private" ? (
+                <Lock size={13} />
+              ) : (
+                <Hash size={13} />
+              )}
+              <span className="truncate">{channel.name}</span>
+              {board.conversationId === channel.id ? (
+                <Check size={13} className="ml-auto" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </div>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => setRenaming(board)}>
           <Pencil size={13} />
           Rename
         </DropdownMenuItem>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            {placeIcon(board)}
-            {channelOf(board)
-              ? `#${channelOf(board)?.name}`
-              : "Whole workspace"}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
-            <DropdownMenuItem
-              onSelect={() => change(board, { conversationId: null })}
-            >
-              <Columns3 size={13} />
-              Whole workspace
-              {!board.conversationId ? (
-                <Check size={13} className="ml-auto" />
-              ) : null}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {choices.map((channel) => (
-              <DropdownMenuItem
-                key={channel.id}
-                onSelect={() => change(board, { conversationId: channel.id })}
-              >
-                {channel.visibility === "private" ? (
-                  <Lock size={13} />
-                ) : (
-                  <Hash size={13} />
-                )}
-                {channel.name}
-                {board.conversationId === channel.id ? (
-                  <Check size={13} className="ml-auto" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         {board.id !== workspaceBoardId ? (
           <DropdownMenuItem
             className="text-destructive"
             onSelect={() => setDeleting(board)}
           >
             <Trash2 size={13} />
-            Delete {board.name}
+            Delete board
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
@@ -229,7 +227,8 @@ export function BoardsPage() {
           databaseId={board.id}
           boardOnly
           leading={picker}
-          newLabel="New action item"
+          newLabel={null}
+          actions={settings}
         />
       ) : null}
       {creating ? (
