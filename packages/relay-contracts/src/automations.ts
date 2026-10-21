@@ -305,3 +305,7 @@ export function automationIssues(automation: {
 }): string[] {
   return automationIssueList(automation).map((issue) => issue.message);
 }
+
+/** How steps are written, for agents and the automation builder. */
+export const automationStepsGuide =
+  "A step is one of: {id,type:'agent',title,agentId,prompt}; {id,type:'tool',title,tool:{source:'chief',name:'<operationId>'} or {source:'plugin',connectionId,name,readOnly},arguments:{...}}; {id,type:'condition',title,when:{value:'{{steps.<id>.output.<field>}}',operator:'equals'|'not_equals'|'contains'|'not_contains'|'greater_than'|'less_than'|'is_empty'|'is_not_empty',compare?:'text'},then:[steps],else:[steps]}; {id,type:'stop',title,outcome:'completed'|'skipped'}. Ids are lowercase a-z, 0-9, _ or -. Read an earlier step's result with {{steps.<id>.output}} or {{steps.<id>.output.<field>}}; agent steps output {text}. Webhook data is {{trigger.input.<field>}}. A step may only read steps that always run before it. Every agent step's agentId must be the lead or a collaborator. Use only tools found with automations.tools, with readOnly exactly as listed.";

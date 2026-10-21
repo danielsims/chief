@@ -28,6 +28,7 @@ import {
 } from "./request-rate-limits";
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
+import { routeAutomationBuild } from "./router-automation-build";
 import { routeChannelGuestRequest } from "./router-channel-guests";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
@@ -604,6 +605,8 @@ function routeWorkspaceRequest(
     if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
       return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);
     }
+    const build = yield* routeAutomationBuild(env, request, requestId, url);
+    if (build) return build;
     return yield* routeWorkspaceDataRequest(env, request, requestId, url);
   }).pipe(Effect.withSpan("relay.workspace"));
 }

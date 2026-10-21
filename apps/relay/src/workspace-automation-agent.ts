@@ -12,6 +12,7 @@ import {
   isJsonString,
   jsonObjectSchema,
   walkAutomation,
+  workspaceScheduleInputSchema,
 } from "@chief/relay-contracts";
 
 import { automationChiefTool, automationChiefTools } from "./automation-tools";
@@ -32,6 +33,7 @@ import {
   wakeWorkspaceSchedules,
 } from "./workspace-schedule-store";
 import { latestWebhookEvents } from "./workspace-schedule-webhooks";
+import { WorkspaceSecretService } from "./workspace-secret-service";
 
 /**
  * What agents use to build an automation until it works: the tools a step can
@@ -120,6 +122,8 @@ export async function routeAutomationAgent(
       toolCatalogue(storage, env, context.workspaceId, agentId, input.query),
     );
   }
+  if (operation === "automations-build-context")
+    return json(await buildContext(storage, env, channels, context, body));
   const { id } = automationRequestSchema.parse(body);
   const stored = readWorkspaceSchedule(storage, id);
   if (!stored)
@@ -161,6 +165,55 @@ export async function routeAutomationAgent(
   return json({ runId: run.id, state: run.state });
 }
 
+const buildContextRequestSchema = z.object({
+  id: z.string().min(1).max(120),
+  agentId: agentIdSchema.optional(),
+});
+
+/**
+ * What the automation builder needs to design one: the automation as saved,
+ * the team, every tool a step could use, and the model to design it with.
+ * Only workspace administrators build automations, as only they save them.
+ */
+async function buildContext(
+  storage: DurableObjectStorage,
+  env: Env,
+  channels: WorkspaceChannelStore,
+  context: ReturnType<typeof readTrustedContext>,
+  body: JsonValue,
+) {
+  if (context.principal.kind !== "user")
+    throw new HttpError(
+      403,
+      "automation_builder_people_only",
+      "Only people use the automation builder.",
+    );
+  requireWorkspaceAdministrator(channels, context.principal);
+  const input = buildContextRequestSchema.parse(body);
+  const stored = readWorkspaceSchedule(storage, input.id);
+  if (stored)
+    channels.requireChannelVisible(
+      stored.schedule.conversationId,
+      context.principal,
+    );
+  const lead = stored?.schedule.agentId ?? input.agentId ?? "chief";
+  const names = channels.principalNames();
+  return {
+    schedule: stored
+      ? workspaceScheduleInputSchema.parse(stored.schedule)
+      : null,
+    agents: channels.workspaceAgentIds().map((id) => ({
+      id,
+      name: names.get(`agent:${id}`) ?? id,
+    })),
+    tools: toolCatalogue(storage, env, context.workspaceId, lead, "", 80).tools,
+    ...(await new WorkspaceSecretService(storage, env).inferenceFor(
+      context.workspaceId,
+      "chief",
+    )),
+  };
+}
+
 function shortText(value: string, limit: number) {
   const text = value.replace(/\s+/gu, " ").trim();
   return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
@@ -181,6 +234,7 @@ function toolCatalogue(
   workspaceId: string,
   agentId: string,
   query: string,
+  limit = maximumTools,
 ) {
   const config = new WorkspaceChannelStore(storage, env).agentConfiguration(
     agentId,
@@ -227,12 +281,12 @@ function toolCatalogue(
   });
   return {
     agentId,
-    tools: matches.slice(0, maximumTools).map((entry) => ({
+    tools: matches.slice(0, limit).map((entry) => ({
       ...entry,
       description: shortText(entry.description, maximumDescription),
     })),
-    ...(matches.length > maximumTools
-      ? { more: `${matches.length - maximumTools} more; search more narrowly.` }
+    ...(matches.length > limit
+      ? { more: `${matches.length - limit} more; search more narrowly.` }
       : undefined),
   };
 }
