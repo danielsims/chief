@@ -112,9 +112,10 @@ export function workspaceDataCapability(operation: string) {
     return "messages.send";
   if (
     operation === "data-file-update" ||
-    operation === "data-board-save" ||
-    operation === "data-board-delete" ||
-    operation === "data-board-lanes"
+    operation === "data-database-save" ||
+    operation === "data-database-delete" ||
+    operation === "data-database-row-save" ||
+    operation === "data-database-row-delete"
   )
     return "workspace.write";
   return "workspace.read";

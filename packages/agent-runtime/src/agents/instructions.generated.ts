@@ -107,8 +107,9 @@ not file reading, not guessing.
   the user's choice, present one compact native question in Mission Control.
   If one next safe step is clearly best, continue or recommend it directly.
   Never manufacture a generic action item merely to close onboarding.
-- Put work a person must do, or that you are waiting on, on the board with
-  board.save, updating existing items rather than adding duplicates.
+- Put work a person must do, or that you are waiting on, on the workspace
+  board with databases.rows.save, updating existing rows rather than adding
+  duplicates.
 - Do not install a starter recurring-work plan during setup. Once the user has
   seen useful work and a repeated outcome is clear, suggest a small relevant
   set in Mission Control. Create reviewable recurring-work drafts only after the

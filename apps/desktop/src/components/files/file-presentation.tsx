@@ -1,11 +1,23 @@
 import type { LucideProps } from "lucide-react";
-import { File, FileText, Image, Mail, Music2, Video } from "lucide-react";
+import {
+  AppWindow,
+  File,
+  FileText,
+  Image,
+  LayoutDashboard,
+  Mail,
+  Music2,
+  Video,
+} from "lucide-react";
 
 import type { WorkspaceFileRecord } from "@chief/agent-runtime/types";
+import { pageMimeType } from "@chief/relay-contracts";
 
 export function fileCategory(
   file: Pick<WorkspaceFileRecord, "mimeType" | "kind">,
 ) {
+  if (file.mimeType === "text/html" || file.mimeType === pageMimeType)
+    return "Pages";
   if (file.mimeType.startsWith("image/")) return "Images";
   if (file.mimeType.startsWith("video/") || file.mimeType.startsWith("audio/"))
     return "Media";
@@ -26,6 +38,8 @@ export function FileTypeIcon({
   if (file.mimeType.startsWith("video/")) return <Video {...props} />;
   if (file.mimeType.startsWith("audio/")) return <Music2 {...props} />;
   if (file.kind === "email") return <Mail {...props} />;
+  if (file.mimeType === pageMimeType) return <LayoutDashboard {...props} />;
+  if (file.mimeType === "text/html") return <AppWindow {...props} />;
   return fileCategory(file) === "Documents" ? (
     <FileText {...props} />
   ) : (

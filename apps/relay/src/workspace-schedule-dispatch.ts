@@ -345,10 +345,10 @@ async function dispatchRunStep(
       ? [
           `Do only this step. Your reply is its result: it is posted in this run's thread in ${run.schedule.conversationId} and passed to the next steps.`,
           `- If the step posts to ${run.schedule.conversationId}, your reply is that post: write it as the post itself. Send anything bound elsewhere, such as another channel or an email, once with the tool for it (channels_messages_post for a channel), then reply in one line saying where it went.`,
-          "- Act on action items only when this step or the brief asks you to. Otherwise get each one ready so a person only has to approve it: draft what it needs, such as the email or message; if it needs a plugin you don't have, find it with plugins_list and show it with plugins_recommend; then add it to the board with board_save, with the draft in its notes (board_list shows the lanes).",
+          "- Act on action items only when this step or the brief asks you to. Otherwise get each one ready so a person only has to approve it: draft what it needs, such as the email or message; if it needs a plugin you don't have, find it with plugins_list and show it with plugins_recommend; then add it to the workspace board (id workspace-board) with databases_rows_save, with the draft in its body.",
           ...(owner && principal.kind === "user"
             ? [
-                `- An action item with no clear owner is for ${owner}, who runs this automation: assign it to them with assignee { kind: "user", id: "${principal.userId}" }.`,
+                `- An action item with no clear owner is for ${owner}, who runs this automation: set its Assignee to { kind: "user", id: "${principal.userId}" }.`,
               ]
             : []),
         ].join("\n")
