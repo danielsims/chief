@@ -11,7 +11,6 @@ enum AgentTurnToolPolicy {
     RelayMessageSearchTool.name,
     BrowserSnapshotTool.name,
     BrandProfileGetTool.name,
-    ProspectsListTool.name,
     WorkspaceFilesListTool.name,
     PluginsListTool.name,
   ])
@@ -89,8 +88,6 @@ enum AgentTurnToolPolicy {
       names.formUnion(browser)
       names.formUnion([
         BrandProfileGetTool.name,
-        ProspectsListTool.name,
-        ProspectSaveTool.name,
         WorkspaceFilesListTool.name,
       ])
     }
@@ -109,8 +106,6 @@ enum AgentTurnToolPolicy {
       names.formUnion(browser)
       names.formUnion([
         BrandProfileGetTool.name,
-        ProspectsListTool.name,
-        ProspectSaveTool.name,
         WorkspaceFilesListTool.name,
       ])
     case "setup", "ads":

@@ -50,7 +50,6 @@ export function preferredSession<
 }
 export async function workspaceData(store: LocalStore, workspaceId: string) {
   const [
-    prospects,
     trends,
     analyticsDatasets,
     drafts,
@@ -59,7 +58,6 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
     activity,
     actionItems,
   ] = await Promise.all([
-    store.listProspects(workspaceId),
     store.listTrends(workspaceId),
     store.listAnalyticsDatasets(workspaceId),
     store.listDrafts(workspaceId),
@@ -95,7 +93,6 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
   });
   visibleActivity.push(...initialSingletonSessions.values());
   return {
-    prospects,
     trends,
     analyticsDatasets,
     drafts,

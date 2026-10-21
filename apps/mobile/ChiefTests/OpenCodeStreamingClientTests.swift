@@ -42,7 +42,7 @@ final class OpenCodeStreamingClientTests: XCTestCase {
         [
           "index": 1,
           "id": "second",
-          "function": ["name": "prospects_list", "arguments": "{}"],
+          "function": ["name": "workspace_files_list", "arguments": "{}"],
         ],
         [
           "index": 0,
@@ -64,7 +64,6 @@ final class OpenCodeStreamingClientTests: XCTestCase {
     XCTAssertTrue(tools.contains(RelayMessagePostTool.name))
     XCTAssertFalse(tools.contains(BrowserNavigateTool.name))
     XCTAssertFalse(tools.contains(BrandProfileSaveTool.name))
-    XCTAssertFalse(tools.contains(ProspectSaveTool.name))
   }
 
   func testBrandSkillGetsOnlyItsResearchPersistenceSurface() {
@@ -75,7 +74,6 @@ final class OpenCodeStreamingClientTests: XCTestCase {
 
     XCTAssertTrue(tools.contains(BrowserNavigateTool.name))
     XCTAssertTrue(tools.contains(BrandProfileSaveTool.name))
-    XCTAssertFalse(tools.contains(ProspectSaveTool.name))
   }
 
   func testMarketerOrdinaryTurnKeepsItsPermissionGatedResearchSurface() {
@@ -87,7 +85,6 @@ final class OpenCodeStreamingClientTests: XCTestCase {
 
     XCTAssertTrue(tools.contains(BrowserNavigateTool.name))
     XCTAssertTrue(tools.contains(BrandProfileSaveTool.name))
-    XCTAssertFalse(tools.contains(ProspectSaveTool.name))
   }
 
   func testProspectorOrdinaryTurnCannotUseMarketerPersistence() {
@@ -98,7 +95,6 @@ final class OpenCodeStreamingClientTests: XCTestCase {
     )
 
     XCTAssertTrue(tools.contains(BrowserNavigateTool.name))
-    XCTAssertTrue(tools.contains(ProspectSaveTool.name))
     XCTAssertFalse(tools.contains(BrandProfileSaveTool.name))
   }
 

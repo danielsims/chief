@@ -30,20 +30,6 @@ export interface ChatExecutionSelection {
   model?: string;
 }
 
-export interface ProspectRecord {
-  id: string;
-  name: string;
-  company?: string;
-  source: string;
-  sourceUrl?: string;
-  summary: string;
-  evidence?: string;
-  outreachAngle?: string;
-  relevance: "high" | "medium" | "low";
-  status: "new" | "researching" | "contacted" | "dismissed";
-  foundAt: number;
-}
-
 export interface TrendRecord {
   id: string;
   title: string;
@@ -300,7 +286,6 @@ export interface WorkspaceWaysOfWorking {
 
 export type AgentCapabilityId =
   | "analytics-chart"
-  | "prospect-memory"
   | "trend-memory"
   | "content-calendar"
   | "campaign-memory"

@@ -22,15 +22,7 @@ export function initializeWorkspaceDataTables<
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS prospects (
-      prospect_id TEXT PRIMARY KEY,
-      prospect_json TEXT NOT NULL,
-      relevance TEXT NOT NULL,
-      found_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS prospects_recent_idx
-      ON prospects (updated_at DESC);
+    DROP TABLE IF EXISTS prospects;
     DROP TABLE IF EXISTS board_items;
     DROP TABLE IF EXISTS board_lanes;
     CREATE TABLE IF NOT EXISTS databases (

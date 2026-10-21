@@ -33,10 +33,10 @@ void test("agent-bound MCP exposes Chief local operations with resolved schemas"
   assert.equal(saveProfile.inputSchema.type, "object");
   assert.deepEqual(saveProfile.inputSchema.required, ["markdown"]);
 
-  const listProspects = operations.get("localTools.prospectsList");
-  assert.ok(listProspects);
-  assert.equal(listProspects.method, "GET");
-  assert.equal(listProspects.inputSchema.type, "object");
+  const listTrends = operations.get("localTools.trendsList");
+  assert.ok(listTrends);
+  assert.equal(listTrends.method, "GET");
+  assert.equal(listTrends.inputSchema.type, "object");
 
   const postMessage = operations.get("localTools.channelsMessagesPost");
   assert.ok(postMessage);

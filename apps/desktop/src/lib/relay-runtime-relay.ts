@@ -23,7 +23,6 @@ export type RelayRuntimeRelay = Pick<
   | "loadAgentConfigs"
   | "listAgentJobs"
   | "listProjects"
-  | "listProspects"
   | "listWorkspaceFiles"
   | "listWorkspaceSecrets"
   | "reactToMessage"

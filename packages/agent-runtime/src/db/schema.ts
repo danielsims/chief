@@ -269,31 +269,6 @@ export const events = sqliteTable(
   ],
 );
 
-export const prospects = sqliteTable(
-  "prospect",
-  {
-    id: text().primaryKey(),
-    organizationId: text("organization_id").notNull(),
-    name: text().notNull(),
-    company: text(),
-    source: text().notNull(),
-    sourceUrl: text("source_url"),
-    summary: text().notNull(),
-    relevance: text({ enum: ["high", "medium", "low"] }).notNull(),
-    status: text({
-      enum: ["new", "researching", "contacted", "dismissed"],
-    }).notNull(),
-    foundAt: integer("found_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("prospect_organization_found").on(
-      table.organizationId,
-      table.foundAt,
-    ),
-  ],
-);
-
 export const trends = sqliteTable(
   "trend",
   {

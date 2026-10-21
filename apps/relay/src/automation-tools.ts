@@ -17,8 +17,6 @@ const excluded = new Set([
   // Concepts being retired or reworked; not worth building automations on.
   "brandProfile.status",
   "brandProfile.save",
-  "prospects.list",
-  "prospects.save",
   // Only meaningful to an agent choosing where to work.
   "channels.join",
   "recurringWork.list",

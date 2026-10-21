@@ -1,6 +1,5 @@
 import {
   brandProfileSaveSchema,
-  prospectSaveSchema,
   workspaceFileSaveSchema,
   workspaceFilesResultSchema,
   workspaceScheduleInputSchema,
@@ -130,41 +129,6 @@ export const hostedWorkspaceTools = [
           conversationId: requiredString(job.payload, "conversationId"),
         }),
       }),
-    { effect: "idempotent" },
-  ),
-  defineHostedAgentTool(
-    "prospects.list",
-    async ({ env, job, principal }) =>
-      await workspaceOperation(env, job, principal, "data-prospects-list"),
-    { effect: "read_only" },
-  ),
-  defineHostedAgentTool(
-    "prospects.save",
-    async ({ env, job, principal }, input) => {
-      const sourceUrl = requiredString(input, "sourceUrl");
-      return await workspaceOperation(
-        env,
-        job,
-        principal,
-        "data-prospect-save",
-        {
-          body: prospectSaveSchema.parse({
-            id:
-              optionalString(input, "id") ??
-              (await deterministicUuid(`${job.id}:prospect:${sourceUrl}`)),
-            name: requiredString(input, "name"),
-            company: optionalString(input, "company") ?? null,
-            source: requiredString(input, "source"),
-            sourceUrl,
-            summary: requiredString(input, "summary"),
-            evidence: requiredString(input, "evidence"),
-            outreachAngle: requiredString(input, "outreachAngle"),
-            relevance: input.relevance,
-            status: input.status === "researching" ? "reviewing" : input.status,
-          }),
-        },
-      );
-    },
     { effect: "idempotent" },
   ),
 ];

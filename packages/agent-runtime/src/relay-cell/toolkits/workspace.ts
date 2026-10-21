@@ -47,16 +47,6 @@ export const relayCellWorkspaceTools = [
       });
     },
   ),
-  defineRelayCellTool(
-    "prospects.list",
-    "workspace.read",
-    async ({ client }) => ({ prospects: await client.listProspects() }),
-  ),
-  defineRelayCellTool(
-    "prospects.save",
-    "workspace.write",
-    async ({ client }, input) => await client.saveProspect(input),
-  ),
   defineRelayCellTool("files.list", "workspace.read", async ({ client }) => ({
     files: await client.listWorkspaceFiles(),
   })),
