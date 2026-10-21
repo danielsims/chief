@@ -442,7 +442,7 @@ export function SchedulePage() {
         onOpenDraft={(draft) => {
           setDetailDraftId(null);
           if (draft.fileId) {
-            void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+            void navigate(`/artifacts/${encodeURIComponent(draft.fileId)}`);
           }
         }}
       />

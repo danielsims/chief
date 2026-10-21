@@ -39,13 +39,13 @@ export function ChannelArtifactViewer({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Back to Canvas"
+          aria-label="Back to artifacts"
           onClick={onBack}
         >
           <ArrowLeft size={16} />
         </Button>
         <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
-          {available ? file.name : "Canvas"}
+          {available ? file.name : "Artifacts"}
         </h2>
         {available && (
           <>
