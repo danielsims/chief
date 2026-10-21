@@ -10,9 +10,7 @@ import {
   MoreHorizontal,
   Settings2,
   UserRound,
-  X,
 } from "lucide-react";
-import { useSearchParams } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -24,9 +22,8 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
+import type { ChannelView } from "./channel-view-tabs";
 import type { ConversationProfileSelection } from "./conversation-profile";
-import { useAuth } from "../../lib/auth/auth-context";
-import { useWorkspaceFiles } from "../../lib/runtime";
 import {
   isWorkspaceAgentId,
   workspaceAgentIdentity,
@@ -37,6 +34,7 @@ import { openChannelDetails } from "../channel-details-events";
 import { UserAvatar } from "../user-avatar";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
 import { ChannelGuestRows, useChannelLinks } from "./channel-guests";
+import { ChannelViewTabs } from "./channel-view-tabs";
 import { useWorkspaceUsers } from "./mention-people-context";
 
 interface ConversationHeaderChannel {
@@ -57,8 +55,8 @@ interface ConversationHeaderProps {
   agents: readonly { id: string; name: string; role: string }[];
   onOpenActivity: () => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
-  activeView: "messages" | "canvas";
-  onViewChange: (view: "messages" | "canvas") => void;
+  activeView: ChannelView;
+  onViewChange: (view: ChannelView) => void;
   user: { image?: string | null; name: string } | null;
 }
 
@@ -74,11 +72,6 @@ export function ConversationHeader({
   onViewChange,
   user,
 }: ConversationHeaderProps) {
-  const [params, setParams] = useSearchParams();
-  const { cloudOrganizationId } = useAuth();
-  const { files } = useWorkspaceFiles(cloudOrganizationId);
-  const selectedArtifact = params.get("artifact");
-  const artifact = files.find((file) => file.id === selectedArtifact);
   const [actionsOpen, setActionsOpen] = useState(false);
   const channelLinks = useChannelLinks(channel.id);
   const workspaceUsers = useWorkspaceUsers();
@@ -277,55 +270,11 @@ export function ConversationHeader({
         </div>
       </div>
       {!directIdentity ? (
-        <nav
-          aria-label="Channel views"
-          className="flex h-10 gap-1 overflow-x-auto px-5"
-        >
-          {(
-            [
-              { id: "messages", label: "Messages" },
-              { id: "canvas", label: "Canvas" },
-            ] as const
-          ).map((view) => (
-            <button
-              key={view.id}
-              type="button"
-              onClick={() => onViewChange(view.id)}
-              className={cn(
-                "text-muted-foreground hover:text-foreground relative flex h-full items-center px-2.5 text-[12px] leading-4 font-normal transition-colors",
-                activeView === view.id &&
-                  !selectedArtifact &&
-                  "text-foreground",
-              )}
-            >
-              {view.label}
-              {activeView === view.id && !selectedArtifact ? (
-                <span className="bg-foreground absolute right-2.5 bottom-0 left-2.5 h-px" />
-              ) : null}
-            </button>
-          ))}
-          {selectedArtifact && (
-            <div className="border-foreground flex min-w-0 items-center gap-1 border-b px-2 text-sm">
-              <span className="max-w-56 truncate">
-                {artifact?.name ?? "Artifact"}
-              </span>
-              <button
-                type="button"
-                aria-label="Close artifact tab"
-                onClick={() =>
-                  setParams((current) => {
-                    const next = new URLSearchParams(current);
-                    next.delete("artifact");
-                    return next;
-                  })
-                }
-                className="text-muted-foreground hover:text-foreground rounded p-1"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
-        </nav>
+        <ChannelViewTabs
+          channelId={channel.id}
+          activeView={activeView}
+          onViewChange={onViewChange}
+        />
       ) : null}
     </header>
   );

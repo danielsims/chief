@@ -248,10 +248,10 @@ function WorkspaceMediaFile({ file }: { file: WorkspaceFileSnapshot }) {
     <section className="mx-auto max-w-6xl pt-4 pb-16">
       <button
         type="button"
-        onClick={() => navigate("/files")}
+        onClick={() => navigate("/artifacts")}
         className="text-muted-foreground hover:text-foreground mb-6 flex items-center gap-2 text-xs"
       >
-        <ArrowLeft size={14} /> All files
+        <ArrowLeft size={14} /> All artifacts
       </button>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>

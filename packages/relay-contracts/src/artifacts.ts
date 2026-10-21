@@ -53,5 +53,5 @@ export function artifactMessageComponents(
 }
 
 export function channelArtifactPath(conversationId: string, fileId: string) {
-  return `/conversations?${new URLSearchParams({ channel: conversationId, view: "canvas", artifact: fileId })}`;
+  return `/conversations?${new URLSearchParams({ channel: conversationId, view: "artifacts", artifact: fileId })}`;
 }
