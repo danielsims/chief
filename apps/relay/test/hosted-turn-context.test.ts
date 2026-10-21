@@ -133,6 +133,56 @@ describe("hosted agent turn context", () => {
     expect(setup).toContain("Requested connections: granola.ai, notion.com");
   });
 
+  it("names the databases attached to the conversation in the prompt", () => {
+    const context = {
+      managed: true,
+      runtime: "cloud" as const,
+      workspace: {
+        id: "workspace-a",
+        name: "Acme",
+        website: "https://acme.test",
+        selectedApps: [],
+      },
+      databases: [
+        {
+          id: "prospects",
+          name: "Prospects",
+          conversationId: "prospecting",
+          fields: [
+            { id: "title", name: "Name", type: "title" as const },
+            {
+              id: "status",
+              name: "Status",
+              type: "select" as const,
+              options: [{ id: "new", name: "New", color: "gray" as const }],
+            },
+          ],
+          views: [
+            { id: "table", name: "Table", layout: "table" as const },
+            {
+              id: "board",
+              name: "Board",
+              layout: "board" as const,
+              groupBy: "status",
+            },
+          ],
+        },
+      ],
+    };
+    const prompt = hostedWorkspaceContext(
+      testJob({ conversationId: "prospecting" }, "prospector"),
+      context,
+      false,
+    );
+
+    expect(prompt).toContain("Databases attached to this conversation");
+    expect(prompt).toContain("Prospects (id: prospects)");
+    expect(prompt).toContain("Name (title)");
+    expect(prompt).toContain("Status (select: New)");
+    expect(prompt).toContain("Board (board by Status)");
+    expect(prompt).toContain("databases_rows_save");
+  });
+
   it("gives Prospector a catalog-backed capability kickoff", () => {
     expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain(
       "This automatic kickoff is a capability handoff",
