@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Pencil, Trash2 } from "lucide-react";
+import { Pause, Pencil, Power } from "lucide-react";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
@@ -373,7 +373,7 @@ export function RecurringWorkContextMenu({
   onClose,
   onSkip,
   onEdit,
-  onCancelSeries,
+  onTurnOff,
 }: {
   context: {
     work: RecurringWorkRecord;
@@ -384,7 +384,7 @@ export function RecurringWorkContextMenu({
   onClose: () => void;
   onSkip: (work: RecurringWorkRecord, date: Date) => void;
   onEdit: (work: RecurringWorkRecord) => void;
-  onCancelSeries: (work: RecurringWorkRecord) => void;
+  onTurnOff: (work: RecurringWorkRecord) => void;
 }) {
   useEffect(() => {
     if (!context) return;
@@ -453,31 +453,31 @@ export function RecurringWorkContextMenu({
       >
         <Pencil size={14} className="mt-0.5 shrink-0" />
         <span>
-          <span className="block text-xs font-medium">Edit schedule</span>
+          <span className="block text-xs font-medium">Edit automation</span>
           <span className="text-muted-foreground mt-0.5 block text-[10px]">
-            Change the title or timing directly
+            Open it to change its steps or timing
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          onCancelSeries(work);
-          onClose();
-        }}
-        className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
-      >
-        <Trash2 size={14} className="text-destructive mt-0.5 shrink-0" />
-        <span>
-          <span className="text-destructive block text-xs font-medium">
-            Cancel series
+      {work.status === "active" ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onTurnOff(work);
+            onClose();
+          }}
+          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
+        >
+          <Power size={14} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="block text-xs font-medium">Turn off</span>
+            <span className="text-muted-foreground mt-0.5 block text-[10px]">
+              Stops future runs until you turn it back on
+            </span>
           </span>
-          <span className="text-muted-foreground mt-0.5 block text-[10px]">
-            Removes the automation and upcoming occurrences
-          </span>
-        </span>
-      </button>
+        </button>
+      ) : null}
     </div>
   );
 }
