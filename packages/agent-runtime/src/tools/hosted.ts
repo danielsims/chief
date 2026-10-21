@@ -43,6 +43,7 @@ import {
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
 import { readWebPageDefinition } from "./toolkits/web/read-web-page.js";
+import { searchWebDefinition } from "./toolkits/web/search-web.js";
 import { getBrandProfileStatusDefinition } from "./toolkits/workspace/get-brand-profile-status.js";
 import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-profile.js";
 
@@ -83,6 +84,7 @@ export const hostedAgentToolDefinitions = {
     saveBrandProfileDefinition,
     delegateSpecialistDefinition,
     readWebPageDefinition,
+    searchWebDefinition,
   ],
   browser: [
     openBrowserDefinition,

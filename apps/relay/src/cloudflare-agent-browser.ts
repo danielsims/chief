@@ -165,7 +165,7 @@ async function readBrowserSnapshot(
   };
 }
 
-async function launchBrowser(binding: BrowserWorker) {
+export async function launchBrowser(binding: BrowserWorker) {
   const limits = await puppeteer.limits(binding).catch(() => undefined);
   const delay = browserAcquisitionDelay(limits);
   if (delay > 0) throw browserCapacityUnavailable(delay);
