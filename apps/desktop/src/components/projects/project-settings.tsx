@@ -49,7 +49,7 @@ function ProjectDangerZone({
       setError(
         reason instanceof Error
           ? reason.message
-          : "Chief couldn't delete this project.",
+          : "Chief couldn't delete this repository.",
       );
       setDeleting(false);
     }
@@ -75,7 +75,7 @@ function ProjectDangerZone({
           }}
         >
           <Trash2 size={13} />
-          Delete project
+          Delete repository
         </Button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -83,7 +83,7 @@ function ProjectDangerZone({
           <DialogHeader>
             <DialogTitle>Delete {name}</DialogTitle>
             <DialogDescription>
-              Type the project name to confirm.
+              Type the repository name to confirm.
             </DialogDescription>
           </DialogHeader>
           <Input

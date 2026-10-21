@@ -110,7 +110,7 @@ export function ProjectDetail({
             variant="ghost"
             size="icon-sm"
             aria-label={
-              view === "settings" ? "Back to files" : "Back to projects"
+              view === "settings" ? "Back to files" : "Back to repositories"
             }
             onClick={() => (view === "settings" ? setView("files") : onBack())}
           >
@@ -139,7 +139,7 @@ export function ProjectDetail({
             onClick={() => setView(view === "settings" ? "files" : "settings")}
           >
             <Settings2 size={14} />
-            Manage project
+            Manage repository
           </Button>
           {repositoryPath ? (
             <Button

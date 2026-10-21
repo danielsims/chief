@@ -11,10 +11,11 @@ import {
   SelectTrigger,
 } from "@chief/ui/components/select";
 
+import { listColumnClass } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
 import { AddProjectDialog } from "../components/projects/add-project-dialog";
-import { ProjectCard } from "../components/projects/project-card";
 import { ProjectDetail } from "../components/projects/project-detail";
+import { ProjectRow } from "../components/projects/project-row";
 import { useRelaySession } from "../lib/relay-session-context";
 import { useProjects } from "../lib/runtime-projects";
 
@@ -46,8 +47,8 @@ export function ProjectsPage() {
     <section className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
       {selected ? null : (
         <PageHeader
-          title="Projects"
-          description="Git repositories shared across your workspace."
+          title="Repositories"
+          description="Git repositories your team and agents work in."
           actions={
             <>
               <Select
@@ -61,16 +62,16 @@ export function ProjectsPage() {
                   <ListFilter className="size-3.5" />
                   <span>
                     {projectFilter === "agents"
-                      ? "Agent projects"
+                      ? "Agents' repositories"
                       : projectFilter === "repositories"
                         ? "Repositories"
-                        : "All projects"}
+                        : "All repositories"}
                   </span>
                 </SelectTrigger>
                 <SelectContent align="end">
-                  <SelectItem value="all">All projects</SelectItem>
+                  <SelectItem value="all">All repositories</SelectItem>
                   <SelectItem value="repositories">Repositories</SelectItem>
-                  <SelectItem value="agents">Agent projects</SelectItem>
+                  <SelectItem value="agents">Agents' repositories</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={projects.refresh}>
@@ -79,7 +80,7 @@ export function ProjectsPage() {
               </Button>
               <Button size="sm" onClick={() => setAdding(true)}>
                 <Plus size={14} />
-                Add project
+                Add repository
               </Button>
             </>
           }
@@ -97,21 +98,21 @@ export function ProjectsPage() {
           <ProjectDetail
             key={selected.project.id}
             snapshot={selected}
-            onBack={() => void navigate("/projects")}
+            onBack={() => void navigate("/repositories")}
             onRefresh={projects.refresh}
             onDelete={async () => {
               if (!relay.client) throw new Error("Chief isn't connected yet.");
               await relay.client.deleteProject(selected.project.id);
               projects.refresh();
-              void navigate("/projects");
+              void navigate("/repositories");
             }}
           />
         ) : projects.loading ? (
-          <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
+          <div className={listColumnClass}>
+            {Array.from({ length: 4 }).map((_, index) => (
               <div
                 key={index}
-                className="bg-muted h-[116px] animate-pulse rounded-2xl"
+                className="bg-muted/60 my-1 h-12 animate-pulse rounded-lg"
               />
             ))}
           </div>
@@ -119,35 +120,35 @@ export function ProjectsPage() {
           <div className="flex min-h-full w-full flex-col items-center justify-center px-8 py-10 text-center">
             <p className="text-[18px] leading-tight font-medium tracking-[-0.025em]">
               {projects.projects.length === 0
-                ? "No projects yet"
-                : "No matching projects"}
+                ? "No repositories yet"
+                : "No matching repositories"}
             </p>
             <p className="text-muted-foreground mt-1.5 text-[12px] leading-5">
               {projects.projects.length === 0
                 ? "Add a repository from this Mac or a Git URL."
-                : "Choose another project filter."}
+                : "Choose another filter."}
             </p>
             {projects.projects.length === 0 ? (
               <Button className="mt-4" onClick={() => setAdding(true)}>
                 <Plus size={14} />
-                Add project
+                Add repository
               </Button>
             ) : null}
           </div>
         ) : (
-          <div className="grid w-full gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <ul className={listColumnClass}>
             {visibleProjects.map((snapshot) => (
-              <ProjectCard
+              <ProjectRow
                 key={snapshot.project.id}
                 snapshot={snapshot}
                 onClick={() =>
                   void navigate(
-                    `/projects/${encodeURIComponent(snapshot.project.id)}`,
+                    `/repositories/${encodeURIComponent(snapshot.project.id)}`,
                   )
                 }
               />
             ))}
-          </div>
+          </ul>
         )}
       </div>
 
