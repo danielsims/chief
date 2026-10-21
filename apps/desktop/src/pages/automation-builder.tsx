@@ -338,7 +338,7 @@ export function AutomationBuilderPage() {
   // Chief builds straight from the request, not through a chat, so the page
   // only waits on the build itself. Unsaved changes on screen go with it.
   const describe = async (request: string) => {
-    if (!client || building) return;
+    if (!client || building) return false;
     setBuilding(true);
     setBuildNote(null);
     try {
@@ -357,12 +357,14 @@ export function AutomationBuilderPage() {
           `/schedule/automations/${encodeURIComponent(built.schedule.id)}`,
           { replace: true },
         );
+      return true;
     } catch (error) {
       setBuildNote(
         error instanceof Error && error.message
           ? error.message
           : "Chief couldn't build that. Try again.",
       );
+      return false;
     } finally {
       setBuilding(false);
     }
@@ -534,7 +536,7 @@ export function AutomationBuilderPage() {
                 busy={building}
                 note={building ? null : buildNote}
                 disabled={catalogue.loading || !client}
-                onSubmit={(request) => void describe(request)}
+                onSubmit={describe}
               />
             }
           />

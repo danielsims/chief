@@ -78,7 +78,7 @@ export type WorkspaceScheduleAction = z.infer<
 /** A request to the automation builder, from the automation's own page. */
 export const automationBuildRequestSchema = z
   .object({
-    request: z.string().trim().min(1).max(2_000),
+    request: z.string().trim().min(1),
     /** The automation as it is on screen, when that isn't what's saved. */
     draft: jsonObjectSchema
       .refine(

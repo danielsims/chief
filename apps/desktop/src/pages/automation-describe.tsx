@@ -16,14 +16,17 @@ export function AutomationComposer({
   /** What Chief said about the last build. */
   note: string | null;
   disabled: boolean;
-  onSubmit: (description: string) => void;
+  /** Resolves false when the build failed, so the request comes back to edit. */
+  onSubmit: (description: string) => Promise<boolean>;
 }) {
   const [value, setValue] = useState("");
   const submit = () => {
     const text = value.trim();
     if (!text || busy || disabled) return;
-    onSubmit(text);
     setValue("");
+    void onSubmit(text).then((built) => {
+      if (!built) setValue((current) => current || text);
+    });
   };
   return (
     <div className="w-[520px] max-w-[calc(100%-32px)]">
