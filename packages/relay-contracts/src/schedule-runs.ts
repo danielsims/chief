@@ -5,6 +5,13 @@ import { agentIdSchema } from "./identifiers";
 import { jsonObjectSchema } from "./json";
 import { workspaceScheduleSchema } from "./schedules";
 
+/**
+ * A step's assignment and result carry real work (a research step's findings,
+ * earlier steps' output) from one agent to the next, so they're sized for that:
+ * with the brief and trigger data they still fit in one message body.
+ */
+export const scheduleRunStepTextLimit = 60_000;
+
 export const scheduleRunStepSchema = z.object({
   id: z.uuid(),
   commandId: z.uuid(),
@@ -12,8 +19,8 @@ export const scheduleRunStepSchema = z.object({
   phase: z.enum(["plan", "contribute", "finish", "automation"]),
   state: z.enum(["pending", "running", "completed", "failed"]),
   jobId: z.string().optional(),
-  assignment: z.string().trim().min(1).max(4000).optional(),
-  evidence: z.string().max(4000).optional(),
+  assignment: z.string().trim().min(1).max(scheduleRunStepTextLimit).optional(),
+  evidence: z.string().max(scheduleRunStepTextLimit).optional(),
   error: z.string().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
@@ -46,7 +53,7 @@ export const scheduleRunSchema = z.object({
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
   nextCheckAt: z.number().optional(),
-  summary: z.string().max(4000).default(""),
+  summary: z.string().max(scheduleRunStepTextLimit).default(""),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -61,7 +68,7 @@ export const scheduleRunReportSchema = z.object({
   runId: z.string().min(1).max(256),
   stepId: z.uuid(),
   status: z.enum(["completed", "blocked"]),
-  evidence: z.string().trim().min(1).max(4000),
+  evidence: z.string().trim().min(1).max(scheduleRunStepTextLimit),
 });
 export type ScheduleRun = z.infer<typeof scheduleRunSchema>;
 export type ScheduleRunStep = z.infer<typeof scheduleRunStepSchema>;
@@ -129,5 +136,5 @@ export type AutomationWebhook = z.infer<typeof automationWebhookSchema>;
 export const scheduleRunCollaboratorSchema = z.object({
   runId: z.string().min(1).max(256),
   agentId: agentIdSchema,
-  assignment: z.string().trim().min(1).max(4000),
+  assignment: z.string().trim().min(1).max(scheduleRunStepTextLimit),
 });

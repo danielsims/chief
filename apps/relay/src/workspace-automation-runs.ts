@@ -16,6 +16,7 @@ import {
   jsonValueSchema,
   relayErrorSchema,
   replaceAutomationReferences,
+  scheduleRunStepTextLimit,
   walkAutomation,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -40,7 +41,7 @@ import {
  * until the agent reports back. Nothing here evaluates code: conditions are
  * fixed comparisons and references are plain lookups.
  */
-const maximumOutputCharacters = 16_000;
+const maximumOutputCharacters = scheduleRunStepTextLimit;
 const maximumPassSteps = 40;
 const toolInterruptedAfterMs = 3 * 60_000;
 
@@ -142,7 +143,7 @@ function resolvePrompt(
           )?.step.title ?? reference.stepId);
     // No tag of any spelling survives inside the fence.
     const value = asText(referenceValue(reference.raw, nodes, input) ?? null)
-      .slice(0, 8_000)
+      .slice(0, maximumOutputCharacters)
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
     return `<step-output from="${source.replaceAll(/["<>]/gu, "'")}">${value}</step-output>`;
@@ -276,7 +277,7 @@ function lastText(run: ScheduleRun) {
   if (last?.node?.output === undefined) return "";
   return asText(lookup(last.node.output, ["text"]) ?? last.node.output).slice(
     0,
-    4_000,
+    maximumOutputCharacters,
   );
 }
 
@@ -465,7 +466,10 @@ export async function advanceAutomationRun(
             agentId: step.agentId,
             phase: "automation",
             state: "pending",
-            assignment: `${step.title}\n\n${prompt}`.slice(0, 4_000),
+            assignment: `${step.title}\n\n${prompt}`.slice(
+              0,
+              scheduleRunStepTextLimit,
+            ),
           },
         ],
       });
