@@ -330,7 +330,13 @@ export function SchedulePage() {
         onClose={() => setWorkMenu(null)}
         onSkip={skipOccurrence}
         onEdit={(work) => openAutomation(work.id)}
-        onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
+        onTurnOff={(work) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            status: "paused",
+            updatedAt: Date.now(),
+          })
+        }
       />
     </div>
   );
