@@ -115,7 +115,9 @@ export function createChiefAuth(
         loginPage: `${options.uiOrigin}/sign-in`,
         consentPage: `${options.uiOrigin}/consent`,
         scopes: [...oauthScopes],
-        validAudiences: [options.baseURL],
+        resources: [options.baseURL],
+        // Only first-party clients exist and the relay is the one resource.
+        enforcePerClientResources: false,
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
         silenceWarnings: {
