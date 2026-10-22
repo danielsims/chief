@@ -615,8 +615,8 @@ importers:
         specifier: 0.6.6
         version: 0.6.6
       pnpm:
-        specifier: 10.17.1
-        version: 10.17.1
+        specifier: 10.34.7
+        version: 10.34.7
       react:
         specifier: ^19.1.0
         version: 19.2.7
@@ -12993,10 +12993,10 @@ packages:
       }
     engines: { node: ">=16.20.0" }
 
-  pnpm@10.17.1:
+  pnpm@10.34.7:
     resolution:
       {
-        integrity: sha512-F8Vg/KSGeulHOjiZrYSogzSRTzeb5G1FXL+S5c9LOdNJhdRS0lg7rxmWf6dstcF7yeJFUp0LmHRXIapyAOyveg==,
+        integrity: sha512-upirxYVTmTM3W1lx9LxtbHOhtLftxKh559EC/lQj0eAjCdZ8YKEfBJVQk6luUhrZw7E4zdZUylvlY/N4s65IvQ==,
       }
     engines: { node: ">=18.12" }
     hasBin: true
@@ -23144,7 +23144,7 @@ snapshots:
 
   pkce-challenge@5.0.1: {}
 
-  pnpm@10.17.1: {}
+  pnpm@10.34.7: {}
 
   points-on-curve@0.2.0: {}
 
