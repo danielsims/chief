@@ -14,11 +14,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "1.6.16",
+    "@better-auth/oauth-provider": "1.7.12",
     "@chief/ui": "workspace:*",
     "@t3-oss/env-nextjs": "^0.13.8",
-    "better-auth": "1.6.16",
-    "next": "^15.4.2",
+    "better-auth": "1.7.12",
+    "next": "^16.4.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "catalog:"
