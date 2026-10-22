@@ -27,9 +27,6 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
 
-overrides:
-  "better-auth>zod": 4.3.6
-
 packageExtensions:
   "drizzle-kit@1.0.0-rc.4":
     peerDependencies:
