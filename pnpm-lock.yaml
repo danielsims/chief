@@ -213,8 +213,8 @@ importers:
         specifier: ^19.1.0
         version: 19.2.7(react@19.2.7)
       react-router:
-        specifier: ^7.6.3
-        version: 7.18.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: ^7.18.4
+        version: 7.18.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       recharts:
         specifier: ^3.9.2
         version: 3.9.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@18.3.1)(react@19.2.7)(redux@5.0.1)
@@ -13774,10 +13774,10 @@ packages:
       react: ">=16.3.0"
       react-dom: ">=16.3.0"
 
-  react-router@7.18.1:
+  react-router@7.18.4:
     resolution:
       {
-        integrity: sha512-GDLgg3i3uM0aeJO3Fm+TCS+sDQ7gu12T6x0qdTEzcwqEfleci7JwugVNIF3U//0FWKnJT7ptG+20B2jfDqnZAg==,
+        integrity: sha512-PUPQcMhMGRAslLcvtlPz/kmzBEWPhLdgLFrL7pLNepBL6dX0lWj4WD2cUYVgYCuT3jxvghYFg81cDTj44DhetQ==,
       }
     engines: { node: ">=20.0.0" }
     peerDependencies:
@@ -23865,7 +23865,7 @@ snapshots:
       react-draggable: 4.7.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tslib: 2.6.2
 
-  react-router@7.18.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+  react-router@7.18.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       cookie: 1.1.1
       react: 19.2.7
