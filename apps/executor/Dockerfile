@@ -1,4 +1,4 @@
-FROM node:24.14.0-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -22,7 +22,7 @@ RUN --mount=type=cache,id=chief-computer-pnpm,target=/pnpm/store \
   && pnpm --filter @chief/executor build \
   && pnpm --config.allowUnusedPatches=true --filter @chief/executor deploy --prod --legacy /computer
 
-FROM node:24.14.0-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends bash ca-certificates chromium dumb-init git openssh-client ripgrep \

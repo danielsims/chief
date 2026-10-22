@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24.14.0-bookworm-slim AS dependencies
+FROM node:24.22.1-bookworm-slim AS dependencies
 
 ENV CI=true
 ENV DEBIAN_FRONTEND=noninteractive
@@ -48,7 +48,7 @@ COPY packages/relay-client ./packages/relay-client
 COPY packages/relay-contracts ./packages/relay-contracts
 COPY apps/relay ./apps/relay
 
-FROM node:24.14.0-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.title="Chief relay"
 LABEL org.opencontainers.image.description="Self-hosted Chief relay, authentication server, and durable workspace runtime"

@@ -20,8 +20,8 @@ fi
 if [ -f .nvmrc ]; then
   if command -v nvm >/dev/null 2>&1; then
     nvm use "$(cat .nvmrc)" >/dev/null
-  elif [ -x "$HOME/.nvm/versions/node/v24.18.1/bin/node" ]; then
-    export PATH="$HOME/.nvm/versions/node/v24.18.1/bin:$PATH"
+  elif [ -x "$HOME/.nvm/versions/node/v24.22.1/bin/node" ]; then
+    export PATH="$HOME/.nvm/versions/node/v24.22.1/bin:$PATH"
   fi
 fi
 

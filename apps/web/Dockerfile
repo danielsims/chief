@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24.14.0-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
 
 ENV CI=true
 ENV DEBIAN_FRONTEND=noninteractive
@@ -32,7 +32,7 @@ COPY apps/web ./apps/web
 
 RUN pnpm --filter @chief/web build
 
-FROM node:24.14.0-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
