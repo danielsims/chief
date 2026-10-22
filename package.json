@@ -54,7 +54,7 @@
     "typescript": "catalog:"
   },
   "prettier": "@chief/prettier-config",
-  "packageManager": "pnpm@10.17.1",
+  "packageManager": "pnpm@10.34.7",
   "engines": {
     "node": ">=24.22.1 <25"
   }
