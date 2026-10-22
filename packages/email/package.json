@@ -21,18 +21,18 @@
   },
   "dependencies": {
     "@react-email/components": "1.0.12",
-    "@react-email/render": "2.1.0",
+    "@react-email/render": "2.1.1",
     "react": "^19.1.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
-    "@react-email/ui": "6.7.0",
+    "@react-email/ui": "6.11.3",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "prettier": "catalog:",
-    "react-email": "6.7.0",
+    "react-email": "6.11.3",
     "typescript": "catalog:"
   },
   "prettier": "@chief/prettier-config"
