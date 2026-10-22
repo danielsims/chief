@@ -29,6 +29,7 @@ onlyBuiltDependencies:
 
 overrides:
   "get-uri>basic-ftp": 6.2.1
+  "miniflare>sharp": 0.35.5
 
 packageExtensions:
   "drizzle-kit@1.0.0-rc.4":
