@@ -44,15 +44,15 @@ export function useChannelChoices() {
 }
 
 /**
- * Starts a board for the workspace or one channel, or, from a channel, a
- * database in it.
+ * Starts a board, shown in a channel you pick, or, from a channel, a database
+ * shown there.
  */
 export function DatabaseCreateDialog({
   conversationId,
   onClose,
   onCreated,
 }: {
-  /** The channel it's made from; without one, a board, kept where you pick. */
+  /** The channel it's made from; without one, a board, shown where you pick. */
   conversationId?: string;
   onClose: () => void;
   onCreated: (database: Database) => void;
@@ -72,7 +72,7 @@ export function DatabaseCreateDialog({
       onCreated(
         await client.databases.save({
           name: name.trim(),
-          ...(channelId ? { conversationId: channelId } : undefined),
+          channels: channelId ? [channelId] : [],
           // A channel makes databases; boards are made on Boards.
           ...(conversationId ? tableTemplate() : boardTemplate()),
         }),
@@ -121,7 +121,7 @@ export function DatabaseCreateDialog({
                   ) : (
                     <Hash size={12} />
                   )}
-                  {channel?.name ?? "Whole workspace"}
+                  {channel?.name ?? "No channel"}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
@@ -129,7 +129,7 @@ export function DatabaseCreateDialog({
                 >
                   <DropdownMenuItem onSelect={() => setChannelId(undefined)}>
                     <Columns3 size={13} />
-                    Whole workspace
+                    No channel
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {choices.map((choice) => (
@@ -149,13 +149,6 @@ export function DatabaseCreateDialog({
               </DropdownMenu>
             )}
           </div>
-          {!conversationId ? (
-            <p className="text-muted-foreground text-[12px] leading-5">
-              {channel
-                ? "Only the channel's members, people and agents, can use it."
-                : "Everyone in the workspace, people and agents, can use it."}
-            </p>
-          ) : null}
         </div>
         <footer className="flex items-center justify-end gap-2 border-t border-black/[0.055] px-5 py-3 dark:border-white/[0.06]">
           <Button size="sm" disabled={!ready} onClick={() => void submit()}>

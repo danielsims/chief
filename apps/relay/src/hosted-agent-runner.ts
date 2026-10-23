@@ -46,7 +46,7 @@ export interface HostingContext {
   databases?: {
     id: string;
     name: string;
-    conversationId?: string;
+    channels: string[];
     fields: Database["fields"];
     views: Database["views"];
   }[];
@@ -69,17 +69,11 @@ export async function loadAgentHostingContext(
   job: AgentJob,
   principal: AgentPrincipal,
 ) {
-  const conversationId = conversationIdSchema.safeParse(
-    job.payload.conversationId,
-  );
-  const url = new URL("https://workspace.internal");
-  if (conversationId.success)
-    url.searchParams.set("conversationId", conversationId.data);
   const response = await env.WORKSPACES.get(
     env.WORKSPACES.idFromName(job.workspaceId),
   ).fetch(
     withTrustedContext(
-      new Request(url, {
+      new Request("https://workspace.internal", {
         method: "POST",
         headers: { "x-chief-internal-operation": "agent-hosting-context" },
       }),
@@ -344,7 +338,10 @@ export function hostedWorkspaceContext(
         ]),
     `Assigned machines: ${nonEmptyOr(assignedMachines, "none")}.`,
     ...peopleContextLines(context.people ?? []),
-    ...databaseContextLines(context.databases ?? []),
+    ...databaseContextLines(
+      context.databases ?? [],
+      stringPayload(job, "conversationId"),
+    ),
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
       ? "The browser tools provide a real remote interactive browser when web_read is insufficient."
@@ -357,18 +354,21 @@ export function hostedWorkspaceContext(
 
 function databaseContextLines(
   databases: NonNullable<HostingContext["databases"]>,
+  conversationId: string | undefined,
 ) {
-  const local = databases.filter((database) => database.conversationId);
-  const shared = databases.filter((database) => !database.conversationId);
+  const here = (database: (typeof databases)[number]) =>
+    conversationId !== undefined && database.channels.includes(conversationId);
+  const local = databases.filter(here);
+  const shared = databases.filter((database) => !here(database));
   const lines: string[] = [];
   if (local.length > 0)
     lines.push(
-      "Databases attached to this conversation, the store for work here (databases_rows_save):",
+      "Databases in this conversation, the store for work here (databases_rows_save):",
       ...local.map((database) => `- ${databaseSummary(database)}`),
     );
   if (shared.length > 0) {
     lines.push(
-      "Workspace-wide databases you can also use:",
+      "Other databases you can also use:",
       ...shared.map((database) => `- ${database.name} (id: ${database.id}).`),
     );
   }

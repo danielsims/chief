@@ -138,10 +138,12 @@ const databaseParts = {
   views: z.array(databaseViewSchema).min(1).max(databaseLimits.views),
 };
 
+const channelsSchema = z.array(z.string().min(1).max(160)).max(24);
+
 export const databaseSchema = z.object({
   id: databaseIdSchema,
-  /** The channel whose members can use it; without one, the whole workspace. */
-  conversationId: z.string().min(1).max(160).optional(),
+  /** The channels it shows in. It is workspace data wherever it shows. */
+  channels: channelsSchema.default([]),
   ...databaseParts,
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -149,13 +151,12 @@ export const databaseSchema = z.object({
 
 /**
  * Creates a database, or changes one when `id` names it. Only the parts sent
- * change; `conversationId` moves it to another channel, or with `null` opens
- * it to the whole workspace.
+ * change; `channels` replaces the channels it shows in.
  */
 export const databaseSaveSchema = z
   .object({
     id: databaseIdSchema.optional(),
-    conversationId: z.string().min(1).max(160).nullable().optional(),
+    channels: channelsSchema.optional(),
     name: databaseParts.name.optional(),
     fields: databaseParts.fields.optional(),
     views: databaseParts.views.optional(),

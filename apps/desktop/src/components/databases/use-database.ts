@@ -256,24 +256,15 @@ export function announceDatabasesChanged() {
   window.dispatchEvent(new Event(databasesChanged));
 }
 
-/** The databases in a channel, or every one you can use. */
-// The last list read per workspace/channel, so a remounted view (a channel's
-// tabs, say) and the next app load show real names at once instead of
-// placeholders until the read lands.
-const listedForChannel = new Map<string, Database[]>();
-const listedForWorkspace = new Map<string, Database[]>();
+// The last list read per workspace, so a remounted view (a channel's tabs,
+// say) and the next app load show real names at once instead of placeholders
+// until the read lands.
+const listed = new Map<string, Database[]>();
 const cachePrefix = "chief.databases:";
 
-function cacheKey(workspaceId: string | undefined, conversationId?: string) {
-  return workspaceId
-    ? `${cachePrefix}${workspaceId}:${conversationId ?? "all"}`
-    : undefined;
-}
-
-function readStored(key: string | undefined) {
-  if (!key) return undefined;
+function readStored(workspaceId: string) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(`${cachePrefix}${workspaceId}`);
     if (!raw) return undefined;
     const parsed = databaseSchema.array().safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : undefined;
@@ -282,80 +273,43 @@ function readStored(key: string | undefined) {
   }
 }
 
-function writeStored(key: string | undefined, databases: Database[]) {
-  if (!key) return;
+function writeStored(workspaceId: string, databases: Database[]) {
   try {
-    localStorage.setItem(key, JSON.stringify(databases));
+    localStorage.setItem(
+      `${cachePrefix}${workspaceId}`,
+      JSON.stringify(databases),
+    );
   } catch {
     // A stale cache is only a slower first paint.
   }
 }
 
-function cachedDatabases(
-  workspaceId: string | undefined,
-  conversationId?: string,
-) {
+function cachedDatabases(workspaceId: string | undefined) {
   if (!workspaceId) return undefined;
-  const key = cacheKey(workspaceId, conversationId);
-  if (!key) return undefined;
-  const memory = conversationId
-    ? listedForChannel.get(key)
-    : listedForWorkspace.get(workspaceId);
-  if (memory) return memory;
-  const stored = readStored(key);
-  if (stored) {
-    if (conversationId) listedForChannel.set(key, stored);
-    else listedForWorkspace.set(workspaceId, stored);
-    return stored;
-  }
-  if (conversationId) {
-    const all =
-      listedForWorkspace.get(workspaceId) ?? readStored(cacheKey(workspaceId));
-    if (all)
-      return all.filter(
-        (database) => database.conversationId === conversationId,
-      );
-  }
-  return undefined;
+  const cached = listed.get(workspaceId) ?? readStored(workspaceId);
+  if (cached) listed.set(workspaceId, cached);
+  return cached;
 }
 
+/** The databases shown in a channel, or every one in the workspace. */
 export function useDatabases(conversationId?: string) {
   const { client, snapshot } = useRelaySession();
   const workspaceId = snapshot?.id;
-  const initial = cachedDatabases(workspaceId, conversationId);
+  const initial = cachedDatabases(workspaceId);
   const [databases, setDatabases] = useState<Database[]>(initial ?? []);
   const [loaded, setLoaded] = useState(Boolean(initial));
 
   useEffect(() => {
     if (!client) return;
     let live = true;
-    const key = cacheKey(workspaceId, conversationId);
-    const workspaceKey = cacheKey(workspaceId);
     const load = () =>
-      void client.databases.list(conversationId).then(
+      void client.databases.list().then(
         (next) => {
           if (!live) return;
-          if (conversationId) {
-            if (key) listedForChannel.set(key, next);
-            // Keep the workspace-wide list fresh when one is already cached.
-            const all =
-              listedForWorkspace.get(workspaceId ?? "") ??
-              readStored(workspaceKey);
-            if (all && workspaceId) {
-              const merged = [
-                ...all.filter(
-                  (database) => database.conversationId !== conversationId,
-                ),
-                ...next,
-              ];
-              listedForWorkspace.set(workspaceId, merged);
-              writeStored(workspaceKey, merged);
-            }
-          } else if (workspaceId) {
-            listedForWorkspace.set(workspaceId, next);
-            writeStored(workspaceKey, next);
+          if (workspaceId) {
+            listed.set(workspaceId, next);
+            writeStored(workspaceId, next);
           }
-          writeStored(key, next);
           setDatabases(next);
           setLoaded(true);
         },
@@ -369,12 +323,11 @@ export function useDatabases(conversationId?: string) {
       live = false;
       window.removeEventListener(databasesChanged, load);
     };
-  }, [client, conversationId, workspaceId]);
-  // A list read for another channel never shows here.
+  }, [client, workspaceId]);
   return {
     databases: conversationId
-      ? databases.filter(
-          (database) => database.conversationId === conversationId,
+      ? databases.filter((database) =>
+          database.channels.includes(conversationId),
         )
       : databases,
     loaded,

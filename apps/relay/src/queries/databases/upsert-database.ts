@@ -8,12 +8,10 @@ export function databasesUpsertDatabase(
   storage: DurableObjectStorage,
   {
     databaseId,
-    conversationId,
     databaseJson,
     updatedAt,
   }: {
     databaseId: string;
-    conversationId: string;
     databaseJson: string;
     updatedAt: number;
   },
@@ -25,14 +23,13 @@ export function databasesUpsertDatabase(
         .insert(databases)
         .values({
           database_id: databaseId,
-          conversation_id: conversationId,
+          conversation_id: "",
           database_json: databaseJson,
           updated_at: updatedAt,
         })
         .onConflictDoUpdate({
           target: [databases.database_id],
           set: {
-            conversation_id: sql`excluded.conversation_id`,
             database_json: sql`excluded.database_json`,
             updated_at: sql`excluded.updated_at`,
           },

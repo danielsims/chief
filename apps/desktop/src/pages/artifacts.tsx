@@ -86,7 +86,7 @@ export function ArtifactsPage() {
             key: `database:${database.id}`,
             kind: "Databases",
             name: database.name,
-            conversationId: database.conversationId,
+            conversationId: database.channels[0],
             updatedAt: database.updatedAt,
             database,
           })),
@@ -105,12 +105,7 @@ export function ArtifactsPage() {
   const open = (artifact: Artifact) => {
     const { file, database } = artifact;
     if (file) void navigate(`/artifacts/${encodeURIComponent(file.id)}`);
-    if (!database) return;
-    if (database.conversationId)
-      void navigate(
-        `/conversations?${new URLSearchParams({ channel: database.conversationId, view: "artifacts", database: database.id })}`,
-      );
-    else
+    if (database)
       void navigate(`/artifacts/databases/${encodeURIComponent(database.id)}`);
   };
 

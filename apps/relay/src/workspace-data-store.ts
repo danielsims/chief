@@ -87,10 +87,7 @@ export async function routeWorkspaceData(
   // A page is checked whenever it's written, by whoever writes it.
   const checkPage = (mimeType: string, content: string) => {
     if (mimeType === pageMimeType)
-      requireValidPage(
-        content,
-        usableDatabaseIds(storage, channels, principal),
-      );
+      requireValidPage(content, usableDatabaseIds(storage));
   };
   if (operation.startsWith("data-database"))
     return routeWorkspaceDatabases(

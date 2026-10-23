@@ -37,14 +37,15 @@ import { readWorkspaceSchedule } from "./workspace-schedule-store";
 
 /**
  * Databases: typed rows people and agents keep together, shown as a table or
- * a board. One in a channel is for whoever can read that channel, so a private
- * board is one in a private channel; one in no channel is for the workspace.
+ * a board. Each is workspace data; showing it in channels only references it
+ * there, like a linked database in a page.
  */
 
 function workspaceBoard(now: number): Database {
   return {
     id: workspaceBoardId,
     name: "Workspace Board",
+    channels: [],
     ...boardTemplate(),
     createdAt: now,
     updatedAt: now,
@@ -69,7 +70,6 @@ function readDatabases(storage: DurableObjectStorage) {
 function writeDatabase(storage: DurableObjectStorage, database: Database) {
   databasesUpsertDatabase(storage, {
     databaseId: database.id,
-    conversationId: database.conversationId ?? "",
     databaseJson: JSON.stringify(databaseSchema.parse(database)),
     updatedAt: database.updatedAt,
   });
@@ -230,25 +230,18 @@ export async function routeWorkspaceDatabases(
       "database_access_denied",
       "Only workspace members can use databases.",
     );
-  const canRead = (conversationId: string) =>
-    channels.canReadConversation(conversationId, principal);
   const requireChannel = (conversationId: string) => {
-    if (!canRead(conversationId))
+    if (!channels.canReadConversation(conversationId, principal))
       throw new HttpError(404, "channel_not_found", "Channel not found.");
     return conversationId;
   };
   const all = databases(storage);
-  // A database outside any channel belongs to the whole workspace.
-  const usable = (database: Database) =>
-    !database.conversationId || canRead(database.conversationId);
-  const visible = all.filter(usable);
-  // A database the caller can't see answers as missing, so it isn't revealed.
   const target = () => {
     const id = databaseIdSchema.safeParse(
       request.headers.get("x-chief-database-id"),
     );
     const database = id.success
-      ? visible.find((candidate) => candidate.id === id.data)
+      ? all.find((candidate) => candidate.id === id.data)
       : undefined;
     if (!database) throw notFound();
     return database;
@@ -260,10 +253,8 @@ export async function routeWorkspaceDatabases(
     );
     return json({
       databases: conversationId
-        ? visible.filter(
-            (database) => database.conversationId === conversationId,
-          )
-        : visible,
+        ? all.filter((database) => database.channels.includes(conversationId))
+        : all,
     });
   }
 
@@ -295,7 +286,6 @@ export async function routeWorkspaceDatabases(
     const current = input.id
       ? all.find((database) => database.id === input.id)
       : undefined;
-    if (current && !usable(current)) throw notFound();
     // A new database may bring its own id, so a retried create is one save.
     if (!current && input.id && !z.uuid().safeParse(input.id).success)
       throw notFound();
@@ -311,16 +301,15 @@ export async function routeWorkspaceDatabases(
     const views = input.views ??
       current?.views ?? [{ id: "table", name: "Table", layout: "table" }];
     checkStructure(fields, views);
-    const conversationId =
-      input.conversationId === undefined
-        ? current?.conversationId
-        : (input.conversationId ?? undefined);
+    // Only a channel newly added has to be one the saver can read.
+    const shownIn = [...new Set(input.channels ?? current?.channels ?? [])].map(
+      (channel) =>
+        current?.channels.includes(channel) ? channel : requireChannel(channel),
+    );
     const now = Date.now();
     const database: Database = {
       id: current?.id ?? input.id ?? crypto.randomUUID(),
-      ...(conversationId
-        ? { conversationId: requireChannel(conversationId) }
-        : undefined),
+      channels: shownIn,
       name: input.name ?? current?.name ?? "",
       fields,
       views,
@@ -436,40 +425,18 @@ function sourceChannel(
         .conversationId;
 }
 
-/** The databases a member can use, by id. */
-/**
- * The databases a member can use, optionally only those attached to one
- * conversation plus the workspace-wide ones.
- */
+/** Every database, or only those shown in one conversation. */
 export function databasesForConversation(
   storage: DurableObjectStorage,
-  channels: WorkspaceChannelStore,
-  principal: Principal,
   conversationId?: string,
 ) {
   return databases(storage).filter(
-    (database) =>
-      (!database.conversationId ||
-        channels.canReadConversation(database.conversationId, principal)) &&
-      (!conversationId ||
-        !database.conversationId ||
-        database.conversationId === conversationId),
+    (database) => !conversationId || database.channels.includes(conversationId),
   );
 }
 
-export function usableDatabaseIds(
-  storage: DurableObjectStorage,
-  channels: WorkspaceChannelStore,
-  principal: Principal,
-) {
-  return new Set(
-    databases(storage).flatMap((database) =>
-      !database.conversationId ||
-      channels.canReadConversation(database.conversationId, principal)
-        ? [database.id]
-        : [],
-    ),
-  );
+export function usableDatabaseIds(storage: DurableObjectStorage) {
+  return new Set(databases(storage).map((database) => database.id));
 }
 
 /**
