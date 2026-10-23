@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   CalendarClock,
+  Columns3,
   FolderGit2,
   FolderOpen,
   Inbox,
@@ -57,11 +58,12 @@ import { WorkspaceSearchButton } from "./workspace-search";
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
-  { to: "/schedule", label: "Schedule", icon: CalendarClock },
-  { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },
+  { to: "/boards", label: "Boards", icon: Columns3 },
+  { to: "/schedule", label: "Schedule", icon: CalendarClock },
+  { to: "/repositories", label: "Repositories", icon: FolderGit2 },
+  { to: "/artifacts", label: "Artifacts", icon: FolderOpen },
   { to: "/plugins", label: "Plugins", icon: Plug },
-  { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
 
 function sidebarChannelVisibility(visibility: string | undefined) {
@@ -476,10 +478,8 @@ export function Sidebar({
         aria-orientation="vertical"
         aria-label="Resize sidebar"
         onPointerDown={onResizeStart}
-        className="group absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize"
-      >
-        <span className="bg-foreground/30 absolute inset-y-0 left-[3px] w-px opacity-0 transition-opacity group-hover:opacity-100" />
-      </div>
+        className="absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize"
+      />
     </aside>
   );
 }

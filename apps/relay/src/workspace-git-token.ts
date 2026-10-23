@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+import { timingSafeEqual } from "./timing-safe-equal";
 
 /**
  * A signed, short-lived, read-only credential for cloning a workspace Git
@@ -83,15 +84,6 @@ async function hmac(secret: string, payload: string) {
   return new Uint8Array(
     await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)),
   );
-}
-
-function timingSafeEqual(left: string, right: string) {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return difference === 0;
 }
 
 function encode(bytes: Uint8Array) {

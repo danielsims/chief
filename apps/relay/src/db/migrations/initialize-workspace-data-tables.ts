@@ -22,14 +22,29 @@ export function initializeWorkspaceDataTables<
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS prospects (
-      prospect_id TEXT PRIMARY KEY,
-      prospect_json TEXT NOT NULL,
-      relevance TEXT NOT NULL,
-      found_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+    DROP TABLE IF EXISTS prospects;
+    DROP TABLE IF EXISTS board_items;
+    DROP TABLE IF EXISTS board_lanes;
+    CREATE TABLE IF NOT EXISTS databases (
+      database_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      database_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS prospects_recent_idx
-      ON prospects (updated_at DESC);
+    CREATE TABLE IF NOT EXISTS database_rows (
+      row_id TEXT PRIMARY KEY,
+      database_id TEXT NOT NULL,
+      row_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS database_rows_database_idx
+      ON database_rows (database_id);
+    -- A database's one channel becomes the first of the channels it shows in.
+    UPDATE databases
+      SET database_json = json_remove(
+        json_set(database_json, '$.channels',
+          json_array(json_extract(database_json, '$.conversationId'))),
+        '$.conversationId')
+      WHERE json_extract(database_json, '$.conversationId') IS NOT NULL;
   `);
 }

@@ -382,7 +382,7 @@ export async function handleBootstrapOnboardingWork({
                 msg.jobs.some((job) => job.agentId === "setup")
                   ? `Do useful public-source and workspace work immediately. For a selected Setup job only, when credentials, consent, or account selection are genuinely required, Setup must explain the exact next step inside its own thread and keep the secure browser waiting there. Do not mirror that browser or raise a duplicate top-level action in #${channel.name}.`
                   : "Do useful public-source and workspace work immediately. No setup job was selected, so do not start an integration, authorization flow, or provider action during initial onboarding.",
-                "Persist useful results only in their dedicated surfaces, such as the brand profile, prospects, analytics, connections, and channel threads. Do not create or attach a generic initial business review file.",
+                "Persist useful results only in their dedicated surfaces, such as the brand profile, channel databases, analytics, connections, and channel threads. Do not create or attach a generic initial business review file.",
                 `Keep all user-facing progress and the final synthesis in this channel by calling localTools.channelsMessagesPost with channelId ${JSON.stringify(channel.id)}. Ordinary assistant text is private working output. Do not treat agent activity as a user-facing message.`,
               ].join("\n\n");
           await sendOnboardingPrompt(

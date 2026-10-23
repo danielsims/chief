@@ -5,13 +5,13 @@ import { normalizeWorkspaceData } from "../src/lib/workspace-data.js";
 
 void test("normalizes collections omitted by an older runtime snapshot", () => {
   const normalized = normalizeWorkspaceData({
-    prospects: [
+    trends: [
       {
-        id: "prospect",
-        name: "Pat",
+        id: "trend",
+        title: "A signal",
         source: "manual",
-        summary: "A saved prospect.",
-        relevance: "medium",
+        summary: "A saved trend.",
+        signal: "medium",
         status: "new",
         foundAt: 0,
       },
@@ -19,7 +19,7 @@ void test("normalizes collections omitted by an older runtime snapshot", () => {
     activity: undefined,
   });
 
-  assert.equal(normalized.prospects.length, 1);
+  assert.equal(normalized.trends.length, 1);
   assert.deepEqual(normalized.analyticsDatasets, []);
   assert.deepEqual(normalized.activity, []);
   assert.deepEqual(normalized.actionItems, []);

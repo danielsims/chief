@@ -15,6 +15,8 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ActivityToolCall } from "./activity-entries";
 import type { SessionChange } from "./session-work";
 import { useTheme } from "../../lib/theme";
+import { usePluginTool } from "../../lib/use-plugin-connections";
+import { ProviderLogo } from "../provider-logo";
 import { activityEntries } from "./activity-entries";
 import { formatActivityValue } from "./activity-tool-details";
 import { toolPresentation, toolSummary } from "./message-blocks";
@@ -87,7 +89,8 @@ function ActivityTool({
   const running = !result && active;
   const failed = Boolean(result?.is_error);
   const stopped = !result && !active;
-  const label = toolPresentation(tool.name, tool.input);
+  const pluginTool = usePluginTool(tool.name);
+  const label = pluginTool?.tool ?? toolPresentation(tool.name, tool.input);
   const summary = toolSummary(tool.input);
   const parameters = formatActivityValue(tool.input);
   const output = formatActivityValue(result?.content);
@@ -130,8 +133,15 @@ function ActivityTool({
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs leading-4 font-medium">
-            {label}
+          <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 font-medium">
+            {pluginTool?.plugin.domain ? (
+              <ProviderLogo
+                domain={pluginTool.plugin.domain}
+                label={pluginTool.plugin.name}
+                className="size-3.5 shrink-0 rounded-[4px]"
+              />
+            ) : null}
+            <span className="truncate">{label}</span>
           </span>
           {summary ? (
             <span className="text-muted-foreground block truncate text-[11px] leading-4">

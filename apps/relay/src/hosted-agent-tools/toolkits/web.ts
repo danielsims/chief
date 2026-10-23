@@ -1,5 +1,12 @@
 import { requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
+import {
+  fetchThroughMachine,
+  isChallengePage,
+  readWithChrome,
+  recordSiteFailure,
+  requireSiteOpen,
+} from "../web-access";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_TEXT_LENGTH = 40_000;
@@ -8,12 +15,92 @@ const MAX_LINKS = 100;
 export const hostedWebTools = [
   defineHostedAgentTool(
     "web.read",
-    async (_context, input) => await readWebPage(requiredString(input, "url")),
+    async (context, input) => {
+      const url = publicWebUrl(requiredString(input, "url")).toString();
+      const page = await fetchPage(context, url);
+      return pageFrom(publicWebUrl(page.url), page.body, page.contentType);
+    },
+    { effect: "read_only" },
+  ),
+  defineHostedAgentTool(
+    "web.search",
+    async (context, input) => {
+      const query = requiredString(input, "query");
+      const page = await fetchPage(
+        context,
+        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      );
+      const results = duckDuckGoResults(page.body);
+      if (!results.length)
+        throw new Error(
+          "Search found nothing this time. Try other words, or use the pages you already have.",
+        );
+      return { query, results };
+    },
     { effect: "read_only" },
   ),
 ];
 
+/**
+ * Every page an agent reads, search results included, comes through here: a
+ * machine lent to the workspace if one is online, otherwise the cloud, where
+ * a site that refuses a plain fetch gets one try in a real browser. A site
+ * that keeps failing is closed for the rest of the turn.
+ */
+async function fetchPage(
+  context: Parameters<typeof fetchThroughMachine>[0],
+  url: string,
+) {
+  requireSiteOpen(context.job.id, url);
+  const lent = await fetchThroughMachine(context, url);
+  if (lent) return lent;
+  try {
+    return await fetchPlain(url);
+  } catch (error) {
+    try {
+      const page = await readWithChrome(context.env.BROWSER, url);
+      return { url: page.url, body: page.html, contentType: "text/html" };
+    } catch {
+      recordSiteFailure(context.job.id, url);
+      throw error;
+    }
+  }
+}
+
+interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export function duckDuckGoResults(html: string): SearchResult[] {
+  return [
+    ...html.matchAll(
+      /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gu,
+    ),
+  ]
+    .flatMap(([, link = "", title = "", snippet = ""]) => {
+      const target = new URL(decodeHtml(link), "https://duckduckgo.com");
+      const url = target.searchParams.get("uddg") ?? target.toString();
+      // Ads route through DuckDuckGo's own click tracker.
+      if (/duckduckgo\.com\/y\.js/u.test(url)) return [];
+      return [{ url, title: plainText(title), snippet: plainText(snippet) }];
+    })
+    .slice(0, 20);
+}
+
+function plainText(html: string) {
+  return decodeHtml(html.replace(/<[^>]+>/gu, " "))
+    .replaceAll(/\s+/gu, " ")
+    .trim();
+}
+
 export async function readWebPage(source: string) {
+  const page = await fetchPlain(source);
+  return pageFrom(publicWebUrl(page.url), page.body, page.contentType);
+}
+
+async function fetchPlain(source: string) {
   let url = publicWebUrl(source);
   for (let redirect = 0; redirect <= 5; redirect += 1) {
     const response = await fetch(url, {
@@ -30,22 +117,31 @@ export async function readWebPage(source: string) {
       url = publicWebUrl(new URL(location, url).toString());
       continue;
     }
-    if (!response.ok) {
+    // 202 is how some sites, DuckDuckGo among them, turn a bot away.
+    if (!response.ok || response.status === 202) {
       throw new Error(`The web page returned HTTP ${response.status}.`);
     }
     const body = await boundedBody(response);
-    const contentType = response.headers.get("content-type")?.toLowerCase();
-    if (!contentType?.includes("html")) {
-      return {
-        url: url.toString(),
-        title: "",
-        text: body.slice(0, MAX_TEXT_LENGTH),
-        links: [],
-      };
-    }
-    return htmlPage(url, body);
+    if (isChallengePage(body))
+      throw new Error("The web page returned a bot check instead of content.");
+    return {
+      url: url.toString(),
+      body,
+      contentType: response.headers.get("content-type") ?? "",
+    };
   }
   throw new Error("The web page redirected too many times.");
+}
+
+function pageFrom(url: URL, body: string, contentType: string) {
+  if (!contentType.toLowerCase().includes("html"))
+    return {
+      url: url.toString(),
+      title: "",
+      text: body.slice(0, MAX_TEXT_LENGTH),
+      links: [],
+    };
+  return htmlPage(url, body);
 }
 
 async function boundedBody(response: Response) {

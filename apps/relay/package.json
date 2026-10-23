@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-sdk/gateway": "4.0.22",
     "@ai-sdk/openai-compatible": "3.0.39",
+    "@cfworker/json-schema": "^4.1.1",
     "@chief/agent-computer": "workspace:*",
     "@chief/agent-runtime": "workspace:*",
     "@chief/auth": "workspace:*",
@@ -24,16 +25,18 @@
     "@chief/relay-contracts": "workspace:*",
     "@cloudflare/computer": "0.2.1",
     "@cloudflare/puppeteer": "1.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@noble/curves": "^2.3.0",
     "@noble/hashes": "^2.3.0",
     "@platformatic/vfs": "0.4.0",
     "agents": "0.28.1",
     "ai": "7.0.30",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.0-beta.107",
     "jose": "^6.2.3",
     "just-bash": "3.4.2",
-    "zod": "catalog:",
-    "drizzle-orm": "1.0.0-rc.4"
+    "tldts": "^7.4.18",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",

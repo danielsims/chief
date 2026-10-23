@@ -60,45 +60,113 @@ describe("workspace data", () => {
     });
   });
 
-  it("persists evidence-backed prospects and denies user-authored agent records", async () => {
+  it("stamps database rows and updates a matching row instead of duplicating it", async () => {
     const ctx = await setupChannelTest();
-    const prospectorId = agentIdSchema.parse("prospector");
-    const pubkey = hexKey("workspace-data-prospector");
-    await registerTestAgent(ctx, prospectorId, pubkey);
-    const prospector = {
-      kind: "agent" as const,
-      agentId: prospectorId,
-      pubkey,
-      workspaceId: ctx.workspaceId,
-      role: "member" as const,
-    };
-    const input = {
-      id: "chief-homepage",
-      name: "Chief homepage",
-      company: "Chief",
-      source: "Company website",
-      sourceUrl: "https://heychief.sh/",
-      summary: "The public page shows an active product launch.",
-      evidence: "The page describes the current product and audience.",
-      outreachAngle: "Offer a concrete workflow review.",
-      relevance: "high",
-      status: "new",
-    };
+    const created = await rpc(ctx, ctx.principal, "data-database-save", {
+      name: "Prospects",
+      fields: [
+        { id: "title", name: "Name", type: "title" },
+        { id: "source", name: "Source URL", type: "url" },
+        { id: "notes", name: "Notes", type: "text" },
+      ],
+      views: [{ id: "table", name: "Table", layout: "table" }],
+    });
+    expect(created.status).toBe(200);
+    const database = (await created.json()) as { id: string };
+    const databaseHeaders = { "x-chief-database-id": database.id };
 
-    const denied = await rpc(ctx, ctx.principal, "data-prospect-save", input);
-    expect(denied.status).toBe(403);
-
-    const saved = await rpc(ctx, prospector, "data-prospect-save", input);
-    expect(saved.status).toBe(200);
-    expect(await saved.json()).toMatchObject({
-      id: "chief-homepage",
-      authorAgentId: "prospector",
-      sourceUrl: "https://heychief.sh/",
+    const first = await rpc(
+      ctx,
+      ctx.principal,
+      "data-database-row-save",
+      {
+        values: {
+          Name: "Ada",
+          "Source URL": "https://example.test/ada",
+        },
+        match: { Name: "Ada" },
+      },
+      databaseHeaders,
+    );
+    expect(first.status).toBe(200);
+    const saved = (await first.json()) as {
+      id: string;
+      createdBy?: { kind: string; id: string };
+      updatedBy?: { kind: string; id: string };
+    };
+    expect(saved).toMatchObject({
+      createdBy: { kind: "user", id: ctx.principal.userId },
+      updatedBy: { kind: "user", id: ctx.principal.userId },
     });
 
-    const listed = await rpc(ctx, ctx.principal, "data-prospects-list");
-    expect(await listed.json()).toMatchObject({
-      prospects: [expect.objectContaining({ id: "chief-homepage" })],
+    const second = await rpc(
+      ctx,
+      ctx.principal,
+      "data-database-row-save",
+      {
+        values: { Notes: "Followed up" },
+        match: { Name: "Ada" },
+      },
+      databaseHeaders,
+    );
+    const updated = (await second.json()) as {
+      id: string;
+      values: Record<string, string>;
+    };
+    expect(updated.id).toBe(saved.id);
+    expect(updated.values).toMatchObject({
+      title: "Ada",
+      notes: "Followed up",
+    });
+
+    const read = await rpc(
+      ctx,
+      ctx.principal,
+      "data-database-get",
+      undefined,
+      databaseHeaders,
+    );
+    const { rows } = (await read.json()) as { rows: unknown[] };
+    expect(rows).toHaveLength(1);
+  });
+
+  it("lets an agent add a select field and a board view", async () => {
+    const ctx = await setupChannelTest();
+    const created = await rpc(ctx, ctx.principal, "data-database-save", {
+      name: "Prospects",
+      fields: [{ id: "title", name: "Name", type: "title" }],
+      views: [{ id: "table", name: "Table", layout: "table" }],
+    });
+    const database = (await created.json()) as { id: string };
+
+    const updated = await rpc(ctx, ctx.principal, "data-database-save", {
+      id: database.id,
+      fields: [
+        { id: "title", name: "Name", type: "title" },
+        {
+          id: "status",
+          name: "Status",
+          type: "select",
+          options: [
+            { id: "new", name: "New", color: "gray" },
+            { id: "contacted", name: "Contacted", color: "blue" },
+          ],
+        },
+      ],
+      views: [
+        { id: "board", name: "Board", layout: "board", groupBy: "status" },
+        { id: "table", name: "Table", layout: "table" },
+      ],
+    });
+    expect(await updated.json()).toMatchObject({
+      fields: [
+        { id: "title", name: "Name", type: "title" },
+        { id: "status", name: "Status", type: "select" },
+      ],
+      views: [
+        { id: "board", name: "Board", layout: "board", groupBy: "status" },
+        { id: "table", name: "Table", layout: "table" },
+      ],
     });
   });
 
@@ -121,20 +189,6 @@ describe("workspace data", () => {
       conversationId: "engineering",
     });
     expect(brand.status).toBe(403);
-
-    const prospect = await rpc(ctx, engineer, "data-prospect-save", {
-      id: "not-authorized",
-      name: "Not authorized",
-      company: "Chief",
-      source: "Company website",
-      sourceUrl: "https://heychief.sh/",
-      summary: "The engineer must not write prospect memory.",
-      evidence: "Capability policy denies this write.",
-      outreachAngle: "None",
-      relevance: "low",
-      status: "new",
-    });
-    expect(prospect.status).toBe(403);
   });
 
   it("persists versioned agent files without allowing path traversal", async () => {

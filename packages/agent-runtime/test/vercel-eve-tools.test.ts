@@ -10,8 +10,8 @@ import {
   listRecurringWorkDefinition,
   proposeRecurringWorkDefinition,
 } from "../src/tools/toolkits/automation/recurring-work-definitions.js";
+import { automationRunToolDefinitions } from "../src/tools/toolkits/automation/run-tools.js";
 import { workspaceTools } from "../src/tools/toolkits/index.js";
-import { missionToolDefinitions } from "../src/tools/toolkits/missions.js";
 import { eveProjectFiles } from "../src/vercel-eve-files.js";
 import {
   eveChiefChannelTools,
@@ -46,7 +46,7 @@ void test("Eve Chief tools stay aligned with the channel API and local tools", (
   for (const tool of eveChiefTools) {
     const local = [
       ...workspaceTools,
-      ...missionToolDefinitions,
+      ...automationRunToolDefinitions,
       listRecurringWorkDefinition,
       proposeRecurringWorkDefinition,
     ].find((candidate) => candidate.operation.operationId === tool.operationId);

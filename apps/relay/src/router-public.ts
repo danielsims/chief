@@ -10,6 +10,10 @@ import { getPublicImageAsset } from "./attachments";
 import { genericGuestBrief, guestManifest } from "./channel-guest-manual";
 import { relayDocsHtml } from "./docs";
 import { json, relayError } from "./http";
+import {
+  machineInstallPowerShell,
+  machineInstallScript,
+} from "./machine-install";
 import { publicOrigin, relayDiscovery } from "./relay-discovery";
 
 const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
@@ -50,6 +54,14 @@ export function routePublicRequest(request: Request, url: URL, env: Env) {
     );
     return getPublicImageAsset(env, `agents/${workspaceId}/${agentId}`);
   }
+  if (url.pathname === "/install/machine")
+    return new Response(machineInstallScript, {
+      headers: { "content-type": "text/x-shellscript; charset=utf-8" },
+    });
+  if (url.pathname === "/install/machine.ps1")
+    return new Response(machineInstallPowerShell, {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   if (url.pathname === "/health") {
     return json({ ok: true, protocolVersion: 1 });
   }

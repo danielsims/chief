@@ -1,6 +1,5 @@
 import {
   brandProfileSaveSchema,
-  prospectSaveSchema,
   workspaceFileSaveSchema,
   workspaceFilesResultSchema,
   workspaceScheduleInputSchema,
@@ -28,9 +27,12 @@ export const hostedWorkspaceTools = [
             (await deterministicUuid(
               `${job.id}:schedule:${requiredString(input, "title")}`,
             )),
-          conversationId:
-            optionalString(input, "conversationId") ??
-            requiredString(job.payload, "conversationId"),
+          // A new channel is made for it; otherwise it posts where asked, or
+          // in the conversation it was set up from.
+          conversationId: input.newChannel
+            ? optionalString(input, "conversationId")
+            : (optionalString(input, "conversationId") ??
+              requiredString(job.payload, "conversationId")),
           onceAt: input.onceAt,
         }),
       }),
@@ -127,41 +129,6 @@ export const hostedWorkspaceTools = [
           conversationId: requiredString(job.payload, "conversationId"),
         }),
       }),
-    { effect: "idempotent" },
-  ),
-  defineHostedAgentTool(
-    "prospects.list",
-    async ({ env, job, principal }) =>
-      await workspaceOperation(env, job, principal, "data-prospects-list"),
-    { effect: "read_only" },
-  ),
-  defineHostedAgentTool(
-    "prospects.save",
-    async ({ env, job, principal }, input) => {
-      const sourceUrl = requiredString(input, "sourceUrl");
-      return await workspaceOperation(
-        env,
-        job,
-        principal,
-        "data-prospect-save",
-        {
-          body: prospectSaveSchema.parse({
-            id:
-              optionalString(input, "id") ??
-              (await deterministicUuid(`${job.id}:prospect:${sourceUrl}`)),
-            name: requiredString(input, "name"),
-            company: optionalString(input, "company") ?? null,
-            source: requiredString(input, "source"),
-            sourceUrl,
-            summary: requiredString(input, "summary"),
-            evidence: requiredString(input, "evidence"),
-            outreachAngle: requiredString(input, "outreachAngle"),
-            relevance: input.relevance,
-            status: input.status === "researching" ? "reviewing" : input.status,
-          }),
-        },
-      );
-    },
     { effect: "idempotent" },
   ),
 ];

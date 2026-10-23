@@ -326,6 +326,14 @@ export class AcpDriver extends BaseDriver {
   private sessionUpdate(params: JsonObject) {
     const update = record(params.update ?? params);
     const type = update.type ?? update.sessionUpdate;
+    if (type === "usage_update") {
+      if (isJsonNumber(update.used))
+        this.recordContextUsage(
+          update.used,
+          isJsonNumber(update.size) ? update.size : undefined,
+        );
+      return;
+    }
     if (
       this.suppressReplay &&
       (type === "agent_message_chunk" ||

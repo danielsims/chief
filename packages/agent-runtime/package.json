@@ -24,7 +24,9 @@
     "./vercel-eve-provisioning": "./src/vercel-eve-provisioning.ts",
     "./local-tools": "./src/tools/model.ts",
     "./onboarding-message-pacing": "./src/onboarding-message-pacing.ts",
-    "./recurring-work": "./src/recurring-work.ts"
+    "./recurring-work": "./src/recurring-work.ts",
+    "./mcp-oauth": "./src/mcp-oauth.ts",
+    "./mcp-surface": "./src/plugins/mcp-surface.ts"
   },
   "scripts": {
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",

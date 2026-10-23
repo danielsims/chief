@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Workflow } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -12,11 +12,8 @@ import type {
   ScheduleKind,
 } from "./schedule-calendar-core";
 import { PageHeader } from "../components/page-header";
-import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import {
-  messageBlocks,
-  useChiefChat,
   useRuntime,
   useWorkspaceCapability,
   useWorkspaceData,
@@ -32,12 +29,8 @@ import {
   startOfWeek,
   workOccurrences,
 } from "./schedule-calendar-core";
-import { ScheduleComposer } from "./schedule-composer";
-import {
-  RecurringWorkApprovalDialog,
-  ScheduleEventDetailDialog,
-} from "./schedule-dialogs";
-import { MonthJump, ScheduleList } from "./schedule-inbox";
+import { ScheduleDraftDialog } from "./schedule-dialogs";
+import { MonthJump } from "./schedule-inbox";
 import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
@@ -63,8 +56,6 @@ export function SchedulePage() {
   const [visibleKinds, setVisibleKinds] = useState<ReadonlySet<ScheduleKind>>(
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
-  const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
-  const [detailWorkId, setDetailWorkId] = useState<string | null>(null);
   const [detailDraftId, setDetailDraftId] = useState<string | null>(null);
   const [workMenu, setWorkMenu] = useState<{
     work: RecurringWorkRecord;
@@ -72,11 +63,8 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const agentConfig = useAgentConfig();
   const { client, status } = useRuntime();
   const { capability } = useWorkspaceCapability();
   useEffect(() => {
@@ -98,72 +86,11 @@ export function SchedulePage() {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  // Derived from live workspace data so an agent revision streams straight
-  // into the open approval card.
-  const approvalWork = approvalWorkId
-    ? (workspaceData.recurringWork.find((work) => work.id === approvalWorkId) ??
-      null)
-    : null;
-  const detailWork = detailWorkId
-    ? (workspaceData.recurringWork.find((work) => work.id === detailWorkId) ??
-      null)
-    : null;
   const detailDraft = detailDraftId
     ? (workspaceData.drafts.find((draft) => draft.id === detailDraftId) ?? null)
     : null;
-  const revisionDriver = agentConfig.forAgent("chief").driver;
-  const revisionChat = useChiefChat(approvalWork?.conversationId ?? null);
-  const revisionNote = useMemo(() => {
-    for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.messages[i];
-      if (!item) continue;
-      if (item.role !== "assistant") continue;
-      const text = messageBlocks(item)
-        .flatMap((block) => (block.type === "text" ? [block.text] : []))
-        .join(" ")
-        .trim();
-      if (text) return text;
-    }
-    return null;
-  }, [revisionChat.messages]);
-  const createSchedule = () => setCreating(true);
-  const openWorkReview = (work: RecurringWorkRecord) => {
-    if (work.status === "draft" || work.status === "needs_approval") {
-      setApprovalWorkId(work.id);
-      return;
-    }
-    setDetailWorkId(work.id);
-  };
-
-  const requestRevision = (feedback: string) => {
-    if (!approvalWork) return;
-    const draft = {
-      id: approvalWork.id,
-      agentId: approvalWork.agentId,
-      title: approvalWork.title,
-      collaborators: approvalWork.collaborators,
-      missionId: approvalWork.missionId,
-      expectedOutcome: approvalWork.expectedOutcome,
-      constraints: approvalWork.constraints,
-      maxDurationMinutes: approvalWork.maxDurationMinutes,
-      triggerMode: approvalWork.triggerMode,
-      cron: approvalWork.cron,
-      timezone: approvalWork.timezone,
-      onceAt: approvalWork.onceAt,
-      instructions: approvalWork.instructions,
-      approvalSummary: approvalWork.approvalSummary,
-      proposedToolPatterns: approvalWork.proposedToolPatterns,
-    };
-    void revisionChat.sendMessage({
-      text: [
-        `@${approvalWork.agentId}, the user is reviewing a draft recurring-work approval and asked for a change before approving.`,
-        `Current draft (JSON): ${JSON.stringify(draft)}`,
-        `Feedback: "${feedback}"`,
-        `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurring_work_propose tool with the SAME id and ALL fields from the current draft, including the team, mission, outcome, constraints, trigger mode and time limit, changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
-      ].join("\n"),
-    });
-  };
+  const openAutomation = (id = "new") =>
+    void navigate(`/schedule/automations/${encodeURIComponent(id)}`);
 
   const workDateKeyIn = (timestamp: number, timezone: string) => {
     try {
@@ -193,10 +120,6 @@ export function SchedulePage() {
       updatedAt: Date.now(),
     });
   };
-  const editWork = editWorkId
-    ? (workspaceData.recurringWork.find((work) => work.id === editWorkId) ??
-      null)
-    : null;
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
@@ -263,10 +186,20 @@ export function SchedulePage() {
         title="Schedule"
         description="Plan and manage your team's scheduled work."
         actions={
-          <Button size="sm" onClick={() => createSchedule()}>
-            <Plus size={14} />
-            New schedule
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void navigate("/schedule/automations")}
+            >
+              <Workflow size={13} />
+              Automations
+            </Button>
+            <Button size="sm" onClick={() => openAutomation()}>
+              <Plus size={14} />
+              New automation
+            </Button>
+          </>
         }
       />
 
@@ -282,10 +215,6 @@ export function SchedulePage() {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <ScheduleList
-              work={workspaceData.recurringWork}
-              onOpen={openWorkReview}
-            />
             <ScheduleFilters
               visibleKinds={visibleKinds}
               onToggle={(kind) => {
@@ -356,7 +285,7 @@ export function SchedulePage() {
               now={now}
               selected={selected}
               onSelect={setSelected}
-              onWorkOpen={openWorkReview}
+              onWorkOpen={(work) => openAutomation(work.id)}
               onDraftOpen={(draft) => setDetailDraftId(draft.id)}
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
@@ -373,7 +302,7 @@ export function SchedulePage() {
               today={today}
               now={now}
               onSelect={setSelected}
-              onWorkOpen={openWorkReview}
+              onWorkOpen={(work) => openAutomation(work.id)}
               onDraftOpen={(draft) => setDetailDraftId(draft.id)}
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
@@ -386,64 +315,13 @@ export function SchedulePage() {
           )}
         </div>
       </section>
-      <RecurringWorkApprovalDialog
-        work={approvalWork}
-        now={now}
-        onClose={() => setApprovalWorkId(null)}
-        onApprove={(work) => {
-          workspaceData.saveRecurringWork({
-            ...work,
-            status: "active",
-            grant: {
-              version: 1,
-              approvedAt: Date.now(),
-              toolPatterns: work.proposedToolPatterns,
-            },
-            updatedAt: Date.now(),
-          });
-        }}
-        onReject={(work) => {
-          workspaceData.deleteRecurringWork(work.id);
-        }}
-        revision={{
-          available: Boolean(revisionDriver),
-          busy:
-            !revisionChat.chatReady ||
-            revisionChat.controls.status === "running",
-          note: revisionNote,
-          onRequest: requestRevision,
-        }}
-      />
-      <ScheduleEventDetailDialog
-        work={detailWork}
+      <ScheduleDraftDialog
         draft={detailDraft}
-        onClose={() => {
-          setDetailWorkId(null);
-          setDetailDraftId(null);
-        }}
-        onEditWork={(work) => {
-          setDetailWorkId(null);
-          setEditWorkId(work.id);
-        }}
-        onOpenWorkChannel={(work) => {
-          setDetailWorkId(null);
-          if (!work.conversationId) return;
-          const params = new URLSearchParams({ channel: work.conversationId });
-          if (work.lastMessageId) params.set("thread", work.lastMessageId);
-          void navigate(`/conversations?${params.toString()}`);
-        }}
-        onTogglePause={(work) =>
-          workspaceData.saveRecurringWork({
-            ...work,
-            status: work.status === "active" ? "paused" : "active",
-            updatedAt: Date.now(),
-          })
-        }
-        onRunWork={(work) => workspaceData.runRecurringWorkNow(work.id)}
+        onClose={() => setDetailDraftId(null)}
         onOpenDraft={(draft) => {
           setDetailDraftId(null);
           if (draft.fileId) {
-            void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+            void navigate(`/artifacts/${encodeURIComponent(draft.fileId)}`);
           }
         }}
       />
@@ -451,27 +329,15 @@ export function SchedulePage() {
         context={workMenu}
         onClose={() => setWorkMenu(null)}
         onSkip={skipOccurrence}
-        onEdit={(work) => setEditWorkId(work.id)}
-        onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
+        onEdit={(work) => openAutomation(work.id)}
+        onTurnOff={(work) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            status: "paused",
+            updatedAt: Date.now(),
+          })
+        }
       />
-      {creating || editWork ? (
-        <ScheduleComposer
-          key={editWork?.id ?? "new"}
-          work={editWork}
-          onClose={() => {
-            setCreating(false);
-            setEditWorkId(null);
-          }}
-          onSaved={() => {
-            if (cloudOrganizationId && capability)
-              client.send({
-                type: "listWorkspaceData",
-                workspaceId: cloudOrganizationId,
-                executorCapability: capability,
-              });
-          }}
-        />
-      ) : null}
     </div>
   );
 }

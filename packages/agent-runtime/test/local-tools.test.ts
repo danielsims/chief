@@ -23,10 +23,12 @@ const directory = mkdtempSync(join(tmpdir(), "chief-local-tools-"));
 const manager = new SessionManager(
   new LocalStore(join(directory, "chief.sqlite")),
 );
-test.after(() => rmSync(directory, { recursive: true, force: true }));
+test.after(async () => {
+  await manager.store.health();
+  rmSync(directory, { recursive: true, force: true });
+});
 manager.workspaceData = () =>
   Promise.resolve({
-    prospects: [],
     trends: [],
     analyticsDatasets: [],
     drafts: [],

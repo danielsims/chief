@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { automationSchema } from "./automations";
 import { agentIdSchema, conversationIdSchema } from "./identifiers";
 
 export const workspaceScheduleInputSchema = z.object({
@@ -21,7 +22,6 @@ export const workspaceScheduleInputSchema = z.object({
   constraints: z.string().trim().max(4_000).default(""),
   maxDurationMinutes: z.int().min(5).max(1_440).default(60),
   triggerMode: z.enum(["cron", "webhook"]).default("cron"),
-  missionId: z.string().trim().min(1).max(120).optional(),
   title: z.string().trim().min(1).max(200),
   instructions: z.string().trim().min(1).max(8_000),
   cron: z.string().trim().max(120).default("0 9 * * *"),
@@ -36,6 +36,8 @@ export const workspaceScheduleInputSchema = z.object({
     .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/u))
     .max(366)
     .default([]),
+  /** The steps this schedule runs. Without them the team works from the brief. */
+  automation: automationSchema.optional(),
 });
 
 export const workspaceScheduleSchema = workspaceScheduleInputSchema.extend({
@@ -54,7 +56,7 @@ export const workspaceScheduleSchema = workspaceScheduleInputSchema.extend({
 });
 
 export const workspaceScheduleActionSchema = z.object({
-  action: z.enum(["approve", "pause", "resume", "run"]),
+  action: z.enum(["approve", "pause", "resume", "run", "test"]),
   commandId: z.uuid(),
   expectedUpdatedAt: z.number().optional(),
 });
@@ -71,3 +73,8 @@ export type WorkspaceScheduleInput = z.infer<
 export type WorkspaceScheduleAction = z.infer<
   typeof workspaceScheduleActionSchema
 >["action"];
+
+/** An automation's chat with Chief: a conversation only its page shows. */
+export const automationChatSchema = z.object({
+  conversationId: conversationIdSchema,
+});

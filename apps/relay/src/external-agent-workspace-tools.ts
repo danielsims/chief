@@ -5,9 +5,6 @@ import {
   channelCreateCommandSchema,
   channelJoinCommandSchema,
   channelMemberAddCommandSchema,
-  missionCreateSchema,
-  missionExperimentInputSchema,
-  missionStatusUpdateSchema,
   parseJsonObject,
   workspaceFileSaveSchema,
   workspaceFileSchema,
@@ -30,7 +27,6 @@ import { channelsFindCreateChannel } from "./queries/channels/find-create-channe
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelService } from "./workspace-channel-service";
 import { routeWorkspaceData } from "./workspace-data-store";
-import { routeWorkspaceMissions } from "./workspace-missions";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { readScheduleRun } from "./workspace-schedule-runs";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
@@ -134,7 +130,7 @@ export async function routeExternalWorkspaceTool(
       );
       return { file };
     }
-    case "missions.addRunCollaborator":
+    case "automations.addRunCollaborator":
       if (
         readScheduleRun(host.storage, requiredString(input, "runId"))?.run
           .threadRootId !== resolved.continuation.thread_root_id
@@ -152,7 +148,7 @@ export async function routeExternalWorkspaceTool(
           "schedules-runs-add-collaborator",
         ),
       );
-    case "missions.reportRunStep":
+    case "automations.reportRunStep":
       return readResult(
         await routeScheduleRuns(
           host.storage,
@@ -161,42 +157,6 @@ export async function routeExternalWorkspaceTool(
           "schedules-runs-report",
         ),
       );
-    case "missions.list":
-      return readResult(
-        await routeWorkspaceMissions(
-          host.storage,
-          host.env,
-          requestFor(resolved),
-          "missions-list",
-        ),
-      );
-    case "missions.create":
-      return readResult(
-        await routeWorkspaceMissions(
-          host.storage,
-          host.env,
-          requestFor(resolved, missionCreateSchema.parse(input)),
-          "missions-create",
-        ),
-      );
-    case "missions.recordExperiment":
-    case "missions.updateStatus": {
-      const { missionId: _missionId, ...body } = input;
-      const experiment = operationId === "missions.recordExperiment";
-      const payload = experiment
-        ? missionExperimentInputSchema.parse(body)
-        : missionStatusUpdateSchema.parse(body);
-      return readResult(
-        await routeWorkspaceMissions(
-          host.storage,
-          host.env,
-          requestFor(resolved, payload, {
-            "x-chief-mission-id": requiredString(input, "missionId"),
-          }),
-          experiment ? "missions-experiment" : "missions-status",
-        ),
-      );
-    }
     case "recurringWork.list":
       return readResult(
         await routeWorkspaceSchedule(

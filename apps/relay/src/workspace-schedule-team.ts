@@ -5,7 +5,6 @@ import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
-import { readWorkspaceMission } from "./workspace-missions";
 import {
   readScheduleRun,
   scheduleRunIsActive,
@@ -65,18 +64,6 @@ export async function addScheduleRunCollaborator(
         409,
         "run_agent_unavailable",
         "This teammate is unavailable.",
-      );
-    const mission = run.schedule.missionId
-      ? readWorkspaceMission(storage, run.schedule.missionId)
-      : undefined;
-    if (
-      mission &&
-      ![mission.ownerAgentId, ...mission.collaborators].includes(input.agentId)
-    )
-      throw new HttpError(
-        409,
-        "mission_team_mismatch",
-        "Add this teammate to the mission before adding them to its run.",
       );
     const schedule = {
       ...run.schedule,

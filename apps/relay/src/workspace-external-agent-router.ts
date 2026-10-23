@@ -20,6 +20,7 @@ type ExternalAgentOperation =
   | "external-agent-activity"
   | "external-agent-tools"
   | "external-agent-memory"
+  | "external-agent-attachment"
   | "external-agent-enqueue"
   | "external-agent-requeue"
   | "external-agent-recover"
@@ -37,6 +38,7 @@ export const externalAgentRouter = {
       value === "external-agent-activity" ||
       value === "external-agent-tools" ||
       value === "external-agent-memory" ||
+      value === "external-agent-attachment" ||
       value === "external-agent-enqueue" ||
       value === "external-agent-requeue" ||
       value === "external-agent-recover" ||
@@ -138,6 +140,15 @@ export const externalAgentRouter = {
         new URL(request.url).pathname,
       );
       return service.receiveMemory(
+        request,
+        decodeURIComponent(match?.[1] ?? ""),
+      );
+    }
+    if (operation === "external-agent-attachment") {
+      const match = /\/agents\/([^/]+)\/channel\/attachment$/u.exec(
+        new URL(request.url).pathname,
+      );
+      return service.receiveAttachment(
         request,
         decodeURIComponent(match?.[1] ?? ""),
       );

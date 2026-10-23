@@ -1,4 +1,5 @@
 import {
+  attachmentLocation,
   attachmentUploadPayloadSchema,
   attachmentUploadResultSchema,
 } from "@chief/relay-contracts";
@@ -66,6 +67,34 @@ export async function uploadAttachment(
     }),
     { status: 201 },
   );
+}
+
+/**
+ * Reads an image a hosted agent was sent, straight from storage. Only images
+ * uploaded to the turn's own conversation are read, so a turn can never pull
+ * in another channel's or another workspace's files.
+ */
+export function conversationAttachmentReader(
+  env: Env,
+  workspaceId: string,
+  conversationId: string,
+) {
+  return async (url: string) => {
+    const location = attachmentLocation(url);
+    if (
+      location?.workspaceId !== workspaceId ||
+      location.conversationId !== conversationId
+    )
+      return undefined;
+    const object = await env.ARTIFACTS.get(
+      `${workspaceId}/${conversationId}/${location.objectName}`,
+    );
+    if (!object) return undefined;
+    return {
+      bytes: new Uint8Array(await object.arrayBuffer()),
+      mediaType: location.mediaType,
+    };
+  };
 }
 
 /** Authenticated read after the router has enforced conversation access. */

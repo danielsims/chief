@@ -142,7 +142,9 @@ describe("relay-local authentication", () => {
       expect(location.searchParams.get("redirect_uri")).toBe(redirectUri);
       expect(location.searchParams.has("error")).toBe(false);
     } else {
-      expect(location.searchParams.get("error")).toBe("invalid_redirect");
+      // Rejected URIs land on the relay's own error page, never the redirect.
+      expect(location.origin).toBe("https://relay.test");
+      expect(location.searchParams.has("error")).toBe(true);
     }
   });
 });

@@ -19,8 +19,6 @@ import type {
   MachineCreate,
   MachineUpdate,
   MessageComponent,
-  MissionCreate,
-  MissionExperimentInput,
   RegisterAgentKeyResult,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -45,12 +43,13 @@ import {
   logReceiptSchema,
   machineCreateSchema,
   machineDeleteResultSchema,
+  machinePairingSchema,
   machineSchema,
   machinesResultSchema,
   machineUpdateSchema,
   messagePageSchema,
-  missionListSchema,
-  missionSchema,
+  pairedMachineRemovedSchema,
+  pairedMachinesSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
@@ -61,6 +60,7 @@ import {
 
 import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
+import type { RelayWebMachine } from "./relay-web-machine";
 import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
@@ -68,11 +68,14 @@ import type {
 import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
+import { RelayDatabasesClient } from "./relay-databases-client";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { RelayGitHubClient } from "./relay-github-client";
+import { RelayPluginsClient } from "./relay-plugins-client";
 import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
+import { openRelayWebMachine } from "./relay-web-machine";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
 export type { RelayClientOptions } from "./relay-client-options";
@@ -83,10 +86,12 @@ export type WorkspaceSubscription = RelayWorkspaceSubscription;
 export type { RelayTypingEvent };
 
 export class RelayClient extends RelayVercelProvisioning {
+  readonly databases: RelayDatabasesClient;
   readonly externalAgents: RelayExternalAgentsClient;
   readonly channelGuests: RelayChannelGuestsClient;
   readonly channelSettings: RelayChannelSettingsClient;
   readonly github: RelayGitHubClient;
+  readonly plugins: RelayPluginsClient;
   readonly schedules: Pick<
     RelaySchedulesClient,
     | "list"
@@ -94,64 +99,28 @@ export class RelayClient extends RelayVercelProvisioning {
     | "act"
     | "delete"
     | "runs"
+    | "chat"
     | "runAction"
     | "reportStep"
+    | "webhook"
     | "webhooks"
-    | "createWebhook"
-    | "webhookAction"
+    | "webhookEvents"
+    | "revokeWebhook"
   >;
 
   constructor(options: RelayClientOptions) {
     super(options);
+    this.databases = new RelayDatabasesClient(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
     this.channelGuests = new RelayChannelGuestsClient(options);
     this.channelSettings = new RelayChannelSettingsClient(options);
     this.github = new RelayGitHubClient(options);
+    this.plugins = new RelayPluginsClient(options);
     this.schedules = new RelaySchedulesClient(options);
   }
 
   forWorkspace(workspaceId: WorkspaceId | string) {
     return new RelayClient({ ...this.options, workspaceId });
-  }
-  async listMissions() {
-    return (
-      await this.fetchJson(this.workspaceUrl("missions"), missionListSchema)
-    ).missions;
-  }
-  async createMission(input: MissionCreate) {
-    return this.fetchJson(this.workspaceUrl("missions"), missionSchema, true, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-    });
-  }
-  async recordMissionExperiment(id: string, input: MissionExperimentInput) {
-    return this.fetchJson(
-      this.workspaceUrl(`missions/${encodeURIComponent(id)}/experiments`),
-      missionSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      },
-    );
-  }
-  async updateMissionStatus(
-    id: string,
-    status: "active" | "paused" | "completed",
-    evidence: string,
-  ) {
-    return this.fetchJson(
-      this.workspaceUrl(`missions/${encodeURIComponent(id)}/status`),
-      missionSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status, evidence }),
-      },
-    );
   }
 
   async listMachines(): Promise<Machine[]> {
@@ -567,6 +536,60 @@ export class RelayClient extends RelayVercelProvisioning {
         this.listEvents(conversationId, { after, limit: 200 }),
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
+      onError: input.onError,
+    });
+  }
+
+  /** A one-time code a headless machine pairs with, valid for 15 minutes. */
+  async createMachinePairing() {
+    return await this.fetchJson(
+      this.workspaceUrl("machines/pairings"),
+      machinePairingSchema,
+      true,
+      { method: "POST" },
+    );
+  }
+
+  /** This member's paired machines, and whether each is serving now. */
+  async listPairedMachines() {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("machines/paired"),
+        pairedMachinesSchema,
+        true,
+      )
+    ).machines;
+  }
+
+  async removePairedMachine(machineId: string) {
+    await this.fetchJson(
+      this.workspaceUrl(`machines/paired/${encodeURIComponent(machineId)}`),
+      pairedMachineRemovedSchema,
+      true,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Lends this computer's connection to the workspace's agents. */
+  async serveWebMachine(input: {
+    policy: Parameters<typeof openRelayWebMachine>[0]["policy"];
+    fetch: Parameters<typeof openRelayWebMachine>[0]["fetch"];
+    onError?: (error: Error) => void;
+  }): Promise<RelayWebMachine> {
+    const workspaceId = this.requireWorkspaceId();
+    return await openRelayWebMachine({
+      workspaceId,
+      discovery: () => this.discovery(),
+      createTicket: () =>
+        this.fetchJson(
+          this.workspaceUrl("socket-tickets"),
+          workspaceSocketTicketSchema,
+          true,
+          { method: "POST" },
+        ),
+      createWebSocket: this.createWebSocket,
+      policy: input.policy,
+      fetch: input.fetch,
       onError: input.onError,
     });
   }

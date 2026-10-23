@@ -13,8 +13,10 @@ import type {
 } from "@chief/relay-contracts";
 import {
   artifactReferencePayloadSchema,
+  attachmentLocation,
   isJsonObject,
   isJsonString,
+  messageAttachments,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
@@ -149,16 +151,17 @@ export function agentRunEvent(message: ConversationMessage) {
     : { type: "result" as const, ok: true, ...where };
 }
 
-export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
-  const scheduledRun =
-    message.author.kind === "system"
-      ? message.components.find(
-          (component) => component.kind === "schedule.run",
-        )
-      : undefined;
-  const schedulePayload = scheduledRunMessagePayloadSchema.safeParse(
-    scheduledRun?.payload,
+/** The automation run a relay announcement describes, if it is one. */
+function scheduledRunOf(message: ConversationMessage) {
+  if (message.author.kind !== "system") return undefined;
+  const component = message.components.find(
+    (candidate) => candidate.kind === "schedule.run",
   );
+  return scheduledRunMessagePayloadSchema.safeParse(component?.payload).data;
+}
+
+export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
+  const scheduledRun = scheduledRunOf(message);
   const channelAction = message.components
     .map(channelActionFromComponent)
     .find((action) => action !== undefined);
@@ -205,9 +208,7 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
                 : channelAction,
           }
         : undefined),
-      ...(schedulePayload.success
-        ? { scheduledRun: schedulePayload.data }
-        : undefined),
+      ...(scheduledRun ? { scheduledRun } : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -249,6 +250,7 @@ export function toChannelMessageEvent(
   const added = message.components
     .map(channelActionFromComponent)
     .find((action) => action?.type === "member-added");
+  const scheduledRun = scheduledRunOf(message);
   const actor =
     added?.actorId && added.actorType
       ? { type: added.actorType, id: added.actorId, name: added.actorName }
@@ -285,6 +287,7 @@ export function toChannelMessageEvent(
     ],
     content: message.deleted ? "" : message.body,
     parts: messageComponentParts(message),
+    ...(scheduledRun ? { scheduledRun } : undefined),
     actor,
     createdAt: Date.parse(message.createdAt),
     kind: 9,
@@ -339,7 +342,22 @@ function messageComponentParts(
     ...projectRecommendationParts(message),
     ...questionParts(message),
     ...artifactParts(message),
+    ...attachmentParts(message),
   ];
+}
+
+/** Images attached to the message, read through the relay when shown. */
+function attachmentParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.deleted) return [];
+  return messageAttachments(message.components).map((attachment) => ({
+    type: "file" as const,
+    filename: attachment.name,
+    mediaType:
+      attachmentLocation(attachment.url)?.mediaType ?? attachment.mediaType,
+    url: attachment.url,
+  }));
 }
 
 function pluginRecommendationParts(

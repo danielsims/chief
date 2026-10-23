@@ -6,7 +6,8 @@ export const listChannelMessagesDefinition = defineAgentTool({
   path: "/local-tools/channels/{channelId}/messages",
   operation: {
     operationId: "channels.messages.list",
-    summary: "List channel roots with recent thread replies",
+    summary: "Read channel messages",
+    description: "List channel roots with recent thread replies.",
   },
   querySchema: messagePagingQuerySchema,
 });

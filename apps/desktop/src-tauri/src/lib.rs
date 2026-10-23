@@ -8,6 +8,7 @@ mod plugin_host;
 mod plugin_runtime;
 mod relay_identity;
 mod secure_store;
+mod web_machine;
 
 use auth_session::{
     clear_oauth_attempt, clear_oauth_session, load_oauth_attempt, load_oauth_session,
@@ -20,6 +21,7 @@ use native_notifications::{
 use oauth_loopback::{start_oauth_loopback, stop_oauth_loopback, OAuthLoopback};
 use plugin_host::{start_plugin_host, PluginHostSupervisor};
 use relay_identity::{relay_agent_public_key, relay_nip98_authorization, relay_public_key};
+use web_machine::machine_web_fetch;
 
 #[derive(Default)]
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
@@ -137,7 +139,8 @@ pub fn run() {
             cell_runtime_setup,
             start_plugin_host,
             take_pending_notification_activation,
-            take_launch_deep_link
+            take_launch_deep_link,
+            machine_web_fetch
         ])
         .build(tauri::generate_context!())
         .expect("error while building Chief")

@@ -4,7 +4,6 @@ enum AgentSettingsCopy {
   static func displayName(_ value: String) -> String {
     switch value {
     case "analytics-chart": "Analytics charts"
-    case "prospect-memory": "Remember prospects"
     case "trend-memory": "Remember trends"
     case "content-calendar": "Content calendar"
     case "campaign-memory": "Campaign memory"

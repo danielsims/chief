@@ -7,6 +7,7 @@ import {
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
+import { receiveExternalAgentAttachment } from "./external-agent-attachments";
 import {
   receiveExternalAgentActivity,
   receiveExternalAgentMessage,
@@ -434,6 +435,14 @@ export class ExternalAgentChannelService {
 
   async receiveActivity(request: Request, rawAgentId: string) {
     return receiveExternalAgentActivity(
+      this.inboundHost(),
+      request,
+      rawAgentId,
+    );
+  }
+
+  async receiveAttachment(request: Request, rawAgentId: string) {
+    return receiveExternalAgentAttachment(
       this.inboundHost(),
       request,
       rawAgentId,

@@ -8,9 +8,12 @@ export function initializeScheduleRunTables<
   ); CREATE INDEX IF NOT EXISTS schedule_runs_due ON workspace_schedule_runs(next_check_at);
   CREATE INDEX IF NOT EXISTS schedule_runs_history ON workspace_schedule_runs(schedule_id, created_at);
   CREATE TABLE IF NOT EXISTS workspace_schedule_webhooks (
-    id TEXT PRIMARY KEY, document_json TEXT NOT NULL, secret TEXT NOT NULL
+    id TEXT PRIMARY KEY, document_json TEXT NOT NULL, secret TEXT NOT NULL,
+    signing_secret TEXT
   ); CREATE TABLE IF NOT EXISTS workspace_webhook_deliveries (
     webhook_id TEXT NOT NULL, delivery_id TEXT NOT NULL, body_hash TEXT NOT NULL, run_id TEXT NOT NULL,
     received_at INTEGER NOT NULL, PRIMARY KEY(webhook_id, delivery_id)
-  );`);
+  ); CREATE TABLE IF NOT EXISTS workspace_webhook_events (
+    webhook_id TEXT NOT NULL, received_at INTEGER NOT NULL, input_json TEXT NOT NULL
+  ); CREATE INDEX IF NOT EXISTS webhook_events_latest ON workspace_webhook_events(webhook_id, received_at);`);
 }

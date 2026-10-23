@@ -8,15 +8,16 @@ import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const schedulesRoute =
-  /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions)?$/u;
+  /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions|\/chat)?$/u;
 const brandProfileRoute = /^\/v1\/workspaces\/([^/]+)\/data\/brand-profile$/u;
-const prospectsRoute = /^\/v1\/workspaces\/([^/]+)\/data\/prospects$/u;
 const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const fileRoute = /^\/v1\/workspaces\/([^/]+)\/files\/([^/]+)$/u;
 const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
 const projectRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)$/u;
 const machinesRoute = /^\/v1\/workspaces\/([^/]+)\/machines$/u;
 const machineRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/([^/]+)$/u;
+const databasesRoute =
+  /^\/v1\/workspaces\/([^/]+)\/databases(?:\/([^/]+)(?:\/rows(?:\/([^/]+))?)?)?$/u;
 
 export function routeWorkspaceDataRequest(
   env: Env,
@@ -27,13 +28,13 @@ export function routeWorkspaceDataRequest(
   return Effect.gen(function* () {
     const schedules = schedulesRoute.exec(url.pathname);
     const brand = brandProfileRoute.exec(url.pathname);
-    const prospects = prospectsRoute.exec(url.pathname);
     const files = filesRoute.exec(url.pathname);
     const file = fileRoute.exec(url.pathname);
     const projects = projectsRoute.exec(url.pathname);
     const project = projectRoute.exec(url.pathname);
     const machines = machinesRoute.exec(url.pathname);
     const machine = machineRoute.exec(url.pathname);
+    const database = databasesRoute.exec(url.pathname);
     let rawWorkspaceId: string | undefined;
     let operation: string | undefined;
     if (
@@ -43,7 +44,9 @@ export function routeWorkspaceDataRequest(
     ) {
       rawWorkspaceId = schedules[1];
       operation = schedules[3]
-        ? "schedules-action"
+        ? schedules[3] === "/chat"
+          ? "schedules-chat"
+          : "schedules-action"
         : request.method === "GET"
           ? "schedules-list"
           : request.method === "DELETE"
@@ -53,10 +56,6 @@ export function routeWorkspaceDataRequest(
       rawWorkspaceId = brand[1];
       operation =
         request.method === "GET" ? "data-brand-get" : "data-brand-save";
-    } else if (prospects && ["GET", "POST"].includes(request.method)) {
-      rawWorkspaceId = prospects[1];
-      operation =
-        request.method === "GET" ? "data-prospects-list" : "data-prospect-save";
     } else if (files && ["GET", "POST"].includes(request.method)) {
       rawWorkspaceId = files[1];
       operation =
@@ -81,6 +80,27 @@ export function routeWorkspaceDataRequest(
         request.method === "PUT"
           ? "data-machine-update"
           : "data-machine-delete";
+    } else if (database) {
+      const [, id, databaseId, rowId] = database;
+      const rows = url.pathname.includes(`/databases/${databaseId}/rows`);
+      rawWorkspaceId = id;
+      operation = !databaseId
+        ? request.method === "GET"
+          ? "data-databases-list"
+          : request.method === "POST"
+            ? "data-database-save"
+            : undefined
+        : !rows
+          ? request.method === "GET"
+            ? "data-database-get"
+            : request.method === "DELETE"
+              ? "data-database-delete"
+              : undefined
+          : !rowId && request.method === "POST"
+            ? "data-database-row-save"
+            : rowId && request.method === "DELETE"
+              ? "data-database-row-delete"
+              : undefined;
     }
     if (!operation) return undefined;
     const workspaceId = yield* sync("relay.workspace_data.scope", () =>
@@ -123,6 +143,12 @@ export function routeWorkspaceDataRequest(
                 : undefined),
               ...(machine?.[2]
                 ? { "x-chief-machine-id": decodeURIComponent(machine[2]) }
+                : undefined),
+              ...(database?.[2]
+                ? { "x-chief-database-id": decodeURIComponent(database[2]) }
+                : undefined),
+              ...(database?.[3]
+                ? { "x-chief-database-row-id": decodeURIComponent(database[3]) }
                 : undefined),
               ...(body ? { "content-type": "application/json" } : undefined),
             },

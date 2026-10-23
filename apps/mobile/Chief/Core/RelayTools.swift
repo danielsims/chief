@@ -107,8 +107,6 @@ enum RelayToolRegistry {
     BrowserReleaseTool.self,
     BrandProfileGetTool.self,
     BrandProfileSaveTool.self,
-    ProspectsListTool.self,
-    ProspectSaveTool.self,
     WorkspaceFilesListTool.self,
     WorkspaceFileWriteTool.self,
     WorkspaceScheduleProposeTool.self,

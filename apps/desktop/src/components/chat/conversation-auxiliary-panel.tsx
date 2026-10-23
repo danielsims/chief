@@ -67,10 +67,17 @@ export function useConversationAuxiliaryPanelSizing(): ConversationAuxiliaryPane
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
 
+      // The panel follows the pointer directly; React only hears the final
+      // width, so the conversation beside it doesn't re-render every frame.
+      const panel = event.currentTarget.parentElement;
+      let nextWidth = startWidth;
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        setWidthPx(clampPanelWidth(startWidth + startX - moveEvent.clientX));
+        nextWidth = clampPanelWidth(startWidth + startX - moveEvent.clientX);
+        if (panel) panel.style.width = `${nextWidth}px`;
+        else setWidthPx(nextWidth);
       };
       const handlePointerUp = () => {
+        setWidthPx(nextWidth);
         document.body.style.cursor = previousCursor;
         document.body.style.userSelect = previousUserSelect;
         window.removeEventListener("pointermove", handlePointerMove);
@@ -148,7 +155,8 @@ export function ConversationAuxiliaryPanel({
           onDoubleClick={sizing.canReset ? sizing.onResetWidth : undefined}
           className="group/resize absolute inset-y-0 -left-2 z-50 w-2 cursor-col-resize max-[900px]:hidden"
         >
-          <span className="bg-border/0 group-hover/resize:bg-border group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
+          {/* Hovering shows only the resize cursor; the line is for keyboard focus. */}
+          <span className="bg-border/0 group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
         </button>
         {children}
       </aside>

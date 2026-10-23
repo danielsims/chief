@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  AgentInferenceAttachment,
   AgentInferenceMessage,
   AgentInferenceProgress,
   AgentInferenceRequest,
@@ -34,6 +35,24 @@ export interface DurableTool {
   effect: ToolEffect;
 }
 
+/**
+ * A tool resolved when the turn starts, outside the static tool set (for
+ * example a workspace plugin). It is stored on the turn so every replay sees
+ * exactly the tools the turn began with. `binding` tells the host how to run
+ * it and is never shown to the model.
+ */
+export const boundToolSchema = z.object({
+  definition: z.object({
+    name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u),
+    description: z.string().max(4_096),
+    parameters: z.record(jsonValueSchema),
+  }),
+  effect: toolEffectSchema,
+  binding: z.record(jsonValueSchema),
+});
+
+export type BoundTool = z.infer<typeof boundToolSchema>;
+
 export const durableToolCallSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -47,6 +66,11 @@ const messageSchema = z.object({
   toolCalls: durableToolCallSchema.array().optional(),
   toolCallId: z.string().optional(),
   name: z.string().optional(),
+  attachments: z
+    .object({ name: z.string(), mediaType: z.string(), url: z.string() })
+    .array()
+    .max(8)
+    .optional(),
 });
 
 const taskSchema = z.object({
@@ -132,9 +156,12 @@ export const durableTurnSchema = z.object({
   conversationId: z.string().min(1),
   threadRootId: z.string().optional(),
   instruction: z.string().min(1),
+  /** Images sent with the instruction, read by the host at inference. */
+  attachments: messageSchema.shape.attachments,
   systemPrompt: z.string().min(1),
   browserEnabled: z.boolean(),
   computerEnabled: z.boolean().default(true),
+  boundTools: boundToolSchema.array().max(128).default([]),
   completion: z
     .object({
       requiredToolNames: z.string().min(1).array().max(32),
@@ -181,9 +208,11 @@ export interface CreateDurableTurn {
   conversationId: string;
   threadRootId?: string;
   instruction: string;
+  attachments?: readonly AgentInferenceAttachment[];
   systemPrompt: string;
   browserEnabled: boolean;
   computerEnabled?: boolean;
+  boundTools?: readonly BoundTool[];
   maxInferenceSteps?: number;
   completion?: {
     requiredToolNames: readonly string[];

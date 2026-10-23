@@ -3,10 +3,8 @@ import {
   brandProfileResultSchema,
   brandProfileSaveSchema,
   brandProfileSchema,
+  pageMimeType,
   parseJsonValue,
-  prospectSaveSchema,
-  prospectSchema,
-  prospectsResultSchema,
   workspaceFileAssetSchema,
   workspaceFileSaveSchema,
   workspaceFileSchema,
@@ -22,9 +20,6 @@ import { initializeWorkspaceDataTables } from "./db/migrations/initialize-worksp
 import { HttpError, json, parseJson } from "./http";
 import { brandProfileFindGetBrandProfile } from "./queries/brand-profile/find-get-brand-profile";
 import { brandProfileInsertSaveBrandProfile } from "./queries/brand-profile/insert-save-brand-profile";
-import { prospectsFindListProspects } from "./queries/prospects/find-list-prospects";
-import { prospectsFindSaveProspect } from "./queries/prospects/find-save-prospect";
-import { prospectsInsertSaveProspect } from "./queries/prospects/insert-save-prospect";
 import { workspaceFilesFindListFiles } from "./queries/workspace-files/find-list-files";
 import { workspaceFilesFindSaveBrandProfile } from "./queries/workspace-files/find-save-brand-profile";
 import { workspaceFilesFindSaveFile } from "./queries/workspace-files/find-save-file";
@@ -33,6 +28,11 @@ import { workspaceFilesFindSaveFilePath } from "./queries/workspace-files/find-s
 import { workspaceFilesInsertSaveBrandProfile } from "./queries/workspace-files/insert-save-brand-profile";
 import { workspaceFilesInsertSaveFile } from "./queries/workspace-files/insert-save-file";
 import { workspaceFilesUpdateUpdateFile } from "./queries/workspace-files/update-update-file";
+import {
+  requireValidPage,
+  routeWorkspaceDatabases,
+  usableDatabaseIds,
+} from "./workspace-databases";
 import {
   initializeWorkspaceMachines,
   routeWorkspaceMachines,
@@ -64,10 +64,6 @@ interface FileRow extends Record<string, SqlStorageValue> {
   updated_at: string;
 }
 
-interface ProspectRow extends Record<string, SqlStorageValue> {
-  prospect_json: string;
-}
-
 export function initializeWorkspaceData(storage: DurableObjectStorage) {
   initializeWorkspaceDataTables(storage);
   const columns = [...getWorkspaceFileColumns<{ name: string }>(storage)];
@@ -88,30 +84,51 @@ export async function routeWorkspaceData(
 ) {
   const canRead = (conversationId: string) =>
     channels.canReadConversation(conversationId, principal);
+  // A page is checked whenever it's written, by whoever writes it.
+  const checkPage = (mimeType: string, content: string) => {
+    if (mimeType === pageMimeType)
+      requireValidPage(content, usableDatabaseIds(storage));
+  };
+  if (operation.startsWith("data-database"))
+    return routeWorkspaceDatabases(
+      storage,
+      request,
+      operation,
+      principal,
+      channels,
+    );
   if (operation === "data-brand-get") return getBrandProfile(storage);
   if (operation === "data-brand-save") {
     requireAgentPrincipal(principal);
     return await saveBrandProfile(storage, request, principal.agentId);
   }
-  if (operation === "data-prospects-list") return listProspects(storage);
-  if (operation === "data-prospect-save") {
-    requireAgentPrincipal(principal);
-    return await saveProspect(storage, request, principal.agentId);
-  }
   if (operation === "data-files-list") return listFiles(storage, canRead);
   if (operation === "data-file-asset-save") {
     requireAgentPrincipal(principal);
-    return await saveFile(storage, request, principal.agentId, canRead, true);
+    return await saveFile(
+      storage,
+      request,
+      principal.agentId,
+      canRead,
+      checkPage,
+      true,
+    );
   }
   if (operation === "data-file-save") {
     requireAgentPrincipal(principal);
-    return await saveFile(storage, request, principal.agentId, canRead);
+    return await saveFile(
+      storage,
+      request,
+      principal.agentId,
+      canRead,
+      checkPage,
+    );
   }
   if (operation === "data-file-get") {
     return json(fileFromRow(readableFile(storage, request, canRead)));
   }
   if (operation === "data-file-update") {
-    return await updateFile(storage, request, canRead);
+    return await updateFile(storage, request, canRead, checkPage);
   }
   const machines = await routeWorkspaceMachines(
     storage,
@@ -179,39 +196,6 @@ async function saveBrandProfile(
   return json(brandProfileResultSchema.parse({ profile, file }));
 }
 
-async function saveProspect(
-  storage: DurableObjectStorage,
-  request: Request,
-  agentId: string,
-) {
-  const input = prospectSaveSchema.parse(await parseJson(request));
-  const prior = firstRow<ProspectRow & { found_at: string }>(
-    prospectsFindSaveProspect(storage, input.id),
-  );
-  const now = new Date().toISOString();
-  const prospect = prospectSchema.parse({
-    ...input,
-    authorAgentId: agentId,
-    foundAt: prior?.found_at ?? now,
-    updatedAt: now,
-  });
-  prospectsInsertSaveProspect(storage, {
-    prospectId: prospect.id,
-    prospectJson: JSON.stringify(prospect),
-    relevance: prospect.relevance,
-    foundAt: prospect.foundAt,
-    updatedAt: prospect.updatedAt,
-  });
-  return json(prospect);
-}
-
-function listProspects(storage: DurableObjectStorage) {
-  const prospects = [...prospectsFindListProspects<ProspectRow>(storage)].map(
-    (row) => prospectSchema.parse(JSON.parse(row.prospect_json)),
-  );
-  return json(prospectsResultSchema.parse({ prospects }));
-}
-
 function listFiles(
   storage: DurableObjectStorage,
   canRead: (conversationId: string) => boolean,
@@ -227,6 +211,7 @@ async function saveFile(
   request: Request,
   agentId: string,
   canRead: (conversationId: string) => boolean,
+  checkPage: (mimeType: string, content: string) => void,
   assetUpload = false,
 ) {
   const payload = await parseJson(request);
@@ -243,6 +228,7 @@ async function saveFile(
       "file_conversation_unavailable",
       "The file conversation is unavailable.",
     );
+  checkPage(input.mimeType, input.content);
   if (asset && asset.agentId !== agentId) {
     throw new HttpError(
       403,
@@ -326,6 +312,7 @@ async function updateFile(
   storage: DurableObjectStorage,
   request: Request,
   canRead: (conversationId: string) => boolean,
+  checkPage: (mimeType: string, content: string) => void,
 ) {
   const fileId = request.headers.get("x-chief-workspace-file-id")?.trim();
   if (!fileId) {
@@ -351,6 +338,7 @@ async function updateFile(
       "This file changed since it was opened.",
     );
   }
+  checkPage(prior.mime_type, input.content);
   const updatedAt = new Date().toISOString();
   const version = prior.version + 1;
   workspaceFilesUpdateUpdateFile(storage, {

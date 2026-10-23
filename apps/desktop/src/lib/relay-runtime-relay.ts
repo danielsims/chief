@@ -4,10 +4,12 @@ import type { ProjectGitHubAccess } from "./relay-runtime-project-connect";
 
 export type RelayRuntimeRelay = Pick<
   RelayClient,
+  | "plugins"
   | "schedules"
   | "channelSettings"
   | "activeWorkspace"
   | "appendMessage"
+  | "uploadConversationAttachment"
   | "createChannel"
   | "createProject"
   | "deleteWorkspaceSecret"
@@ -22,7 +24,6 @@ export type RelayRuntimeRelay = Pick<
   | "loadAgentConfigs"
   | "listAgentJobs"
   | "listProjects"
-  | "listProspects"
   | "listWorkspaceFiles"
   | "listWorkspaceSecrets"
   | "reactToMessage"

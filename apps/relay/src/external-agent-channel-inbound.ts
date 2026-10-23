@@ -6,6 +6,7 @@ import {
   externalAgentInboundActivitySchema,
   externalAgentInboundMessageSchema,
   externalAgentInboundResultSchema,
+  scheduleRunStepTextLimit,
 } from "@chief/relay-contracts";
 
 import type { ExternalAgentInboundHost } from "./external-agent-continuation";
@@ -202,7 +203,7 @@ export async function receiveExternalAgentMessage(
       } else {
         step.state = "completed";
         step.completedAt = Date.now();
-        step.evidence ??= input.body.slice(0, 4000);
+        step.evidence ??= input.body.slice(0, scheduleRunStepTextLimit);
         current.run.summary = step.evidence;
         current.run.nextCheckAt = Date.now();
         writeScheduleRun(host.storage, current.run, current.principal);

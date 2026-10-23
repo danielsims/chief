@@ -1,11 +1,14 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import type { JsonObject } from "@chief/relay-contracts";
+import type {
+  AutomationWebhookRequest,
+  JsonObject,
+} from "@chief/relay-contracts";
 import {
   agentIdSchema,
+  automationWebhookSchema,
   directStartResultSchema,
-  scheduleWebhookSecretSchema,
   workspaceScheduleSchema,
   workspaceSchedulesResultSchema,
 } from "@chief/relay-contracts";
@@ -103,11 +106,9 @@ describe("durable relay schedules", () => {
     expect(schedule.expectedOutcome).toBe("A measured growth experiment");
     expect(schedule.maxDurationMinutes).toBe(45);
     expect(schedule.skipDates).toEqual(["2026-12-25"]);
-    const missions = await channelRpc(ctx, ctx.principal, "missions-list");
-    expect(await missions.text()).toContain(schedule.missionId);
   });
 
-  it("creates the mission channel and team atomically and reuses them on retry", async () => {
+  it("creates the automation channel and team atomically and reuses them on retry", async () => {
     const { ctx, input, principal } = await setup();
     const request = { ...input, newChannel: {}, triggerMode: "webhook" };
     const denied = await channelRpc(ctx, principal, "schedules-save", request);
@@ -132,10 +133,9 @@ describe("durable relay schedules", () => {
     );
     expect(response.status).toBe(200);
     const schedule = workspaceScheduleSchema.parse(await response.json());
-    expect(schedule.conversationId).toMatch(/^mission-/u);
-    expect(schedule.missionId).toBe(schedule.conversationId);
+    expect(schedule.conversationId).toMatch(/^automation-/u);
     expect(schedule.triggerMode).toBe("webhook");
-    expect(schedule.status).toBe("needs_approval");
+    expect(schedule.status).toBe("active");
     const retry = await channelRpc(
       ctx,
       ctx.principal,
@@ -149,8 +149,6 @@ describe("durable relay schedules", () => {
     expect(await channelsAfter.text()).toContain(
       "review-the-marketing-experiment",
     );
-    const missions = await channelRpc(ctx, ctx.principal, "missions-list");
-    expect(await missions.text()).toContain(schedule.missionId);
   });
 
   it("skips the whole local date for frequent schedules across a daylight-saving transition", () => {
@@ -370,92 +368,66 @@ async function rpc(
   );
 }
 
-it("cancels queued iterations after their mission is paused", async () => {
+it("issues a draft's webhook URL before saving and starts runs once it is on", async () => {
   const { ctx, input } = await setup();
-  const missionId = "bounded-growth";
-  expect(
-    (
-      await channelRpc(ctx, ctx.principal, "missions-create", {
-        id: missionId,
-        conversationId: input.conversationId,
-        ownerAgentId: input.agentId,
-        title: "Learn which positioning works",
-        objective: "Draft and evaluate positioning",
-        collaborators: [],
-        success: {
-          kind: "deliverable",
-          description: "A reviewed campaign brief",
-        },
-        maxExperiments: 3,
-        deadline: new Date(Date.now() + 86_400_000).toISOString(),
-        constraints: "No publishing",
-      })
-    ).status,
-  ).toBe(200);
-  expect(
-    (await rpc(ctx, ctx.principal, "schedules-save", { ...input, missionId }))
-      .status,
-  ).toBe(200);
-  expect(
-    (
-      await rpc(
-        ctx,
-        ctx.principal,
-        "schedules-action",
-        { action: "approve", commandId: crypto.randomUUID() },
-        input.id,
-      )
-    ).status,
-  ).toBe(200);
   const stub = ctx.env.WORKSPACES.get(
     ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
   );
-  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
-    const stored = readWorkspaceSchedule(state.storage, input.id);
-    if (!stored) throw new Error("Expected schedule");
-    enqueueScheduleOccurrence(
-      state.storage,
-      stored.schedule,
-      Date.now(),
-      "paused-occurrence",
+  const issue = async (request: AutomationWebhookRequest = { action: "get" }) =>
+    automationWebhookSchema.parse(
+      await (
+        await stub.fetch(
+          withTrustedContext(
+            new Request("https://workspace.internal", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-chief-internal-operation": "webhooks-issue",
+                "x-chief-public-origin": "https://relay.test",
+                "x-chief-schedule-id": input.id,
+              },
+              body: JSON.stringify(request),
+            }),
+            {
+              principal: ctx.principal,
+              workspaceId: ctx.workspaceId,
+              requestId: crypto.randomUUID(),
+            },
+          ),
+        )
+      ).json(),
     );
-    await state.storage.deleteAlarm();
-  });
-  const paused = await stub.fetch(
-    withTrustedContext(
+  const draft = await issue();
+  expect(draft.url).toMatch(
+    new RegExp(
+      `^https://relay\\.test/v1/workspaces/.+/automations/${input.id}/webhook/[\\w-]{43}$`,
+    ),
+  );
+  expect((await issue()).url).toBe(draft.url);
+  const deliver = (
+    url: string,
+    body = JSON.stringify({ signups: 42 }),
+    headers: Record<string, string> = {},
+  ) =>
+    stub.fetch(
       new Request("https://workspace.internal", {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-chief-internal-operation": "missions-status",
-          "x-chief-mission-id": missionId,
+          "x-chief-internal-operation": "webhooks-deliver",
+          "x-chief-workspace-id": ctx.workspaceId,
+          "x-chief-schedule-id": input.id,
+          "x-chief-webhook-token": url.split("/").at(-1) ?? "",
+          ...headers,
         },
-        body: JSON.stringify({
-          status: "paused",
-          evidence: "Owner paused the campaign",
-        }),
+        body,
       }),
-      {
-        principal: ctx.principal,
-        workspaceId: ctx.workspaceId,
-        requestId: crypto.randomUUID(),
-      },
-    ),
-  );
-  expect(paused.status).toBe(200);
-  await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
-    await drainWorkspaceSchedules(state.storage, ctx.env);
-    expect([
-      ...state.storage.sql.exec("SELECT state FROM workspace_schedule_runs"),
-    ]).toEqual([{ state: "cancelled" }]);
-    expect(
-      readWorkspaceSchedule(state.storage, input.id)?.schedule.status,
-    ).toBe("paused");
-  });
-});
+    );
+  // A draft keeps events for mapping and testing but starts no run.
+  const sample = await deliver(draft.url);
+  expect(sample.status).toBe(202);
+  expect(await sample.json()).toMatchObject({ runId: null });
 
-it("authenticates and deduplicates webhook deliveries before dispatching work", async () => {
-  const { ctx, input } = await setup();
   await rpc(ctx, ctx.principal, "schedules-save", {
     ...input,
     triggerMode: "webhook",
@@ -467,22 +439,69 @@ it("authenticates and deduplicates webhook deliveries before dispatching work", 
     { action: "approve", commandId: crypto.randomUUID() },
     input.id,
   );
-  const stub = ctx.env.WORKSPACES.get(
-    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
+  expect((await deliver(`${draft.url}x`)).status).toBe(404);
+  const deliveryId = { "x-chief-delivery-id": crypto.randomUUID() };
+  const accepted = await deliver(draft.url, undefined, deliveryId);
+  expect(accepted.status).toBe(202);
+  const receipt = (await accepted.json()) as { runId: string };
+  expect(
+    await (await deliver(draft.url, undefined, deliveryId)).json(),
+  ).toMatchObject({ runId: receipt.runId, duplicate: true });
+  expect((await deliver(draft.url, '{"signups":999}', deliveryId)).status).toBe(
+    409,
   );
-  const created = await stub.fetch(
+
+  const secret = `whsec_${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))}`;
+  const signedWebhook = await issue({ action: "set-signing-secret", secret });
+  expect(signedWebhook.signed).toBe(true);
+  expect(JSON.stringify(signedWebhook)).not.toContain(secret.slice(6));
+  expect(JSON.stringify(await issue())).not.toContain(secret.slice(6));
+  const signedBody = JSON.stringify({ signups: 43 });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signedId = crypto.randomUUID();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(atob(secret.slice(6)), (c) => c.charCodeAt(0)),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = btoa(
+    String.fromCharCode(
+      ...new Uint8Array(
+        await crypto.subtle.sign(
+          "HMAC",
+          key,
+          new TextEncoder().encode(`${signedId}.${timestamp}.${signedBody}`),
+        ),
+      ),
+    ),
+  );
+  const standardHeaders = {
+    "webhook-id": signedId,
+    "webhook-timestamp": timestamp,
+    "webhook-signature": `v1,${signature}`,
+  };
+  expect((await deliver(draft.url, signedBody)).status).toBe(401);
+  expect(
+    (await deliver(draft.url, '{"signups":999}', standardHeaders)).status,
+  ).toBe(401);
+  expect((await deliver(draft.url, signedBody, standardHeaders)).status).toBe(
+    202,
+  );
+
+  const reset = await issue({ action: "reset" });
+  expect(reset.signed).toBe(true);
+  expect(reset.url).not.toBe(draft.url);
+  expect((await deliver(draft.url)).status).toBe(404);
+  const revoked = await stub.fetch(
     withTrustedContext(
       new Request("https://workspace.internal", {
         method: "POST",
         headers: {
-          "content-type": "application/json",
-          "x-chief-internal-operation": "webhooks-create",
-          "x-chief-public-origin": "https://relay.test",
+          "x-chief-internal-operation": "webhooks-revoke",
+          "x-chief-schedule-id": input.id,
         },
-        body: JSON.stringify({
-          name: "Campaign results",
-          scheduleId: input.id,
-        }),
       }),
       {
         principal: ctx.principal,
@@ -491,70 +510,17 @@ it("authenticates and deduplicates webhook deliveries before dispatching work", 
       },
     ),
   );
-  const { webhook, secret } = scheduleWebhookSecretSchema.parse(
-    await created.json(),
-  );
-  if (!secret) throw new Error("Expected signing secret");
-  const deliveryId = crypto.randomUUID();
-  const body = JSON.stringify({ signups: 42 });
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    Uint8Array.from(atob(secret.slice(6)), (c) => c.charCodeAt(0)),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sign = async (payload: string) =>
-    btoa(
-      String.fromCharCode(
-        ...new Uint8Array(
-          await crypto.subtle.sign(
-            "HMAC",
-            key,
-            new TextEncoder().encode(`${deliveryId}.${timestamp}.${payload}`),
-          ),
-        ),
-      ),
-    );
-  const signature = await sign(body);
-  const deliver = (payload = body, signed = signature) =>
-    stub.fetch(
-      new Request("https://workspace.internal", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-chief-internal-operation": "webhooks-deliver",
-          "x-chief-workspace-id": ctx.workspaceId,
-          "x-chief-webhook-id": webhook.id,
-          "webhook-id": deliveryId,
-          "webhook-timestamp": timestamp,
-          "webhook-signature": `v1,${signed}`,
-        },
-        body: payload,
-      }),
-    );
-  expect((await deliver(body, "invalid")).status).toBe(401);
-  expect((await deliver('{"signups":999}')).status).toBe(401);
-  const accepted = await deliver();
-  expect(accepted.status).toBe(202);
-  const receipt = (await accepted.json()) as { runId: string };
-  expect(await (await deliver()).json()).toMatchObject({
-    runId: receipt.runId,
-    duplicate: true,
-  });
-  expect(
-    (await deliver('{"signups":999}', await sign('{"signups":999}'))).status,
-  ).toBe(409);
+  expect(revoked.status).toBe(200);
+  expect((await deliver(reset.url)).status).toBe(404);
   await runInDurableObject(stub, async (_instance: WorkspaceObject, state) => {
     const run = readScheduleRun(state.storage, receipt.runId)?.run;
     expect(run?.input).toEqual({ signups: 42 });
-    expect(run?.schedule.triggerMode).toBe("webhook");
+    expect(run?.source).toBe("webhook");
     expect(
       state.storage.sql
         .exec("SELECT id FROM workspace_schedule_runs")
         .toArray(),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     await state.storage.deleteAlarm();
   });
 });

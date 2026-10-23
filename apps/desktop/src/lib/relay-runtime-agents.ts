@@ -62,7 +62,6 @@ function isAgentCapabilityId(
 ): value is NonNullable<AgentDefinition["capabilities"]>[number] {
   return [
     "analytics-chart",
-    "prospect-memory",
     "trend-memory",
     "content-calendar",
     "campaign-memory",

@@ -25,7 +25,6 @@ import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
-import { useMachinesEnabled } from "./lib/experimental";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider, useRuntime } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -36,6 +35,8 @@ import {
   shouldStayOnWorkspaceCreate,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
+import { ArtifactDatabasePage } from "./pages/artifact-database";
+import { ArtifactsPage } from "./pages/artifacts";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { InboxPage } from "./pages/inbox";
@@ -51,9 +52,23 @@ import { WebhooksSettings } from "./pages/settings/webhooks";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
 import { WorkspaceFilePage } from "./pages/workspace-file";
-import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
+const BoardsPage = lazy(() =>
+  import("./pages/boards").then((module) => ({
+    default: module.BoardsPage,
+  })),
+);
+const AutomationsPage = lazy(() =>
+  import("./pages/automations").then((module) => ({
+    default: module.AutomationsPage,
+  })),
+);
+const AutomationBuilderPage = lazy(() =>
+  import("./pages/automation-builder").then((module) => ({
+    default: module.AutomationBuilderPage,
+  })),
+);
 const PluginsPage = lazy(() =>
   import("./pages/plugins").then((module) => ({ default: module.PluginsPage })),
 );
@@ -157,8 +172,11 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     window.sessionStorage,
   );
 
+  // Only the first load shows the entry screen. Once a workspace is on
+  // screen, background reconnects must never unmount the app and lose work.
   if (
     relay.loading &&
+    !relay.snapshot &&
     !(location.pathname === "/workspaces/new" && staysOnWorkspaceCreate)
   ) {
     return <WorkspaceEntryState />;
@@ -373,6 +391,22 @@ function AuthenticatedApp() {
                           <Route path="inbox" element={<InboxPage />} />
                           <Route path="schedule" element={<SchedulePage />} />
                           <Route
+                            path="schedule/automations"
+                            element={
+                              <Suspense fallback={null}>
+                                <AutomationsPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
+                            path="schedule/automations/:automationId"
+                            element={
+                              <Suspense fallback={null}>
+                                <AutomationBuilderPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route
                             path="conversations"
                             element={<ConversationsPage />}
                           />
@@ -384,7 +418,7 @@ function AuthenticatedApp() {
                             }
                           />
                           <Route
-                            path="projects/:projectId?"
+                            path="repositories/:projectId?"
                             element={
                               <Suspense fallback={null}>
                                 <ProjectsPage />
@@ -400,11 +434,20 @@ function AuthenticatedApp() {
                             }
                           />
                           <Route
-                            path="files"
-                            element={<WorkspaceFilesPage />}
+                            path="boards"
+                            element={
+                              <Suspense fallback={null}>
+                                <BoardsPage />
+                              </Suspense>
+                            }
+                          />
+                          <Route path="artifacts" element={<ArtifactsPage />} />
+                          <Route
+                            path="artifacts/databases/:databaseId"
+                            element={<ArtifactDatabasePage />}
                           />
                           <Route
-                            path="files/:fileId"
+                            path="artifacts/:fileId"
                             element={<WorkspaceFilePage />}
                           />
                           <Route path="settings" element={<SettingsLayout />}>
@@ -444,7 +487,7 @@ function AuthenticatedApp() {
                             />
                             <Route
                               path="machines"
-                              element={<ExperimentalMachines />}
+                              element={<SettingsMachines />}
                             />
                             <Route
                               path="integrations/*"
@@ -485,9 +528,7 @@ export default function App() {
   );
 }
 
-function ExperimentalMachines() {
-  const enabled = useMachinesEnabled();
-  if (!enabled) return <Navigate to="/settings" replace />;
+function SettingsMachines() {
   return (
     <Suspense fallback={null}>
       <MachinesPage />

@@ -1,25 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { z } from "zod";
 
-import {
-  isJsonNumber,
-  isJsonObject,
-  isJsonString,
-} from "@chief/relay-contracts";
+// The router keeps its own position in browser history state, beside
+// whatever else a navigation carried; only the position is read here.
+const browserHistoryStateSchema = z.object({
+  idx: z.number().optional().catch(undefined),
+  key: z.string().optional().catch(undefined),
+});
 
-interface BrowserHistoryState {
-  idx?: number;
-  key?: string;
-}
-
-function historyState(): BrowserHistoryState {
-  const state: unknown = window.history.state;
-  if (!isJsonObject(state)) return {};
-  const idx = state.idx;
-  const key = state.key;
-  if (isJsonNumber(idx) && isJsonString(key)) return { idx, key };
-  if (isJsonNumber(idx)) return { idx };
-  return isJsonString(key) ? { key } : {};
+function historyState() {
+  const state = browserHistoryStateSchema.safeParse(window.history.state);
+  return state.success ? state.data : {};
 }
 
 function isEditableTarget(target: EventTarget | null) {

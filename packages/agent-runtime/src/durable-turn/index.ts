@@ -9,6 +9,7 @@ export { durableTodoTools } from "./plan.js";
 export { measureDurableTurnState, serializedBytes } from "./state-size.js";
 export type {
   AdvanceResult,
+  BoundTool,
   CreateDurableTurn,
   DurableTool,
   DurableToolExecutor,

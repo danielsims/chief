@@ -14,6 +14,7 @@ import {
   parseJsonObject,
   parseJsonString,
   renewAgentJobSchema,
+  scheduleRunStepTextLimit,
 } from "@chief/relay-contracts";
 
 import type { ConversationScope } from "./agent-turn-supersession";
@@ -41,6 +42,8 @@ import {
 } from "./agent-runtime-support";
 import { inConversationScope } from "./agent-turn-supersession";
 import { HttpError, json, parseJson } from "./http";
+import { withTrustedContext } from "./internal-context";
+import { releaseInternalResponse } from "./internal-response";
 import { jobsFindClaim } from "./queries/jobs/find-claim";
 import { jobsFindComplete } from "./queries/jobs/find-complete";
 import { jobsFindMaintainHostedLease } from "./queries/jobs/find-maintain-hosted-lease";
@@ -246,7 +249,54 @@ export class AgentJobQueue {
       await this.scheduleNextAlarm();
     }
     await this.publishRun(previous, "completed");
+    if (job.status === "completed" && result?.publishedMessage)
+      await this.reportScheduleStep(
+        job,
+        context,
+        result.publishedMessage.body,
+      ).catch(() => undefined);
     return json({ job, outcome: input.outcome });
+  }
+
+  /**
+   * A finished automation step reports itself, with the agent's reply as its
+   * result, so the agent needn't post or report separately. Reporting is
+   * idempotent: a step the agent already reported or blocked is left alone.
+   */
+  private async reportScheduleStep(
+    job: AgentJob,
+    context: TrustedContext,
+    evidence: string,
+  ) {
+    const runId = parseJsonString(job.payload.scheduleRunId);
+    const stepId = parseJsonString(job.payload.scheduleStepId);
+    if (job.kind !== "schedule.step" || !runId || !stepId || !evidence.trim())
+      return;
+    const response = await this.env.WORKSPACES.get(
+      this.env.WORKSPACES.idFromName(job.workspaceId),
+    ).fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "schedules-runs-report",
+          },
+          body: JSON.stringify({
+            runId,
+            stepId,
+            status: "completed",
+            evidence: evidence.slice(0, scheduleRunStepTextLimit),
+          }),
+        }),
+        {
+          principal: context.principal,
+          workspaceId: job.workspaceId,
+          requestId: crypto.randomUUID(),
+        },
+      ),
+    );
+    await releaseInternalResponse(response);
   }
 
   /** One activity row per run, bounded by its lease, so clients show an agent

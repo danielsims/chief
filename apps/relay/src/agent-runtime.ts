@@ -57,14 +57,19 @@ import {
 } from "./agent-tracing";
 import { supersedeConversationTurn } from "./agent-turn-supersession";
 import { createAiSdkAgentInference } from "./ai-sdk-agent-inference";
+import { conversationAttachmentReader } from "./attachments";
 import { asyncTracer, attempt, sync } from "./effect";
 import {
   hostedTurnResult,
   loadAgentHostingContext,
   prepareHostedAgentTurn,
 } from "./hosted-agent-runner";
-import { hostedDurableTools } from "./hosted-agent-tools";
+import {
+  hostedDurableTools,
+  parseRecoverableHostedToolError,
+} from "./hosted-agent-tools";
 import { ensureHostedProjectCheckout } from "./hosted-project-checkout";
+import { executePluginTool } from "./mcp/agent-plugin-tools";
 import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
@@ -327,7 +332,13 @@ export class AgentRuntime {
           config,
         );
         const browserEnabled = current.browserEnabled;
-        const tools = hostedDurableTools(current);
+        const tools = [
+          ...hostedDurableTools(current),
+          ...current.boundTools.map(({ definition, effect }) => ({
+            definition,
+            effect,
+          })),
+        ];
         const traceContext = agentTraceContext(
           env,
           maintained.job,
@@ -342,6 +353,11 @@ export class AgentRuntime {
                   apiKey,
                   config.inference,
                   traceContext,
+                  conversationAttachmentReader(
+                    env,
+                    maintained.job.workspaceId,
+                    current.conversationId,
+                  ),
                 ),
                 traceContext,
                 turnTracer,
@@ -351,19 +367,43 @@ export class AgentRuntime {
               scheduleRecovery: async (wakeAt) =>
                 await storage.setAlarm(wakeAt),
               executor: {
-                execute: async (call) =>
-                  await traceToolExecution(turnTracer, traceContext, call, () =>
-                    executeObservedHostedAgentTool(
-                      execution,
-                      browserEnabled,
-                      current.computerEnabled,
-                      env,
-                      maintained.job,
-                      principal,
-                      call.name,
-                      call.arguments,
-                    ),
-                  ),
+                execute: async (call) => {
+                  const bound = current.boundTools.find(
+                    (tool) => tool.definition.name === call.name,
+                  );
+                  if (bound)
+                    return await traceToolExecution(
+                      turnTracer,
+                      traceContext,
+                      call,
+                      () =>
+                        executePluginTool(
+                          env,
+                          maintained.job,
+                          principal,
+                          bound,
+                          call.arguments,
+                        ).catch((error: unknown) => {
+                          throw parseRecoverableHostedToolError(error);
+                        }),
+                    );
+                  return await traceToolExecution(
+                    turnTracer,
+                    traceContext,
+                    call,
+                    () =>
+                      executeObservedHostedAgentTool(
+                        execution,
+                        browserEnabled,
+                        current.computerEnabled,
+                        env,
+                        maintained.job,
+                        principal,
+                        call.name,
+                        call.arguments,
+                      ),
+                  );
+                },
               },
             }),
           ),

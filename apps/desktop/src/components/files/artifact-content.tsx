@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 
 import type { WorkspaceFileSnapshot } from "@chief/agent-runtime/types";
+import { pageMimeType } from "@chief/relay-contracts";
 
 import { StreamingMarkdown } from "../chat/streaming-markdown";
 import { artifactDocument } from "./artifact-document";
@@ -8,12 +9,23 @@ import { MediaPreview } from "./media-preview";
 
 export { artifactDocument } from "./artifact-document";
 
+// Pages bring their renderer with them, so it loads only when one opens.
+const PageView = lazy(() =>
+  import("../pages/page-view").then((module) => ({ default: module.PageView })),
+);
+
 export function ArtifactContent({ file }: { file: WorkspaceFileSnapshot }) {
   const document = useMemo(
     () => (file.mimeType === "text/html" ? artifactDocument(file.content) : ""),
     [file.mimeType, file.content],
   );
   if (file.asset) return <MediaPreview file={file} />;
+  if (file.mimeType === pageMimeType)
+    return (
+      <Suspense fallback={null}>
+        <PageView content={file.content} />
+      </Suspense>
+    );
   if (file.mimeType === "text/html")
     return (
       <iframe

@@ -60,7 +60,11 @@ export async function routeScheduleRuns(
         (step) => step.phase === phase && step.state !== "completed",
       ),
     );
-    if (current.run.state !== "running" || phase !== step.phase)
+    // Automation hand-offs run one at a time, in the automation's own order.
+    const active = current.run.schedule.automation
+      ? step.phase === "automation" && step.state === "running"
+      : phase === step.phase;
+    if (current.run.state !== "running" || !active)
       throw new HttpError(409, "run_step_inactive", "This step is not active.");
     if (input.status === "blocked")
       finishScheduleRun(storage, current.run.id, "blocked", input.evidence);
