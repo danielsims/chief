@@ -104,7 +104,7 @@ export function BoardsPage() {
   const choices = useChannelChoices();
   const change = (
     target: Database,
-    update: { conversationId?: string | null; name?: string },
+    update: { channels?: string[]; name?: string },
   ) =>
     void client?.databases.save({ id: target.id, ...update }).then(
       (saved) => {
@@ -171,22 +171,21 @@ export function BoardsPage() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56">
         <p className="text-muted-foreground px-2 pt-1 pb-1.5 text-[11px]">
-          Channel
+          Show in
         </p>
         <div className="max-h-56 overflow-y-auto">
-          <DropdownMenuItem
-            onSelect={() => change(board, { conversationId: null })}
-          >
-            <Columns3 size={13} />
-            Whole workspace
-            {!board.conversationId ? (
-              <Check size={13} className="ml-auto" />
-            ) : null}
-          </DropdownMenuItem>
           {choices.map((channel) => (
             <DropdownMenuItem
               key={channel.id}
-              onSelect={() => change(board, { conversationId: channel.id })}
+              onSelect={(event) => {
+                // Stays open, so several channels can be ticked in one go.
+                event.preventDefault();
+                change(board, {
+                  channels: board.channels.includes(channel.id)
+                    ? board.channels.filter((id) => id !== channel.id)
+                    : [...board.channels, channel.id],
+                });
+              }}
             >
               {channel.visibility === "private" ? (
                 <Lock size={13} />
@@ -194,7 +193,7 @@ export function BoardsPage() {
                 <Hash size={13} />
               )}
               <span className="truncate">{channel.name}</span>
-              {board.conversationId === channel.id ? (
+              {board.channels.includes(channel.id) ? (
                 <Check size={13} className="ml-auto" />
               ) : null}
             </DropdownMenuItem>

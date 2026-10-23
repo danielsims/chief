@@ -14,8 +14,7 @@ const cellSchema = z.union([matchCellSchema, z.null()]);
 
 /**
  * Databases: typed rows, such as the workspace board, shown as a table or a
- * board. One in a channel is for that channel's members; otherwise it is the
- * whole workspace's.
+ * board. Each is workspace data, shown in any number of channels.
  */
 export const databaseToolDefinitions = [
   defineAgentTool({
@@ -25,7 +24,7 @@ export const databaseToolDefinitions = [
       operationId: "databases.list",
       summary: "List databases",
       description:
-        "List the databases you can use, with their fields and views, optionally only those in one channel; a channel's own databases are where work in it is kept. The workspace board is the one with id workspace-board.",
+        "List the databases, with their fields and views, optionally only those shown in one channel; a channel's databases are where work in it is kept. The workspace board is the one with id workspace-board.",
     },
     inputSchema: z.object({ channelId: optionalBoundedText(160) }),
   }),
@@ -47,11 +46,11 @@ export const databaseToolDefinitions = [
       operationId: "databases.save",
       summary: "Save database",
       description:
-        "Create a database, or change one by its id. Give it a channelId to keep it to that channel's members; without one the whole workspace can use it. Only what you send changes, and fields and views replace the whole list, so read the database first and send the complete new list. The first field is the title (type title); others are text, number, select (with options), person, date, checkbox or url. Add a select field when rows need a status or stage, and add a board view grouped by it to make a kanban. A board view groups by a select field. Ids are lowercase letters, digits, - or _.",
+        "Create a database, or change one by its id. A new one shows in the conversation you're working in; channelIds replaces the channels it shows in. Only what you send changes, and fields and views replace the whole list, so read the database first and send the complete new list. The first field is the title (type title); others are text, number, select (with options), person, date, checkbox or url. Add a select field when rows need a status or stage, and add a board view grouped by it to make a kanban. A board view groups by a select field. Ids are lowercase letters, digits, - or _.",
     },
     inputSchema: z.object({
       id: optionalBoundedText(64),
-      channelId: optionalBoundedText(160),
+      channelIds: z.array(boundedText(160)).max(24).optional(),
       name: optionalBoundedText(80),
       fields: z
         .array(

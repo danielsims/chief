@@ -39,5 +39,12 @@ export function initializeWorkspaceDataTables<
     );
     CREATE INDEX IF NOT EXISTS database_rows_database_idx
       ON database_rows (database_id);
+    -- A database's one channel becomes the first of the channels it shows in.
+    UPDATE databases
+      SET database_json = json_remove(
+        json_set(database_json, '$.channels',
+          json_array(json_extract(database_json, '$.conversationId'))),
+        '$.conversationId')
+      WHERE json_extract(database_json, '$.conversationId') IS NOT NULL;
   `);
 }

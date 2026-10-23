@@ -147,7 +147,7 @@ describe("hosted agent turn context", () => {
         {
           id: "prospects",
           name: "Prospects",
-          conversationId: "prospecting",
+          channels: ["prospecting"],
           fields: [
             { id: "title", name: "Name", type: "title" as const },
             {
@@ -175,7 +175,7 @@ describe("hosted agent turn context", () => {
       false,
     );
 
-    expect(prompt).toContain("Databases attached to this conversation");
+    expect(prompt).toContain("Databases in this conversation");
     expect(prompt).toContain("Prospects (id: prospects)");
     expect(prompt).toContain("Name (title)");
     expect(prompt).toContain("Status (select: New)");
