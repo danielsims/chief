@@ -23,6 +23,7 @@ export function channelsFindDirectBetweenMembers<
     relayDatabase(storage).all<Row>(sql`
 SELECT c.* FROM channels c
          WHERE c.kind = 'direct'
+           AND c.conversation_id NOT LIKE 'automation-chat-%'
            AND EXISTS (SELECT 1 FROM channel_members a
              WHERE a.conversation_id = c.conversation_id
                AND a.principal_kind = ${firstKind} AND a.principal_id = ${firstId})

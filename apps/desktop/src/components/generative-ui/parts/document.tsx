@@ -21,7 +21,7 @@ function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
         navigate(
           part.data.conversationId
             ? channelArtifactPath(part.data.conversationId, part.data.fileId)
-            : `/files/${encodeURIComponent(part.data.fileId)}`,
+            : `/artifacts/${encodeURIComponent(part.data.fileId)}`,
         )
       }
       className={cn(INLINE_RESULT_CARD_CLASS, "rounded-lg py-3 text-sm")}

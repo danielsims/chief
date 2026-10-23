@@ -31,7 +31,7 @@ import { inheritedThreadRootId } from "../src/hosted-agent-tools/toolkits/channe
 describe("hosted agent turn context", () => {
   it("keeps research lightweight and interactive work off the computer", () => {
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Use web_read for ordinary public research",
+      "Find pages with web_search and read them with web_read",
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
       "browser or computer for ordinary questions or plugin setup",
@@ -131,6 +131,56 @@ describe("hosted agent turn context", () => {
       "setup choices, not evidence about the product, market, or ideal customer",
     );
     expect(setup).toContain("Requested connections: granola.ai, notion.com");
+  });
+
+  it("names the databases attached to the conversation in the prompt", () => {
+    const context = {
+      managed: true,
+      runtime: "cloud" as const,
+      workspace: {
+        id: "workspace-a",
+        name: "Acme",
+        website: "https://acme.test",
+        selectedApps: [],
+      },
+      databases: [
+        {
+          id: "prospects",
+          name: "Prospects",
+          channels: ["prospecting"],
+          fields: [
+            { id: "title", name: "Name", type: "title" as const },
+            {
+              id: "status",
+              name: "Status",
+              type: "select" as const,
+              options: [{ id: "new", name: "New", color: "gray" as const }],
+            },
+          ],
+          views: [
+            { id: "table", name: "Table", layout: "table" as const },
+            {
+              id: "board",
+              name: "Board",
+              layout: "board" as const,
+              groupBy: "status",
+            },
+          ],
+        },
+      ],
+    };
+    const prompt = hostedWorkspaceContext(
+      testJob({ conversationId: "prospecting" }, "prospector"),
+      context,
+      false,
+    );
+
+    expect(prompt).toContain("Databases in this conversation");
+    expect(prompt).toContain("Prospects (id: prospects)");
+    expect(prompt).toContain("Name (title)");
+    expect(prompt).toContain("Status (select: New)");
+    expect(prompt).toContain("Board (board by Status)");
+    expect(prompt).toContain("databases_rows_save");
   });
 
   it("gives Prospector a catalog-backed capability kickoff", () => {

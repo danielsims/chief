@@ -8,6 +8,7 @@ export function channelsInsertDirectsStart(
     conversationId,
     workspaceId,
     name,
+    description = null,
     createdByKind,
     createdById,
     createdAt,
@@ -16,6 +17,7 @@ export function channelsInsertDirectsStart(
     conversationId: string;
     workspaceId: string;
     name: string;
+    description?: string | null;
     createdByKind: string;
     createdById: string;
     createdAt: string;
@@ -34,7 +36,7 @@ export function channelsInsertDirectsStart(
           kind: "direct",
           is_private: 1,
           archived: 0,
-          description: null,
+          description,
           created_by_kind: createdByKind,
           created_by_id: createdById,
           version: 1,

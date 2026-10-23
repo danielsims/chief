@@ -3,7 +3,6 @@ import type {
   AnalyticsDataset,
   CampaignRecord,
   ContentDraftRecord,
-  ProspectRecord,
   RecurringWorkRecord,
   SessionRecord,
   TrendRecord,
@@ -11,7 +10,6 @@ import type {
 } from "@chief/agent-runtime/types";
 
 export interface WorkspaceDataState {
-  prospects: ProspectRecord[];
   trends: TrendRecord[];
   analyticsDatasets: AnalyticsDataset[];
   drafts: ContentDraftRecord[];
@@ -23,7 +21,6 @@ export interface WorkspaceDataState {
 }
 
 export const emptyWorkspaceData: WorkspaceDataState = {
-  prospects: [],
   trends: [],
   analyticsDatasets: [],
   drafts: [],
@@ -47,7 +44,6 @@ export function normalizeWorkspaceData(
   snapshot: WorkspaceDataSnapshot,
 ): WorkspaceDataState {
   return {
-    prospects: snapshot.prospects ?? [],
     trends: snapshot.trends ?? [],
     analyticsDatasets: snapshot.analyticsDatasets ?? [],
     drafts: snapshot.drafts ?? [],

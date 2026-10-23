@@ -66,21 +66,27 @@ export function recordCompletedTurn(
     },
   ];
   const now = new Date().toISOString();
-  const journal = [
-    ...loadArray(storage, "agent:work-journal").filter(
-      (value) => parseJsonObject(value)?.jobId !== job.id,
-    ),
-    {
-      jobId: job.id,
-      conversationId,
-      user: instruction.slice(0, 1_000),
-      assistant: answer.slice(0, 2_000),
-      completedAt: now,
-    },
-  ];
+  // Automation steps stay out of the journal, so their runs neither steer
+  // later runs nor crowd the agent's memory of its conversations.
+  const journal =
+    job.kind === "schedule.step"
+      ? null
+      : [
+          ...loadArray(storage, "agent:work-journal").filter(
+            (value) => parseJsonObject(value)?.jobId !== job.id,
+          ),
+          {
+            jobId: job.id,
+            conversationId,
+            user: instruction.slice(0, 1_000),
+            assistant: answer.slice(0, 2_000),
+            completedAt: now,
+          },
+        ];
   storage.transactionSync(() => {
     putRecord(storage, key, messages.slice(-200), now);
-    putRecord(storage, "agent:work-journal", journal.slice(-120), now);
+    if (journal)
+      putRecord(storage, "agent:work-journal", journal.slice(-120), now);
     putRecord(
       storage,
       "eve:package:manifest",

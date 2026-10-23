@@ -12,12 +12,14 @@ import {
   RelayClientError,
 } from "@chief/relay-client";
 import {
+  agentAttachmentSchema,
   agentConfigSchema,
+  attachmentLocation,
   parseJsonObject,
   parseJsonString,
 } from "@chief/relay-contracts";
 
-import type { AgentEvent, DriverType } from "./types.js";
+import type { AgentEvent, DriverType, MessageAttachment } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
 import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { ensureCodexSetup } from "./drivers/codex-install.js";
@@ -35,13 +37,21 @@ import {
 } from "./prompts/relay-cell-turn.js";
 import { RelayActivityPublisher } from "./relay-activity-publisher.js";
 import { cellAgentDefinition } from "./relay-cell-agent.js";
-import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
-import { RunSteering } from "./relay-cell-steering.js";
 import {
+  APPROVAL_WAIT_MS,
+  approvalGranted,
+  approvalSummary,
+  askForApproval,
+} from "./relay-cell-approvals.js";
+import { LocalJobBlockedError, localJobProject } from "./relay-cell-project.js";
+import { instructionOf, RunSteering } from "./relay-cell-steering.js";
+import {
+  isRelayPluginToolName,
   relayCellToolNames,
   runRelayCellMcpServer,
   startRelayCellMcpHttpServer,
 } from "./relay-cell-tools.js";
+import { attachmentPromptContext } from "./session-prompt-context.js";
 import { AgentSession } from "./session.js";
 
 const mode = process.argv[2] ?? "worker";
@@ -253,9 +263,9 @@ async function executeJob(
       conversationId,
       {
         driver: normalizeDriver(config.inference.provider),
-        // A cell has no one to answer provider prompts. With automatic
-        // approvals the agent works freely on this device; otherwise only
-        // Chief's own tools are allowed below.
+        // With automatic approvals the agent works freely on this device;
+        // otherwise Chief's own tools run and anything else is asked of the
+        // person in the thread below.
         access: config.approvals === "auto" ? "full" : "guarded",
         workspaceId: job.workspaceId,
         model:
@@ -264,28 +274,76 @@ async function executeJob(
             : config.inference.model,
         mcpServers: [
           relayMcp.spec,
-          ...(await plugins.mcpServers(job.workspaceId)),
+          // Remote plugins belong to the workspace and reach this agent
+          // through the relay, which enforces assignment and approvals. Only
+          // plugins that run on this device attach directly.
+          ...(await plugins.mcpServers(job.workspaceId)).filter(
+            (server) => server.command !== "",
+          ),
         ],
         maxPromptAttempts: 3,
       },
       priorEvents,
     );
     session = agentSession;
+    // What the agent wasn't allowed to do, so the run can say so.
+    const refused: string[] = [];
+    // Anything else is the person's call. In a conversation they're asked in
+    // the thread and the run waits for their answer; a run nobody is
+    // watching, such as an automation step, is refused.
+    const decidePermission = async (
+      event: Extract<AgentEvent, { type: "permission" }>,
+    ) => {
+      const waiting = steering;
+      if (!waiting) return false;
+      try {
+        await askForApproval(client, {
+          workspaceId: job.workspaceId,
+          agentId,
+          conversationId,
+          ...(activityContext.threadRootId
+            ? { threadRootId: activityContext.threadRootId }
+            : undefined),
+          requestId: event.requestId,
+          toolName: event.toolName,
+          toolInput: event.input,
+        });
+        return approvalGranted(await waiting.awaitAnswer(APPROVAL_WAIT_MS));
+      } catch (error) {
+        console.error("[cell] approval:", error);
+        return false;
+      }
+    };
     agentSession.on("event", (event: AgentEvent) => {
       turnEvents.push(event);
       activityPublisher.accept(event);
       if (event.type === "permission") {
         const tool = event.toolName.toLowerCase();
-        const allow = relayCellToolNames.some(
-          (name) =>
-            tool === name ||
-            tool === `mcp__chief_relay__${name}` ||
-            tool === `mcp.chief_relay.${name}`,
-        );
-        agentSession.respondPermission(
-          event.requestId,
-          allow ? "allow" : "deny",
-        );
+        // Plugin calls go through the relay, which refuses writes for an
+        // agent that asks before acting.
+        const allow =
+          (tool.startsWith("mcp__chief_relay__") ||
+            tool.startsWith("mcp.chief_relay.")) &&
+          isRelayPluginToolName(tool)
+            ? true
+            : relayCellToolNames.some(
+                (name) =>
+                  tool === name ||
+                  tool === `mcp__chief_relay__${name}` ||
+                  tool === `mcp.chief_relay.${name}`,
+              );
+        if (allow) {
+          agentSession.respondPermission(event.requestId, "allow");
+          return;
+        }
+        void decidePermission(event).then((granted) => {
+          if (!granted)
+            refused.push(approvalSummary(event.toolName, event.input).action);
+          agentSession.respondPermission(
+            event.requestId,
+            granted ? "allow" : "deny",
+          );
+        });
       }
       void cell
         .writeState(`events:${sessionKey}`, agentSession.events.slice(-500))
@@ -316,9 +374,23 @@ async function executeJob(
         agentId,
         `${agentId}-${process.pid}`,
         () => session,
+        // A message sent mid-run brings its images as files the agent reads.
+        async (steered) =>
+          [
+            instructionOf(steered),
+            await attachmentPromptContext(
+              cellDirectory,
+              await jobAttachments(client, steered.job, conversationId),
+            ),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
       );
     }
-    await agentSession.sendPrompt(instruction, job.id, false, promptContext);
+    await agentSession.sendPrompt(instruction, job.id, false, {
+      ...promptContext,
+      attachments: await jobAttachments(client, job, conversationId),
+    });
     await steering?.drain((text, jobId) =>
       agentSession.sendPrompt(text, jobId, false, promptContext),
     );
@@ -334,7 +406,20 @@ async function executeJob(
       `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
-    const reply = finalAssistantText(turnEvents) ?? "Work completed.";
+    const reply = finalAssistantText(turnEvents);
+    const posted = postedFinalToOrigin(
+      turnEvents,
+      conversationId,
+      activityContext.threadRootId,
+    );
+    // A run that ends without a word hasn't done what was asked; it fails
+    // and says why rather than claiming it finished.
+    if (!reply && !posted && job.kind !== "workspace.onboarding")
+      throw new LocalJobBlockedError(
+        refused.length
+          ? `Stopped without finishing: it wasn't allowed to ${[...new Set(refused)].join(", ")}.`
+          : "Stopped without replying.",
+      );
     await agentSession.stop();
     session = null;
     await client.completeAgentJob(agentId, {
@@ -347,11 +432,7 @@ async function executeJob(
                 openingMessage:
                   "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
               }
-            : postedFinalToOrigin(
-                  turnEvents,
-                  conversationId,
-                  activityContext.threadRootId,
-                )
+            : posted || !reply
               ? {}
               : {
                   publishedMessage: {
@@ -584,4 +665,43 @@ if (mode === "mcp") {
 } else {
   healthEndpoint();
   await listenForJobs();
+}
+
+/**
+ * The images a job's message carried, read through the relay as this agent
+ * so the relay checks it can still see the conversation. An image that can't
+ * be read is left out rather than failing the run.
+ */
+async function jobAttachments(
+  client: RelayClient,
+  job: AgentJob,
+  conversationId: string,
+): Promise<MessageAttachment[]> {
+  const parsed = agentAttachmentSchema
+    .array()
+    .max(8)
+    .safeParse(job.payload.attachments ?? []);
+  if (!parsed.success) return [];
+  const read = await Promise.all(
+    parsed.data.map(async (attachment) => {
+      if (attachmentLocation(attachment.url)?.conversationId !== conversationId)
+        return [];
+      try {
+        const { bytes, mediaType } = await client.downloadAttachment(
+          attachment.url,
+        );
+        return [
+          {
+            name: attachment.name,
+            mediaType,
+            url: `data:${mediaType};base64,${Buffer.from(bytes).toString("base64")}`,
+          },
+        ];
+      } catch (error) {
+        console.error("[cell] attachment:", error);
+        return [];
+      }
+    }),
+  );
+  return read.flat();
 }

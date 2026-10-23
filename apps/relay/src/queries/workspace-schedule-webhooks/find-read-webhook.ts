@@ -14,6 +14,7 @@ export function workspaceScheduleWebhooksFindReadWebhook<
         .select({
           document_json: workspaceScheduleWebhooks.document_json,
           secret: workspaceScheduleWebhooks.secret,
+          signing_secret: workspaceScheduleWebhooks.signing_secret,
         })
         .from(workspaceScheduleWebhooks)
         .where(eq(workspaceScheduleWebhooks.id, id)),

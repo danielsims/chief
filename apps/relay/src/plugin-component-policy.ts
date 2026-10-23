@@ -4,6 +4,8 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
+  attachmentLocation,
+  messageAttachmentPayloadSchema,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
   projectRecommendationPayloadSchema,
@@ -23,6 +25,23 @@ export function validatePluginComponentPlacement(
   threadRootId?: string,
 ) {
   for (const component of components) {
+    // An attached image must be one uploaded to this conversation, so a
+    // message can't point readers at another channel's files.
+    if (component.kind === "attachment") {
+      const location = attachmentLocation(
+        messageAttachmentPayloadSchema.parse(component.payload).url,
+      );
+      if (
+        location?.workspaceId !== workspaceId ||
+        location.conversationId !== conversationId
+      )
+        throw new HttpError(
+          409,
+          "attachment_scope_mismatch",
+          "Attach images uploaded to this conversation.",
+        );
+      continue;
+    }
     if (component.kind === "schedule.run" && principal.kind !== "service")
       throw new HttpError(
         403,

@@ -39,16 +39,13 @@ type Timeline = ReturnType<typeof useChiefChatTimeline>;
  * attribution, attachments, and per-message controls. It owns no persistence.
  */
 export function useChiefChatPresentation({
-  channel,
   chatId,
+  destinationChannelId,
   composer,
   core,
   directAgent,
   timeline,
-}: Pick<
-  ChiefChatProps,
-  "channel" | "chatId" | "destinationChannelId" | "directAgent"
-> & {
+}: Pick<ChiefChatProps, "chatId" | "destinationChannelId" | "directAgent"> & {
   composer: Composer;
   core: Core;
   timeline: Timeline;
@@ -123,7 +120,7 @@ export function useChiefChatPresentation({
     );
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
-    if (!channel && !directAgent) return {};
+    if (!destinationChannelId) return { footer: null };
     const replySummary = summarizeThreadReplies(
       threadReplies.get(message.id) ?? [],
     );
@@ -175,7 +172,7 @@ export function useChiefChatPresentation({
       },
     );
     return {
-      ...(channel
+      ...(destinationChannelId
         ? {
             actions: (
               <ChannelMessageActions

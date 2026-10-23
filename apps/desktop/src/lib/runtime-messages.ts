@@ -349,6 +349,7 @@ export function projectChannelTimeline(
       !direct ||
       Boolean(threadRootId && threadRootId !== direct.metadata?.threadRootId) ||
       Boolean(channelAction && !direct.metadata?.channelAction) ||
+      Boolean(event.scheduledRun && !direct.metadata?.scheduledRun) ||
       Boolean(agentId && agentId !== direct.metadata?.agentId) ||
       Boolean(author && author.id !== direct.metadata?.author?.id) ||
       eventParts.length > 0 ||
@@ -370,6 +371,9 @@ export function projectChannelTimeline(
                   ...(author ? { author } : undefined),
                   ...(threadRootId ? { threadRootId } : undefined),
                   ...(channelAction ? { channelAction } : undefined),
+                  ...(event.scheduledRun
+                    ? { scheduledRun: event.scheduledRun }
+                    : undefined),
                 },
               },
               eventParts,
@@ -392,6 +396,11 @@ export function projectChannelTimeline(
                   : undefined),
                 ...(threadRootId ? { threadRootId } : undefined),
                 ...(channelAction ? { channelAction } : undefined),
+                // The run card renders from the first source to arrive, so
+                // the announcement is never shown as plain text first.
+                ...(event.scheduledRun
+                  ? { scheduledRun: event.scheduledRun }
+                  : undefined),
               },
             },
     );

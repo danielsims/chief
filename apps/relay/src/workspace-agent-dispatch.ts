@@ -2,10 +2,13 @@ import { z } from "zod";
 
 import { normalizedChannelMentions } from "@chief/agent-runtime/channel-message-mentions";
 import {
+  agentAttachmentSchema,
   agentIdSchema,
+  attachmentLocation,
   channelMemberAddCommandSchema,
   conversationMessageSchema,
   externalAgentDeliveryCommandSchema,
+  messageAttachments,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
@@ -25,6 +28,7 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
+import { automationChatBrief } from "./workspace-automation-chat";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { gitRepoSlug, isSafeGitRepoSlug } from "./workspace-git-store";
@@ -39,7 +43,6 @@ const dispatchMessageSchema = z
     message: conversationMessageSchema,
     replyAgentId: agentIdSchema.optional(),
     workflowId: z.string().trim().min(1).max(128).optional(),
-    missionId: z.string().trim().min(1).max(100).optional(),
     scheduleStepId: z.string().optional(),
     instruction: z.string().max(100_000).optional(),
     scheduleRunId: z.string().trim().min(1).max(256).optional(),
@@ -69,7 +72,6 @@ export async function dispatchWorkspaceMessage(
     message,
     replyAgentId,
     workflowId = message.id,
-    missionId,
     scheduleRunId,
     scheduleStepId,
     instruction,
@@ -188,6 +190,7 @@ export async function dispatchWorkspaceMessage(
   // When the workspace hosts exactly one Git project, the agent works in it.
   // With none or several, the agent lists them and asks which to use.
   const projectRepo = resolveWorkspaceProjectRepo(storage);
+  const attachments = agentAttachments(message);
   const now = new Date().toISOString();
   const externalAgents = new ExternalAgentChannelService(storage, env);
 
@@ -216,6 +219,7 @@ export async function dispatchWorkspaceMessage(
                 : message.body,
               author: message.author,
               createdAt: message.createdAt,
+              ...(attachments.length ? { attachments } : undefined),
             },
           },
         }),
@@ -237,13 +241,13 @@ export async function dispatchWorkspaceMessage(
             workflowId,
             ...(scheduleRunId ? { scheduleRunId } : undefined),
             ...(scheduleStepId ? { scheduleStepId } : undefined),
-            ...(missionId ? { missionId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             ...(projectRepo ? { projectRepo } : undefined),
+            ...(attachments.length ? { attachments } : undefined),
             mentions,
             instruction: scheduleRunId
               ? (instruction ?? message.body)
-              : dispatchedInstruction(message),
+              : dispatchedInstruction(storage, channel, message),
           },
           availableAt: now,
         },
@@ -369,10 +373,36 @@ function owningThreadRoot(
   return undefined;
 }
 
+/**
+ * The message's images, for the agents it wakes. Each agent reads them
+ * through the relay as itself, so channel access is checked on every read.
+ */
+function agentAttachments(message: z.infer<typeof conversationMessageSchema>) {
+  return messageAttachments(message.components).flatMap((attachment) => {
+    const location = attachmentLocation(attachment.url);
+    if (
+      location?.workspaceId !== message.workspaceId ||
+      location.conversationId !== message.conversationId
+    )
+      return [];
+    return [
+      agentAttachmentSchema.parse({
+        name: attachment.name,
+        mediaType: location.mediaType,
+        url: attachment.url,
+      }),
+    ];
+  });
+}
+
 function dispatchedInstruction(
+  storage: DurableObjectStorage,
+  channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
   message: z.infer<typeof conversationMessageSchema>,
 ) {
-  return message.body;
+  // An automation's own chat says which automation it's about.
+  const brief = automationChatBrief(storage, channel);
+  return brief ? `${brief}\n\n${message.body}` : message.body;
 }
 
 function eligibleAgentIds(

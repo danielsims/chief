@@ -6,5 +6,5 @@ export const prospector = {
   role: "Prospecting & Trends",
   description:
     "Finds new prospects and trending conversations worth joining across Twitter, Reddit and other channels.",
-  capabilities: ["prospect-memory", "trend-memory"],
+  capabilities: ["trend-memory"],
 } satisfies AgentManifest;

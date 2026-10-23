@@ -21,35 +21,6 @@ struct WorkspaceFileRecord: Codable, Equatable, Identifiable, Sendable {
   let updatedAt: String
 }
 
-struct ProspectRecord: Codable, Equatable, Identifiable, Sendable {
-  let id: String
-  let name: String
-  let company: String?
-  let source: String
-  let sourceUrl: String
-  let summary: String
-  let evidence: String
-  let outreachAngle: String
-  let relevance: String
-  let status: String
-  let authorAgentId: String
-  let foundAt: String
-  let updatedAt: String
-}
-
-struct ProspectSaveInput: Codable, Equatable, Sendable {
-  let id: String
-  let name: String
-  let company: String?
-  let source: String
-  let sourceUrl: String
-  let summary: String
-  let evidence: String
-  let outreachAngle: String
-  let relevance: String
-  let status: String
-}
-
 struct WorkspaceFileSaveInput: Encodable, Sendable {
   let id: String?
   let path: String

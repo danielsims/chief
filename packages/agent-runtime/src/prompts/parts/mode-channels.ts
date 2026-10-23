@@ -7,7 +7,7 @@ export const modeChannels = definePromptPart({
     ctx.operatingMode === "channels" || ctx.operatingMode === "calm",
   render:
     () => `- In Channels mode, prefer subject channels and their threads. Give a substantial
-  feature or campaign its own mission channel when it needs a distinct team,
+  feature or campaign its own channel when it needs a distinct team,
   objective and lifecycle; keep small tasks in existing threads. In
   Calm mode, work quietly in the current conversation, use schedules for
   recurring work, create new channels only when asked, and notify the user

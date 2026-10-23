@@ -1,0 +1,47 @@
+[package]
+name = "chief-machine"
+version = "0.1.0"
+edition = "2021"
+description = "Lend this machine's internet connection to your Chief workspace's agents."
+license = "UNLICENSED"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "chief-machine"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+# The command-line machine. The desktop app links only the fetch guard.
+cli = [
+  "dep:tokio-tungstenite",
+  "dep:futures-util",
+  "dep:base64",
+  "reqwest/json",
+  "tokio/rt-multi-thread",
+  "tokio/macros",
+  "tokio/signal",
+  "tokio/sync",
+  "tokio/time",
+]
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt"] }
+url = "2"
+base64 = { version = "0.22", optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"], optional = true }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

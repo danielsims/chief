@@ -232,7 +232,6 @@ const executorToolPermissionGroups: readonly (readonly [
   [
     "workspace.read",
     [
-      "prospectsList",
       "trendsList",
       "analyticsListDatasets",
       "contentList",
@@ -245,7 +244,6 @@ const executorToolPermissionGroups: readonly (readonly [
   [
     "workspace.write",
     [
-      "prospectsSave",
       "trendsSave",
       "analyticsSaveDataset",
       "contentSave",
@@ -364,7 +362,6 @@ export function combinedAgentToolPermissionCeiling(
 
 const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
   ...[
-    "/local-tools/prospects",
     "/local-tools/trends",
     "/local-tools/analytics/datasets",
     "/local-tools/content",
@@ -372,11 +369,16 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/campaigns",
     "/local-tools/brand-profile",
     "/local-tools/recurring-work",
+    "/local-tools/databases",
   ].map((path) => [`GET ${path}`, "workspace.read"] as const),
   ["POST /local-tools/files/read", "workspace.read"],
+  ["POST /local-tools/databases/read", "workspace.read"],
+  ["POST /local-tools/automations/tools", "workspace.read"],
+  ["POST /local-tools/automations/inspect", "workspace.read"],
+  ["POST /local-tools/automations/test", "workspace.write"],
   ["POST /local-tools/files/write", "messages.send"],
+  ["POST /local-tools/pages", "messages.send"],
   ...[
-    "/local-tools/prospects",
     "/local-tools/trends",
     "/local-tools/analytics/datasets",
     "/local-tools/content",
@@ -384,6 +386,8 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/brand-profile",
     "/local-tools/recurring-work",
     "/local-tools/action",
+    "/local-tools/databases",
+    "/local-tools/databases/rows",
   ].map((path) => [`POST ${path}`, "workspace.write"] as const),
   ["GET /local-tools/projects", "projects.read"],
   ["POST /local-tools/projects", "projects.write"],

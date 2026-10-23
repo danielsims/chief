@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
 import {
   Popover,
   PopoverContent,
@@ -10,13 +8,7 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
-import {
-  agentName,
-  monthLabel,
-  sameMonth,
-  workStatusLabel,
-} from "./schedule-calendar-core";
-import { friendlySchedule } from "./schedule-editor";
+import { monthLabel, sameMonth } from "./schedule-calendar-core";
 
 export function MonthJump({
   month,
@@ -90,57 +82,6 @@ export function MonthJump({
             );
           })}
         </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-export function ScheduleList({
-  work,
-  onOpen,
-}: {
-  work: RecurringWorkRecord[];
-  onOpen: (work: RecurringWorkRecord) => void;
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Inbox size={13} />
-          Schedules
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 rounded-lg p-1.5">
-        {work.length > 0 ? (
-          <div className="space-y-1">
-            {work.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onOpen(item)}
-                className="hover:bg-accent flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium">
-                    {item.title}
-                  </span>
-                  <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                    {agentName(item.agentId)} · {workStatusLabel(item.status)} ·{" "}
-                    {friendlySchedule(item)}
-                  </span>
-                </span>
-                <ChevronRight
-                  size={12}
-                  className="text-muted-foreground shrink-0"
-                />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-muted-foreground px-3 py-4 text-sm leading-5">
-            No schedules yet.
-          </p>
-        )}
       </PopoverContent>
     </Popover>
   );

@@ -6,12 +6,13 @@ import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
+import type { ChannelView } from "../components/chat/channel-view-tabs";
 import type { ConversationProfileSelection } from "../components/chat/conversation-profile";
 import {
   AgentProfilePanel,
   UserProfilePanel,
 } from "../components/chat/agent-profile-panel";
-import { ChannelCanvas } from "../components/chat/channel-canvas";
+import { ChannelArtifacts } from "../components/chat/channel-artifacts";
 import { ChiefChat } from "../components/chat/chief-chat";
 import {
   clearComposerHandoff,
@@ -25,7 +26,6 @@ import {
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
 import { useWorkspaceUsers } from "../components/chat/mention-people-context";
-import { MissionCanvas } from "../components/chat/mission-canvas";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { workspaceCardClassName } from "../components/workspace-content-surface";
 import { useAuth } from "../lib/auth/auth-context";
@@ -285,7 +285,9 @@ export function ConversationsPage() {
     Boolean(activeEntry),
   );
   const activeView =
-    !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
+    !directIdentity && params.get("view") === "artifacts"
+      ? "artifacts"
+      : "messages";
   const channelReferences = routing.channelReferences(
     workspaceChannels.channels,
   );
@@ -327,6 +329,7 @@ export function ConversationsPage() {
       const next = new URLSearchParams(current);
       next.delete("activity");
       next.delete("artifact");
+      next.delete("database");
       next.delete("child");
       next.set(
         "profile",
@@ -363,14 +366,15 @@ export function ConversationsPage() {
       { state: navigationState },
     );
   };
-  const setConversationView = (view: "messages" | "canvas") => {
+  const setConversationView = (view: ChannelView) => {
     setParams((current) => {
       const next = new URLSearchParams(current);
       next.delete("activity");
       next.delete("artifact");
+      next.delete("database");
       next.delete("child");
       next.delete("profile");
-      if (view === "canvas") next.set("view", "canvas");
+      if (view === "artifacts") next.set("view", "artifacts");
       else next.delete("view");
       return next;
     });
@@ -414,26 +418,20 @@ export function ConversationsPage() {
           className={cn(
             "flex min-h-0 min-w-0 flex-1 flex-col",
             // The chat draws its own cards beside its thread panels.
-            !(activeChatId && !(activeView === "canvas" && !directIdentity)) &&
-              workspaceCardClassName,
+            !(
+              activeChatId && !(activeView === "artifacts" && !directIdentity)
+            ) && workspaceCardClassName,
           )}
         >
-          {activeChatId && activeView === "canvas" && !directIdentity ? (
+          {activeChatId && activeView === "artifacts" && !directIdentity ? (
             <>
               {conversationHeader}
-              <ChannelCanvas
+              <ChannelArtifacts
                 channelName={activeChannel.label}
                 conversationId={
                   activeConversationChannel?.relayId ?? activeChannel.id
                 }
-              >
-                <MissionCanvas
-                  key={activeConversationChannel?.relayId ?? activeChannel.id}
-                  conversationId={
-                    activeConversationChannel?.relayId ?? activeChannel.id
-                  }
-                />
-              </ChannelCanvas>
+              />
             </>
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>

@@ -47,6 +47,6 @@ void test("artifact links keep identifiers in encoded query values", () => {
     channelArtifactPath("marketing", "plan&view=messages"),
     "https://chief.test",
   );
-  assert.equal(link.searchParams.get("view"), "canvas");
+  assert.equal(link.searchParams.get("view"), "artifacts");
   assert.equal(link.searchParams.get("artifact"), "plan&view=messages");
 });

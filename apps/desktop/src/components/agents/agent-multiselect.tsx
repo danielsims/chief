@@ -7,6 +7,7 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@chief/ui/components/popover";
+import { cn } from "@chief/ui/lib/utils";
 
 import { AgentAvatar } from "../agent-avatar";
 
@@ -22,11 +23,13 @@ export function AgentMultiselect({
   value,
   onChange,
   disabled = false,
+  inputClassName,
 }: {
   agents: readonly SelectableAgent[];
   value: string[];
   onChange: (value: string[]) => void;
   disabled?: boolean;
+  inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
@@ -65,7 +68,7 @@ export function AgentMultiselect({
           <div className="relative">
             <Search
               aria-hidden="true"
-              className="text-muted-foreground pointer-events-none absolute top-3 left-3 size-4"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
             />
             <Input
               ref={inputRef}
@@ -80,7 +83,7 @@ export function AgentMultiselect({
               placeholder="Search agents…"
               value={query}
               disabled={disabled}
-              className="h-10 pl-9 text-sm"
+              className={cn("h-10 pl-9 text-sm", inputClassName)}
               onFocus={(event) => {
                 setPortalContainer(
                   event.currentTarget.closest<HTMLElement>('[role="dialog"]'),

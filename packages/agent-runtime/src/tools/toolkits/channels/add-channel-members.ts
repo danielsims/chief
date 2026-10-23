@@ -9,7 +9,8 @@ export const addChannelMembersDefinition = defineAgentTool({
   path: "/local-tools/channels/{channelId}/members",
   operation: {
     operationId: "channels.members.add",
-    summary: "Add validated agents to a channel",
+    summary: "Add channel members",
+    description: "Add validated agents to a channel.",
   },
   inputSchema: z.object({
     expectedVersion: z.number().int().min(1).optional(),

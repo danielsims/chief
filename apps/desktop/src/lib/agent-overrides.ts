@@ -33,7 +33,6 @@ const agentOverrideSchema = z.object({
     .array(
       z.enum([
         "analytics-chart",
-        "prospect-memory",
         "trend-memory",
         "content-calendar",
         "campaign-memory",

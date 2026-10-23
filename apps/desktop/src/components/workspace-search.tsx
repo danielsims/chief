@@ -32,7 +32,6 @@ import {
 
 import { useAuth } from "../lib/auth/auth-context";
 import { channelEventSourceId } from "../lib/channel-read-state";
-import { useMachinesEnabled } from "../lib/experimental";
 import { useRelaySession } from "../lib/relay-session";
 import {
   useChannelEvents,
@@ -133,7 +132,6 @@ export function WorkspaceSearch() {
   const users = useWorkspaceUsers();
   const { client, snapshot, workspaces, switchWorkspace } = useRelaySession();
   const { setPreference } = useTheme();
-  const machinesEnabled = useMachinesEnabled();
   const startDirectMessage = useStartDirectMessage();
   const navigate = useNavigate();
   const [messageResults, setMessageResults] = useState<{
@@ -270,16 +268,12 @@ export function WorkspaceSearch() {
     ];
     const settings: SearchItem[] = [
       ...SETTINGS,
-      ...(machinesEnabled
-        ? [
-            {
-              to: "/settings/machines",
-              label: "Machines",
-              keywords: "computers experimental",
-              icon: MonitorCog,
-            },
-          ]
-        : []),
+      {
+        to: "/settings/machines",
+        label: "Machines",
+        keywords: "computers browsing connection",
+        icon: MonitorCog,
+      },
     ].map((setting) => ({
       id: setting.to,
       label: setting.label,
@@ -362,7 +356,6 @@ export function WorkspaceSearch() {
     user,
     users,
     messageResults,
-    machinesEnabled,
     setPreference,
     snapshot?.id,
     switchWorkspace,

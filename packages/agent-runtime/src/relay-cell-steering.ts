@@ -16,6 +16,8 @@ export class RunSteering {
   private readonly waiting: string[] = [];
   private readonly held: Lease[] = [];
   private folding = Promise.resolve();
+  /** Set while the run waits on a person's answer, such as an approval. */
+  private answering: ((answer: string) => void) | null = null;
 
   constructor(
     readonly conversationId: string,
@@ -24,12 +26,33 @@ export class RunSteering {
     private readonly agentId: string,
     private readonly workerId: string,
     private readonly session: () => AgentSession | null,
+    /** The message a lease brings, with anything attached made readable. */
+    private readonly instruction: (lease: Lease) => Promise<string> = (lease) =>
+      Promise.resolve(instructionOf(lease)),
   ) {}
 
   admit(jobId: string) {
     this.folding = this.folding
       .then(() => this.fold(jobId))
       .catch((error) => console.error("[cell] steer:", error));
+  }
+
+  /**
+   * The next message in the run's thread, taken as an answer rather than
+   * steering, or undefined if none comes in time.
+   */
+  awaitAnswer(timeoutMs: number) {
+    return new Promise<string | undefined>((resolve) => {
+      const timer = setTimeout(() => {
+        this.answering = null;
+        resolve(undefined);
+      }, timeoutMs);
+      this.answering = (answer) => {
+        clearTimeout(timer);
+        this.answering = null;
+        resolve(answer);
+      };
+    });
   }
 
   /** Runs every message that missed the turn, then lets the run end. */
@@ -43,12 +66,20 @@ export class RunSteering {
       }
       const lease = this.held.shift();
       if (!lease) return;
-      await run(instructionOf(lease), lease.job.id);
+      await run(await this.instruction(lease), lease.job.id);
       await this.complete(lease);
     }
   }
 
   private async fold(jobId: string) {
+    const answer = this.answering;
+    if (answer) {
+      const lease = await this.claim(jobId);
+      if (!lease) return;
+      answer(await this.instruction(lease));
+      await this.complete(lease);
+      return;
+    }
     const session = this.session();
     if (!session?.canSteer()) {
       this.waiting.push(jobId);
@@ -56,12 +87,13 @@ export class RunSteering {
     }
     const lease = await this.claim(jobId);
     if (!lease) return;
+    const instruction = await this.instruction(lease);
     // The turn may have ended while the claim was in flight.
     if (!session.canSteer()) {
       this.held.push(lease);
       return;
     }
-    session.steer(instructionOf(lease));
+    session.steer(instruction);
     await this.complete(lease);
   }
 
@@ -78,6 +110,6 @@ export class RunSteering {
   }
 }
 
-function instructionOf(lease: Lease) {
+export function instructionOf(lease: Lease) {
   return parseJsonString(lease.job.payload.instruction)?.trim() ?? "";
 }

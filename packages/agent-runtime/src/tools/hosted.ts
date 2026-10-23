@@ -1,7 +1,9 @@
+import { automationBuildToolDefinitions } from "./toolkits/automation/build-tools.js";
 import {
   listRecurringWorkDefinition,
   proposeRecurringWorkDefinition,
 } from "./toolkits/automation/recurring-work-definitions.js";
+import { automationRunToolDefinitions } from "./toolkits/automation/run-tools.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
 import { closeBrowserDefinition } from "./toolkits/browser/close-browser.js";
 import { fillBrowserDefinition } from "./toolkits/browser/fill-browser.js";
@@ -23,12 +25,13 @@ import { computerListFilesDefinition } from "./toolkits/computer/list-files.js";
 import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-artifact.js";
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
+import { databaseToolDefinitions } from "./toolkits/databases/definitions.js";
 import {
   listFilesDefinition,
   readFileDefinition,
   writeFileDefinition,
 } from "./toolkits/files/definitions.js";
-import { missionToolDefinitions } from "./toolkits/missions.js";
+import { pageToolDefinitions } from "./toolkits/pages/definitions.js";
 import { listPluginsDefinition } from "./toolkits/plugins/list-plugins.js";
 import { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
 import {
@@ -38,16 +41,18 @@ import {
   publishProjectDefinition,
 } from "./toolkits/projects/hosted.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
-import { listProspectsDefinition } from "./toolkits/research/list-prospects.js";
-import { saveProspectDefinition } from "./toolkits/research/save-prospect.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
 import { readWebPageDefinition } from "./toolkits/web/read-web-page.js";
+import { searchWebDefinition } from "./toolkits/web/search-web.js";
 import { getBrandProfileStatusDefinition } from "./toolkits/workspace/get-brand-profile-status.js";
 import { saveBrandProfileDefinition } from "./toolkits/workspace/save-brand-profile.js";
 
 export const hostedAgentToolDefinitions = {
   base: [
-    ...missionToolDefinitions,
+    ...automationRunToolDefinitions,
+    ...automationBuildToolDefinitions,
+    ...databaseToolDefinitions,
+    ...pageToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
     listFilesDefinition,
@@ -77,10 +82,9 @@ export const hostedAgentToolDefinitions = {
     recommendProjectDefinition,
     getBrandProfileStatusDefinition,
     saveBrandProfileDefinition,
-    listProspectsDefinition,
-    saveProspectDefinition,
     delegateSpecialistDefinition,
     readWebPageDefinition,
+    searchWebDefinition,
   ],
   browser: [
     openBrowserDefinition,

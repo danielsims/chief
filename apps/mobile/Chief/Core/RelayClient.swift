@@ -171,13 +171,6 @@ protocol RelayServing: Sendable {
   func workspaceSecretNames(workspaceID: String) async throws -> [String]
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
   func deleteWorkspaceSecret(workspaceID: String, name: String) async throws
-  func workspaceSchedules(workspaceID: String) async throws -> [WorkspaceScheduleSummary]
-  func scheduleWebhooks(workspaceID: String) async throws -> [ScheduleWebhook]
-  func createScheduleWebhook(workspaceID: String, name: String, scheduleID: String) async throws
-    -> ScheduleWebhookReveal
-  func scheduleWebhookAction(workspaceID: String, webhookID: String, action: String) async throws
-    -> ScheduleWebhookReveal
-  func workspaceMissions(workspaceID: String) async throws -> [WorkspaceMission]
   func replies(
     workspaceID: String,
     conversationID: String,
@@ -220,15 +213,6 @@ protocol RelayServing: Sendable {
     conversationID: String,
     signingIdentity: NostrIdentity
   ) async throws -> WorkspaceFileRecord
-  func saveProspect(
-    workspaceID: String,
-    prospect: ProspectSaveInput,
-    signingIdentity: NostrIdentity
-  ) async throws -> ProspectRecord
-  func listProspects(
-    workspaceID: String,
-    signingIdentity: NostrIdentity?
-  ) async throws -> [ProspectRecord]
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun
   func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun]
   func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
@@ -338,19 +322,6 @@ extension RelayServing {
   ) async throws -> WorkspaceFileRecord {
     throw RelayError.unavailable
   }
-
-  func saveProspect(
-    workspaceID: String,
-    prospect: ProspectSaveInput,
-    signingIdentity: NostrIdentity
-  ) async throws -> ProspectRecord {
-    throw RelayError.unavailable
-  }
-
-  func listProspects(
-    workspaceID: String,
-    signingIdentity: NostrIdentity?
-  ) async throws -> [ProspectRecord] { [] }
 
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
   func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] { throw RelayError.unavailable }
@@ -1464,32 +1435,6 @@ actor URLSessionRelayClient: RelayServing {
       signer: signingIdentity
     )
     return result.file
-  }
-
-  func saveProspect(
-    workspaceID: String,
-    prospect: ProspectSaveInput,
-    signingIdentity: NostrIdentity
-  ) async throws -> ProspectRecord {
-    try await request(
-      path: "/v1/workspaces/\(workspaceID)/data/prospects",
-      method: "POST",
-      body: try JSONEncoder().encode(prospect),
-      signer: signingIdentity
-    )
-  }
-
-  func listProspects(
-    workspaceID: String,
-    signingIdentity: NostrIdentity?
-  ) async throws -> [ProspectRecord] {
-    struct Result: Decodable { let prospects: [ProspectRecord] }
-    let result: Result = try await request(
-      path: "/v1/workspaces/\(workspaceID)/data/prospects",
-      method: "GET",
-      signer: signingIdentity
-    )
-    return result.prospects
   }
 
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun {

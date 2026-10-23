@@ -8,7 +8,7 @@ export const readWebPageDefinition = defineAgentTool({
   path: "/local-tools/web/read",
   operation: {
     operationId: "web.read",
-    summary: "Read a public web page",
+    summary: "Read web page",
     description:
       "Fetches a public HTTP or HTTPS page and returns bounded readable text and links without opening an interactive browser. Use this for ordinary public research. Use browser tools only when interaction, authentication, screenshots, or user takeover is required.",
   },

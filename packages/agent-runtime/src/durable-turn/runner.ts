@@ -68,9 +68,13 @@ export class DurableTurnRunner {
         ? { threadRootId: input.threadRootId }
         : undefined),
       instruction: input.instruction,
+      ...(input.attachments?.length
+        ? { attachments: [...input.attachments] }
+        : undefined),
       systemPrompt: input.systemPrompt,
       browserEnabled: input.browserEnabled,
       computerEnabled: input.computerEnabled ?? true,
+      boundTools: [...(input.boundTools ?? [])],
       completion: {
         requiredToolNames: [...(input.completion?.requiredToolNames ?? [])],
         browserMustRemainOpen: input.completion?.browserMustRemainOpen ?? false,
@@ -86,7 +90,13 @@ export class DurableTurnRunner {
       claim: null,
       messages: [
         ...(input.history ?? []),
-        { role: "user", content: input.instruction },
+        {
+          role: "user",
+          content: input.instruction,
+          ...(input.attachments?.length
+            ? { attachments: [...input.attachments] }
+            : undefined),
+        },
       ],
       plan: { revision: 0, tasks: [] },
       tools: [],

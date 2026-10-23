@@ -5,13 +5,17 @@ import type {
   AgentJobCompletionResult,
   AgentPrincipal,
   ConversationMessage,
+  Database,
   Machine,
 } from "@chief/relay-contracts";
 import { getAgent } from "@chief/agent-runtime/agents";
 import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
 import {
+  agentAttachmentSchema,
+  attachmentLocation,
   conversationIdSchema,
   isJsonString,
+  messageAttachments,
   messageIdSchema,
 } from "@chief/relay-contracts";
 
@@ -19,20 +23,33 @@ import { loadAgentWorkMemory } from "./agent-cell-projection";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
+import { assignedPluginTools } from "./mcp/agent-plugin-tools";
 import { isSafeGitRepoSlug } from "./workspace-git-store";
 import { peopleContextLines } from "./workspace-member-names";
 import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
-export const HOSTED_MAX_INFERENCE_STEPS = 24;
+/**
+ * A backstop, not a working limit: the turn engine already ends a turn that
+ * repeats an identical call three times or fails six times in a row, so a
+ * long build-test-fix loop that is still making progress can finish.
+ */
+export const HOSTED_MAX_INFERENCE_STEPS = 100;
 export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
 export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_MENTION_CONTEXT_GUIDANCE =
   "A thread carries its own context. When the current message only addresses your name, or refers to something not already in the thread, call channels_messages_list for this conversation to read the recent messages before responding, then continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If there is no actionable request, ask one short question and stop. Address people with @Name and their principal id from the people roster or channels_members_list. Never invent a @chief (user) tag.";
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
-  "Use web_read for ordinary public research. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow. When asked for a new repository or project, create it with projects_create and report the repository it returned; do not ask the user to create one elsewhere. Use projects_recommend only when the user wants to attach a repository that already exists on an outside Git provider. When you need the user to choose between a few options before you can continue, call questions_ask and end your turn; their answer arrives as their next message.";
+  "Find pages with web_search and read them with web_read. The visible browser is only for interactive pages, authentication, screenshots, or user takeover. The durable computer is only for inspecting or changing files, repositories, commands, and artifacts. Never use the browser or computer for ordinary questions or plugin setup. For plugin discovery or setup, call plugins_list first. When a matching plugin exists, call plugins_recommend in the current conversation and let the user authorize it from the card. Do not browse provider documentation or use the computer to reconstruct a setup flow. When asked for a new repository or project, create it with projects_create and report the repository it returned; do not ask the user to create one elsewhere. Use projects_recommend only when the user wants to attach a repository that already exists on an outside Git provider. When you need the user to choose between a few options before you can continue, call questions_ask and end your turn; their answer arrives as their next message.";
 
 export interface HostingContext {
+  databases?: {
+    id: string;
+    name: string;
+    channels: string[];
+    fields: Database["fields"];
+    views: Database["views"];
+  }[];
   managed: boolean;
   runtime: "phone" | "desktop" | "cloud" | null;
   workspace?: {
@@ -82,7 +99,10 @@ export async function prepareHostedAgentTurn(
   context: HostingContext,
   storage?: DurableObjectStorage,
 ) {
-  const durableMemory = storage ? loadAgentWorkMemory(storage) : "";
+  // An automation step works from its own brief, step and run thread only:
+  // what earlier runs did must not steer this one.
+  const durableMemory =
+    storage && job.kind !== "schedule.step" ? loadAgentWorkMemory(storage) : "";
   const assignedCapabilities = new Set(
     context.machines?.flatMap((machine) => machine.capabilities) ?? [],
   );
@@ -123,6 +143,12 @@ export async function prepareHostedAgentTurn(
   const instruction =
     stringPayload(job, "instruction") ??
     "Respond helpfully to the latest message.";
+  const boundTools = await assignedPluginTools(
+    env,
+    job,
+    principal,
+    context.config?.integrations ?? [],
+  ).catch(() => []);
   const completion = hostedCompletionContract(
     instruction,
     browserEnabled,
@@ -133,9 +159,11 @@ export async function prepareHostedAgentTurn(
     conversationId,
     ...(threadRootId ? { threadRootId } : undefined),
     instruction,
+    attachments: jobAttachments(job, conversationId),
     systemPrompt: `${systemPrompt(job, context, browserEnabled)}${durableMemory ? `\n\n# Durable memory\n${durableMemory}\nUse this as continuity from your own completed work across conversations. It is not proof that external state is still current.` : ""}\n\n${hostedRuntimeContext({ conversationId, threadRootId, computerEnabled })}${projectRepo ? `\n\n# Project repository\nThe workspace repository "${projectRepo}" is checked out at /workspace/${projectRepo}. Work in it with computer_read, computer_write, computer_edit, and computer_exec, and run Git through computer_git with cwd set to that directory. When you finish a coherent piece of work, publish it with projects_publish so it is durable and reviewable. Never re-clone it yourself. If the directory is missing, the checkout failed: say so rather than working around it.` : ""}\n\nThe messages of this thread are already attached to the turn. Use them directly. Only call channels_messages_list when you genuinely need the surrounding conversation. ${HOSTED_MENTION_CONTEXT_GUIDANCE}\n\nFor multi-step work, maintain the durable todo plan with todo_set, todo_add, todo_update, and todo_list. Do not claim completion while work you can perform remains open. When the next action genuinely belongs to the user or an external event, mark that task waiting, give the user one concise handoff, and end the turn. A later event or message starts fresh work. Always finish with the concise update the user should receive; the relay durably posts that final response to the originating conversation.`,
     browserEnabled,
     computerEnabled,
+    boundTools,
     maxInferenceSteps: hostedInferenceStepBudget(job.kind),
     completion,
     history: boundedHostedHistory(history, messageId).map((message) =>
@@ -181,7 +209,13 @@ export function hostedCompletionContract(
   browserEnabled: boolean,
   jobKind?: string,
 ): { requiredToolNames: string[]; browserMustRemainOpen: boolean } {
-  if (jobKind?.startsWith("workspace.kickoff.")) {
+  // These briefs are written by Chief, not asked by a person, so guessing
+  // required tools from their wording misfires. An automation step's run
+  // engine judges whether the step is done.
+  if (
+    jobKind?.startsWith("workspace.kickoff.") ||
+    jobKind === "schedule.step"
+  ) {
     return { requiredToolNames: [], browserMustRemainOpen: false };
   }
   const normalized = instruction.toLowerCase();
@@ -304,6 +338,10 @@ export function hostedWorkspaceContext(
         ]),
     `Assigned machines: ${nonEmptyOr(assignedMachines, "none")}.`,
     ...peopleContextLines(context.people ?? []),
+    ...databaseContextLines(
+      context.databases ?? [],
+      stringPayload(job, "conversationId"),
+    ),
     HOSTED_TOOL_SELECTION_GUIDANCE,
     browserEnabled
       ? "The browser tools provide a real remote interactive browser when web_read is insufficient."
@@ -314,17 +352,86 @@ export function hostedWorkspaceContext(
   return lines.join("\n");
 }
 
+function databaseContextLines(
+  databases: NonNullable<HostingContext["databases"]>,
+  conversationId: string | undefined,
+) {
+  const here = (database: (typeof databases)[number]) =>
+    conversationId !== undefined && database.channels.includes(conversationId);
+  const local = databases.filter(here);
+  const shared = databases.filter((database) => !here(database));
+  const lines: string[] = [];
+  if (local.length > 0)
+    lines.push(
+      "Databases in this conversation, the store for work here (databases_rows_save):",
+      ...local.map((database) => `- ${databaseSummary(database)}`),
+    );
+  if (shared.length > 0) {
+    lines.push(
+      "Other databases you can also use:",
+      ...shared.map((database) => `- ${database.name} (id: ${database.id}).`),
+    );
+  }
+  return lines;
+}
+
+function databaseSummary(
+  database: NonNullable<HostingContext["databases"]>[number],
+) {
+  const fields = database.fields
+    .map((field) =>
+      field.type === "select"
+        ? `${field.name} (select: ${field.options.map((option) => option.name).join(", ")})`
+        : `${field.name} (${field.type})`,
+    )
+    .join(", ");
+  const views = database.views
+    .map((view) => {
+      if (view.layout !== "board") return `${view.name} (table)`;
+      const group = database.fields.find((field) => field.id === view.groupBy);
+      return `${view.name} (board${group ? ` by ${group.name}` : ""})`;
+    })
+    .join(", ");
+  return `${database.name} (id: ${database.id}): ${fields}. Views: ${views}.`;
+}
+
 function historyMessage(
   message: ConversationMessage,
   currentAgentId: string,
 ): AgentInferenceMessage {
+  const own =
+    message.author.kind === "agent" && message.author.id === currentAgentId;
+  const attachments = messageAttachments(message.components);
   return {
-    role:
-      message.author.kind === "agent" && message.author.id === currentAgentId
-        ? "assistant"
-        : "user",
+    role: own ? "assistant" : "user",
     content: `${message.author.id}: ${message.body}`,
+    // Images earlier in the thread stay in view; only user turns carry them.
+    ...(!own && attachments.length
+      ? {
+          attachments: attachments.map(({ name, mediaType, url }) => ({
+            name,
+            mediaType,
+            url,
+          })),
+        }
+      : undefined),
   };
+}
+
+/** The images the job's message carried, from its own conversation only. */
+function jobAttachments(job: AgentJob, conversationId: string) {
+  const parsed = agentAttachmentSchema
+    .array()
+    .max(8)
+    .safeParse(job.payload.attachments ?? []);
+  if (!parsed.success) return [];
+  return parsed.data.filter((attachment) => {
+    const location = attachmentLocation(attachment.url);
+    return (
+      location?.workspaceId === job.workspaceId &&
+      location.conversationId === conversationId
+    );
+  });
 }
 
 function stringPayload(job: AgentJob, key: string) {

@@ -132,7 +132,7 @@ export function onboardingRecoveryPrompt(
       : "Resume the initial business review for this workspace. The opening message is already visible, so begin with the first tool call and do not greet the user again.",
     "Do not pause recovery to ask what the company sells or who it serves. Delegate with the available workspace context. Marketer owns deriving that understanding from the website and other first-party evidence, saving a useful provisional profile, and asking later in Marketing only if one missing fact makes the work unsafe or materially misleading.",
     driver === "remote"
-      ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
+      ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile through chief files.save, and save five to eight qualified prospects with direct source URLs as rows in the Prospecting channel's database."
       : `${onboardingLocalKickoffInstructions(channelId, jobs)} Resume every unfinished selected job recorded in the onboarding file. Marketer's returned profile is persisted against its specialist session, so do not save or republish it from Chief.`,
     driver === "remote"
       ? "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Persist one direct provider-specific connection action through chief actions.raise."

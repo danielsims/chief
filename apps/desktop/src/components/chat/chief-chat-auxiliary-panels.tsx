@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Fragment, useMemo, useRef } from "react";
 
 import type {
@@ -72,6 +73,7 @@ export function ChiefChatAuxiliaryPanels({
   activeThreadSummary,
   composer,
   core,
+  controlsForMessage,
   imageParts,
   props,
   respondingAgentFor,
@@ -82,6 +84,10 @@ export function ChiefChatAuxiliaryPanels({
   activeThreadSummary: ThreadSummary;
   composer: Composer;
   core: Core;
+  controlsForMessage: (message: ChiefUIMessage) => {
+    actions?: ReactNode;
+    footer: ReactNode;
+  };
   imageParts: (message: ChiefUIMessage) => MessageAttachment[];
   props: Pick<
     ChiefChatProps,
@@ -363,6 +369,7 @@ export function ChiefChatAuxiliaryPanels({
                     onOpenChannel={onOpenChannel}
                     onOpenProfile={openUserProfile}
                     onOpenMention={openAgentMention}
+                    {...controlsForMessage(activeThreadRoot)}
                     text={messageText(activeThreadRoot)}
                     timestamp={activeThreadRoot.metadata?.createdAt}
                   />
@@ -407,6 +414,7 @@ export function ChiefChatAuxiliaryPanels({
                             ? undefined
                             : { onOpenProfile: openAuthorProfile(message) })}
                           onOpenMention={openAgentMention}
+                          {...controlsForMessage(message)}
                           text={messageText(message)}
                           timestamp={message.metadata?.createdAt}
                         />
@@ -429,6 +437,7 @@ export function ChiefChatAuxiliaryPanels({
                       agent={respondingAgent}
                       onOpenProfile={selectProfile}
                       timestamp={message.metadata?.createdAt}
+                      {...controlsForMessage(message)}
                     >
                       <MessageBlocksContent
                         message={message}

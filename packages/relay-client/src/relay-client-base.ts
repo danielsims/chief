@@ -7,7 +7,6 @@ import type {
   CreateWorkspaceCommand,
   JsonValue,
   OnboardingTelemetryEvent,
-  Prospect,
   RelayDiscovery,
   RelayProject,
   RelayProjectCreate,
@@ -25,6 +24,7 @@ import {
   agentAvatarSetResultSchema,
   agentAvatarSetSchema,
   agentIdSchema,
+  attachmentLocation,
   attachmentUploadPayloadSchema,
   attachmentUploadResultSchema,
   brandProfileResultSchema,
@@ -44,9 +44,6 @@ import {
   onboardingTelemetryEventSchema,
   onboardingTelemetryReceiptSchema,
   parseJsonValue,
-  prospectSaveSchema,
-  prospectSchema,
-  prospectsResultSchema,
   relayDiscoverySchema,
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
@@ -493,7 +490,12 @@ export class RelayClientBase {
         `agents/${encodeURIComponent(asset.agentId)}/artifacts/${encodeURIComponent(asset.artifactId)}`,
       ),
       true,
-      { signal },
+      // The caller's signal replaces the transport's default bound, so keep one.
+      {
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+          : undefined,
+      },
     );
     if (!response.ok) throw await RelayClientError.fromResponse(response);
     return response.blob();
@@ -597,29 +599,33 @@ export class RelayClientBase {
     );
   }
 
-  async listProspects(): Promise<Prospect[]> {
-    return (
-      await this.fetchJson(
-        this.workspaceUrl("data/prospects"),
-        prospectsResultSchema,
-      )
-    ).prospects;
+  /** Uploads an image to a conversation, for a message to reference. */
+  uploadConversationAttachment(
+    conversationId: string,
+    input: AttachmentUploadPayload,
+  ) {
+    return this.uploadImage(
+      this.conversationUrl(conversationId, "attachments"),
+      input,
+    );
   }
 
-  async saveProspect(
-    input: Parameters<typeof prospectSaveSchema.parse>[0],
-  ): Promise<Prospect> {
-    return await this.fetchJson(
-      this.workspaceUrl("data/prospects"),
-      // The relay returns the saved prospect record directly.
-      prospectSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(prospectSaveSchema.parse(input)),
-      },
+  /**
+   * Reads an image attached to a message, as whoever this client signs in
+   * as. Only the URL's attachment path is used, always against this relay,
+   * so a message can't send the request anywhere else.
+   */
+  async downloadAttachment(url: string) {
+    const location = attachmentLocation(url);
+    if (!location) throw new Error("That isn't a Chief attachment.");
+    const response = await this.fetchResponse(
+      new URL(location.path, this.relayUrl),
     );
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      mediaType: location.mediaType,
+    };
   }
 
   private uploadImage(url: URL, input: AttachmentUploadPayload) {

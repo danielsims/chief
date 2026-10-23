@@ -50,6 +50,27 @@ export class WorkspaceSecretService {
     return json({ workspaceId: context.workspaceId, name: input.name });
   }
 
+  /**
+   * The model an agent runs on and its key, for a workspace feature that uses
+   * that model directly, such as the automation builder. The key stays in the
+   * relay, under the same rules as an agent reading it for itself.
+   */
+  async inferenceFor(workspaceId: string, agentId: string) {
+    const config = this.channels.agentConfiguration(agentId);
+    const name = grantedSecret(config);
+    const value = name ? await this.store.get(workspaceId, name) : null;
+    if (
+      !value ||
+      value === (await this.store.get(workspaceId, "vercel-deployment"))
+    )
+      throw new HttpError(
+        409,
+        "inference_unavailable",
+        "Chief's model isn't set up for this workspace yet.",
+      );
+    return { inference: config.inference, apiKey: value };
+  }
+
   async get(request: Request) {
     const context = readTrustedContext(request);
     const config = this.requireAgent(context);

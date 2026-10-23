@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0005EACC3A2B312534CFC4E9 /* MissionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8568BA655C92F517DDDCC4EA /* MissionsSettingsView.swift */; };
 		00FA4EE4139A43C3484F9322 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68460474AB4963BCB1DC8BF /* Models.swift */; };
 		02B0A1092548A1EAC22C9B20 /* wasm_stubs.cc in Sources */ = {isa = PBXBuildFile; fileRef = 5A4BA2C5A801DC610CF2B596 /* wasm_stubs.cc */; };
 		02E418255C492325F54DA4D7 /* BrowserUIWebKit in Frameworks */ = {isa = PBXBuildFile; productRef = CA033A496DDF155E564F54B4 /* BrowserUIWebKit */; };
@@ -58,7 +57,6 @@
 		3EF5FF86AFF26F47967B5B76 /* bloom.caf in Resources */ = {isa = PBXBuildFile; fileRef = 97A06203485BA289497EAF4E /* bloom.caf */; };
 		405EB99D224C9D767F6D554F /* AppModelActivityErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24EC8E6CCBBBBC2E985E6A0 /* AppModelActivityErrors.swift */; };
 		41B3F15E11ABF56AC6B31494 /* ChiefAgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409B8D71E007E40124225596 /* ChiefAgentActivityAttributes.swift */; };
-		41CB680A446FCEDEC8334491 /* WebhooksSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD2D34BBC225FAC1D0AA91B /* WebhooksSettingsView.swift */; };
 		42D16EC7B2BAF2447DB30835 /* AgentToolAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031920B85FC8BCBD6801DA24 /* AgentToolAuthorization.swift */; };
 		4562F4102DB9FEABBCC9A4A7 /* WorkspaceAgentLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FE4EB21AE5A93E91A4EBE8 /* WorkspaceAgentLoop.swift */; };
 		49B6B699A7E5D354D83B2B84 /* ScheduledRunDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B704745FC8166EC66A8B62C5 /* ScheduledRunDemo.swift */; };
@@ -245,7 +243,6 @@
 		0B72A3B79A2C354AD9383A47 /* ScheduledRunUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledRunUITests.swift; sourceTree = "<group>"; };
 		0D5FCF64562CE70799C63FF2 /* OAuthAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthAuthenticationTests.swift; sourceTree = "<group>"; };
 		0D8ABE8284BCEF683D3BA742 /* ChiefAgentActivityWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ChiefAgentActivityWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		0DD2D34BBC225FAC1D0AA91B /* WebhooksSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebhooksSettingsView.swift; sourceTree = "<group>"; };
 		10350F4DC1F18F6CD5041566 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		10974004AE6FEA79A6C0BAB4 /* DevCodexBridgeRPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevCodexBridgeRPC.swift; sourceTree = "<group>"; };
 		11C3A169993E68D40E727714 /* AddProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddProjectSheet.swift; sourceTree = "<group>"; };
@@ -321,7 +318,6 @@
 		7E5044384EB16560BF3E1571 /* ChiefSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefSpinner.swift; sourceTree = "<group>"; };
 		827C563FA43B5D2B554975A4 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		84947CCB612BE76AA52E70C6 /* ChiefControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefControls.swift; sourceTree = "<group>"; };
-		8568BA655C92F517DDDCC4EA /* MissionsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionsSettingsView.swift; sourceTree = "<group>"; };
 		85EDCFE266EF656E0B9B7EE1 /* MessageSendRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendRecovery.swift; sourceTree = "<group>"; };
 		87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrandAssetTests.swift; sourceTree = "<group>"; };
 		88717209B56ED697ACFABE06 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
@@ -471,12 +467,10 @@
 				A5D3DCD9F20FCA1A7EE253C3 /* AppearanceSettingsView.swift */,
 				C5B37C78598B00778376DACB /* ConnectionSettingsView.swift */,
 				1E08B699E4CA7FAF00B657AE /* EnvironmentSettingsView.swift */,
-				8568BA655C92F517DDDCC4EA /* MissionsSettingsView.swift */,
 				C7C514062A601E65CD2AA1DD /* NotificationSettingsView.swift */,
 				E625E8BAFE865E7C4240C659 /* ProfileSettingsView.swift */,
 				079F6D841084A1E993EEE0F4 /* SettingsSupport.swift */,
 				A787ECA7084A9917CDCF1EBE /* SettingsView.swift */,
-				0DD2D34BBC225FAC1D0AA91B /* WebhooksSettingsView.swift */,
 				513AB9FAFAF768074ACC6D87 /* WorkspaceSettingsView.swift */,
 			);
 			path = Settings;
@@ -1094,7 +1088,6 @@
 				547279F61CECB38154CA247A /* MessageReferences.swift in Sources */,
 				F84A8C41C3020D66F742FCCD /* MessageSendRecovery.swift in Sources */,
 				F30A0C8A572B9E4B2D08139E /* MessageSkill.swift in Sources */,
-				0005EACC3A2B312534CFC4E9 /* MissionsSettingsView.swift in Sources */,
 				A3D5A80C279A85DB1ADE204E /* MobileAuthenticationSession.swift in Sources */,
 				983EA3F045E0ACB8AA6A9EC1 /* MobileNotifications.swift in Sources */,
 				B46E0A3862DBD509E5E97752 /* MobilePluginRuntime.swift in Sources */,
@@ -1138,7 +1131,6 @@
 				8E4BFCDA268466C8D7DD7AB3 /* ThreadParticipantStack.swift in Sources */,
 				A7C8A0BCCE5EBB3F0C19C460 /* ThreadView.swift in Sources */,
 				F86B4E63631B7B9A89156018 /* TurnExtractor.swift in Sources */,
-				41CB680A446FCEDEC8334491 /* WebhooksSettingsView.swift in Sources */,
 				4562F4102DB9FEABBCC9A4A7 /* WorkspaceAgentLoop.swift in Sources */,
 				AAD2C3B836951C87513FAF51 /* WorkspaceArtifactTools.swift in Sources */,
 				A144FFC57B83FAEA0101A203 /* WorkspaceCompose.swift in Sources */,

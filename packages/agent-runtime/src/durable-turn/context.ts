@@ -56,7 +56,13 @@ export function inferenceMessages(turn: DurableTurn) {
   );
   return [
     { role: "system", content: turn.systemPrompt },
-    { role: "user", content: turn.instruction },
+    {
+      role: "user",
+      content: turn.instruction,
+      ...(turn.attachments?.length
+        ? { attachments: turn.attachments }
+        : undefined),
+    },
     {
       role: "system",
       content: `Durable working checkpoint, generation ${turn.checkpoint.generation}:\n${JSON.stringify(turn.checkpoint.memory)}`,
@@ -171,7 +177,7 @@ function compactionPrompt(turn: DurableTurn, evidence: readonly object[]) {
 Return JSON only with these fields: objective, completed, active,
 criticalContext, verifiedEvidence, artifacts, failedApproaches, constraints,
 nextAction, openQuestions. All fields except objective and nextAction are
-arrays. verifiedEvidence is an array of {"claim": string, "source": string}.
+arrays. objective is one sentence; the exact instruction is kept separately. verifiedEvidence is an array of {"claim": string, "source": string}.
 
 Preserve exact paths, URLs, identifiers, commands, errors, decisions and user
 constraints. Never claim unfinished work is complete. The task plan and
@@ -237,7 +243,9 @@ function fallback(turn: DurableTurn) {
     (task) => task.status === "completed",
   );
   return checkpointMemorySchema.parse({
-    objective: turn.instruction,
+    // The exact instruction is always sent ahead of the checkpoint, so the
+    // checkpoint points at it rather than carrying a second, unbounded copy.
+    objective: "Complete the original instruction above.",
     completed: completed.map((task) => task.text),
     active: open.map((task) => task.text),
     criticalContext: [],

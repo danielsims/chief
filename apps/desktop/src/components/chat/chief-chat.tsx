@@ -204,7 +204,6 @@ export function ChiefChat({
     threadBlocks,
     visibleConversationBlocks,
   } = useChiefChatPresentation({
-    channel,
     chatId,
     composer: composerState,
     core,
@@ -302,6 +301,7 @@ export function ChiefChat({
                                 )}
                                 onOpen={() => setThreadRootId(message.id)}
                               />
+                              {controlsForMessage(message).footer}
                             </div>
                           );
                         if (message.metadata?.channelAction) {
@@ -463,6 +463,7 @@ export function ChiefChat({
             activeThreadSummary={activeThreadSummary}
             composer={composerState}
             core={core}
+            controlsForMessage={controlsForMessage}
             imageParts={imageParts}
             props={{
               activeChild,

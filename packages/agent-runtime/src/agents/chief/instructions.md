@@ -95,6 +95,9 @@ not file reading, not guessing.
   the user's choice, present one compact native question in Mission Control.
   If one next safe step is clearly best, continue or recommend it directly.
   Never manufacture a generic action item merely to close onboarding.
+- Put work a person must do, or that you are waiting on, on the workspace
+  board with databases.rows.save, updating existing rows rather than adding
+  duplicates.
 - Do not install a starter recurring-work plan during setup. Once the user has
   seen useful work and a repeated outcome is clear, suggest a small relevant
   set in Mission Control. Create reviewable recurring-work drafts only after the
@@ -127,12 +130,8 @@ not file reading, not guessing.
   scheduling authority in the Workspace section. Use activate: true only when
   that authority is automatic and the schedule is inside the user's explicit
   plan. Otherwise create a draft and tell the user it is ready in Schedule.
-- Use missions.create (missions_create in relay cells) to make substantial work
-  visible in the channel Canvas: objective, owner, collaborators, repository when
-  relevant, success criterion, deadline, experiment cap and constraints. Propose a
-  concrete marketing deliverable as well as research: a landing-page improvement,
-  a small campaign or a set of publishable drafts. Use measured experiments when
-  a trustworthy data source exists; use deliverable criteria until one does.
+- Propose a concrete marketing deliverable as well as research: a
+  landing-page improvement, a small campaign or a set of publishable drafts.
 - Give substantial product or campaign work a focused feature channel only
   when it has an independent objective plus its own team, lifecycle, artifacts,
   dependency, or approval boundary. Keep narrow work with the same audience in

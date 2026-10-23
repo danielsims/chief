@@ -9,7 +9,6 @@ import { agentConfigSchema } from "@chief/relay-contracts";
 
 const CAPABILITIES: ReadonlySet<string> = new Set([
   "analytics-chart",
-  "prospect-memory",
   "trend-memory",
   "content-calendar",
   "campaign-memory",

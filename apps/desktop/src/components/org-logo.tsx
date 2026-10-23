@@ -109,9 +109,12 @@ function OrgLogoImage({
         className,
       )}
     >
-      <span className="translate-y-[0.055em] leading-none font-normal select-none">
-        {initial}
-      </span>
+      {/* A loaded logo replaces the initial; a transparent one would show it. */}
+      {loaded ? null : (
+        <span className="translate-y-[0.055em] leading-none font-normal select-none">
+          {initial}
+        </span>
+      )}
       {candidate ? (
         <img
           ref={imageRef}

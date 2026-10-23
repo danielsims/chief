@@ -559,7 +559,7 @@ export class RecurringWorkScheduler {
               : "",
             "Native read-only web search is available for current public evidence and first-party pages.",
             "If required data or an integration is unavailable, explain the single concrete action the user must take. Do not create setup work, dependency work, or automatic recovery instructions.",
-            "Produce a decision-ready result. Research, verify, and save substantive work. Make created or updated campaigns, prospects, signals, and content explicit as reviewable artifacts.",
+            "Produce a decision-ready result. Research, verify, and save substantive work. Make created or updated campaigns, database rows, signals, and content explicit as reviewable artifacts.",
             "For content, save complete platform-native copy rather than an angle or outline. Present numeric time series as focused charts with comparable series, one scale, and chronological points.",
             "Never expose connector errors, internal tool names, credentials, or implementation details in the user-facing answer.",
           ]

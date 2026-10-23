@@ -40,6 +40,7 @@ import {
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { databasesForConversation } from "./workspace-databases";
 import {
   decodeWorkspaceSnapshot,
   workspaceAgentProfiles,
@@ -492,6 +493,13 @@ export class WorkspaceAgentAccessService {
           machine.status === "online" && machine.agentIds.includes(agentId),
       ),
       people: workspacePeople(this.storage),
+      databases: databasesForConversation(this.storage).map((database) => ({
+        id: database.id,
+        name: database.name,
+        channels: database.channels,
+        fields: database.fields,
+        views: database.views,
+      })),
     });
   }
 

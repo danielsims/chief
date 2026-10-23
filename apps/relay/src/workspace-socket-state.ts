@@ -94,7 +94,6 @@ function validCount(value: JsonValue | undefined) {
 
 export function workspaceDataCapability(operation: string) {
   if (operation === "data-brand-save") return "brand-profile-write";
-  if (operation === "data-prospect-save") return "prospects-write";
   if (operation === "data-projects-list") return "projects.read";
   if (operation === "data-machines-list") return "machines.read";
   if (
@@ -110,6 +109,13 @@ export function workspaceDataCapability(operation: string) {
     return "machines.write";
   if (operation === "data-file-save" || operation === "data-file-asset-save")
     return "messages.send";
-  if (operation === "data-file-update") return "workspace.write";
+  if (
+    operation === "data-file-update" ||
+    operation === "data-database-save" ||
+    operation === "data-database-delete" ||
+    operation === "data-database-row-save" ||
+    operation === "data-database-row-delete"
+  )
+    return "workspace.write";
   return "workspace.read";
 }

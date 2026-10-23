@@ -8,7 +8,8 @@ export const listChannelsDefinition = defineAgentTool({
   path: "/local-tools/channels",
   operation: {
     operationId: "channels.list",
-    summary: "List workspace channels",
+    summary: "List channels",
+    description: "List workspace channels.",
   },
   querySchema: z.object({
     includeArchived: z

@@ -3,6 +3,7 @@ import {
   Bell,
   Building2,
   CalendarClock,
+  Columns3,
   FolderGit2,
   FolderOpen,
   KeyRound,
@@ -24,11 +25,12 @@ export const DESTINATIONS = [
     icon: CalendarClock,
   },
   {
-    label: "Projects",
+    label: "Repositories",
     hint: "Git repositories",
-    to: "/projects",
+    to: "/repositories",
     icon: FolderGit2,
   },
+  { label: "Boards", hint: "Tracked work", to: "/boards", icon: Columns3 },
   { label: "Agents", hint: "Your team", to: "/agents", icon: Network },
   { label: "Plugins", hint: "Connected tools", to: "/plugins", icon: Plug },
   {
@@ -37,7 +39,12 @@ export const DESTINATIONS = [
     to: "/analytics",
     icon: BarChart3,
   },
-  { label: "Files", hint: "Workspace context", to: "/files", icon: FolderOpen },
+  {
+    label: "Artifacts",
+    hint: "Everything your team has made",
+    to: "/artifacts",
+    icon: FolderOpen,
+  },
 ] as const;
 
 export const SETTINGS = [
@@ -74,7 +81,7 @@ export const SETTINGS = [
   {
     to: "/settings/webhooks",
     label: "Webhooks",
-    keywords: "integrations events",
+    keywords: "integrations events automations",
     icon: Webhook,
   },
   {

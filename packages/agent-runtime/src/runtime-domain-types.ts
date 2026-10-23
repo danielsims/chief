@@ -1,6 +1,7 @@
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
 import type {
   AgentAvatar,
+  Automation,
   JsonObject,
   WorkspaceAgentRuntime,
 } from "@chief/relay-contracts";
@@ -27,20 +28,6 @@ export interface ProviderModelOption {
 export interface ChatExecutionSelection {
   driver: DriverType;
   model?: string;
-}
-
-export interface ProspectRecord {
-  id: string;
-  name: string;
-  company?: string;
-  source: string;
-  sourceUrl?: string;
-  summary: string;
-  evidence?: string;
-  outreachAngle?: string;
-  relevance: "high" | "medium" | "low";
-  status: "new" | "researching" | "contacted" | "dismissed";
-  foundAt: number;
 }
 
 export interface TrendRecord {
@@ -82,7 +69,6 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
-  missionId?: string;
   collaborators?: string[];
   expectedOutcome?: string;
   constraints?: string;
@@ -123,6 +109,8 @@ export interface RecurringWorkRecord {
   /** Computed by the runtime for calendar rendering, never persisted. */
   upcomingRuns?: number[];
   recordedRuns?: number[];
+  /** The steps a relay schedule runs; without them the team works from the brief. */
+  automation?: Automation;
 }
 
 export interface OnboardingWorkJob {
@@ -298,7 +286,6 @@ export interface WorkspaceWaysOfWorking {
 
 export type AgentCapabilityId =
   | "analytics-chart"
-  | "prospect-memory"
   | "trend-memory"
   | "content-calendar"
   | "campaign-memory"

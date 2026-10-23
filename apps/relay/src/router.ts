@@ -31,7 +31,6 @@ import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelGuestRequest } from "./router-channel-guests";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
-import { routeMissionRequest } from "./router-missions";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
@@ -42,6 +41,8 @@ import {
   routeGitHubBrowser,
   routeWorkspaceGitHub,
 } from "./router-workspace-github";
+import { routeWorkspaceMachines } from "./router-workspace-machines";
+import { routeMcpBrowser, routeWorkspaceMcp } from "./router-workspace-mcp";
 import { routeWorkspaceSecrets } from "./router-workspace-secrets";
 import { routeWorkspaceSettings } from "./router-workspace-settings";
 import { routeWorkspaceVercel } from "./router-workspace-vercel";
@@ -128,6 +129,10 @@ export async function routeRelayRequest(
       routeGitHubBrowser(request, url, env, requestId),
     );
     if (githubBrowserResponse) return githubBrowserResponse;
+    const mcpBrowserResponse = yield* attempt("relay.mcp_browser", () =>
+      routeMcpBrowser(request, url, env, requestId),
+    );
+    if (mcpBrowserResponse) return mcpBrowserResponse;
     const identityResponse = yield* attempt("relay.identity", () =>
       routeIdentityAndPush(env, request),
     );
@@ -136,10 +141,6 @@ export async function routeRelayRequest(
       routeScheduleRunRequest(env, request, requestId),
     );
     if (scheduleResponse) return scheduleResponse;
-    const missionResponse = yield* attempt("relay.missions", () =>
-      routeMissionRequest(env, request, requestId),
-    );
-    if (missionResponse) return missionResponse;
 
     const settingsResponse = yield* attempt("relay.workspace_settings", () =>
       routeWorkspaceSettings(env, request, requestId),
@@ -263,6 +264,8 @@ function routeWorkspaceRequest(
     if (vercel) return vercel;
     const github = yield* routeWorkspaceGitHub(env, request, requestId);
     if (github) return github;
+    const plugins = yield* routeWorkspaceMcp(env, request, requestId);
+    if (plugins) return plugins;
     if (
       url.pathname === "/v1/me/avatar" &&
       (request.method === "POST" || request.method === "DELETE")
@@ -598,6 +601,13 @@ function routeWorkspaceRequest(
         ),
       );
     }
+    const machines = yield* routeWorkspaceMachines(
+      env,
+      request,
+      requestId,
+      url,
+    );
+    if (machines) return machines;
     const secrets = workspaceSecretsRoute.exec(url.pathname);
     if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
       return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);

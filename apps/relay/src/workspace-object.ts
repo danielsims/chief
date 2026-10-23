@@ -27,12 +27,14 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import { routeMcpConnections } from "./mcp/route";
 import { metered, meterSql, requestOperation } from "./sql-metering";
 import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import { runWorkspaceAlarm } from "./workspace-alarm";
+import { routeAutomationAgent } from "./workspace-automation-agent";
 import {
   routeWorkspaceChannel,
   routeWorkspaceDirect,
@@ -51,7 +53,8 @@ import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
-import { routeWorkspaceMissions } from "./workspace-missions";
+import { consumeMachineTicket } from "./workspace-machine-keys";
+import { machineOperation } from "./workspace-machine-operations";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
@@ -69,6 +72,12 @@ import {
   updateOutdatedEveAgents,
   WorkspaceVercelService,
 } from "./workspace-vercel-service";
+import {
+  acceptWebMachine,
+  isWebMachine,
+  receiveWebMachineMessage,
+  webMachineTag,
+} from "./workspace-web-machine";
 
 export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -169,15 +178,18 @@ export class WorkspaceObject extends DurableObject<Env> {
         return yield* attempt("workspace.webhooks", () =>
           routeScheduleWebhooks(ctx.storage, env, request, operation),
         );
+      if (operation?.startsWith("mcp-"))
+        return yield* attempt("workspace.plugins", () =>
+          routeMcpConnections(ctx.storage, env, request, operation),
+        );
+      if (operation?.startsWith("automations-"))
+        return yield* attempt("workspace.automations", () =>
+          routeAutomationAgent(ctx.storage, env, request, operation),
+        );
       if (operation?.startsWith("schedules-runs-"))
         return yield* attempt("workspace.schedule_runs", () =>
           routeScheduleRuns(ctx.storage, env, request, operation),
         );
-      if (operation?.startsWith("missions-")) {
-        return yield* attempt("workspace.missions", () =>
-          routeWorkspaceMissions(ctx.storage, env, request, operation),
-        );
-      }
       if (operation?.startsWith("schedules-")) {
         return yield* attempt("workspace.schedules", () =>
           routeWorkspaceSchedule(ctx.storage, env, request, operation),
@@ -213,6 +225,13 @@ export class WorkspaceObject extends DurableObject<Env> {
           publishLiveEvent(request),
         );
       }
+      const machine = machineOperation(
+        ctx,
+        () => new WorkspaceChannelStore(ctx.storage, env),
+        operation,
+        request,
+      );
+      if (machine) return yield* attempt(machine.span, machine.run);
       if (operation === "live-socket-ticket") {
         return yield* attempt("workspace.live.ticket", () =>
           createLiveSocketTicket(request),
@@ -481,6 +500,18 @@ export class WorkspaceObject extends DurableObject<Env> {
 
   private async connectWebSocket(request: Request) {
     const context = readTrustedWorkspaceSocketTicket(request);
+    // A paired machine's ticket opens only its lending socket.
+    if (new URL(request.url).searchParams.get("role") === webMachineTag) {
+      const machine = await consumeMachineTicket(
+        this.ctx.storage,
+        context.ticket,
+      );
+      if (machine)
+        return acceptWebMachine(this.ctx, {
+          ownerUserId: machine.ownerUserId,
+          machineId: machine.machineId,
+        });
+    }
     const live = new WorkspaceLiveStore(this.ctx.storage);
     const principalJson = await live.consumeSocketTicket(context.ticket);
     if (!principalJson) {
@@ -501,6 +532,16 @@ export class WorkspaceObject extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
     channels.requirePrincipalMember(principal);
+    // A member's desktop lending its connection to this workspace's agents.
+    if (new URL(request.url).searchParams.get("role") === webMachineTag) {
+      if (principal.kind !== "user")
+        return relayError(
+          403,
+          "web_machine_forbidden",
+          "Only a member's own desktop can lend its connection.",
+        );
+      return acceptWebMachine(this.ctx, { ownerUserId: principal.userId });
+    }
     channels.requireAgentCapability(principal, "messages.read");
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -531,6 +572,11 @@ export class WorkspaceObject extends DurableObject<Env> {
   ) {
     if (isGuestListener(this.ctx, socket)) {
       socket.close(1008, "Listeners only receive wake-ups");
+      return;
+    }
+    if (isWebMachine(this.ctx, socket)) {
+      if (isJsonString(message)) receiveWebMachineMessage(socket, message);
+      else socket.close(1008, "Invalid machine message");
       return;
     }
     let attachment = consumeSocketAllowance(socket, "message");
@@ -644,8 +690,9 @@ export class WorkspaceObject extends DurableObject<Env> {
     // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
-      // Guest listeners never see the workspace feed.
-      if (isGuestListener(this.ctx, socket)) continue;
+      // Guest listeners and lending machines never see the workspace feed.
+      if (isGuestListener(this.ctx, socket) || isWebMachine(this.ctx, socket))
+        continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;

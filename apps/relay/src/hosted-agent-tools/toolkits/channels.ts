@@ -80,7 +80,11 @@ export async function workspaceOperation(
   job: AgentJob,
   principal: AgentPrincipal,
   operation: string,
-  options: { body?: object; conversationId?: string } = {},
+  options: {
+    body?: object;
+    conversationId?: string;
+    headers?: Record<string, string>;
+  } = {},
 ) {
   const url = new URL("https://workspace.internal");
   if (options.conversationId) {
@@ -94,6 +98,7 @@ export async function workspaceOperation(
         method: "POST",
         headers: {
           "x-chief-internal-operation": operation,
+          ...options.headers,
           ...(options.body
             ? { "content-type": "application/json" }
             : undefined),
