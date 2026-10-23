@@ -8,7 +8,7 @@ import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const schedulesRoute =
-  /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions)?$/u;
+  /^\/v1\/workspaces\/([^/]+)\/schedules(?:\/([^/]+))?(\/actions|\/chat)?$/u;
 const brandProfileRoute = /^\/v1\/workspaces\/([^/]+)\/data\/brand-profile$/u;
 const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const fileRoute = /^\/v1\/workspaces\/([^/]+)\/files\/([^/]+)$/u;
@@ -44,7 +44,9 @@ export function routeWorkspaceDataRequest(
     ) {
       rawWorkspaceId = schedules[1];
       operation = schedules[3]
-        ? "schedules-action"
+        ? schedules[3] === "/chat"
+          ? "schedules-chat"
+          : "schedules-action"
         : request.method === "GET"
           ? "schedules-list"
           : request.method === "DELETE"

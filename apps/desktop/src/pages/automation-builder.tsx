@@ -10,7 +10,6 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import type { JsonObject, WorkspaceSchedule } from "@chief/relay-contracts";
-import { toJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   DropdownMenu,
@@ -24,11 +23,13 @@ import { cn } from "@chief/ui/lib/utils";
 import type { CanvasSelection, PickerOptions } from "./automation-canvas";
 import type { AutomationDraft, StepSlot } from "./automation-draft";
 import type { PickedStep } from "./automation-step-picker";
+import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { usePluginConnectFlow } from "../components/plugins/plugin-connect-flow";
 import { useRelaySession } from "../lib/relay-session-context";
 import { usePlugins } from "../lib/runtime-plugins";
 import { TriggerEventContext } from "./automation-arguments";
 import { AutomationCanvas } from "./automation-canvas";
+import { AutomationChatPanel, useAutomationChat } from "./automation-chat";
 import { AutomationComposer } from "./automation-describe";
 import {
   draftFromWork,
@@ -91,6 +92,8 @@ function useTeamOptions() {
   }, [snapshot]);
 }
 
+const openChats = new Set<string>();
+
 export function AutomationBuilderPage() {
   const { automationId = "new" } = useParams();
   const navigate = useNavigate();
@@ -119,10 +122,16 @@ export function AutomationBuilderPage() {
   const [selected, setSelected] = useState<CanvasSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
-  /** Chief is building from a request typed into the composer. */
-  const [building, setBuilding] = useState(false);
-  /** What Chief said about its last build. */
-  const [buildNote, setBuildNote] = useState<string | null>(null);
+  // The chat stays open per automation while the app is, across pages.
+  // A new automation's id is its draft's until it's saved under it.
+  const chatId = automationId === "new" ? draft.id : automationId;
+  const [chatOpen, setChatOpenState] = useState(() => openChats.has(chatId));
+  const setChatOpen = (open: boolean) => {
+    if (open) openChats.add(chatId);
+    else openChats.delete(chatId);
+    setChatOpenState(open);
+  };
+  const chatSizing = useConversationAuxiliaryPanelSizing();
 
   const adopt = useCallback((record: WorkspaceSchedule) => {
     const next = draftFromWork(record, {
@@ -374,39 +383,28 @@ export function AutomationBuilderPage() {
     void navigate("/schedule/automations");
   };
 
-  // Chief builds straight from the request, not through a chat, so the page
-  // only waits on the build itself. Unsaved changes on screen go with it.
-  const describe = async (request: string) => {
-    if (!client || building) return false;
-    setBuilding(true);
-    setBuildNote(null);
-    try {
-      const built = await client.schedules.build(draft.id, {
-        request,
-        ...(schedule && !dirty
-          ? undefined
-          : { draft: toJsonObject(draftToInput(draft)) }),
-      });
-      writeStoredDraft(workspaceId, automationId, null, null);
-      adopt(built.schedule);
-      setSelected(null);
-      setBuildNote(built.note);
-      if (automationId === "new")
-        void navigate(
-          `/schedule/automations/${encodeURIComponent(built.schedule.id)}`,
-          { replace: true },
-        );
-      return true;
-    } catch (error) {
-      setBuildNote(
-        error instanceof Error && error.message
-          ? error.message
-          : "Chief couldn't build that. Try again.",
-      );
-      return false;
-    } finally {
-      setBuilding(false);
-    }
+  // Chief builds and refines the automation in a chat of its own; what's on
+  // screen is saved first so that's what it works from.
+  const chat = useAutomationChat(chatId, () => {
+    if (!client || dirty) return;
+    void client.schedules
+      .list()
+      .then((records) => {
+        const record = records.find((item) => item.id === draft.id);
+        if (!record || record.updatedAt === schedule?.updatedAt) return;
+        adopt(record);
+        if (automationId === "new")
+          void navigate(
+            `/schedule/automations/${encodeURIComponent(record.id)}`,
+            { replace: true },
+          );
+      })
+      .catch(() => undefined);
+  });
+  const ask = async (request: string) => {
+    if (schedule && dirty) await persist().catch(() => undefined);
+    setChatOpen(true);
+    return await chat.send(request);
   };
 
   if (!loaded)
@@ -559,67 +557,86 @@ export function AutomationBuilderPage() {
           </div>
         </header>
         <div className="relative flex min-h-0 flex-1">
-          <AutomationCanvas
-            draft={draft}
-            picker={picker}
-            agents={agents}
-            selected={selected}
-            issues={issues}
-            runNodes={runs.nodes}
-            triggered={runs.triggered}
-            onSelect={setSelected}
-            onInsert={insert}
-            onMove={(id, overId) => setSteps(moveStep(draft.steps, id, overId))}
-            composer={
-              <AutomationComposer
-                busy={building}
-                note={building ? null : buildNote}
-                disabled={catalogue.loading || !client}
-                onSubmit={describe}
-              />
-            }
-          />
-          {/* Floats over the canvas only while something is open in it. */}
-          <div className="pointer-events-none absolute top-3 right-3 bottom-3 flex flex-col">
-            <div className="pointer-events-auto flex min-h-0 flex-col">
-              {selectedStep ? (
-                <StepPanel
-                  key={selectedStep.id}
-                  step={selectedStep}
-                  draft={draft}
-                  agents={agents}
-                  catalogue={catalogue}
-                  issue={issues.get(selectedStep.id)}
-                  leadPlugins={leadPlugins}
-                  node={runs.nodes[selectedStep.id]}
-                  onChange={(next) =>
-                    setSteps(
-                      updateStep(draft.steps, selectedStep.id, () => next),
-                    )
-                  }
-                  onRemove={() => {
-                    setSteps(removeStep(draft.steps, selectedStep.id));
-                    setSelected(null);
-                  }}
-                  onClose={() => setSelected(null)}
-                />
-              ) : selected === "trigger" ? (
-                <TriggerPanel
-                  client={client}
-                  draft={draft}
-                  onChange={patch}
-                  onClose={() => setSelected(null)}
-                />
-              ) : selected === "settings" ? (
-                <SettingsPanel
-                  draft={draft}
-                  agents={agents}
-                  channels={channels}
-                  onChange={patch}
-                  onClose={() => setSelected(null)}
-                />
-              ) : null}
+          <div className="relative flex min-w-0 flex-1">
+            <AutomationCanvas
+              draft={draft}
+              picker={picker}
+              agents={agents}
+              selected={selected}
+              issues={issues}
+              runNodes={runs.nodes}
+              triggered={runs.triggered}
+              onSelect={setSelected}
+              onInsert={insert}
+              onMove={(id, overId) =>
+                setSteps(moveStep(draft.steps, id, overId))
+              }
+              composer={
+                chatOpen ? undefined : (
+                  <AutomationComposer
+                    busy={chat.sending}
+                    disabled={!client}
+                    onSubmit={ask}
+                  />
+                )
+              }
+            />
+            {/* Floats over the canvas only while something is open in it,
+                beside the chat when that's open. */}
+            <div
+              className="pointer-events-none absolute top-3 bottom-3 flex flex-col"
+              style={{ right: chatOpen ? chatSizing.widthPx + 20 : 12 }}
+            >
+              <div className="pointer-events-auto flex min-h-0 flex-col">
+                {selectedStep ? (
+                  <StepPanel
+                    key={selectedStep.id}
+                    step={selectedStep}
+                    draft={draft}
+                    agents={agents}
+                    catalogue={catalogue}
+                    issue={issues.get(selectedStep.id)}
+                    leadPlugins={leadPlugins}
+                    node={runs.nodes[selectedStep.id]}
+                    onChange={(next) =>
+                      setSteps(
+                        updateStep(draft.steps, selectedStep.id, () => next),
+                      )
+                    }
+                    onRemove={() => {
+                      setSteps(removeStep(draft.steps, selectedStep.id));
+                      setSelected(null);
+                    }}
+                    onClose={() => setSelected(null)}
+                  />
+                ) : selected === "trigger" ? (
+                  <TriggerPanel
+                    client={client}
+                    draft={draft}
+                    onChange={patch}
+                    onClose={() => setSelected(null)}
+                  />
+                ) : selected === "settings" ? (
+                  <SettingsPanel
+                    draft={draft}
+                    agents={agents}
+                    channels={channels}
+                    onChange={patch}
+                    onClose={() => setSelected(null)}
+                  />
+                ) : null}
+              </div>
             </div>
+            {chatOpen ? (
+              <div className="pointer-events-none absolute inset-y-2 right-2 z-30 flex">
+                <AutomationChatPanel
+                  chat={chat}
+                  sizing={chatSizing}
+                  className="pointer-events-auto max-w-[calc(100vw-420px)] shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]"
+                  onClose={() => setChatOpen(false)}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
         <AutomationReviewDialog

@@ -28,6 +28,7 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
+import { automationChatBrief } from "./workspace-automation-chat";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { gitRepoSlug, isSafeGitRepoSlug } from "./workspace-git-store";
@@ -246,7 +247,7 @@ export async function dispatchWorkspaceMessage(
             mentions,
             instruction: scheduleRunId
               ? (instruction ?? message.body)
-              : dispatchedInstruction(message),
+              : dispatchedInstruction(storage, channel, message),
           },
           availableAt: now,
         },
@@ -395,9 +396,13 @@ function agentAttachments(message: z.infer<typeof conversationMessageSchema>) {
 }
 
 function dispatchedInstruction(
+  storage: DurableObjectStorage,
+  channel: ReturnType<WorkspaceChannelStore["requireChannel"]>,
   message: z.infer<typeof conversationMessageSchema>,
 ) {
-  return message.body;
+  // An automation's own chat says which automation it's about.
+  const brief = automationChatBrief(storage, channel);
+  return brief ? `${brief}\n\n${message.body}` : message.body;
 }
 
 function eligibleAgentIds(
