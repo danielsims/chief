@@ -3,6 +3,7 @@ import {
   databaseSaveSchema,
 } from "@chief/relay-contracts";
 
+import { isAutomationChat } from "../../workspace-automation-chat";
 import { optionalString, requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
 import { deterministicUuid, workspaceOperation } from "./channels";
@@ -30,6 +31,15 @@ export const hostedDatabaseTools = [
     "databases.save",
     async ({ env, job, principal }, input) => {
       const id = optionalString(input, "id");
+      const working = optionalString(job.payload, "conversationId");
+      // A new database shows in the conversation the agent is working in,
+      // unless that's an automation's chat, which only its page shows.
+      const here = working && !isAutomationChat(working) ? working : undefined;
+      const channels = Array.isArray(input.channelIds)
+        ? input.channelIds
+        : !id && here
+          ? [here]
+          : undefined;
       return workspaceOperation(env, job, principal, "data-database-save", {
         body: databaseSaveSchema.parse({
           // A retried turn creates the same database rather than a second.
@@ -38,7 +48,7 @@ export const hostedDatabaseTools = [
             (await deterministicUuid(
               `${job.id}:database:${optionalString(input, "name") ?? ""}`,
             )),
-          conversationId: optionalString(input, "channelId"),
+          channels,
           name: optionalString(input, "name"),
           fields: input.fields,
           views: input.views,

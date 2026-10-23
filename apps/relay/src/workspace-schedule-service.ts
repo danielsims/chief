@@ -16,6 +16,7 @@ import { workspaceSchedulesDeleteRouteWorkspaceSchedule } from "./queries/worksp
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import { queueAutomationTest } from "./workspace-automation-agent";
+import { openAutomationChat } from "./workspace-automation-chat";
 import { validateAutomationForSave } from "./workspace-automation-validation";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { enqueueScheduleOccurrence } from "./workspace-schedule-dispatch";
@@ -97,6 +98,18 @@ export async function routeWorkspaceSchedule(
     });
   }
   const id = request.headers.get("x-chief-schedule-id");
+  if (operation === "schedules-chat") {
+    requireWorkspaceAdministrator(channels, context.principal);
+    if (!id)
+      throw new HttpError(404, "schedule_not_found", "Choose an automation.");
+    return await openAutomationChat(
+      channels,
+      context.workspaceId,
+      context.principal,
+      id,
+      request,
+    );
+  }
   if (operation === "schedules-save") {
     const input = workspaceScheduleInputSchema.parse(await parseJson(request));
     const result = storage.transactionSync(() => {

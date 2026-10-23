@@ -99,13 +99,13 @@ export class RelayClient extends RelayVercelProvisioning {
     | "act"
     | "delete"
     | "runs"
+    | "chat"
     | "runAction"
     | "reportStep"
     | "webhook"
     | "webhooks"
     | "webhookEvents"
     | "revokeWebhook"
-    | "build"
   >;
 
   constructor(options: RelayClientOptions) {

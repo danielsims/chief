@@ -1,12 +1,10 @@
 import type {
-  AutomationBuildRequest,
   AutomationWebhookRequest,
   WorkspaceScheduleAction,
   WorkspaceScheduleInput,
 } from "@chief/relay-contracts";
 import {
-  automationBuildRequestSchema,
-  automationBuildResultSchema,
+  automationChatSchema,
   automationWebhookEventListSchema,
   automationWebhookListSchema,
   automationWebhookRequestSchema,
@@ -29,6 +27,22 @@ import { RelayClientBase } from "./relay-client-base";
 export class RelaySchedulesClient extends RelayClientBase {
   constructor(options: RelayClientOptions) {
     super(options);
+  }
+
+  /** The automation's chat with Chief, a conversation only its page shows. */
+  async chat(scheduleId: string, session: string) {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl(`schedules/${encodeURIComponent(scheduleId)}/chat`),
+        automationChatSchema,
+        true,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session }),
+        },
+      )
+    ).conversationId;
   }
 
   async runs(scheduleId: string) {
@@ -187,23 +201,6 @@ export class RelaySchedulesClient extends RelayClientBase {
             expectedUpdatedAt: options.expectedUpdatedAt,
           }),
         ),
-      },
-    );
-  }
-
-  /** Asks Chief to build or change an automation from a request. */
-  build(id: string, input: AutomationBuildRequest) {
-    return this.fetchJson(
-      this.workspaceUrl(`schedules/${encodeURIComponent(id)}/build`),
-      automationBuildResultSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(automationBuildRequestSchema.parse(input)),
-        // Building waits on the model, up to twice, so it outlasts the
-        // default request bound.
-        signal: AbortSignal.timeout(180_000),
       },
     );
   }
