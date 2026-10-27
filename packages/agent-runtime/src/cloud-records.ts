@@ -25,7 +25,7 @@ const actionItemSchema: z.ZodType<ActionItem> = z.object({
   request: inputRequestSchema.optional(),
   resolution: z
     .object({
-      answers: z.record(z.string()),
+      answers: z.record(z.string(), z.string()),
       resolvedAt: z.number(),
       resolvedBy: z.object({ id: z.string(), name: z.string() }),
     })

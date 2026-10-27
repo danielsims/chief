@@ -550,7 +550,7 @@ importers:
         version: 1.6.2
       "@anthropic-ai/claude-agent-sdk":
         specifier: ^0.1.5
-        version: 0.1.77(zod@3.25.76)
+        version: 0.1.77(zod@4.6.7)
       "@chief/agent-computer":
         specifier: workspace:*
         version: link:../agent-computer
@@ -580,7 +580,7 @@ importers:
         version: 0.17.4
       "@modelcontextprotocol/sdk":
         specifier: ^1.32.1
-        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       "@openai/codex":
         specifier: ^0.148.0
         version: 0.148.0
@@ -613,16 +613,16 @@ importers:
         version: 7.19.0
       ai:
         specifier: 7.0.30
-        version: 7.0.30(zod@3.25.76)
+        version: 7.0.30(zod@4.6.7)
       cron-parser:
         specifier: 5.6.1
         version: 5.6.1
       drizzle-orm:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)
+        version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)
       eve:
         specifier: 0.24.6
-        version: 0.24.6(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3))
+        version: 0.24.6(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.6.7))(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3))
       executor:
         specifier: 1.5.37
         version: 1.5.37
@@ -645,11 +645,8 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
-      zod-to-json-schema:
-        specifier: 3.25.2
-        version: 3.25.2(zod@3.25.76)
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       "@chief/prettier-config":
         specifier: workspace:*
@@ -665,7 +662,7 @@ importers:
         version: 8.18.1
       drizzle-kit:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))
+        version: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))
       esbuild:
         specifier: 0.27.0
         version: 0.27.0
@@ -15530,12 +15527,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution:
-      {
-        integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==,
-      }
-
   zod@4.4.3:
     resolution:
       {
@@ -15580,13 +15571,6 @@ snapshots:
     dependencies:
       zod: 4.6.7
 
-  "@ai-sdk/gateway@4.0.22(zod@3.25.76)":
-    dependencies:
-      "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.10(zod@3.25.76)
-      "@vercel/oidc": 3.2.0
-      zod: 3.25.76
-
   "@ai-sdk/gateway@4.0.22(zod@4.6.7)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
@@ -15606,14 +15590,6 @@ snapshots:
       "@ai-sdk/provider": 4.0.8
       "@ai-sdk/provider-utils": 5.0.32(zod@4.6.7)
       zod: 4.6.7
-
-  "@ai-sdk/provider-utils@5.0.10(zod@3.25.76)":
-    dependencies:
-      "@ai-sdk/provider": 4.0.3
-      "@standard-schema/spec": 1.1.0
-      "@workflow/serde": 4.1.0
-      eventsource-parser: 3.1.0
-      zod: 3.25.76
 
   "@ai-sdk/provider-utils@5.0.10(zod@4.6.7)":
     dependencies:
@@ -15705,9 +15681,9 @@ snapshots:
       package-manager-detector: 1.7.0
       tinyexec: 1.2.4
 
-  "@anthropic-ai/claude-agent-sdk@0.1.77(zod@3.25.76)":
+  "@anthropic-ai/claude-agent-sdk@0.1.77(zod@4.6.7)":
     dependencies:
-      zod: 3.25.76
+      zod: 4.6.7
     optionalDependencies:
       "@img/sharp-darwin-arm64": 0.33.5
       "@img/sharp-darwin-x64": 0.33.5
@@ -17247,30 +17223,6 @@ snapshots:
   "@modelcontextprotocol/core@2.3.1":
     dependencies:
       zod: 4.6.7
-
-  "@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)":
-    dependencies:
-      "@hono/node-server": 1.19.14(hono@4.12.28)
-      ajv: 8.20.0
-      ajv-formats: 3.0.1(ajv@8.20.0)
-      content-type: 1.0.5
-      cors: 2.8.6
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.1.0
-      express: 5.2.1
-      express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.28
-      jose: 6.2.3
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
-      raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
-    optionalDependencies:
-      "@cfworker/json-schema": 4.1.1
-    transitivePeerDependencies:
-      - supports-color
 
   "@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)":
     dependencies:
@@ -20064,13 +20016,6 @@ snapshots:
       screenfull: 5.2.0
       tslib: 2.8.1
 
-  ai@7.0.30(zod@3.25.76):
-    dependencies:
-      "@ai-sdk/gateway": 4.0.22(zod@3.25.76)
-      "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.10(zod@3.25.76)
-      zod: 3.25.76
-
   ai@7.0.30(zod@4.6.7):
     dependencies:
       "@ai-sdk/gateway": 4.0.22(zod@4.6.7)
@@ -20808,11 +20753,11 @@ snapshots:
 
   dayjs@1.11.21: {}
 
-  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)):
+  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)):
     optionalDependencies:
       "@libsql/client": 0.17.4
       better-sqlite3: 12.4.1
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)
+      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)
 
   debounce-fn@6.0.0:
     dependencies:
@@ -20925,15 +20870,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)):
-    dependencies:
-      "@drizzle-team/brocli": 0.12.0
-      "@js-temporal/polyfill": 0.5.1
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)
-      esbuild: 0.25.12
-      get-tsconfig: 4.14.0
-      jiti: 2.7.0
-
   drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)):
     dependencies:
       "@drizzle-team/brocli": 0.12.0
@@ -20942,7 +20878,6 @@ snapshots:
       esbuild: 0.25.12
       get-tsconfig: 4.14.0
       jiti: 2.7.0
-    optional: true
 
   drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)(sql.js@1.14.2):
     optionalDependencies:
@@ -20953,17 +20888,6 @@ snapshots:
       better-sqlite3: 12.4.1
       kysely: 0.29.3
       sql.js: 1.14.2
-
-  drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76):
-    optionalDependencies:
-      "@cloudflare/workers-types": 5.20260821.1
-      "@libsql/client": 0.17.4
-      "@opentelemetry/api": 1.9.1
-      "@types/better-sqlite3": 7.6.13
-      better-sqlite3: 12.4.1
-      effect: 4.0.0-beta.107
-      sql.js: 1.14.2
-      zod: 3.25.76
 
   drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7):
     optionalDependencies:
@@ -21290,10 +21214,10 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.24.6(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3)):
+  eve@0.24.6(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.6.7))(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3)):
     dependencies:
-      ai: 7.0.30(zod@3.25.76)
-      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3))
+      ai: 7.0.30(zod@4.6.7)
+      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3))
     optionalDependencies:
       "@opentelemetry/api": 1.9.1
       just-bash: 3.4.2
@@ -22931,11 +22855,11 @@ snapshots:
 
   nf3@0.3.21: {}
 
-  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3)):
+  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@5.0.0)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.7(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.9(srvx@0.11.21)
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))
       env-runner: 0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)(@types/node@24.13.3))
       h3: 2.0.1-rc.22(crossws@0.4.9(srvx@0.11.21))
       hookable: 6.1.1
@@ -22946,7 +22870,7 @@ snapshots:
       rolldown: 1.1.5
       srvx: 0.11.21
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 16.0.3
       jiti: 2.7.0
@@ -24682,11 +24606,11 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       "@vercel/blob": 2.4.0
       chokidar: 5.0.0
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@3.25.76))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(effect@4.0.0-beta.107)(sql.js@1.14.2)(zod@4.6.7))
       lru-cache: 11.5.2
       ofetch: 2.0.0-alpha.3
 
@@ -24932,15 +24856,9 @@ snapshots:
       cookie: 1.1.1
       youch-core: 0.3.3
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
-    dependencies:
-      zod: 3.25.76
-
   zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
       zod: 4.6.7
-
-  zod@3.25.76: {}
 
   zod@4.4.3: {}
 

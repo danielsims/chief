@@ -15,8 +15,8 @@ const chatExecutionSchema = z.object({
   driver: z.enum(["claude", "codex", "opencode", "remote"]),
   model: z.string().optional(),
 });
-const stringMapSchema = z.record(z.string());
-const recordSchema = z.record(z.unknown());
+const stringMapSchema = z.record(z.string(), z.string());
+const recordSchema = z.record(z.string(), z.unknown());
 const eveEnvironmentSchema = z.object({
   CHIEF_AGENT_ID: z.string(),
   CHIEF_CHANNEL_TOKEN: z.string(),
@@ -350,7 +350,7 @@ const clientMessageWireSchema = z.union([
   }),
 ]);
 
-const clientMessageSchema: z.ZodType<ClientMessage> = z.custom(
+const clientMessageSchema: z.ZodType<ClientMessage> = z.custom<ClientMessage>(
   (value) => clientMessageWireSchema.safeParse(value).success,
 );
 

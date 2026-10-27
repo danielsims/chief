@@ -18,7 +18,7 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(jsonValueSchema),
-    z.record(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
   ]),
 );
 
@@ -45,10 +45,10 @@ export const boundToolSchema = z.object({
   definition: z.object({
     name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u),
     description: z.string().max(4_096),
-    parameters: z.record(jsonValueSchema),
+    parameters: z.record(z.string(), jsonValueSchema),
   }),
   effect: toolEffectSchema,
-  binding: z.record(jsonValueSchema),
+  binding: z.record(z.string(), jsonValueSchema),
 });
 
 export type BoundTool = z.infer<typeof boundToolSchema>;
@@ -56,7 +56,7 @@ export type BoundTool = z.infer<typeof boundToolSchema>;
 export const durableToolCallSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  arguments: z.union([z.string(), z.record(jsonValueSchema)]),
+  arguments: z.union([z.string(), z.record(z.string(), jsonValueSchema)]),
 });
 
 const messageSchema = z.object({
