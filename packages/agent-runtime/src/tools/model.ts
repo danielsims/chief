@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 import type { AgentInferenceTool } from "@chief/agent-computer";
 import type { JsonObject } from "@chief/relay-contracts";
@@ -92,9 +91,10 @@ export function parseLocalAgentToolCall(
 
 function localAgentToolParameters(tool: AgentToolDefinition) {
   const schema = toJsonObject(
-    zodToJsonSchema(tool.inputSchema ?? tool.querySchema ?? z.object({}), {
-      $refStrategy: "none",
-      target: "openApi3",
+    z.toJSONSchema(tool.inputSchema ?? tool.querySchema ?? z.object({}), {
+      target: "openapi-3.0",
+      io: "input",
+      unrepresentable: "any",
     }),
   );
   const names = pathParameterNames(tool.path);

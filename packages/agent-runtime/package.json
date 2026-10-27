@@ -78,8 +78,7 @@
     "tar": "^7.5.22",
     "ws": "^8.18.3",
     "yaml": "^2.9.0",
-    "zod": "^3.25.76",
-    "zod-to-json-schema": "3.25.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",

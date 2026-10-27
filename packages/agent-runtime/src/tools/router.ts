@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 import type { JsonObject } from "@chief/relay-contracts";
 import { toJsonObject } from "@chief/relay-contracts";
@@ -80,9 +79,10 @@ const generatedObjectSchema = z.object({
 
 function queryParameters(querySchema: z.ZodTypeAny): JsonObject[] {
   const generated = generatedObjectSchema.safeParse(
-    zodToJsonSchema(querySchema, {
-      $refStrategy: "none",
-      target: "openApi3",
+    z.toJSONSchema(querySchema, {
+      target: "openapi-3.0",
+      io: "input",
+      unrepresentable: "any",
     }),
   );
   if (!generated.success) {
@@ -99,9 +99,10 @@ function queryParameters(querySchema: z.ZodTypeAny): JsonObject[] {
 
 function requestBody(inputSchema: z.ZodTypeAny): JsonObject {
   const schema = toJsonObject(
-    zodToJsonSchema(inputSchema, {
-      $refStrategy: "none",
-      target: "openApi3",
+    z.toJSONSchema(inputSchema, {
+      target: "openapi-3.0",
+      io: "input",
+      unrepresentable: "any",
     }),
   );
   return {
