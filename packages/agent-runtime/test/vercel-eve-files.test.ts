@@ -149,13 +149,13 @@ void test("generated Eve client sends strict workspace inputs without borrowing 
     .object({
       callChiefTool: z
         .function()
-        .args(
+        .input([
           z.string(),
-          z.record(z.unknown()),
+          z.record(z.string(), z.unknown()),
           z.string(),
           z.object({ session: z.object({ id: z.string() }) }),
-        )
-        .returns(z.promise(z.unknown())),
+        ])
+        .output(z.promise(z.unknown())),
     })
     .parse(module);
   const brief = {

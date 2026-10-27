@@ -44,7 +44,7 @@ export const recurringWorkInputSchema = z.object({
   activate: z.boolean().default(false),
   // Validated against the relay's automation schema; described here for the model.
   automation: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional()
     .describe(
       `Optional ordered steps instead of a free-form team run: {version:1, steps:[...]}. ${automationStepsGuide}`,
