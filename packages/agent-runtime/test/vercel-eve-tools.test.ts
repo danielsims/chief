@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 
 import { channelApiOperations } from "@chief/channel-api";
 import { parseJsonObject, toJsonObject } from "@chief/relay-contracts";
@@ -28,7 +27,11 @@ function pathParameterNames(path: string) {
 function schemaPropertyKeys(schema: z.ZodTypeAny | undefined) {
   if (!schema) return [];
   const json = toJsonObject(
-    zodToJsonSchema(schema, { $refStrategy: "none", target: "openApi3" }),
+    z.toJSONSchema(schema, {
+      target: "openapi-3.0",
+      io: "input",
+      unrepresentable: "any",
+    }),
   );
   const properties = parseJsonObject(json.properties);
   return properties ? Object.keys(properties) : [];
