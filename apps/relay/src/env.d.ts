@@ -3,6 +3,11 @@
 interface Env {
   /** Stable identifier for this relay installation. */
   RELAY_ID: string;
+  /** Self-hosted browser companion; these are already emitted by entrypoint.sh. */
+  COMPUTER_BASE_URL?: string;
+  COMPUTER_AUTH_SECRET?: string;
+  BROWSER_BASE_URL?: string;
+  BROWSER_AUTH_SECRET?: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_EMAIL_API_TOKEN: string;
   EMAIL_FROM_ADDRESS: string;
@@ -27,4 +32,8 @@ interface Env {
   RELAY_OTLP_ENDPOINT?: string;
   /** Optional Authorization header sent to the OTLP endpoint. */
   RELAY_OTLP_AUTHORIZATION?: string;
+  /** Git commit the relay was deployed from, reported as service.version. */
+  RELAY_GIT_SHA?: string;
+  /** Optional experiment label for telemetry; discovery keeps its deployment type. */
+  RELAY_TELEMETRY_DEPLOYMENT?: string;
 }
