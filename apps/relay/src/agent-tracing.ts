@@ -18,7 +18,33 @@ export interface HostedAgentTraceContext {
   jobId: string;
   workflowId: string;
   messageId?: string;
+  jobKind: string;
+  threadRootId?: string;
+  scheduleId?: string;
+  scheduleRunId?: string;
+  scheduleStepId?: string;
   includeContent: boolean;
+}
+
+/** Scope every agent span carries, so a trace store can rebuild the turn,
+ * its thread and its automation run from any one span. */
+function contextAttributes(context: HostedAgentTraceContext) {
+  return {
+    "gen_ai.agent.name": context.agentId,
+    "gen_ai.agent.id": `${context.workspaceId}:${context.agentId}`,
+    "gen_ai.conversation.id": context.conversationId,
+    "chief.workspace.id": context.workspaceId,
+    "chief.workspace.name": context.workspaceName,
+    "chief.job.id": context.jobId,
+    "chief.job.kind": context.jobKind,
+    "chief.workflow.id": context.workflowId,
+    "messaging.message.id": context.messageId,
+    "chief.thread.root_id": context.threadRootId,
+    "chief.schedule.id": context.scheduleId,
+    "chief.schedule.run_id": context.scheduleRunId,
+    "chief.schedule.step_id": context.scheduleStepId,
+    "chief.lifecycle.layer": "agent",
+  };
 }
 
 export function agentWorkflowId(job: AgentJob) {
@@ -78,17 +104,9 @@ export function traceAgentRun<T>(
   return tracer.run(
     `invoke_agent ${context.agentId}`,
     {
+      ...contextAttributes(context),
       "gen_ai.operation.name": "invoke_agent",
-      "gen_ai.agent.name": context.agentId,
-      "gen_ai.agent.id": `${context.workspaceId}:${context.agentId}`,
-      "gen_ai.conversation.id": context.conversationId,
-      "chief.workspace.id": context.workspaceId,
-      "chief.workspace.name": context.workspaceName,
-      "chief.job.id": context.jobId,
-      "chief.workflow.id": context.workflowId,
-      "messaging.message.id": context.messageId,
       "chief.turn.revision": revision,
-      "chief.lifecycle.layer": "agent",
       "chief.lifecycle.stage": "turn",
     },
     ({ children }) => run(children),
@@ -107,18 +125,10 @@ export function tracedInference(
       tracer.run(
         `chat ${inference.model?.id ?? "unknown"}`,
         {
+          ...contextAttributes(context),
           "gen_ai.operation.name": "chat",
           "gen_ai.provider.name": "opencode",
           "gen_ai.request.model": inference.model?.id,
-          "gen_ai.agent.name": context.agentId,
-          "gen_ai.agent.id": `${context.workspaceId}:${context.agentId}`,
-          "gen_ai.conversation.id": context.conversationId,
-          "chief.workspace.id": context.workspaceId,
-          "chief.workspace.name": context.workspaceName,
-          "chief.job.id": context.jobId,
-          "chief.workflow.id": context.workflowId,
-          "messaging.message.id": context.messageId,
-          "chief.lifecycle.layer": "agent",
           "chief.lifecycle.stage": "inference",
           ...(context.includeContent
             ? {
@@ -133,6 +143,16 @@ export function tracedInference(
         },
         async (span) => {
           const result = await inference.complete(request, onProgress);
+          if (result.usage?.inputTokens !== undefined)
+            span.annotate(
+              "gen_ai.usage.input_tokens",
+              result.usage.inputTokens,
+            );
+          if (result.usage?.outputTokens !== undefined)
+            span.annotate(
+              "gen_ai.usage.output_tokens",
+              result.usage.outputTokens,
+            );
           if (context.includeContent) {
             span.annotate("gen_ai.output.messages", traceText(result));
           }
@@ -151,18 +171,10 @@ export function traceToolExecution(
   return tracer.run(
     `execute_tool ${call.name}`,
     {
+      ...contextAttributes(context),
       "gen_ai.operation.name": "execute_tool",
       "gen_ai.tool.name": call.name,
       "gen_ai.tool.call.id": call.id,
-      "gen_ai.agent.name": context.agentId,
-      "gen_ai.agent.id": `${context.workspaceId}:${context.agentId}`,
-      "gen_ai.conversation.id": context.conversationId,
-      "chief.workspace.id": context.workspaceId,
-      "chief.workspace.name": context.workspaceName,
-      "chief.job.id": context.jobId,
-      "chief.workflow.id": context.workflowId,
-      "messaging.message.id": context.messageId,
-      "chief.lifecycle.layer": "agent",
       "chief.lifecycle.stage": "tool",
       ...(context.includeContent
         ? { "gen_ai.tool.call.arguments": traceText(call.arguments) }

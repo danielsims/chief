@@ -83,6 +83,8 @@ export interface AgentInferenceResult {
   content: string | null;
   reasoning?: string;
   toolCalls: AgentInferenceToolCall[];
+  /** Provider token counts for this step, when the provider reports them. */
+  usage?: { inputTokens?: number; outputTokens?: number };
 }
 
 export interface AgentInferenceMessage {

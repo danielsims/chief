@@ -25,6 +25,19 @@ export function agentTraceContext(
     messageId: isJsonString(job.payload.messageId)
       ? job.payload.messageId
       : undefined,
+    jobKind: job.kind,
+    threadRootId: isJsonString(job.payload.threadRootId)
+      ? job.payload.threadRootId
+      : undefined,
+    scheduleId: isJsonString(job.payload.scheduleId)
+      ? job.payload.scheduleId
+      : undefined,
+    scheduleRunId: isJsonString(job.payload.scheduleRunId)
+      ? job.payload.scheduleRunId
+      : undefined,
+    scheduleStepId: isJsonString(job.payload.scheduleStepId)
+      ? job.payload.scheduleStepId
+      : undefined,
     includeContent: telemetryIncludesContent(env),
   };
 }
