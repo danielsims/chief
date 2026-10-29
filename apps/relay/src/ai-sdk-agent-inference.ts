@@ -14,6 +14,7 @@ import type {
 } from "@chief/agent-computer";
 import type { AgentInferenceConfig } from "@chief/relay-contracts";
 import {
+  defaultAgentConfig,
   isJsonString,
   jsonObjectSchema,
   parseJsonObject,
@@ -53,21 +54,25 @@ const tracedAI = wrapAISDK(aiSdk, {
 
 export class AiSdkAgentInference implements AgentInference {
   readonly model;
-  private readonly languageModel: LanguageModel;
+  private languageModel: LanguageModel;
   /** Images already read this turn, so each step doesn't read them again. */
   private readonly images: AttachedImages = new Map();
 
   constructor(
-    apiKey: string,
+    private readonly apiKey: string,
     private readonly context: HostedAgentTraceContext,
-    request?: typeof fetch,
-    inference: AgentInferenceConfig = {
-      provider: "opencode",
-      model: "opencode-go/deepseek-v4-flash",
-      secretRef: "opencode",
-    },
+    private readonly request?: typeof fetch,
+    private inference: AgentInferenceConfig = defaultAgentConfig.inference,
     private readonly readAttachment?: AttachmentReader,
   ) {
+    // Persisted configs can outlive a provider's retired model alias.
+    if (
+      inference.provider === "opencode" &&
+      openCodeGoModel(inference.model) === "deepseek-v4-flash"
+    ) {
+      inference = { ...inference, model: defaultAgentConfig.inference.model };
+      this.inference = inference;
+    }
     this.model = {
       id: inference.model,
       contextWindowTokens: 1_000_000,
@@ -115,8 +120,33 @@ export class AiSdkAgentInference implements AgentInference {
         },
       },
     };
-    if (onProgress) return await this.completeStreaming(options, onProgress);
-    return await this.completeGenerated(options);
+    const complete = () =>
+      retryModelAdmission(() =>
+        onProgress
+          ? this.completeStreaming(
+              { ...options, model: this.languageModel },
+              onProgress,
+            )
+          : this.completeGenerated({ ...options, model: this.languageModel }),
+      );
+    try {
+      return await complete();
+    } catch (error) {
+      const fallback = deprecationFallback(
+        this.inference,
+        error instanceof Error ? error : undefined,
+      );
+      if (!fallback) throw error;
+      this.inference = fallback;
+      this.languageModel = languageModel(
+        fallback,
+        this.apiKey,
+        this.request,
+        this.context,
+      );
+      this.model.id = fallback.model;
+      return await complete();
+    }
   }
 
   private async completeGenerated(
@@ -184,11 +214,40 @@ export class AiSdkAgentInference implements AgentInference {
     ) {
       throw streamError;
     }
-    return completion;
+    let usage: { inputTokens?: number; outputTokens?: number } | undefined;
+    try {
+      const total = await result.totalUsage;
+      if (total.inputTokens !== undefined || total.outputTokens !== undefined)
+        usage = {
+          inputTokens: total.inputTokens,
+          outputTokens: total.outputTokens,
+        };
+    } catch {
+      // Usage is diagnostic; a provider that omits it still completes.
+    }
+    return usage ? { ...completion, usage } : completion;
   }
 
   estimateTokens(input: AgentInferenceRequest) {
     return Math.max(0, Math.round(JSON.stringify(input).length / 4));
+  }
+}
+
+/** A refused inference admission has produced no tool actions to replay. */
+export async function retryModelAdmission<T>(
+  operation: () => Promise<T>,
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds)),
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= 2 || !/\bttft_admission_refused\b/u.test(message))
+        throw error;
+      await wait(2_000 * (attempt + 1));
+    }
   }
 }
 
@@ -241,6 +300,19 @@ async function attachedImages(
     }),
   );
   return images;
+}
+
+// Use the maintained provider default, never a table of retired model ids.
+function deprecationFallback(inference: AgentInferenceConfig, error?: Error) {
+  const fallback = defaultAgentConfig.inference;
+  if (
+    !error ||
+    !/\bModel\s+.+?\s+has been deprecated\b/i.test(error.message) ||
+    inference.provider !== fallback.provider ||
+    openCodeGoModel(inference.model) === openCodeGoModel(fallback.model)
+  )
+    return undefined;
+  return { ...inference, model: fallback.model };
 }
 
 function languageModel(
@@ -638,11 +710,22 @@ export async function answerWithAgentModel(
   context: HostedAgentTraceContext,
   input: { system: string; prompt: string },
 ) {
-  const result = await tracedAI.generateText({
-    model: languageModel(inference, apiKey, undefined, context),
-    system: input.system,
-    prompt: input.prompt,
-    abortSignal: AbortSignal.timeout(HOSTED_INFERENCE_TIMEOUT_MS * 2),
-  });
-  return result.text;
+  const generate = (config: AgentInferenceConfig) =>
+    tracedAI.generateText({
+      model: languageModel(config, apiKey, undefined, context),
+      system: input.system,
+      prompt: input.prompt,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(HOSTED_INFERENCE_TIMEOUT_MS * 2),
+    });
+  try {
+    return (await generate(inference)).text;
+  } catch (error) {
+    const fallback = deprecationFallback(
+      inference,
+      error instanceof Error ? error : undefined,
+    );
+    if (!fallback) throw error;
+    return (await generate(fallback)).text;
+  }
 }
