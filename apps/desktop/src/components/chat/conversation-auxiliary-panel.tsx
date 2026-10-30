@@ -1,102 +1,23 @@
-import type {
-  ComponentProps,
-  PointerEventHandler,
-  ReactNode,
-  Ref,
-} from "react";
-import { useCallback, useEffect, useState } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 import { ChevronLeft, X } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-import { workspaceCardClassName } from "../workspace-content-surface";
+import type { ResizableSidePanelSizing } from "../resizable-side-panel";
+import {
+  ResizableSidePanel,
+  useResizableSidePanelSizing,
+} from "../resizable-side-panel";
 
-const DEFAULT_PANEL_WIDTH = 380;
-const MIN_PANEL_WIDTH = 300;
-const MAX_PANEL_WIDTH = 720;
 const PANEL_WIDTH_STORAGE_KEY = "chief.conversations.auxiliary-panel-width";
 
-function clampPanelWidth(width: number) {
-  const viewportWidth = globalThis.window.innerWidth;
-  const viewportMaximum = Math.max(
-    MAX_PANEL_WIDTH,
-    viewportWidth - MIN_PANEL_WIDTH,
-  );
-  return Math.max(MIN_PANEL_WIDTH, Math.min(viewportMaximum, width));
-}
-
-export interface ConversationAuxiliaryPanelSizing {
-  canReset: boolean;
-  onResetWidth: () => void;
-  onResizeStart: PointerEventHandler<HTMLButtonElement>;
-  widthPx: number;
-}
+export type ConversationAuxiliaryPanelSizing = ResizableSidePanelSizing;
 
 export function useConversationAuxiliaryPanelSizing(): ConversationAuxiliaryPanelSizing {
-  const [widthPx, setWidthPx] = useState(() => {
-    try {
-      const stored = Number.parseInt(
-        window.sessionStorage.getItem(PANEL_WIDTH_STORAGE_KEY) ?? "",
-        10,
-      );
-      return Number.isFinite(stored)
-        ? clampPanelWidth(stored)
-        : DEFAULT_PANEL_WIDTH;
-    } catch {
-      return DEFAULT_PANEL_WIDTH;
-    }
+  return useResizableSidePanelSizing({
+    storageKey: PANEL_WIDTH_STORAGE_KEY,
   });
-
-  useEffect(() => {
-    try {
-      window.sessionStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(widthPx));
-    } catch {
-      // Keep the in-memory width when storage is unavailable.
-    }
-  }, [widthPx]);
-
-  const onResizeStart = useCallback<PointerEventHandler<HTMLButtonElement>>(
-    (event) => {
-      event.preventDefault();
-      const startX = event.clientX;
-      const startWidth = widthPx;
-      const previousCursor = document.body.style.cursor;
-      const previousUserSelect = document.body.style.userSelect;
-
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-
-      // The panel follows the pointer directly; React only hears the final
-      // width, so the conversation beside it doesn't re-render every frame.
-      const panel = event.currentTarget.parentElement;
-      let nextWidth = startWidth;
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        nextWidth = clampPanelWidth(startWidth + startX - moveEvent.clientX);
-        if (panel) panel.style.width = `${nextWidth}px`;
-        else setWidthPx(nextWidth);
-      };
-      const handlePointerUp = () => {
-        setWidthPx(nextWidth);
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
-        window.removeEventListener("pointermove", handlePointerMove);
-      };
-
-      window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp, { once: true });
-    },
-    [widthPx],
-  );
-
-  const onResetWidth = useCallback(() => setWidthPx(DEFAULT_PANEL_WIDTH), []);
-
-  return {
-    canReset: widthPx !== DEFAULT_PANEL_WIDTH,
-    onResetWidth,
-    onResizeStart,
-    widthPx,
-  };
 }
 
 export function ConversationAuxiliaryPanel({
@@ -113,54 +34,15 @@ export function ConversationAuxiliaryPanel({
   onClose: () => void;
   sizing: ConversationAuxiliaryPanelSizing;
 }) {
-  if (fill) {
-    return (
-      <section
-        className={cn(
-          workspaceCardClassName,
-          "flex min-h-0 min-w-0 flex-1 flex-col",
-          className,
-        )}
-      >
-        {children}
-      </section>
-    );
-  }
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Close panel"
-        onClick={onClose}
-        className="absolute inset-0 z-30 hidden bg-black/20 max-[900px]:block"
-      />
-      <aside
-        className={cn(
-          workspaceCardClassName,
-          "z-40 flex min-h-0 shrink-0 flex-col overflow-visible",
-          "max-w-[calc(100%-300px)] max-[900px]:absolute max-[900px]:inset-y-0 max-[900px]:right-0 max-[900px]:!w-[calc(100%-24px)] max-[900px]:max-w-none max-[900px]:shadow-2xl",
-          className,
-        )}
-        style={{ width: `${sizing.widthPx}px` }}
-      >
-        <button
-          type="button"
-          aria-label="Resize panel"
-          title={
-            sizing.canReset
-              ? "Drag to resize. Double-click to reset width."
-              : "Drag to resize."
-          }
-          onPointerDown={sizing.onResizeStart}
-          onDoubleClick={sizing.canReset ? sizing.onResetWidth : undefined}
-          className="group/resize absolute inset-y-0 -left-2 z-50 w-2 cursor-col-resize max-[900px]:hidden"
-        >
-          {/* Hovering shows only the resize cursor; the line is for keyboard focus. */}
-          <span className="bg-border/0 group-focus-visible/resize:bg-border absolute inset-y-4 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors" />
-        </button>
-        {children}
-      </aside>
-    </>
+    <ResizableSidePanel
+      className={className}
+      fill={fill}
+      onClose={onClose}
+      sizing={sizing}
+    >
+      {children}
+    </ResizableSidePanel>
   );
 }
 
