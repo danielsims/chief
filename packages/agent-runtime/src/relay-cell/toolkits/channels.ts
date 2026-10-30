@@ -8,6 +8,10 @@ import {
   parseJsonNumber,
 } from "@chief/relay-contracts";
 
+import {
+  channelMessagePaging,
+  compactChannelMessagePage,
+} from "../../channel-message-page.js";
 import { channelMembers, optionalString, requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
@@ -69,10 +73,14 @@ export const relayCellChannelTools = [
   defineRelayCellTool(
     "channels.messages.list",
     "messages.read",
-    async ({ client }, input) =>
-      await client.listMessages(requiredString(input, "channelId"), {
-        limit: parseJsonNumber(input.limit) ?? 50,
-      }),
+    async ({ client }, input) => {
+      const paging = channelMessagePaging(input);
+      const page = await client.listMessages(
+        requiredString(input, "channelId"),
+        paging,
+      );
+      return compactChannelMessagePage(page, paging.limit, paging.bodyChars);
+    },
   ),
   defineRelayCellTool(
     "channels.messages.replies",
