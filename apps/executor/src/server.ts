@@ -92,7 +92,7 @@ async function handleRequest(
   }
 }
 
-server.listen(config.PORT, "0.0.0.0", () => {
+server.listen(config.PORT, config.LISTEN_HOST ?? "0.0.0.0", () => {
   process.stdout.write(`chief-executor listening on ${config.PORT}\n`);
 });
 

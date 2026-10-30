@@ -38,6 +38,7 @@ export class RemoteComputerClient {
     private readonly baseUrl: string,
     private readonly secret: string,
     private readonly job: AgentJob,
+    private readonly scope: "browser" | "computer" = "computer",
   ) {}
 
   async json<T>(
@@ -85,15 +86,18 @@ export class RemoteComputerClient {
       workspaceId: this.job.workspaceId,
       agentId: this.job.agentId,
       placementEpoch: 1,
-      capabilities: [
-        "filesystem:read",
-        "filesystem:write",
-        "git:read",
-        "git:write",
-        "process:exec",
-        "browser:use",
-        "network:egress",
-      ],
+      capabilities:
+        this.scope === "browser"
+          ? ["browser:use", "network:egress"]
+          : [
+              "filesystem:read",
+              "filesystem:write",
+              "git:read",
+              "git:write",
+              "process:exec",
+              "browser:use",
+              "network:egress",
+            ],
       resources: {
         cpuMillis: 4_000,
         memoryMib: 2_048,

@@ -31,10 +31,13 @@ import { inheritedThreadRootId } from "../src/hosted-agent-tools/toolkits/channe
 describe("hosted agent turn context", () => {
   it("keeps research lightweight and interactive work off the computer", () => {
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Find pages with web_search and read them with web_read",
+      "Find public pages with web_search",
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "browser or computer for ordinary questions or plugin setup",
+      "Use web_read for static pages",
+    );
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
+      "Use direct workspace tools for workspace operations",
     );
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_list");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_recommend");
@@ -241,6 +244,22 @@ describe("hosted agent turn context", () => {
         threadRootId: "00000000-0000-4000-8000-000000000020",
       }),
     ).toBe("00000000-0000-4000-8000-000000000020");
+  });
+
+  it("posts an automation tool step to the channel, not the run thread", () => {
+    const job = agentJobSchema.parse({
+      ...testJob({
+        conversationId: "marketing",
+        threadRootId: "00000000-0000-4000-8000-000000000010",
+      }),
+      kind: "automation.tool",
+    });
+    expect(
+      inheritedThreadRootId(job, {
+        channelId: "marketing",
+        content: "Daily shortlist.",
+      }),
+    ).toBeUndefined();
   });
 });
 

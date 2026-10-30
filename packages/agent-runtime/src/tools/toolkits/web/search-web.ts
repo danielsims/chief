@@ -10,7 +10,7 @@ export const searchWebDefinition = defineAgentTool({
     operationId: "web.search",
     summary: "Search the web",
     description:
-      "Searches the public web and returns titles, URLs and snippets. Find pages with this, then read the ones that matter with web_read. Never search by reading search engine or map URLs with web_read or the browser.",
+      "Search Google in the interactive browser and return its rendered page and link controls. Follow relevant results with browser tools or web_read. A verification_required response needs the user to complete Google verification; never silently change engines or retry the challenge in a loop.",
   },
   inputSchema: z.object({
     query: boundedText(400),

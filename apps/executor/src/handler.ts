@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 
 import type { JsonValue } from "@chief/relay-contracts";
 import {
@@ -44,6 +44,16 @@ export function createExecutorHandler(
         return json({ ok: true, protocolVersion: 1 });
       }
       const lease = await verifier.verify(request);
+      if (
+        config.EXECUTOR_BROWSER_ONLY &&
+        !url.pathname.startsWith("/v1/browser/")
+      )
+        return error(
+          403,
+          "browser_only",
+          "This machine exposes browser operations only.",
+          requestId,
+        );
       const browserResponse = await routeBrowserRequest(
         request,
         url,
@@ -166,6 +176,22 @@ export function createExecutorHandler(
           error: caught instanceof Error ? caught.message : String(caught),
         }),
       );
+      if (
+        /^\/v1\/browser\/(?:click|fill|select)$/u.test(
+          new URL(request.url).pathname,
+        )
+      ) {
+        return error(
+          500,
+          "browser_interaction_failed",
+          browserInteractionFailure(
+            caught instanceof Error
+              ? caught.message
+              : "Browser interaction failed.",
+          ),
+          requestId,
+        );
+      }
       return error(
         500,
         "operation_failed",
@@ -174,6 +200,17 @@ export function createExecutorHandler(
       );
     }
   };
+}
+
+const browserFailureSchema = z.object({ error: z.string() });
+function browserInteractionFailure(message: string) {
+  try {
+    const detail = browserFailureSchema.safeParse(JSON.parse(message));
+    if (detail.success) message = detail.data.error;
+  } catch {
+    // Plain browser errors are already useful to the agent.
+  }
+  return message.slice(0, 1500);
 }
 
 function json(value: JsonValue, init: ResponseInit = {}) {

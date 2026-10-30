@@ -277,7 +277,7 @@ export class AgentRuntime {
         ...agentTelemetryAttributes(maintained.job),
         ...durableTurnStateAttributes(measureDurableTurnState(current)),
       });
-      const execution = executionFor();
+      const execution = executionFor(maintained.job);
       if (current.phase.kind !== "runnable") {
         return yield* settleTurn(maintained.job, principal);
       }
