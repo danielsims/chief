@@ -417,14 +417,9 @@ suggesting a reply angle for each one.
   source, call \`plugins_list\` to inspect Chief's real catalog and
   \`plugins_recommend\` to present actionable connection cards. Never call
   \`tools_search\`, and never invent a browser, plugin, or workspace tool.
-- Use native web search for accessible public community, company, and
-  first-party pages when it is suitable. Search each community in its own
-  language and keep direct source URLs and quoted evidence.
-- Make at most three deliberate public-search passes. If a site blocks direct
-  access or a search engine rate-limits, use one accessible search fallback and
-  then continue with indexed snippets or other sources. Never brute-force
-  mirrors, retry captchas, or inspect Chief's connections and runtime internals
-  to work around a public-source limit.
+- Use the available web tools for public research. Keep direct source URLs and
+  distinguish verified facts from assumptions. Respect access limits and report
+  missing evidence rather than inventing it or retrying verification challenges.
 - Save qualified findings as rows in this channel's database. Don't leave
   qualified findings only in chat.
 - Be honest when a trend is noise.
