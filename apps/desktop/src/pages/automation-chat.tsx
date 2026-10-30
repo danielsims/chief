@@ -7,10 +7,16 @@ import { appendMessageCommandSchema } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
 import type { ConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
+import { AgentActivityComposerRow } from "../components/chat/agent-activity-composer-row";
+import {
+  ActivityNotice,
+  AgentActivityPanel,
+} from "../components/chat/agent-activity-panel";
 import {
   ChiefMessage,
   MessageBlocksContent,
 } from "../components/chat/chief-chat-message-components";
+import { conversationActivityTurns } from "../components/chat/conversation-activity-history";
 import {
   ConversationAuxiliaryPanel,
   ConversationAuxiliaryPanelBody,
@@ -21,12 +27,13 @@ import { UserMessage } from "../components/chat/user-message";
 import { withoutMarkerLines } from "../lib/integration-setup";
 import { parseRelayError } from "../lib/relay-runtime-errors";
 import {
-  agentWorkingChange,
+  agentRunEvent,
   isAgentActivityProjection,
   toChiefMessage,
 } from "../lib/relay-runtime-mappers";
 import { useRelaySession } from "../lib/relay-session-context";
-import { messageBlocks } from "../lib/runtime";
+import { messageBlocks } from "../lib/runtime-diagnostics";
+import { automationChatState } from "./automation-chat-state";
 import { AutomationComposer } from "./automation-describe";
 
 /** Which conversation an automation's chat is on; Clear starts another. */
@@ -53,17 +60,6 @@ function writeSession(key: string, session: string) {
 // The last messages read per chat, so coming back to the page shows them at
 // once instead of an empty panel until the read lands.
 const cached = new Map<string, ConversationMessage[]>();
-
-/** Chief is mid-turn: the latest word is the person's, or a run is open. */
-function chiefIsWorking(messages: readonly ConversationMessage[]) {
-  for (const message of [...messages].reverse()) {
-    const change = agentWorkingChange(message);
-    if (change) return change.working;
-    if (!isAgentActivityProjection(message))
-      return message.author.kind === "user";
-  }
-  return false;
-}
 
 /**
  * An automation's chat with Chief, in a conversation of its own that only
@@ -108,9 +104,17 @@ export function useAutomationChat(automationId: string, onReply: () => void) {
     };
   }, [automationId, client, conversationId, session]);
 
-  const working = sending || chiefIsWorking(messages);
+  const state = automationChatState(messages);
+  const working = sending || state.working;
   // Quick while Chief is working, slow otherwise.
   const replies = useRef(-1);
+  const terminal = useRef("");
+  const pending = useRef(new Map<string, ConversationMessage>());
+  useEffect(() => {
+    pending.current.clear();
+    replies.current = -1;
+    terminal.current = "";
+  }, [key]);
   useEffect(() => {
     if (!client || !conversationId) return;
     let live = true;
@@ -119,7 +123,9 @@ export function useAutomationChat(automationId: string, onReply: () => void) {
         .listMessages(conversationId, { recent: true, limit: 100 })
         .then((page) => {
           if (!live) return;
-          const next = [...page.messages].sort(
+          for (const message of page.messages)
+            pending.current.delete(message.id);
+          const next = [...page.messages, ...pending.current.values()].sort(
             (left, right) => left.sequence - right.sequence,
           );
           cached.set(`${key}:${session ?? ""}`, next);
@@ -129,8 +135,19 @@ export function useAutomationChat(automationId: string, onReply: () => void) {
               message.author.kind === "agent" &&
               !isAgentActivityProjection(message),
           ).length;
-          if (replies.current >= 0 && count > replies.current)
+          const completion = next
+            .filter((message) => {
+              const event = agentRunEvent(message);
+              return event?.type === "result" || event?.type === "error";
+            })
+            .map((message) => message.id)
+            .join(":");
+          if (
+            (replies.current >= 0 && count > replies.current) ||
+            completion !== terminal.current
+          )
             replyRef.current();
+          terminal.current = completion;
           replies.current = count;
         })
         .catch(() => undefined);
@@ -170,7 +187,11 @@ export function useAutomationChat(automationId: string, onReply: () => void) {
             },
           }),
         );
-        setMessages((previous) => [...previous, message]);
+        pending.current.set(message.id, message);
+        setMessages((previous) => [
+          ...previous.filter((item) => item.id !== message.id),
+          message,
+        ]);
         return true;
       } catch (cause) {
         toast.error(
@@ -191,10 +212,12 @@ export function useAutomationChat(automationId: string, onReply: () => void) {
     setSession(next);
     setConversationId(null);
     setMessages([]);
+    pending.current.clear();
+    terminal.current = "";
     replies.current = -1;
   }, [key]);
 
-  return { messages, working, sending, send, clear };
+  return { messages, working, error: state.error, sending, send, clear };
 }
 
 const visibleBlocks = (message: ReturnType<typeof toChiefMessage>) =>
@@ -213,73 +236,130 @@ export function AutomationChatPanel({
   onClose: () => void;
 }) {
   const end = useRef<HTMLDivElement>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const turns = conversationActivityTurns(
+    chat.messages.map((message) => {
+      const ui = toChiefMessage(message);
+      return {
+        id: message.id,
+        role: ui.role === "user" ? ("user" as const) : ("assistant" as const),
+        createdAt: ui.metadata?.createdAt,
+        agentId: ui.metadata?.agentId,
+        blocks: messageBlocks(ui),
+      };
+    }),
+  );
   const shown = chat.messages.filter(
     (message) => !isAgentActivityProjection(message),
   );
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
   }, [shown.length, chat.working]);
-  return (
-    <ConversationAuxiliaryPanel
+  const activityPanel = activityOpen ? (
+    <AgentActivityPanel
+      turns={turns}
+      running={chat.working}
+      activeAgentId="chief"
+      tasks={[]}
+      flat
+      title="Chief"
+      error={chat.error}
+      onBack={() => setActivityOpen(false)}
+      backLabel="Back to automation chat"
       onClose={onClose}
       sizing={sizing}
-      className={className}
-    >
-      <ConversationAuxiliaryPanelHeader
-        title="Chief"
-        subtitle={
-          chat.working ? (
-            <span className="chief-shimmer-text">Chief is working…</span>
-          ) : undefined
-        }
-        actions={
-          shown.length ? (
-            <Button
-              type="button"
-              aria-label="Clear chat"
-              title="Clear chat"
-              variant="ghost"
-              size="icon-sm"
-              onClick={chat.clear}
-            >
-              <RotateCcw size={14} />
-            </Button>
-          ) : null
-        }
-        onClose={onClose}
-      />
-      <ConversationAuxiliaryPanelBody className="space-y-2 overflow-x-hidden px-4 py-4">
-        {shown.map((message) => {
-          const ui = toChiefMessage(message);
-          if (message.author.kind === "user")
-            return (
-              <UserMessage
-                key={message.id}
-                text={message.body}
-                timestamp={ui.metadata?.createdAt}
-              />
-            );
-          if (visibleBlocks(ui).length === 0) return null;
-          return (
-            <ChiefMessage
-              key={message.id}
-              messageId={message.id}
-              timestamp={ui.metadata?.createdAt}
-            >
-              <MessageBlocksContent message={ui} filter={visibleBlocks} />
-            </ChiefMessage>
-          );
-        })}
-        <div ref={end} />
-      </ConversationAuxiliaryPanelBody>
-      <div className="shrink-0 p-3 pt-0">
-        <AutomationComposer
-          busy={chat.sending}
-          disabled={false}
-          className="w-full max-w-none"
-          onSubmit={chat.send}
-        />
+      className="max-w-full"
+    />
+  ) : null;
+  return (
+    <>
+      {activityPanel}
+      <div className={activityOpen ? "hidden" : "contents"}>
+        <ConversationAuxiliaryPanel
+          onClose={onClose}
+          sizing={sizing}
+          className={className}
+        >
+          <ConversationAuxiliaryPanelHeader
+            title="Chief"
+            actions={
+              shown.length ? (
+                <Button
+                  type="button"
+                  aria-label="Clear chat"
+                  title="Clear chat"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={chat.clear}
+                >
+                  <RotateCcw size={14} />
+                </Button>
+              ) : null
+            }
+            onClose={onClose}
+          />
+          <ConversationAuxiliaryPanelBody className="space-y-2 overflow-x-hidden px-4 py-4">
+            {shown.map((message) => {
+              const ui = toChiefMessage(message);
+              if (message.author.kind === "user")
+                return (
+                  <UserMessage
+                    key={message.id}
+                    text={message.body}
+                    timestamp={ui.metadata?.createdAt}
+                  />
+                );
+              if (visibleBlocks(ui).length === 0) return null;
+              return (
+                <ChiefMessage
+                  key={message.id}
+                  messageId={message.id}
+                  timestamp={ui.metadata?.createdAt}
+                >
+                  <MessageBlocksContent message={ui} filter={visibleBlocks} />
+                </ChiefMessage>
+              );
+            })}
+            {chat.error ? (
+              <div role="alert">
+                <ActivityNotice
+                  title={chat.error.title ?? "Chief couldn't finish"}
+                  message={chat.error.message}
+                  action={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const last = [...chat.messages]
+                          .reverse()
+                          .find((message) => message.author.kind === "user");
+                        if (last) void chat.send(last.body);
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  }
+                />
+              </div>
+            ) : null}
+            <div ref={end} />
+          </ConversationAuxiliaryPanelBody>
+          <div className="shrink-0 p-3 pt-0">
+            <AgentActivityComposerRow
+              running={chat.working}
+              statusLabel="Chief is working…"
+              idleLabel={turns.length ? "Activity" : undefined}
+              onOpen={() => setActivityOpen(true)}
+            />
+            <AutomationComposer
+              busy={chat.sending}
+              disabled={false}
+              className="w-full max-w-none"
+              onSubmit={chat.send}
+            />
+          </div>
+        </ConversationAuxiliaryPanel>
       </div>
-    </ConversationAuxiliaryPanel>
+    </>
   );
 }
