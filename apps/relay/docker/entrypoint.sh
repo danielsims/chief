@@ -53,6 +53,7 @@ read_secret APPLE_CLIENT_SECRET
 read_secret CLOUDFLARE_EMAIL_API_TOKEN
 read_secret RESEND_API_KEY
 read_secret COMPUTER_AUTH_SECRET
+read_secret BROWSER_AUTH_SECRET
 read_secret RELAY_SECRET_KEY
 read_secret RELAY_OTLP_AUTHORIZATION
 read_secret RELAY_ID
@@ -72,10 +73,12 @@ for binding in \
   RELAY_ID \
   RELAY_PUBLIC_URL \
   RELAY_DEPLOYMENT \
+  RELAY_TELEMETRY_DEPLOYMENT \
   RELAY_TELEMETRY_MODE \
   RELAY_TELEMETRY_INCLUDE_CONTENT \
   RELAY_OTLP_ENDPOINT \
   RELAY_OTLP_AUTHORIZATION \
+  RELAY_GIT_SHA \
   ACCOUNT_IDENTITY_MODE \
   AUTH_BASE_URL \
   AUTH_UI_ORIGIN \
@@ -93,6 +96,8 @@ for binding in \
   RESEND_API_KEY \
   COMPUTER_BASE_URL \
   COMPUTER_AUTH_SECRET \
+  BROWSER_BASE_URL \
+  BROWSER_AUTH_SECRET \
   RELAY_SECRET_KEY \
   EMAIL_PROVIDER \
   EMAIL_FROM_ADDRESS \
@@ -108,7 +113,16 @@ case "${1:-serve}" in
       --persist-to "$state_dir"
     ;;
   serve)
+    # Without an explicit upstream, wrangler dev rewrites Host and Origin to
+    # the production route in wrangler.jsonc, and Better Auth then rejects
+    # every browser request as coming from an untrusted origin.
+    public_url="${RELAY_PUBLIC_URL:-$AUTH_BASE_URL}"
+    upstream_protocol="${public_url%%://*}"
+    upstream_host="${public_url#*://}"
+    upstream_host="${upstream_host%%/*}"
     exec "$wrangler_binary" dev \
+      --local-upstream "$upstream_host" \
+      --upstream-protocol "$upstream_protocol" \
       --cwd /app/apps/relay \
       --env-file "$runtime_env" \
       --local \
