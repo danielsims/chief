@@ -1,11 +1,13 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, lazy, Suspense, useMemo } from "react";
+import { Component, lazy, Suspense, useMemo, useState } from "react";
 import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
 import {
-  BrowserRouter,
+  createBrowserRouter,
+  createRoutesFromElements,
   Navigate,
+  Outlet,
   Route,
-  Routes,
+  RouterProvider,
   useLocation,
 } from "react-router";
 import { Toaster } from "sonner";
@@ -41,7 +43,6 @@ import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
-import { SchedulePage } from "./pages/schedule";
 import { AppearanceSettings } from "./pages/settings/appearance";
 import { ConnectionSettings } from "./pages/settings/connection";
 import { EnvironmentSettings } from "./pages/settings/environment";
@@ -324,6 +325,115 @@ function AuthSessionBoundary({ children }: { children: ReactNode }) {
   );
 }
 
+// Keep drafts mounted while page, artifact-tab, and history navigation is blocked.
+function AuthenticatedRouter() {
+  const [router] = useState(() =>
+    createBrowserRouter(
+      createRoutesFromElements(
+        <Route element={<NavigationProviders />}>
+          <Route path="workspaces/new" element={<CreateWorkspacePage />} />
+          <Route path="onboarding" element={<OnboardingPage />} />
+          <Route element={<Layout />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="inbox" element={<InboxPage />} />
+            <Route
+              path="schedule"
+              element={
+                <Suspense fallback={null}>
+                  <AutomationsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="schedule/automations"
+              element={<Navigate to="/schedule" replace />}
+            />
+            <Route
+              path="schedule/automations/:automationId"
+              element={
+                <Suspense fallback={null}>
+                  <AutomationBuilderPage />
+                </Suspense>
+              }
+            />
+            <Route path="conversations" element={<ConversationsPage />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route
+              path="machines"
+              element={<Navigate to="/settings/machines" replace />}
+            />
+            <Route
+              path="repositories/:projectId?"
+              element={
+                <Suspense fallback={null}>
+                  <ProjectsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="plugins"
+              element={
+                <Suspense fallback={null}>
+                  <PluginsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="boards"
+              element={
+                <Suspense fallback={null}>
+                  <BoardsPage />
+                </Suspense>
+              }
+            />
+            <Route path="artifacts" element={<ArtifactsPage />} />
+            <Route
+              path="artifacts/databases/:databaseId"
+              element={<ArtifactDatabasePage />}
+            />
+            <Route path="artifacts/:fileId" element={<WorkspaceFilePage />} />
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route
+                index
+                element={<Navigate to="/settings/profile" replace />}
+              />
+              <Route path="profile" element={<ProfileSettings />} />
+              <Route path="workspace" element={<WorkspaceSettings />} />
+              <Route path="connection" element={<ConnectionSettings />} />
+              <Route path="webhooks" element={<WebhooksSettings />} />
+              <Route path="appearance" element={<AppearanceSettings />} />
+              <Route path="notifications" element={<NotificationsSettings />} />
+              <Route path="environment" element={<EnvironmentSettings />} />
+              <Route path="machines" element={<SettingsMachines />} />
+              <Route
+                path="integrations/*"
+                element={<Navigate to="/plugins" replace />}
+              />
+            </Route>
+          </Route>
+        </Route>,
+      ),
+    ),
+  );
+  return <RouterProvider router={router} />;
+}
+
+function NavigationProviders() {
+  return (
+    <ChiefNavigationProvider>
+      <WorkspaceChannelsProvider>
+        <MentionPeopleProvider>
+          <ChannelReadStateProvider>
+            <OnboardingGate>
+              <Outlet />
+            </OnboardingGate>
+          </ChannelReadStateProvider>
+        </MentionPeopleProvider>
+      </WorkspaceChannelsProvider>
+    </ChiefNavigationProvider>
+  );
+}
+
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
   const { resolved } = useTheme();
@@ -374,134 +484,7 @@ function AuthenticatedApp() {
       />
       <AgentConfigProvider>
         <AgentAppearanceProvider>
-          <BrowserRouter>
-            <ChiefNavigationProvider>
-              <WorkspaceChannelsProvider>
-                <MentionPeopleProvider>
-                  <ChannelReadStateProvider>
-                    <OnboardingGate>
-                      <Routes>
-                        <Route
-                          path="workspaces/new"
-                          element={<CreateWorkspacePage />}
-                        />
-                        <Route path="onboarding" element={<OnboardingPage />} />
-                        <Route element={<Layout />}>
-                          <Route index element={<DashboardPage />} />
-                          <Route path="inbox" element={<InboxPage />} />
-                          <Route path="schedule" element={<SchedulePage />} />
-                          <Route
-                            path="schedule/automations"
-                            element={
-                              <Suspense fallback={null}>
-                                <AutomationsPage />
-                              </Suspense>
-                            }
-                          />
-                          <Route
-                            path="schedule/automations/:automationId"
-                            element={
-                              <Suspense fallback={null}>
-                                <AutomationBuilderPage />
-                              </Suspense>
-                            }
-                          />
-                          <Route
-                            path="conversations"
-                            element={<ConversationsPage />}
-                          />
-                          <Route path="agents" element={<AgentsPage />} />
-                          <Route
-                            path="machines"
-                            element={
-                              <Navigate to="/settings/machines" replace />
-                            }
-                          />
-                          <Route
-                            path="repositories/:projectId?"
-                            element={
-                              <Suspense fallback={null}>
-                                <ProjectsPage />
-                              </Suspense>
-                            }
-                          />
-                          <Route
-                            path="plugins"
-                            element={
-                              <Suspense fallback={null}>
-                                <PluginsPage />
-                              </Suspense>
-                            }
-                          />
-                          <Route
-                            path="boards"
-                            element={
-                              <Suspense fallback={null}>
-                                <BoardsPage />
-                              </Suspense>
-                            }
-                          />
-                          <Route path="artifacts" element={<ArtifactsPage />} />
-                          <Route
-                            path="artifacts/databases/:databaseId"
-                            element={<ArtifactDatabasePage />}
-                          />
-                          <Route
-                            path="artifacts/:fileId"
-                            element={<WorkspaceFilePage />}
-                          />
-                          <Route path="settings" element={<SettingsLayout />}>
-                            <Route
-                              index
-                              element={
-                                <Navigate to="/settings/profile" replace />
-                              }
-                            />
-                            <Route
-                              path="profile"
-                              element={<ProfileSettings />}
-                            />
-                            <Route
-                              path="workspace"
-                              element={<WorkspaceSettings />}
-                            />
-                            <Route
-                              path="connection"
-                              element={<ConnectionSettings />}
-                            />
-                            <Route
-                              path="webhooks"
-                              element={<WebhooksSettings />}
-                            />
-                            <Route
-                              path="appearance"
-                              element={<AppearanceSettings />}
-                            />
-                            <Route
-                              path="notifications"
-                              element={<NotificationsSettings />}
-                            />
-                            <Route
-                              path="environment"
-                              element={<EnvironmentSettings />}
-                            />
-                            <Route
-                              path="machines"
-                              element={<SettingsMachines />}
-                            />
-                            <Route
-                              path="integrations/*"
-                              element={<Navigate to="/plugins" replace />}
-                            />
-                          </Route>
-                        </Route>
-                      </Routes>
-                    </OnboardingGate>
-                  </ChannelReadStateProvider>
-                </MentionPeopleProvider>
-              </WorkspaceChannelsProvider>
-            </ChiefNavigationProvider>
-          </BrowserRouter>
+          <AuthenticatedRouter />
         </AgentAppearanceProvider>
       </AgentConfigProvider>
     </RuntimeProvider>
