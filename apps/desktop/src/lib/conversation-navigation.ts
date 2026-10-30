@@ -115,3 +115,17 @@ export function withoutConversationChild(
   else next.delete("thread");
   return next;
 }
+
+/** Activity replaces auxiliary content while retaining the owning run thread. */
+export function withConversationActivity(
+  current: URLSearchParams,
+  open: boolean,
+) {
+  const next = new URLSearchParams(current);
+  if (open) {
+    next.delete("child");
+    next.delete("profile");
+    next.set("activity", "1");
+  } else next.delete("activity");
+  return next;
+}

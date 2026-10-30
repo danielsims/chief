@@ -587,7 +587,7 @@ export function AutomationCanvas({
         onClick={deselect}
       >
         <div
-          className="flex min-h-full min-w-max justify-center px-16 pt-12 pb-48"
+          className="flex min-h-full min-w-max justify-center px-4 pt-12 pb-48"
           style={{ zoom }}
           onClick={deselect}
         >

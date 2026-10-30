@@ -41,7 +41,9 @@ export function AgentActivityPanel({
   onClose,
   onOpenTask,
   sizing,
+  className,
 }: {
+  className?: string;
   error?: ChatRuntimeError;
   turns: readonly ConversationActivityTurn[];
   activeAgentId?: string;
@@ -122,7 +124,11 @@ export function AgentActivityPanel({
     ),
   );
   return (
-    <ConversationAuxiliaryPanel onClose={onClose} sizing={sizing}>
+    <ConversationAuxiliaryPanel
+      onClose={onClose}
+      sizing={sizing}
+      className={className}
+    >
       <ConversationAuxiliaryPanelHeader
         title={selected?.name ?? title ?? "Activity"}
         subtitle={flat ? "Activity" : undefined}
@@ -311,7 +317,7 @@ function relayJobForTurn(
 }
 
 /** A quiet, contained notice for a stopped run or a runtime error. */
-function ActivityNotice({
+export function ActivityNotice({
   title,
   message,
   action,

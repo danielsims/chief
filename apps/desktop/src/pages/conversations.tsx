@@ -30,6 +30,7 @@ import { useRunningChats } from "../components/chat/use-running-chats";
 import { workspaceCardClassName } from "../components/workspace-content-surface";
 import { useAuth } from "../lib/auth/auth-context";
 import {
+  withConversationActivity,
   withConversationThread,
   withoutConversationChild,
   withResolvedConversationChild,
@@ -350,21 +351,9 @@ export function ConversationsPage() {
     });
   };
   const setActivityPanel = (open: boolean) => {
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (open) {
-          next.delete("thread");
-          next.delete("child");
-          next.delete("profile");
-          next.set("activity", "1");
-        } else {
-          next.delete("activity");
-        }
-        return next;
-      },
-      { state: navigationState },
-    );
+    setParams((current) => withConversationActivity(current, open), {
+      state: navigationState,
+    });
   };
   const setConversationView = (view: ChannelView) => {
     setParams((current) => {
