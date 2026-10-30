@@ -84,6 +84,7 @@ export function useDatabase(databaseId: string) {
   );
   const [error, setError] = useState("");
   const busy = useRef(0);
+  const latestRead = useRef(0);
 
   // Local changes are remembered too, so reopening shows them.
   useEffect(() => {
@@ -92,19 +93,24 @@ export function useDatabase(databaseId: string) {
 
   const refresh = useCallback(() => {
     if (!client || busy.current) return;
+    // A slower, older read must not overwrite a newer one or leave its error
+    // behind after the newer read succeeded.
+    const request = ++latestRead.current;
     void readDatabase(client.databases, key, databaseId).then(
       (next) => {
-        if (busy.current) return;
+        if (busy.current || request !== latestRead.current) return;
         setData(next);
         setError("");
       },
-      (cause) =>
+      (cause) => {
+        if (busy.current || request !== latestRead.current) return;
         setError(
           failure(
             parseRelayError(cause),
             "Couldn't load this. Check your connection.",
           ),
-        ),
+        );
+      },
     );
   }, [client, databaseId, key]);
 
@@ -113,6 +119,7 @@ export function useDatabase(databaseId: string) {
     const timer = window.setInterval(refresh, 15_000);
     window.addEventListener("focus", refresh);
     return () => {
+      latestRead.current += 1;
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
@@ -152,8 +159,10 @@ export function useDatabase(databaseId: string) {
       () => client.databases.saveRow(databaseId, change),
       "Couldn't save that.",
     );
-    if (saved) placeRow(saved);
-    else refresh();
+    if (saved) {
+      setError("");
+      placeRow(saved);
+    } else refresh();
     return saved;
   };
 
@@ -184,7 +193,9 @@ export function useDatabase(databaseId: string) {
       message,
     );
     if (!saved) return false;
+    setError("");
     setData((current) => (current ? { ...current, database: saved } : current));
+    announceDatabasesChanged();
     // Changing fields can empty cells, so rows are read again.
     if (change.fields) refresh();
     return true;
@@ -193,6 +204,7 @@ export function useDatabase(databaseId: string) {
   return {
     data,
     error,
+    refresh,
     saveRow,
     removeRow,
     saveDatabase,
@@ -249,7 +261,20 @@ export function usePeople(): DatabasePersonOption[] {
   }));
 }
 
-const databasesChanged = "chief:databases-changed";
+export const databasesChanged = "chief:databases-changed";
+
+/** Evict deleted rows and metadata so reopening cannot show a stale board. */
+export function forgetDatabase(databaseId: string, workspaceId?: string) {
+  cache.delete(`${workspaceId}:${databaseId}`);
+  if (workspaceId) {
+    const remaining = (cachedDatabases(workspaceId) ?? []).filter(
+      (database) => database.id !== databaseId,
+    );
+    listed.set(workspaceId, remaining);
+    writeStored(workspaceId, remaining);
+  }
+  announceDatabasesChanged();
+}
 
 /** Tells every open list of databases to read again, after one is added or removed. */
 export function announceDatabasesChanged() {

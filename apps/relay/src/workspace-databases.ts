@@ -10,6 +10,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   boardTemplate,
+  canDeleteDatabase,
   cellAsFlag,
   cellAsNumber,
   cellAsPerson,
@@ -97,12 +98,37 @@ function writeRow(
   });
 }
 
+/** A database shows one board and one table; older saves may hold duplicates. */
+function uniqueViews(views: Database["views"]) {
+  const seen = new Set<Database["views"][number]["layout"]>();
+  return views.filter((view) => {
+    if (seen.has(view.layout)) return false;
+    seen.add(view.layout);
+    return true;
+  });
+}
+
 function databases(storage: DurableObjectStorage) {
   const all = readDatabases(storage);
-  if (all.some((database) => database.id === workspaceBoardId)) return all;
+  const repaired = all.flatMap((database) => {
+    const views = uniqueViews(database.views);
+    return views.length === database.views.length
+      ? []
+      : [{ ...database, views }];
+  });
+  if (repaired.length)
+    storage.transactionSync(() => {
+      for (const database of repaired) writeDatabase(storage, database);
+    });
+  const cleaned = all.map(
+    (database) =>
+      repaired.find((candidate) => candidate.id === database.id) ?? database,
+  );
+  if (cleaned.some((database) => database.id === workspaceBoardId))
+    return cleaned;
   const board = workspaceBoard(Date.now());
   writeDatabase(storage, board);
-  return [...all, board];
+  return [...cleaned, board];
 }
 
 /** One title field, first; unique ids; boards grouped by a select field. */
@@ -120,6 +146,10 @@ function checkStructure(fields: DatabaseField[], views: Database["views"]) {
       throw invalid(`Each option in ${field.name} needs its own id.`);
   if (new Set(views.map((view) => view.id)).size !== views.length)
     throw invalid("Each view needs its own id.");
+  if (new Set(views.map((view) => view.layout)).size !== views.length)
+    throw invalid(
+      "A database can have only one Board view and one Database view.",
+    );
   for (const view of views)
     if (
       view.layout === "board" &&
@@ -277,7 +307,21 @@ export async function routeWorkspaceDatabases(
         "database_required",
         "The workspace board can't be deleted.",
       );
-    databasesDeleteDatabase(storage, database.id);
+    const role = channels.memberRole("user", principal.userId);
+    if (
+      !canDeleteDatabase(
+        database,
+        role ? { userId: principal.userId, role } : null,
+      )
+    )
+      throw new HttpError(
+        403,
+        "database_delete_denied",
+        "Only a workspace owner or the database creator can delete this database.",
+      );
+    storage.transactionSync(() =>
+      databasesDeleteDatabase(storage, database.id),
+    );
     return json({ deleted: true });
   }
 
@@ -299,7 +343,10 @@ export async function routeWorkspaceDatabases(
     const fields = input.fields ??
       current?.fields ?? [{ id: "title", name: "Name", type: "title" }];
     const views = input.views ??
-      current?.views ?? [{ id: "table", name: "Table", layout: "table" }];
+      current?.views.filter(
+        (view, index, list) =>
+          list.findIndex((other) => other.layout === view.layout) === index,
+      ) ?? [{ id: "table", name: "Database", layout: "table" }];
     checkStructure(fields, views);
     // Only a channel newly added has to be one the saver can read.
     const shownIn = [...new Set(input.channels ?? current?.channels ?? [])].map(
@@ -313,6 +360,13 @@ export async function routeWorkspaceDatabases(
       name: input.name ?? current?.name ?? "",
       fields,
       views,
+      createdBy: current
+        ? current.createdBy
+        : databasePersonSchema.parse(
+            principal.kind === "user"
+              ? { kind: "user", id: principal.userId }
+              : { kind: "agent", id: principal.agentId },
+          ),
       createdAt: current?.createdAt ?? now,
       updatedAt: now,
     };

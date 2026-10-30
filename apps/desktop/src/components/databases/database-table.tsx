@@ -16,7 +16,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { DatabasePersonOption } from "./database-model";
 import type { DatabaseState } from "./use-database";
-import { CellEditor, InlineField } from "./database-cells";
+import { CellValue, InlineField } from "./database-cells";
 import { DatabaseFieldDialog } from "./database-field-dialog";
 import { fieldIcon } from "./database-model";
 
@@ -36,7 +36,7 @@ export function DatabaseTable({
   state: DatabaseState;
   rows: readonly DatabaseRow[];
   people: readonly DatabasePersonOption[];
-  onOpenRow: (row: DatabaseRow) => void;
+  onOpenRow: (row: DatabaseRow, fieldId?: string) => void;
 }) {
   const database = state.data?.database;
   const [editingField, setEditingField] = useState<DatabaseField | "new">();
@@ -144,19 +144,20 @@ export function DatabaseTable({
           >
             {fields.map((field, index) => (
               <div key={field.id} role="cell" className="relative min-w-0">
-                <CellEditor
-                  field={field}
-                  value={row.values[field.id]}
-                  people={people}
+                <button
+                  type="button"
+                  aria-label={`Open ${field.name} for row ${row.id}`}
                   className={cn(cellClass, index === 0 && "pr-9 font-medium")}
-                  placeholder={index === 0 ? "Untitled" : ""}
-                  onChange={(value) =>
-                    void state.saveRow({
-                      id: row.id,
-                      values: { [field.id]: value },
-                    })
-                  }
-                />
+                  onClick={() => onOpenRow(row, field.id)}
+                >
+                  <CellValue
+                    field={field}
+                    value={row.values[field.id]}
+                    people={people}
+                    linked={false}
+                  />
+                  {index === 0 && !row.values[field.id] ? "Untitled" : null}
+                </button>
                 {index === 0 ? (
                   <button
                     type="button"

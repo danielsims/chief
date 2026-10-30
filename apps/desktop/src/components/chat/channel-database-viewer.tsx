@@ -1,16 +1,5 @@
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
-
-import { workspaceBoardId } from "@chief/relay-contracts";
-import { Button } from "@chief/ui/components/button";
-
-import { DatabaseDeleteDialog } from "../databases/database-delete-dialog";
-import { isBoard } from "../databases/database-model";
 import { DatabaseView } from "../databases/database-view";
-import {
-  announceDatabasesChanged,
-  useDatabases,
-} from "../databases/use-database";
+import { useDatabases } from "../databases/use-database";
 
 /** A database opened from a channel's artifacts, under the channel's tabs. */
 export function ChannelDatabaseViewer({
@@ -24,10 +13,7 @@ export function ChannelDatabaseViewer({
   onClosed: () => void;
 }) {
   const { databases, loaded } = useDatabases(conversationId);
-  const [deleting, setDeleting] = useState(false);
   const database = databases.find((candidate) => candidate.id === databaseId);
-  // A board reads the same as on the Boards page: just the lanes and a filter.
-  const board = database ? isBoard(database) : false;
   if (loaded && !database)
     return (
       <div className="text-muted-foreground grid flex-1 place-items-center px-6 text-center text-sm">
@@ -39,33 +25,8 @@ export function ChannelDatabaseViewer({
       <DatabaseView
         key={databaseId}
         databaseId={databaseId}
-        boardOnly={board}
-        compact
-        {...(board ? { newLabel: null } : undefined)}
-        actions={
-          database && database.id !== workspaceBoardId ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Delete"
-              aria-label={`Delete ${database.name}`}
-              onClick={() => setDeleting(true)}
-            >
-              <Trash2 size={14} />
-            </Button>
-          ) : null
-        }
+        onDeleted={onClosed}
       />
-      {deleting && database ? (
-        <DatabaseDeleteDialog
-          database={database}
-          onClose={() => setDeleting(false)}
-          onDeleted={() => {
-            announceDatabasesChanged();
-            onClosed();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

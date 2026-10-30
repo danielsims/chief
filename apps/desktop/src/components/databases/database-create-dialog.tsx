@@ -29,7 +29,7 @@ const pillClass =
 
 const tableTemplate = (): Pick<Database, "fields" | "views"> => ({
   fields: [{ id: "title", name: "Name", type: "title" }],
-  views: [{ id: "table", name: "Table", layout: "table" }],
+  views: [{ id: "table", name: "Database", layout: "table" }],
 });
 
 /** The channels a database can be kept to. */

@@ -1,6 +1,7 @@
 import type { LucideProps } from "lucide-react";
 import {
   AppWindow,
+  Columns3,
   File,
   FileText,
   Image,
@@ -13,9 +14,13 @@ import {
 import type { WorkspaceFileRecord } from "@chief/agent-runtime/types";
 import { pageMimeType } from "@chief/relay-contracts";
 
+import { pageBoard } from "../pages/page-board";
+
 export function fileCategory(
-  file: Pick<WorkspaceFileRecord, "mimeType" | "kind">,
+  file: Pick<WorkspaceFileRecord, "mimeType" | "kind" | "previewContent">,
 ) {
+  if (file.mimeType === pageMimeType && pageBoard(file.previewContent))
+    return "Boards";
   if (file.mimeType === "text/html" || file.mimeType === pageMimeType)
     return "Pages";
   if (file.mimeType.startsWith("image/")) return "Images";
@@ -33,11 +38,15 @@ export function fileCategory(
 export function FileTypeIcon({
   file,
   ...props
-}: LucideProps & { file: Pick<WorkspaceFileRecord, "mimeType" | "kind"> }) {
+}: LucideProps & {
+  file: Pick<WorkspaceFileRecord, "mimeType" | "kind" | "previewContent">;
+}) {
   if (file.mimeType.startsWith("image/")) return <Image {...props} />;
   if (file.mimeType.startsWith("video/")) return <Video {...props} />;
   if (file.mimeType.startsWith("audio/")) return <Music2 {...props} />;
   if (file.kind === "email") return <Mail {...props} />;
+  if (file.mimeType === pageMimeType && pageBoard(file.previewContent))
+    return <Columns3 {...props} />;
   if (file.mimeType === pageMimeType) return <LayoutDashboard {...props} />;
   if (file.mimeType === "text/html") return <AppWindow {...props} />;
   return fileCategory(file) === "Documents" ? (
