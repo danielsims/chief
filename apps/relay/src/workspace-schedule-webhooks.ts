@@ -34,7 +34,11 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
-import { queueScheduleRun } from "./workspace-schedule-runs";
+import {
+  listScheduleRuns,
+  queueScheduleRun,
+  readScheduleRun,
+} from "./workspace-schedule-runs";
 import {
   readWorkspaceSchedule,
   wakeWorkspaceSchedules,
@@ -455,6 +459,45 @@ async function receiveDelivery(
   recordWebhookEvent(storage, scheduleId, input, now);
   const stored = readWorkspaceSchedule(storage, scheduleId);
   if (!stored?.approvedBy || stored.schedule.status !== "active") {
+    // A loop can still exercise an unapproved automation through a test run,
+    // which previews writes and never posts. It runs as the last person who
+    // tested this automation, so channel access and approval stay theirs.
+    const wantsTest = request.headers.get("x-chief-test-run") === "1";
+    if (wantsTest && stored?.schedule.automation?.steps.length) {
+      const previous = listScheduleRuns(storage, scheduleId)
+        .filter((run) => run.test)
+        .sort((left, right) => right.createdAt - left.createdAt)[0];
+      const principal = previous
+        ? readScheduleRun(storage, previous.id)?.principal
+        : null;
+      if (principal) {
+        const run = queueScheduleRun(storage, stored.schedule, principal, {
+          id: crypto.randomUUID(),
+          source: "webhook",
+          sourceId: scheduleId,
+          scheduledAt: now,
+          input,
+          test: true,
+        });
+        workspaceWebhookDeliveriesInsertReceiveDelivery(storage, {
+          webhookId: scheduleId,
+          deliveryId: deliveryId ?? run.id,
+          bodyHash,
+          runId: run.id,
+          receivedAt: now,
+        });
+        saveWebhook(
+          storage,
+          { ...current.webhook, lastDeliveryAt: now, lastRunId: run.id },
+          current.token,
+        );
+        await wakeWorkspaceSchedules(storage);
+        return json(
+          { runId: run.id, duplicate: false, test: true },
+          { status: 202 },
+        );
+      }
+    }
     workspaceWebhookDeliveriesInsertReceiveDelivery(storage, {
       webhookId: scheduleId,
       deliveryId: deliveryId ?? crypto.randomUUID(),

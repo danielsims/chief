@@ -28,6 +28,7 @@ import {
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
 import { workspaceAgentNames } from "./workspace-agent-runtime";
+import { requireAutomationTester } from "./workspace-automation-agent";
 import { automationChatBrief } from "./workspace-automation-chat";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
@@ -151,12 +152,13 @@ export async function dispatchWorkspaceMessage(
     context.principal.kind === "agent" ? undefined : replyAgentId,
     context.principal.kind === "agent" ? context.principal.agentId : undefined,
   ).filter((id) => canMessageAgent(store, id, context.principal));
+  let scheduleId: string | undefined;
   if (scheduleRunId) {
     const run = readScheduleRun(storage, scheduleRunId)?.run;
+    scheduleId = run?.scheduleId;
     const step = run?.steps.find(
       (step) => step.id === (scheduleStepId ?? message.id),
     );
-    requireWorkspaceAdministrator(store, context.principal);
     if (
       !run ||
       !step ||
@@ -170,6 +172,9 @@ export async function dispatchWorkspaceMessage(
         "schedule_run_stopped",
         "This scheduled step is no longer active.",
       );
+    if (run.test)
+      requireAutomationTester(store, run.schedule, context.principal);
+    else requireWorkspaceAdministrator(store, context.principal);
     requireAgentMessageAccess(store, step.agentId, context.principal);
     agentIds = [step.agentId];
   }
@@ -240,6 +245,7 @@ export async function dispatchWorkspaceMessage(
             messageId: message.id,
             workflowId,
             ...(scheduleRunId ? { scheduleRunId } : undefined),
+            ...(scheduleId ? { scheduleId } : undefined),
             ...(scheduleStepId ? { scheduleStepId } : undefined),
             ...(threadRootId ? { threadRootId } : undefined),
             ...(projectRepo ? { projectRepo } : undefined),

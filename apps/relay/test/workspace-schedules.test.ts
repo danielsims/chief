@@ -8,12 +8,12 @@ import type {
 import {
   agentIdSchema,
   automationWebhookSchema,
-  directStartResultSchema,
   workspaceScheduleSchema,
   workspaceSchedulesResultSchema,
 } from "@chief/relay-contracts";
 
 import type { WorkspaceObject } from "../src/workspace-object";
+import type { setupChannelTest } from "./channel-test-helpers";
 import { withTrustedContext } from "../src/internal-context";
 import {
   drainWorkspaceSchedules,
@@ -29,61 +29,15 @@ import {
   channelEnvelope,
   channelRpc,
   registerTestAgent,
-  setupChannelTest,
   testAgentPrincipal,
   testConversationMessages,
 } from "./channel-test-helpers";
 import { hexKey } from "./helpers";
-
-async function setup(extraPermissions: string[] = []) {
-  const ctx = await setupChannelTest();
-  const pubkey = hexKey("scheduled-worker");
-  await registerTestAgent(ctx, agentId, pubkey);
-  await channelRpc(ctx, ctx.principal, "agent-config-set", {
-    agentId,
-    config: {
-      enabled: true,
-      deploymentTarget: "phone",
-      inference: { provider: "opencode", model: "test" },
-      approvals: "auto",
-      capabilities: [],
-      integrations: [],
-      toolPermissions: [
-        ...extraPermissions,
-        "workspace.read",
-        "workspace.write",
-        "messages.read",
-        "messages.send",
-      ],
-    },
-  });
-  const direct = await channelRpc(
-    ctx,
-    ctx.principal,
-    "directs-start",
-    channelEnvelope({ participant: { kind: "agent", principalId: agentId } }),
-  );
-  const conversationId = directStartResultSchema.parse(await direct.json())
-    .conversation.id;
-  const principal = testAgentPrincipal(ctx, agentId, pubkey);
-  const input = {
-    id: "weekly-marketing",
-    agentId,
-    conversationId,
-    title: "Review the marketing experiment",
-    instructions:
-      "Compare this week's signups with the baseline and suggest the next experiment.",
-    cron: "0 9 * * 1",
-    timezone: "Australia/Brisbane",
-    approvalSummary: "A weekly review in this channel.",
-    proposedToolPatterns: [],
-  };
-  return { ctx, principal, input };
-}
+import { setupScheduleTest } from "./workspace-schedule-test-helpers";
 
 describe("durable relay schedules", () => {
   it("accepts a complete agent-authored webhook proposal without an existing channel", async () => {
-    const { ctx, input, principal } = await setup([
+    const { ctx, input, principal } = await setupScheduleTest([
       "channels.create",
       "members.manage",
     ]);
@@ -109,7 +63,7 @@ describe("durable relay schedules", () => {
   });
 
   it("creates the automation channel and team atomically and reuses them on retry", async () => {
-    const { ctx, input, principal } = await setup();
+    const { ctx, input, principal } = await setupScheduleTest();
     const request = { ...input, newChannel: {}, triggerMode: "webhook" };
     const denied = await channelRpc(ctx, principal, "schedules-save", request);
     expect(denied.status).toBe(403);
@@ -172,7 +126,7 @@ describe("durable relay schedules", () => {
   });
 
   it("requires user approval, persists the proposal, and delivers each occurrence once into the real agent queue", async () => {
-    const { ctx, principal, input } = await setup();
+    const { ctx, principal, input } = await setupScheduleTest();
     const saved = await rpc(ctx, principal, "schedules-save", input);
     expect(saved.status).toBe(200);
     expect(workspaceScheduleSchema.parse(await saved.json()).status).toBe(
@@ -267,7 +221,7 @@ describe("durable relay schedules", () => {
   });
 
   it("invalidates approval when an agent changes the instructions, and pause removes future wakeups", async () => {
-    const { ctx, principal, input } = await setup();
+    const { ctx, principal, input } = await setupScheduleTest();
     await rpc(ctx, principal, "schedules-save", input);
     await rpc(
       ctx,
@@ -369,7 +323,7 @@ async function rpc(
 }
 
 it("issues a draft's webhook URL before saving and starts runs once it is on", async () => {
-  const { ctx, input } = await setup();
+  const { ctx, input } = await setupScheduleTest();
   const stub = ctx.env.WORKSPACES.get(
     ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
   );
@@ -526,7 +480,7 @@ it("issues a draft's webhook URL before saving and starts runs once it is on", a
 });
 
 it("waits for each phase's durable result before handing work to the next teammate", async () => {
-  const { ctx, principal, input } = await setup();
+  const { ctx, principal, input } = await setupScheduleTest();
   const teammate = agentIdSchema.parse("researcher");
   const teammateKey = hexKey("scheduled-researcher");
   await registerTestAgent(ctx, teammate, teammateKey);
@@ -667,7 +621,7 @@ it("waits for each phase's durable result before handing work to the next teamma
   }
 });
 it("retains recorded calendar occurrences after a run starts and its schedule is paused", async () => {
-  const { ctx, input } = await setup();
+  const { ctx, input } = await setupScheduleTest();
   await rpc(ctx, ctx.principal, "schedules-save", input);
   await rpc(
     ctx,

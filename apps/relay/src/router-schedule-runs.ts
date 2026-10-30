@@ -86,6 +86,10 @@ export async function routeScheduleRunRequest(
       throw new HttpError(404, "webhook_not_found", "Webhook not found.");
     headers.set("x-chief-webhook-token", token);
     headers.set("content-type", request.headers.get("content-type") ?? "");
+    // An external harness may ask for a test run while the automation is
+    // still awaiting approval; the workspace decides whether it can.
+    if (request.headers.get("x-chief-test-run") === "1")
+      headers.set("x-chief-test-run", "1");
     const deliveryId =
       request.headers.get("webhook-id") ??
       request.headers.get("idempotency-key");

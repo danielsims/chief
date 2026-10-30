@@ -116,6 +116,16 @@ export async function routeWorkspaceSchedule(
       if (context.principal.kind === "user")
         requireWorkspaceAdministrator(channels, context.principal);
       const previous = readWorkspaceSchedule(storage, input.id);
+      const expectedRevision = request.headers.get("if-match");
+      if (
+        expectedRevision !== null &&
+        expectedRevision !== `"${previous?.schedule.updatedAt}"`
+      )
+        throw new HttpError(
+          412,
+          "schedule_changed",
+          "This automation changed since you read it. Read its latest definition before editing.",
+        );
       if (previous)
         channels.requireChannelVisible(
           previous.schedule.conversationId,
