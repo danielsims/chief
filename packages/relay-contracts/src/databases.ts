@@ -145,6 +145,8 @@ export const databaseSchema = z.object({
   /** The channels it shows in. It is workspace data wherever it shows. */
   channels: channelsSchema.default([]),
   ...databaseParts,
+  /** Set by the relay on creation; never accepted in save commands. */
+  createdBy: databasePersonSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -247,7 +249,22 @@ export function boardTemplate(): Pick<Database, "fields" | "views"> {
     ],
     views: [
       { id: "board", name: "Board", layout: "board", groupBy: "status" },
-      { id: "table", name: "Table", layout: "table" },
+      { id: "table", name: "Database", layout: "table" },
     ],
   };
+}
+
+/** Deletion is limited to workspace owners and the database's human creator. */
+export function canDeleteDatabase(
+  database: Pick<Database, "id" | "createdBy">,
+  member: { userId: string; role: string } | null,
+): boolean {
+  return (
+    database.id !== workspaceBoardId &&
+    member !== null &&
+    (member.role === "owner" ||
+      ((member.role === "member" || member.role === "admin") &&
+        database.createdBy?.kind === "user" &&
+        database.createdBy.id === member.userId))
+  );
 }

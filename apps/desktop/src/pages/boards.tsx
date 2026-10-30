@@ -8,7 +8,6 @@ import {
   Pencil,
   Plus,
   Settings2,
-  Trash2,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -34,11 +33,10 @@ import {
   DatabaseCreateDialog,
   useChannelChoices,
 } from "../components/databases/database-create-dialog";
-import { DatabaseDeleteDialog } from "../components/databases/database-delete-dialog";
-import { isBoard } from "../components/databases/database-model";
 import { DatabaseView } from "../components/databases/database-view";
 import {
   announceDatabasesChanged,
+  databasesChanged,
   usePrefetchDatabase,
 } from "../components/databases/use-database";
 import { PageHeader } from "../components/page-header";
@@ -48,7 +46,9 @@ import { useRelaySession } from "../lib/relay-session-context";
 /** The workspace's boards, with the workspace board first. */
 function boardsOf(databases: readonly Database[]) {
   return databases
-    .filter(isBoard)
+    .filter((database) =>
+      database.views.some((view) => view.layout === "board"),
+    )
     .sort(
       (left, right) =>
         Number(right.id === workspaceBoardId) -
@@ -69,7 +69,6 @@ export function BoardsPage() {
     () => listed.get(workspaceId) ?? null,
   );
   const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<Database | null>(null);
   const [renaming, setRenaming] = useState<Database | null>(null);
 
   useEffect(() => {
@@ -88,7 +87,12 @@ export function BoardsPage() {
     [client],
   );
   useEffect(() => {
-    void load();
+    const refresh = () => {
+      void load();
+    };
+    refresh();
+    window.addEventListener(databasesChanged, refresh);
+    return () => window.removeEventListener(databasesChanged, refresh);
   }, [load]);
 
   const select = (id: string) =>
@@ -126,19 +130,25 @@ export function BoardsPage() {
   const picker = board ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="max-w-64">
+        <Button
+          variant="outline"
+          size="sm"
+          className="max-w-[min(32rem,100%)] min-w-0 shrink"
+          title={board.name}
+        >
           <Columns3 size={13} className="text-muted-foreground" />
-          <span className="truncate">{board.name}</span>
+          <span className="min-w-0 truncate">{board.name}</span>
           <ChevronDown size={13} className="text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="max-h-80 min-w-56 overflow-y-auto"
+        className="max-h-80 max-w-[min(36rem,calc(100vw-32px))] min-w-56 overflow-y-auto"
       >
         {boards?.map((candidate) => (
           <DropdownMenuItem
             key={candidate.id}
+            title={candidate.name}
             onSelect={() => select(candidate.id)}
             onPointerEnter={() => prefetch(candidate.id)}
           >
@@ -204,15 +214,6 @@ export function BoardsPage() {
           <Pencil size={13} />
           Rename
         </DropdownMenuItem>
-        {board.id !== workspaceBoardId ? (
-          <DropdownMenuItem
-            className="text-destructive"
-            onSelect={() => setDeleting(board)}
-          >
-            <Trash2 size={13} />
-            Delete board
-          </DropdownMenuItem>
-        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   ) : null;
@@ -224,10 +225,15 @@ export function BoardsPage() {
         <DatabaseView
           key={board.id}
           databaseId={board.id}
-          boardOnly
           leading={picker}
           newLabel={null}
           actions={settings}
+          onDeleted={() => {
+            select(workspaceBoardId);
+            setBoards((current) =>
+              (current ?? []).filter((other) => other.id !== board.id),
+            );
+          }}
         />
       ) : null}
       {creating ? (
@@ -249,19 +255,6 @@ export function BoardsPage() {
           onRename={(name) => {
             setRenaming(null);
             change(renaming, { name });
-          }}
-        />
-      ) : null}
-      {deleting ? (
-        <DatabaseDeleteDialog
-          database={deleting}
-          onClose={() => setDeleting(null)}
-          onDeleted={() => {
-            announceDatabasesChanged();
-            select(workspaceBoardId);
-            setBoards((current) =>
-              (current ?? []).filter((other) => other.id !== deleting.id),
-            );
           }}
         />
       ) : null}

@@ -1,5 +1,6 @@
 import type { BaseComponentProps } from "@json-render/react";
 import type { ReactNode } from "react";
+import { createContext, useContext } from "react";
 import { useStateBinding } from "@json-render/react";
 import { z } from "zod";
 
@@ -15,10 +16,23 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { StreamingMarkdown } from "../chat/streaming-markdown";
 import { ColorDot } from "../databases/database-cells";
+import { DatabaseView } from "../databases/database-view";
 import { insetCardClass } from "../inset-card";
 
 // Props reach these components resolved: bindings are already values. They
 // are still read through parsers, since a binding can resolve to anything.
+export const PageBoardSources = createContext<
+  Record<string, { database: string }>
+>({});
+
+function Board({ props }: BaseComponentProps) {
+  const sources = useContext(PageBoardSources);
+  const source = sources[text(props, "source")];
+  return source ? (
+    <DatabaseView databaseId={source.database} newLabel={null} />
+  ) : null;
+}
+
 const rowsSchema = z.array(z.record(z.string(), jsonValueSchema));
 const columnsSchema = z.array(z.object({ key: z.string(), label: z.string() }));
 const optionsSchema = z.array(z.string());
@@ -54,6 +68,7 @@ export const pageComponentViews: Record<
   PageComponentName,
   (context: BaseComponentProps) => ReactNode
 > = {
+  Board,
   Stack: ({ props, children }) => (
     <div
       className={cn(

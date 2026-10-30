@@ -52,6 +52,12 @@ const rows = bound(z.array(z.record(z.string(), jsonValueSchema)).max(1_000));
 
 /** Each component: its props, whether it holds children, and what it's for. */
 export const pageComponents = {
+  Board: {
+    props: z.object({ source: keySchema }).strict(),
+    children: false,
+    description:
+      "An interactive Chief board of an existing source database. Cards are its live rows; dragging updates their status. Use this instead of a summary page when asked for a board. The database must have a board view grouped by a select field.",
+  },
   Stack: {
     props: z
       .object({
@@ -267,6 +273,7 @@ function elementOf<Name extends PageComponentName>(name: Name) {
 
 /** One element, with the props of its component. */
 export const pageElementSchema = z.discriminatedUnion("type", [
+  elementOf("Board"),
   elementOf("Stack"),
   elementOf("Grid"),
   elementOf("Card"),
@@ -345,7 +352,14 @@ export function parsePageDocument(content: string) {
     ...keys.flatMap((key) => {
       const element = elements[key];
       if (!element) return [];
+      const board =
+        element.type === "Board"
+          ? pageComponents.Board.props.safeParse(element.props)
+          : undefined;
       return [
+        ...(board?.success && !page.sources?.[board.data.source]
+          ? [`${key}: board source "${board.data.source}" doesn't exist.`]
+          : []),
         ...(element.children.length && !pageComponents[element.type].children
           ? [`${key}: ${element.type} can't hold children.`]
           : []),

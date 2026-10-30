@@ -1,6 +1,6 @@
-import type { ComputedFunction, Spec } from "@json-render/core";
+import type { ComputedFunction } from "@json-render/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { defineCatalog, VisibilityConditionSchema } from "@json-render/core";
+import { defineCatalog } from "@json-render/core";
 import {
   createStateStore,
   defineRegistry,
@@ -15,7 +15,6 @@ import type {
   DatabaseWithRows,
   JsonValue,
   PageDocument,
-  PageSpec,
 } from "@chief/relay-contracts";
 import {
   cellAsPerson,
@@ -31,8 +30,11 @@ import type { DatabasePersonOption } from "../databases/database-model";
 import { parseRelayError } from "../../lib/relay-runtime-errors";
 import { useRelaySession } from "../../lib/relay-session-context";
 import { personOf } from "../databases/database-model";
+import { DatabaseView } from "../databases/database-view";
 import { usePeople } from "../databases/use-database";
-import { pageComponentViews } from "./page-components";
+import { pageBoard } from "./page-board";
+import { PageBoardSources, pageComponentViews } from "./page-components";
+import { rendererSpec } from "./page-renderer-spec";
 
 const catalog = defineCatalog(schema, {
   components: Object.fromEntries(
@@ -114,35 +116,19 @@ export function PageView({ content }: { content: string }) {
         <p className="mt-1 whitespace-pre-wrap">{parsed.error}</p>
       </div>
     );
+  const board = pageBoard(content);
+  if (board)
+    return (
+      <div className="flex min-h-0 flex-1 flex-col pt-4">
+        <DatabaseView databaseId={board.database} newLabel={null} />
+      </div>
+    );
   return <LivePage key={content} page={parsed.page} />;
 }
 
 type PageHandlers = NonNullable<
   Parameters<typeof JSONUIProvider>[0]["handlers"]
 >;
-
-/**
- * The page's spec as the renderer takes it. A visibility condition the
- * renderer can't read hides its element, rather than showing it by mistake.
- */
-function rendererSpec(page: PageSpec): Spec {
-  return {
-    root: page.root,
-    ...(page.state ? { state: page.state } : undefined),
-    elements: Object.fromEntries(
-      Object.entries(page.elements).map(([key, element]) => {
-        const visible = VisibilityConditionSchema.safeParse(element.visible);
-        return [
-          key,
-          {
-            ...element,
-            visible: visible.success ? visible.data : false,
-          },
-        ];
-      }),
-    ),
-  };
-}
 
 function LivePage({ page }: { page: PageDocument }) {
   const spec = useMemo(() => rendererSpec(page.spec), [page]);
@@ -215,15 +201,23 @@ function LivePage({ page }: { page: PageDocument }) {
   );
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-6">
-      <JSONUIProvider
-        registry={registry}
-        store={store}
-        handlers={handlers}
-        functions={{ count, sum }}
-      >
-        <Renderer spec={spec} registry={registry} />
-      </JSONUIProvider>
+    <div
+      className={
+        page.spec.elements[page.spec.root]?.type === "Board"
+          ? "flex min-h-0 flex-1 flex-col pt-4"
+          : "mx-auto w-full max-w-4xl px-6 py-6"
+      }
+    >
+      <PageBoardSources value={page.sources ?? {}}>
+        <JSONUIProvider
+          registry={registry}
+          store={store}
+          handlers={handlers}
+          functions={{ count, sum }}
+        >
+          <Renderer spec={spec} registry={registry} />
+        </JSONUIProvider>
+      </PageBoardSources>
     </div>
   );
 }

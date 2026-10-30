@@ -17,6 +17,7 @@ import {
 import { fileCategory, FileTypeIcon } from "../files/file-presentation";
 import { MediaPreview } from "../files/media-preview";
 import { listColumnClass, ListRow } from "../list-row";
+import { pageBoard } from "../pages/page-board";
 import { ChannelArtifactViewer } from "./channel-artifact-viewer";
 import { ChannelDatabaseViewer } from "./channel-database-viewer";
 
@@ -56,6 +57,25 @@ export function ChannelArtifacts({
       if (id) next.set(key, id);
       return next;
     });
+  // A board page is a view of its database, not a separate artifact. Resolve
+  // it from the file list so opening the tab goes straight to the board
+  // instead of flashing the page viewer first.
+  const selectedFile = selected
+    ? files.find(
+        (file) =>
+          file.id === selected && file.sourceConversationId === conversationId,
+      )
+    : undefined;
+  const selectedBoard = pageBoard(selectedFile?.previewContent);
+  if (selected && selectedBoard)
+    return (
+      <ChannelDatabaseViewer
+        key={selectedBoard.database}
+        databaseId={selectedBoard.database}
+        conversationId={conversationId}
+        onClosed={() => select("artifact", null)}
+      />
+    );
   if (selected)
     return (
       <ChannelArtifactViewer
@@ -101,7 +121,11 @@ export function ChannelArtifacts({
       ),
     })),
     ...files
-      .filter((file) => file.sourceConversationId === conversationId)
+      .filter(
+        (file) =>
+          file.sourceConversationId === conversationId &&
+          !pageBoard(file.previewContent),
+      )
       .map((file) => ({
         key: `file:${file.id}`,
         updatedAt: file.updatedAt,
@@ -120,13 +144,15 @@ export function ChannelArtifacts({
             }
             title={file.name}
             subtitle={
-              fileCategory(file) === "Pages"
-                ? "Page"
-                : file.mimeType === "text/csv"
-                  ? "Spreadsheet"
-                  : file.asset
-                    ? "Media"
-                    : "Document"
+              pageBoard(file.previewContent)
+                ? "Board"
+                : fileCategory(file) === "Pages"
+                  ? "Page"
+                  : file.mimeType === "text/csv"
+                    ? "Spreadsheet"
+                    : file.asset
+                      ? "Media"
+                      : "Document"
             }
             trailing={<When at={file.updatedAt} />}
           />

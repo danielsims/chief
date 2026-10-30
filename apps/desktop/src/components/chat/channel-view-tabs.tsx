@@ -15,6 +15,8 @@ import { useAuth } from "../../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../../lib/runtime";
 import { isBoard } from "../databases/database-model";
 import { useDatabases, usePrefetchDatabase } from "../databases/use-database";
+import { pageBoard } from "../pages/page-board";
+import { canonicalChannelTab, uniqueChannelTabs } from "./channel-tab-identity";
 import { useChannelTabs } from "./channel-tabs";
 
 export type ChannelView = "messages" | "artifacts";
@@ -44,8 +46,8 @@ export function ChannelViewTabs({
 }) {
   const [params, setParams] = useSearchParams();
   const { cloudOrganizationId } = useAuth();
-  const { files } = useWorkspaceFiles(cloudOrganizationId);
-  const { databases } = useDatabases(channelId);
+  const { files, loaded: filesLoaded } = useWorkspaceFiles(cloudOrganizationId);
+  const { databases, loaded } = useDatabases(channelId);
   const prefetch = usePrefetchDatabase();
   const fileId = params.get("artifact");
   const databaseId = params.get("database");
@@ -55,7 +57,7 @@ export function ChannelViewTabs({
   const openDatabase = databaseId
     ? databases.find((candidate) => candidate.id === databaseId)
     : undefined;
-  const active: ChannelTab | undefined =
+  const requested: ChannelTab | undefined =
     activeView !== "artifacts"
       ? undefined
       : fileId
@@ -71,6 +73,10 @@ export function ChannelViewTabs({
               ...(openDatabase ? { name: openDatabase.name } : undefined),
             }
           : undefined;
+  const active =
+    requested && (requested.kind !== "file" || filesLoaded)
+      ? canonicalChannelTab(requested, files, databases)
+      : undefined;
   const { tabs, collapsed, setCollapsed, close } = useChannelTabs(
     channelId,
     active,
@@ -83,12 +89,13 @@ export function ChannelViewTabs({
     name: database.name,
   }));
   const pinnedIds = new Set(pinned.map((tab) => tab.id));
-  const visibleTabs = [
-    ...pinned,
-    ...tabs.filter(
-      (tab) => !(tab.kind === "database" && pinnedIds.has(tab.id)),
-    ),
-  ];
+  const visibleTabs = uniqueChannelTabs(
+    [...pinned, ...tabs],
+    files,
+    databases,
+    loaded,
+    filesLoaded,
+  );
   const isActive = (tab: ChannelTab) =>
     active?.kind === tab.kind && active.id === tab.id;
   const labelled = visibleTabs.flatMap((tab) => {
@@ -101,7 +108,7 @@ export function ChannelViewTabs({
         {
           tab,
           name: candidate?.name ?? tab.name ?? "Artifact",
-          icon: FileText,
+          icon: pageBoard(candidate?.previewContent) ? Columns3 : FileText,
         },
       ];
     }
