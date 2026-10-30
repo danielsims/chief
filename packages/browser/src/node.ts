@@ -239,7 +239,24 @@ export class AgentBrowserSession {
     );
   }
 
-  async snapshot(): Promise<AgentBrowserSnapshot> {
+  async snapshot(
+    options: { includeText?: boolean } = {},
+  ): Promise<AgentBrowserSnapshot> {
+    let text: string | undefined;
+    if (options.includeText) {
+      // Link clicks can finish while the next document is still committing.
+      // DOM text reads do not auto-wait for its body like control actions do.
+      await this.command(["wait", "body"]);
+      const body = await this.command(["get", "text", "body"]);
+      text =
+        parseBrowserText(body) ??
+        (isBrowserRecord(body)
+          ? (parseBrowserText(body.text) ?? parseBrowserText(body.value))
+          : undefined);
+      if (text === undefined)
+        throw new Error("The browser did not return readable page text.");
+    }
+    // Generate controls from the same document after its text is available.
     const result = await this.commandRecord([
       "snapshot",
       "--interactive",
@@ -247,8 +264,13 @@ export class AgentBrowserSession {
     ]);
     this.snapshotRefs = parseSnapshotRefs(result.refs);
     const [url, title] = await Promise.all([this.getUrl(), this.getTitle()]);
+    const controls =
+      parseBrowserText(result.snapshot) ?? JSON.stringify(result);
     return {
-      snapshot: parseBrowserText(result.snapshot) ?? JSON.stringify(result),
+      snapshot:
+        text === undefined
+          ? controls
+          : `Page text:\n${text}\n\nPage controls:\n${controls}`,
       title,
       url,
     };

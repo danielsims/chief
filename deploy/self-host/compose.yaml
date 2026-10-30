@@ -16,6 +16,8 @@ x-relay-environment: &relay-environment
   RELAY_SECRET_KEY_FILE: /run/secrets/relay_secret_key
   RELAY_ID_FILE: /run/secrets/relay_id
   COMPUTER_BASE_URL: http://computer:8080
+  BROWSER_BASE_URL: ${CHIEF_BROWSER_BASE_URL:-}
+  BROWSER_AUTH_SECRET_FILE: /run/secrets/browser_auth_secret
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
   APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
@@ -40,6 +42,7 @@ x-relay-secrets: &relay-secrets
   - better_auth_secret
   - bootstrap_token_sha256
   - computer_auth_secret
+  - browser_auth_secret
   - relay_secret_key
   - relay_id
   - google_client_secret
@@ -270,6 +273,8 @@ secrets:
     file: ./secrets/cloudflare_tunnel_token
   computer_auth_secret:
     file: ./secrets/computer_auth_secret
+  browser_auth_secret:
+    file: ${CHIEF_BROWSER_AUTH_SECRET_FILE:-./secrets/computer_auth_secret}
   relay_secret_key:
     file: ./secrets/relay_secret_key
   relay_id:
