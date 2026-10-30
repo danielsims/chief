@@ -85,7 +85,8 @@ export function shouldCompact(input: {
 }) {
   if (
     input.turn.checkpoint &&
-    input.turn.messages.length <= RECENT_MESSAGE_COUNT
+    recentCompleteMessages(input.turn.messages).length ===
+      input.turn.messages.length
   ) {
     return false;
   }
