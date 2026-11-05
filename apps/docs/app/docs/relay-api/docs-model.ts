@@ -51,7 +51,6 @@ export interface DocModel {
 }
 
 export interface DocsModel {
-  title: string;
   version: string;
   description: string;
   baseUrl: string;
@@ -260,7 +259,6 @@ export function buildDocsModel(): DocsModel {
   );
 
   return {
-    title: doc.info.title,
     version: doc.info.version,
     description: doc.info.description,
     baseUrl,
