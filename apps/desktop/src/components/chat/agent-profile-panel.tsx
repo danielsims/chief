@@ -190,7 +190,7 @@ export function AgentProfilePanel({
                       <span className="block truncate text-[13px] font-medium">
                         {channel.name}
                       </span>
-                      <span className="text-muted-foreground mt-1 line-clamp-2 block text-[11px] leading-4">
+                      <span className="text-muted-foreground mt-1 line-clamp-2 text-[11px] leading-4">
                         {channel.description}
                       </span>
                     </span>

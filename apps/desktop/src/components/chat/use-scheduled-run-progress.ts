@@ -38,6 +38,7 @@ export function useScheduledRunProgress(messages: readonly ChiefUIMessage[]) {
     const lifecycle = new AbortController();
     const isCancelled = () => lifecycle.signal.aborted;
     let fetching = false;
+    let missingReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
       if (isCancelled() || fetching || document.hidden) return;
@@ -52,6 +53,7 @@ export function useScheduledRunProgress(messages: readonly ChiefUIMessage[]) {
         if (isCancelled()) return;
         setSnapshot({ client, references, runs });
         if (
+          (runs.length < runIds.size && ++missingReads <= 10) ||
           runs.some((run) => run.state === "running" || run.state === "queued")
         )
           timer = setTimeout(() => void refresh(), 3000);

@@ -1,24 +1,28 @@
 import type { Workspace } from "@cloudflare/computer";
 
 import type { AgentBrowser, AgentComputer } from "@chief/agent-computer";
+import type { AgentJob } from "@chief/relay-contracts";
 
-import { CloudflareAgentBrowser } from "./cloudflare-agent-browser";
 import { CloudflareAgentComputer } from "./cloudflare-agent-computer";
+import { WorkspaceMachineBrowser } from "./workspace-machine-browser";
 
 export interface AgentExecutionEnvironment {
   browser: AgentBrowser;
   computer: AgentComputer;
 }
+export type AgentExecutionEnvironmentFactory = (
+  job: AgentJob,
+) => AgentExecutionEnvironment;
 
-export type AgentExecutionEnvironmentFactory = () => AgentExecutionEnvironment;
-
+/** Public browsing requires an enrolled, owner-authorized browser machine.
+ * A global executor CDP endpoint cannot provide workspace/session isolation. */
 export function createAgentExecutionEnvironmentFactory(
   env: Env,
   workspace: Workspace,
 ): AgentExecutionEnvironmentFactory {
-  const cloudflareComputer = new CloudflareAgentComputer(workspace);
-  return () => ({
-    browser: new CloudflareAgentBrowser(env.BROWSER),
-    computer: cloudflareComputer,
+  const computer = new CloudflareAgentComputer(workspace);
+  return (job) => ({
+    browser: new WorkspaceMachineBrowser(env, job),
+    computer,
   });
 }

@@ -32,9 +32,10 @@ export const workspaceAccessRouter = {
     env: Env,
     request: Request,
     operation: string | null,
+    machineOnline?: (agentId: string, ownerId: string) => boolean,
   ) {
     const access = new WorkspaceAccessService(storage, env);
-    const agents = new WorkspaceAgentAccessService(storage, env);
+    const agents = new WorkspaceAgentAccessService(storage, env, machineOnline);
     switch (operation) {
       case "members-list":
         return access.membersList(request);

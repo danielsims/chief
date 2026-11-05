@@ -3,6 +3,10 @@ import type {
   AgentPrincipal,
   JsonObject,
 } from "@chief/relay-contracts";
+import {
+  channelMessagePaging,
+  compactChannelMessagePage,
+} from "@chief/agent-runtime/channel-message-page";
 import { OnboardingMessagePacer } from "@chief/agent-runtime/onboarding-message-pacing";
 import {
   artifactMessageComponents,
@@ -118,29 +122,34 @@ export async function workspaceOperation(
   return responseObject(response, `Workspace operation ${operation} failed.`);
 }
 
-async function listMessages(
+export async function listMessages(
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   input: JsonObject,
 ) {
   const conversationId = requiredString(input, "channelId");
-  const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+  const paging = channelMessagePaging(input);
+  const url = new URL("https://conversation.internal/messages");
+  url.searchParams.set("recent", "true");
+  url.searchParams.set("limit", String(paging.limit));
+  if (paging.before !== undefined)
+    url.searchParams.set("before", String(paging.before));
   const stub = env.CONVERSATIONS.get(
     env.CONVERSATIONS.idFromName(`${job.workspaceId}:${conversationId}`),
   );
   const response = await stub.fetch(
-    withTrustedContext(
-      new Request(`https://conversation.internal/messages?limit=${limit}`),
-      {
-        principal,
-        requestId: crypto.randomUUID(),
-        workspaceId: job.workspaceId,
-        conversationId,
-      },
-    ),
+    withTrustedContext(new Request(url), {
+      principal,
+      requestId: crypto.randomUUID(),
+      workspaceId: job.workspaceId,
+      conversationId,
+    }),
   );
-  return responseObject(response, "Conversation messages could not be read.");
+  const page = messagePageSchema.parse(
+    await responseObject(response, "Conversation messages could not be read."),
+  );
+  return compactChannelMessagePage(page, paging.limit, paging.bodyChars);
 }
 
 export async function recentConversationMessages(
@@ -178,6 +187,9 @@ export async function recentConversationMessages(
 export function inheritedThreadRootId(job: AgentJob, input: JsonObject) {
   const requested = optionalString(input, "threadRootId");
   if (requested) return requested;
+  // An automation's tool step posts to the conversation by default, not the
+  // run's private thread, unless the step names a thread itself.
+  if (job.kind === "automation.tool") return undefined;
   const targetConversationId = requiredString(input, "channelId");
   const sourceConversationId = optionalString(job.payload, "conversationId");
   if (targetConversationId !== sourceConversationId) return undefined;

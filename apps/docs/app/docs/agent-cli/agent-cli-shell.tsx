@@ -7,36 +7,31 @@ import { BrandMark } from "../../brand-mark";
 import { CodeBlock } from "../relay-api/code-block";
 import styles from "../relay-api/page.module.css";
 
-const flagRows: readonly [string, string][] = [
+const commandRows: readonly [string, string][] = [
   [
-    "--link <invite>",
-    "The invite from Chief: in a channel, open the channel menu and choose Invite your agent. Required.",
+    "agent join <invite> --name <name>",
+    "Joins with the invite from Chief: in a channel, open the channel menu and choose Invite your agent. The channel credential stays in private host state.",
+  ],
+  ["agent list", "Your channel bindings, without credentials."],
+  [
+    "agent messages <binding>",
+    "Recent messages, without moving the listener forward.",
   ],
   [
-    "--name <name>",
-    "Your agent's name in the channel. Needed the first time, and again if it has to rejoin.",
-  ],
-  ["--about <text>", "One line about your agent."],
-  [
-    "--agent claude",
-    "Runs Claude Code, one session per thread, with the channel's tools.",
+    "agent post <binding> <thread>",
+    "Posts what arrives on stdin as a reply in that thread.",
   ],
   [
-    '--command "<command>"',
-    "Any other agent. The message arrives on stdin; whatever the command prints is posted as the reply.",
+    "agent adapter <binding> <file>",
+    "Saves a local adapter for automatic replies.",
   ],
   [
-    "--provider <name>",
-    "claude, openai, grok, gemini, opencode, openclaw, hermes or other. Set by --agent claude.",
-  ],
-  ["--model <name>", "The model it runs. Optional."],
-  [
-    "--dir <folder>",
-    "Folder the agent runs in, and so can read (default: here).",
+    "agent enable <binding>",
+    "Starts automatic replies. disable stops them, including a running turn.",
   ],
   [
-    "--timeout <seconds>",
-    "Seconds a run may take before it is stopped (default: 600).",
+    "agent leave <binding>",
+    "Leaves the channel, then deletes the saved credential.",
   ],
 ];
 
@@ -115,24 +110,22 @@ export function AgentCliShell() {
             </p>
             <div className={styles.introGrid}>
               <div>
-                <p className={styles.miniLabel}>chief-listen</p>
+                <p className={styles.miniLabel}>chief-machine agent</p>
                 <code className={styles.baseUrl}>
-                  chief-listen --link &lt;invite&gt; --name &lt;name&gt; --agent
-                  claude
+                  chief-machine agent join &lt;invite&gt; --name &lt;name&gt;
                 </code>
                 <p className={styles.introBody}>
-                  The CLI holds one outbound connection to the relay. When
-                  someone in the workspace mentions your agent or replies to it,
-                  the CLI runs the command you chose with the message on stdin,
-                  and posts what the command prints back in that thread. Nothing
-                  listens on your machine, and the message only ever arrives as
-                  data on stdin.
+                  Join a channel, then read and reply from your own agent, or
+                  connect a local command that answers mentions for you. The
+                  host only connects out to the relay: nothing listens on your
+                  machine, and your Chief credentials never reach the command.
                 </p>
               </div>
               <CodeBlock
-                label="Run it"
+                label="Join"
                 language="bash"
-                code={`chief-listen --link <invite> --name <name> --agent claude`}
+                code={`chief-machine agent join <invite> --name <name>
+chief-machine agent list`}
               />
             </div>
           </section>
@@ -142,31 +135,33 @@ export function AgentCliShell() {
             <div className={styles.guideGrid}>
               <div className={styles.guideCopy}>
                 <p className={styles.sectionIntro}>
-                  Point it at the invite from the channel, then name your agent.
-                  Later runs reuse the saved token, so the other flags are
-                  optional.
+                  Joining records where the channel is up to, so turning on
+                  replies later never replays old mentions.
                 </p>
                 <div className={styles.errorList}>
-                  {flagRows.map(([flag, description]) => (
-                    <div key={flag}>
-                      <code>{flag}</code>
+                  {commandRows.map(([command, description]) => (
+                    <div key={command}>
+                      <code>{command}</code>
                       <p>{description}</p>
                     </div>
                   ))}
                 </div>
                 <p className={styles.sectionIntro}>
-                  On the first run it joins with the invite and saves its token
-                  under <code>~/.chief-listen</code>, readable only by you. It
-                  also writes an MCP config there, so every run has the
-                  channel's tools.
+                  For automatic replies, save an adapter with an absolute
+                  executable and working folder, enable the binding, and keep{" "}
+                  <code>chief-machine serve</code> running. Restart it after
+                  joining another channel.
                 </p>
               </div>
               <CodeBlock
-                label="Custom command"
-                language="bash"
-                code={`chief-listen --link <invite> --name <name> \\
-  --command "my-agent --resume $CHIEF_SESSION_ID" \\
-  --dir ~/projects/site`}
+                label="Adapter"
+                language="json"
+                code={`{
+  "command": ["/absolute/path/to/your-agent"],
+  "cwd": "/absolute/path/to/workspace",
+  "environment": ["OPENAI_API_KEY"],
+  "timeoutSeconds": 300
+}`}
               />
             </div>
           </section>
@@ -176,33 +171,33 @@ export function AgentCliShell() {
             <div className={styles.guideGrid}>
               <div className={styles.guideCopy}>
                 <p>
-                  It connects out to the relay once and waits on that
-                  connection. A person's mention, or a reply in a thread your
-                  agent posted in, wakes it; messages from other agents never
-                  do.
+                  A person's mention, or a reply in a thread your agent follows,
+                  runs your command once with one JSON object on stdin. Messages
+                  from other agents never do.
                 </p>
                 <p>
-                  The message is passed to your command as data on stdin.
-                  Whatever the command prints is trimmed and posted back in the
-                  same thread, up to 8,000 characters. Runs happen one at a
-                  time, in the order they arrived.
+                  The command prints one JSON object with the same{" "}
+                  <code>requestId</code> and a <code>body</code>, and the host
+                  posts it in that thread, up to 8,000 characters. The host
+                  picks the channel and thread, so the reply can&apos;t be sent
+                  anywhere else.
                 </p>
                 <p>
-                  For <code>--command</code>, the CLI sets{" "}
-                  <code>CHIEF_SESSION_ID</code> (stable for the thread),{" "}
-                  <code>CHIEF_NEW_THREAD</code> on its first message,{" "}
-                  <code>CHIEF_THREAD_ID</code> and <code>CHIEF_MCP_CONFIG</code>
-                  , so the command can resume its own session and use the
-                  channel's tools.
+                  Each message gets a fresh process, run without a shell, with
+                  only the environment variables you listed and a deadline.
+                  After three failures in a row the binding turns itself off.
                 </p>
               </div>
               <CodeBlock
-                label="Environment"
+                label="Protocol"
                 language="bash"
-                code={`CHIEF_SESSION_ID=<stable per thread>
-CHIEF_NEW_THREAD=1
-CHIEF_THREAD_ID=<thread root>
-CHIEF_MCP_CONFIG=~/.chief-listen/<id>.mcp.json`}
+                code={`# stdin
+{ "protocolVersion": 1, "requestId": "…",
+  "message": { "author": "…", "body": "…", "reason": "mention" },
+  "context": [] }
+
+# stdout
+{ "protocolVersion": 1, "requestId": "…", "body": "Reply text" }`}
               />
             </div>
           </section>

@@ -2,7 +2,6 @@ import {
   BarChart3,
   Bell,
   Building2,
-  CalendarClock,
   Columns3,
   FolderGit2,
   FolderOpen,
@@ -14,16 +13,11 @@ import {
   Radio,
   UserRound,
   Webhook,
+  Workflow,
 } from "lucide-react";
 
 export const DESTINATIONS = [
   { label: "Overview", hint: "Workspace home", to: "/", icon: LayoutGrid },
-  {
-    label: "Schedule",
-    hint: "Recurring work",
-    to: "/schedule",
-    icon: CalendarClock,
-  },
   {
     label: "Repositories",
     hint: "Git repositories",
@@ -32,6 +26,12 @@ export const DESTINATIONS = [
   },
   { label: "Boards", hint: "Tracked work", to: "/boards", icon: Columns3 },
   { label: "Agents", hint: "Your team", to: "/agents", icon: Network },
+  {
+    label: "Automations",
+    hint: "Scheduled and triggered work",
+    to: "/schedule",
+    icon: Workflow,
+  },
   { label: "Plugins", hint: "Connected tools", to: "/plugins", icon: Plug },
   {
     label: "Analytics",

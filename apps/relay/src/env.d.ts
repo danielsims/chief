@@ -27,4 +27,8 @@ interface Env {
   RELAY_OTLP_ENDPOINT?: string;
   /** Optional Authorization header sent to the OTLP endpoint. */
   RELAY_OTLP_AUTHORIZATION?: string;
+  /** Git commit the relay was deployed from, reported as service.version. */
+  RELAY_GIT_SHA?: string;
+  /** Optional experiment label for telemetry; discovery keeps its deployment type. */
+  RELAY_TELEMETRY_DEPLOYMENT?: string;
 }

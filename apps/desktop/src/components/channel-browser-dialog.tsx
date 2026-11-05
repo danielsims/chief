@@ -262,7 +262,7 @@ export function ChannelBrowserDialog({
                         <span className="block truncate text-[13px] font-medium">
                           {channel.label}
                         </span>
-                        <span className="text-muted-foreground mt-0.5 line-clamp-1 block text-[11px]">
+                        <span className="text-muted-foreground mt-0.5 line-clamp-1 text-[11px]">
                           {channel.description}
                         </span>
                       </span>

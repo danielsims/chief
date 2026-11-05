@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Workflow } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
@@ -11,7 +11,10 @@ import type {
   ScheduledDraft,
   ScheduleKind,
 } from "./schedule-calendar-core";
-import { PageHeader } from "../components/page-header";
+import {
+  ResizableSidePanel,
+  useResizableSidePanelSizing,
+} from "../components/resizable-side-panel";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   useRuntime,
@@ -30,15 +33,21 @@ import {
   workOccurrences,
 } from "./schedule-calendar-core";
 import { ScheduleDraftDialog } from "./schedule-dialogs";
-import { MonthJump } from "./schedule-inbox";
 import {
   FocusedCalendarView,
   RecurringWorkContextMenu,
 } from "./schedule-timeline";
 import { useCalendarHistory } from "./use-calendar-history";
 
-export function SchedulePage() {
+/** The calendar beside the automations list; the list stays the main view. */
+export function AutomationsCalendarPanel({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
+  const sizing = useResizableSidePanelSizing({
+    storageKey: "chief.automations.calendar-panel-width",
+    defaultWidth: 520,
+    minWidth: 360,
+    maxWidth: 720,
+  });
   const [now, setNow] = useState(Date.now);
   const todayKey = dayKey(new Date(now));
   const today = useMemo(
@@ -81,7 +90,6 @@ export function SchedulePage() {
     const timer = window.setInterval(refresh, 30_000);
     return () => window.clearInterval(timer);
   }, [client, status, cloudOrganizationId, capability]);
-
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
@@ -91,7 +99,6 @@ export function SchedulePage() {
     : null;
   const openAutomation = (id = "new") =>
     void navigate(`/schedule/automations/${encodeURIComponent(id)}`);
-
   const workDateKeyIn = (timestamp: number, timezone: string) => {
     try {
       return new Intl.DateTimeFormat("en-CA", {
@@ -120,13 +127,11 @@ export function SchedulePage() {
       updatedAt: Date.now(),
     });
   };
-
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
     for (const draft of workspaceData.drafts) {
       if (draft.scheduledFor === undefined) continue;
-      const calendarTime = draft.scheduledFor;
-      const key = dayKey(new Date(calendarTime));
+      const key = dayKey(new Date(draft.scheduledFor));
       const items = map.get(key) ?? [];
       items.push(draft);
       map.set(key, items);
@@ -136,7 +141,6 @@ export function SchedulePage() {
     }
     return map;
   }, [workspaceData.drafts]);
-
   const calendarWork = useCalendarHistory(
     workspaceData.recurringWork,
     view === "month" ? activeMonth : selected,
@@ -153,15 +157,11 @@ export function SchedulePage() {
     }
     return map;
   }, [calendarWork]);
-
-  const showPosts = visibleKinds.has("post");
-  const showAgentWork = visibleKinds.has("agent-work");
   const requestMonth = (month: Date) => {
     setScrollRequest((current) => ({ month, token: current.token + 1 }));
     setActiveMonth(month);
     setSelected((current) => (sameMonth(current, month) ? current : month));
   };
-
   const move = (direction: number) => {
     if (view === "month") {
       requestMonth(addMonths(activeMonth, direction));
@@ -169,160 +169,147 @@ export function SchedulePage() {
     }
     setSelected((date) => addDays(date, direction * (view === "week" ? 7 : 1)));
   };
-
-  const focusedHeading =
-    view === "week"
-      ? `${startOfWeek(selected).toLocaleDateString([], { month: "short", day: "numeric" })} – ${addDays(startOfWeek(selected), 6).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
-      : selected.toLocaleDateString([], {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
+  const heading =
+    view === "month"
+      ? activeMonth.toLocaleDateString([], { month: "long", year: "numeric" })
+      : view === "week"
+        ? `${startOfWeek(selected).toLocaleDateString([], {
+            month: "short",
+            day: "numeric",
+          })} – ${addDays(startOfWeek(selected), 6).toLocaleDateString([], {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}`
+        : selected.toLocaleDateString([], {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          });
 
   return (
-    <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <PageHeader
-        title="Schedule"
-        description="Plan and manage your team's scheduled work."
-        actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void navigate("/schedule/automations")}
-            >
-              <Workflow size={13} />
-              Automations
-            </Button>
-            <Button size="sm" onClick={() => openAutomation()}>
-              <Plus size={14} />
-              New automation
-            </Button>
-          </>
-        }
-      />
-
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
-          <div className="relative h-8 min-w-48 flex-1 overflow-hidden">
-            {view === "month" ? (
-              <MonthJump month={activeMonth} onSelect={requestMonth} />
-            ) : (
-              <p className="truncate text-xl font-medium tracking-tight">
-                {focusedHeading}
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <ScheduleFilters
-              visibleKinds={visibleKinds}
-              onToggle={(kind) => {
-                setVisibleKinds((current) => {
-                  const next = new Set(current);
-                  if (next.has(kind)) next.delete(kind);
-                  else next.add(kind);
-                  return next;
-                });
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
+    <ResizableSidePanel
+      sizing={sizing}
+      onClose={onClose}
+      closeLabel="Hide calendar"
+    >
+      <div className="flex min-h-0 shrink-0 flex-wrap items-center gap-1.5 border-b border-black/[0.055] px-4 py-3 dark:border-white/[0.055]">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{heading}</p>
+        </div>
+        <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+          {(["month", "week", "day"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
               onClick={() => {
-                setSelected(today);
-                if (view === "month") requestMonth(currentMonth);
+                if (option === "month") requestMonth(startOfMonth(selected));
+                setView(option);
               }}
+              className={cn(
+                "text-muted-foreground hover:text-foreground rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
+                view === option &&
+                  "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
+              )}
             >
-              Today
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="Previous period"
-              onClick={() => move(-1)}
-            >
-              <ChevronLeft size={14} />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="Next period"
-              onClick={() => move(1)}
-            >
-              <ChevronRight size={14} />
-            </Button>
-            <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-              {(["month", "week", "day"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => {
-                    if (option === "month")
-                      requestMonth(startOfMonth(selected));
-                    setView(option);
-                  }}
-                  className={cn(
-                    "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
-                    view === option &&
-                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </div>
+              {option}
+            </button>
+          ))}
         </div>
-
-        <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
-          {view === "month" ? (
-            <ContinuousMonthView
-              activeMonth={activeMonth}
-              onActiveMonthChange={setActiveMonth}
-              scrollRequest={scrollRequest}
-              today={today}
-              now={now}
-              selected={selected}
-              onSelect={setSelected}
-              onWorkOpen={(work) => openAutomation(work.id)}
-              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-            />
-          ) : (
-            <FocusedCalendarView
-              view={view}
-              selected={selected}
-              today={today}
-              now={now}
-              onSelect={setSelected}
-              onWorkOpen={(work) => openAutomation(work.id)}
-              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-            />
-          )}
-        </div>
-      </section>
+        <ScheduleFilters
+          visibleKinds={visibleKinds}
+          onToggle={(kind) => {
+            setVisibleKinds((current) => {
+              const next = new Set(current);
+              if (next.has(kind)) next.delete(kind);
+              else next.add(kind);
+              return next;
+            });
+          }}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSelected(today);
+            if (view === "month") requestMonth(currentMonth);
+          }}
+        >
+          Today
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Previous period"
+          onClick={() => move(-1)}
+        >
+          <ChevronLeft size={14} />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Next period"
+          onClick={() => move(1)}
+        >
+          <ChevronRight size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Hide calendar"
+          title="Hide calendar"
+          onClick={onClose}
+        >
+          <X size={14} />
+        </Button>
+      </div>
+      <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden">
+        {view === "month" ? (
+          <ContinuousMonthView
+            activeMonth={activeMonth}
+            onActiveMonthChange={setActiveMonth}
+            scrollRequest={scrollRequest}
+            today={today}
+            now={now}
+            selected={selected}
+            onSelect={setSelected}
+            onWorkOpen={(work) => openAutomation(work.id)}
+            onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+            onWorkContext={(work, date, x, y) =>
+              setWorkMenu({ work, date, x, y })
+            }
+            byDay={byDay}
+            recurringByDay={recurringByDay}
+            showPosts={visibleKinds.has("post")}
+            showAgentWork={visibleKinds.has("agent-work")}
+          />
+        ) : (
+          <FocusedCalendarView
+            view={view}
+            selected={selected}
+            today={today}
+            now={now}
+            onSelect={setSelected}
+            onWorkOpen={(work) => openAutomation(work.id)}
+            onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+            onWorkContext={(work, date, x, y) =>
+              setWorkMenu({ work, date, x, y })
+            }
+            byDay={byDay}
+            recurringByDay={recurringByDay}
+            showPosts={visibleKinds.has("post")}
+            showAgentWork={visibleKinds.has("agent-work")}
+          />
+        )}
+      </div>
       <ScheduleDraftDialog
         draft={detailDraft}
         onClose={() => setDetailDraftId(null)}
         onOpenDraft={(draft) => {
           setDetailDraftId(null);
-          if (draft.fileId) {
+          if (draft.fileId)
             void navigate(`/artifacts/${encodeURIComponent(draft.fileId)}`);
-          }
         }}
       />
       <RecurringWorkContextMenu
@@ -338,6 +325,6 @@ export function SchedulePage() {
           })
         }
       />
-    </div>
+    </ResizableSidePanel>
   );
 }

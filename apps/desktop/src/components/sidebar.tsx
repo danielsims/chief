@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  CalendarClock,
   Columns3,
   FolderGit2,
   FolderOpen,
@@ -8,6 +7,7 @@ import {
   LayoutGrid,
   Network,
   Plug,
+  Workflow,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
@@ -59,8 +59,8 @@ const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/agents", label: "Agents", icon: Network },
+  { to: "/schedule", label: "Automations", icon: Workflow },
   { to: "/boards", label: "Boards", icon: Columns3 },
-  { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/repositories", label: "Repositories", icon: FolderGit2 },
   { to: "/artifacts", label: "Artifacts", icon: FolderOpen },
   { to: "/plugins", label: "Plugins", icon: Plug },

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { z } from "zod";
 
 /** An artifact kept open as a tab in a channel. */
@@ -105,10 +105,16 @@ export function useChannelTabs(channelId: string, active?: ChannelTab) {
       ? [...stored, active]
       : stored;
 
+  const replace = useCallback(
+    (next: ChannelTab[]) => write(key, JSON.stringify(next.slice(-24))),
+    [key],
+  );
+
   return {
     tabs,
     collapsed,
     setCollapsed: (next: boolean) => write(collapsedKey, next ? "1" : null),
+    replace,
     close: (tab: ChannelTab) =>
       write(
         key,

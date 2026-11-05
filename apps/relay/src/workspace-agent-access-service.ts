@@ -58,6 +58,8 @@ export class WorkspaceAgentAccessService {
   constructor(
     private readonly storage: DurableObjectStorage,
     private readonly env: Env,
+    private readonly machineOnline = (_agentId: string, _ownerId: string) =>
+      false,
   ) {
     this.channels = new WorkspaceChannelStore(storage, env);
   }
@@ -488,6 +490,10 @@ export class WorkspaceAgentAccessService {
       },
       agent,
       config: this.channels.agentConfiguration(agentId),
+      machineOnline: this.machineOnline(
+        agentId,
+        agent.ownerUserId ?? String(workspace.created_by_user_id),
+      ),
       machines: readMachines(this.storage, snapshot.id).filter(
         (machine) =>
           machine.status === "online" && machine.agentIds.includes(agentId),

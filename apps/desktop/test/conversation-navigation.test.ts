@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  withConversationActivity,
   withConversationChild,
   withConversationThread,
   withoutConversationChild,
@@ -82,4 +83,20 @@ void test("cross-channel nested work opens in its owning direct message", () => 
   assert.equal(next.get("channel"), null);
   assert.equal(next.get("thread"), "setup-root");
   assert.equal(next.get("child"), "setup-task");
+});
+
+void test("opening and closing activity preserves the scheduled run thread", () => {
+  const original = new URLSearchParams(
+    "channel=prospects&thread=run-1&child=task&profile=chief",
+  );
+  const opened = withConversationActivity(original, true);
+  assert.equal(opened.get("thread"), "run-1");
+  assert.equal(opened.get("activity"), "1");
+  assert.equal(opened.get("child"), null);
+  assert.equal(opened.get("profile"), null);
+  const closed = withConversationActivity(opened, false);
+  assert.equal(closed.get("thread"), "run-1");
+  assert.equal(closed.get("channel"), "prospects");
+  assert.equal(closed.get("activity"), null);
+  assert.equal(original.get("activity"), null);
 });

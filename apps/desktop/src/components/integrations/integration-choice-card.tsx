@@ -34,7 +34,7 @@ export function IntegrationChoiceCard({
           {integration.name}
         </span>
         {!compact ? (
-          <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-5">
+          <span className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-5">
             {integration.description || integration.domain}
           </span>
         ) : null}

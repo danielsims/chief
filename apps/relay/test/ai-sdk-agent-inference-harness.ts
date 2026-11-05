@@ -23,6 +23,7 @@ export function traceContext() {
     conversationId: "engineering",
     jobId: "job-test",
     workflowId: "00000000-0000-4000-8000-000000000001",
+    jobKind: "conversation.message",
     includeContent: false,
   };
 }

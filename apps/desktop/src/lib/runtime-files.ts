@@ -8,6 +8,11 @@ import type {
 
 import { useRuntime, useWorkspaceCapability } from "./runtime";
 
+// The last list read per workspace, so a remounted view (a channel's tabs,
+// say) can identify board pages at once instead of relabelling them when the
+// next read lands.
+const filesCache = new Map<string, WorkspaceFileRecord[]>();
+
 export function useWorkspaceFiles(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
@@ -18,8 +23,18 @@ export function useWorkspaceFiles(workspaceId: string | null) {
     files: WorkspaceFileRecord[];
     loaded: boolean;
     error: string | null;
-  }>({ workspaceId, client, files: [], loaded: false, error: null });
+  }>(() => {
+    const cached = workspaceId ? filesCache.get(workspaceId) : undefined;
+    return {
+      workspaceId,
+      client,
+      files: cached ?? [],
+      loaded: Boolean(cached),
+      error: null,
+    };
+  });
   const current = state.workspaceId === workspaceId && state.client === client;
+  const cached = workspaceId ? filesCache.get(workspaceId) : undefined;
   useEffect(() => {
     if (
       !workspaceId ||
@@ -37,7 +52,7 @@ export function useWorkspaceFiles(workspaceId: string | null) {
           files:
             previous.workspaceId === workspaceId && previous.client === client
               ? previous.files
-              : [],
+              : (filesCache.get(workspaceId) ?? []),
           loaded: true,
           error: "Files are taking longer than expected. Try again.",
         })),
@@ -49,6 +64,7 @@ export function useWorkspaceFiles(workspaceId: string | null) {
         message.workspaceId === workspaceId
       ) {
         window.clearTimeout(timer);
+        filesCache.set(workspaceId, message.files);
         setState({
           workspaceId,
           client,
@@ -59,13 +75,16 @@ export function useWorkspaceFiles(workspaceId: string | null) {
       }
       if (message.type === "error" && message.requestId === requestId) {
         window.clearTimeout(timer);
-        setState({
+        setState((previous) => ({
           workspaceId,
           client,
-          files: [],
+          files:
+            previous.workspaceId === workspaceId && previous.client === client
+              ? previous.files
+              : (filesCache.get(workspaceId) ?? []),
           loaded: true,
           error: message.message,
-        });
+        }));
       }
     });
     client.send({
@@ -90,8 +109,15 @@ export function useWorkspaceFiles(workspaceId: string | null) {
     };
   }, [attempt, capability, client, cloudOrganizationId, status, workspaceId]);
   return {
-    files: current ? state.files : [],
-    loading: Boolean(workspaceId && (!current || !state.loaded)),
+    files: current ? state.files : (cached ?? []),
+    // A successful empty snapshot is ready too; a timeout is not metadata.
+    loaded:
+      !workspaceId ||
+      Boolean(cached) ||
+      (current && state.loaded && !state.error),
+    loading: Boolean(
+      workspaceId && !(current ? state.loaded : Boolean(cached)),
+    ),
     error: current ? state.error : null,
     refresh: () => setAttempt((value) => value + 1),
   };

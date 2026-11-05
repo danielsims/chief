@@ -7,7 +7,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowUpRight, MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 
 import type {
   DatabaseColor,
@@ -41,6 +41,7 @@ export interface CardContent {
   row: DatabaseRow;
   title: string;
   assignee?: DatabasePersonOption;
+  details?: { label: string; text: string }[];
 }
 
 export function RowCard({
@@ -48,13 +49,13 @@ export function RowCard({
   overlay = false,
   dragListeners,
   onOpen,
-  onOpenSource,
+  selected = false,
 }: {
   card: CardContent;
   overlay?: boolean;
   dragListeners?: ReturnType<typeof useSortable>["listeners"];
   onOpen?: () => void;
-  onOpenSource?: () => void;
+  selected?: boolean;
 }) {
   const { row, title, assignee } = card;
   return (
@@ -62,6 +63,8 @@ export function RowCard({
       {...dragListeners}
       role={onOpen ? "button" : undefined}
       tabIndex={onOpen ? 0 : undefined}
+      aria-pressed={onOpen ? selected : undefined}
+      data-selected={selected || undefined}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (onOpen && (event.key === "Enter" || event.key === " ")) {
@@ -71,7 +74,8 @@ export function RowCard({
       }}
       className={cn(
         insetCardClass,
-        "block w-full cursor-grab text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+        "block w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+        selected && "ring-2 ring-sky-500 ring-inset",
         overlay && "cursor-grabbing shadow-lg",
       )}
     >
@@ -88,31 +92,24 @@ export function RowCard({
           {plainText(row.body)}
         </p>
       ) : null}
-      {assignee || row.source ? (
+      {card.details?.length ? (
+        <div className="mt-3 space-y-2">
+          {card.details.map((detail) => (
+            <div key={detail.label}>
+              <p className="text-muted-foreground/70 text-[10px]">
+                {detail.label}
+              </p>
+              <p className="text-muted-foreground mt-0.5 line-clamp-2 text-[12px] leading-[18px] break-words">
+                {detail.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {assignee ? (
         <div className="text-muted-foreground mt-2 flex items-center gap-1.5 text-[11px]">
-          {assignee ? (
-            <>
-              <PersonAvatar person={assignee} />
-              <span className="truncate">{assignee.name}</span>
-            </>
-          ) : null}
-          {row.source ? (
-            // While dragging, the card is a picture of itself: same label,
-            // nothing to click.
-            <button
-              type="button"
-              disabled={!onOpenSource}
-              className="hover:text-foreground ml-auto flex shrink-0 items-center gap-0.5 transition-colors disabled:pointer-events-none"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenSource?.();
-              }}
-            >
-              {row.source.kind === "thread" ? "Thread" : "Automation"}
-              <ArrowUpRight size={11} />
-            </button>
-          ) : null}
+          <PersonAvatar person={assignee} />
+          <span className="truncate">{assignee.name}</span>
         </div>
       ) : null}
     </div>
@@ -122,7 +119,7 @@ export function RowCard({
 export function SortableCard(props: {
   card: CardContent;
   onOpen: () => void;
-  onOpenSource: () => void;
+  selected?: boolean;
 }) {
   // Cards are dragged with the pointer; the card itself stays the one
   // focusable control, opened with Enter.

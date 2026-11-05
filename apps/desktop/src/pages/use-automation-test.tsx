@@ -29,7 +29,12 @@ export function useAutomationRuns(
   );
 
   const scheduleId = schedule?.id;
-  const live = schedule?.status === "active" || testing;
+  // Keep checking while an automation is waiting to be turned on, so a test
+  // that finishes between polls still unlocks Review.
+  const live =
+    testing ||
+    schedule?.status === "active" ||
+    schedule?.status === "needs_approval";
   useEffect(() => {
     if (!client || !scheduleId) return;
     let active = true;
@@ -53,6 +58,7 @@ export function useAutomationRuns(
     latest,
     testing,
     testPassed,
+    testState: latestTest?.state ?? null,
     nodes: latest?.automation?.nodes ?? {},
     /** The latest run got past its trigger. */
     triggered: Boolean(latest && latest.state !== "queued"),

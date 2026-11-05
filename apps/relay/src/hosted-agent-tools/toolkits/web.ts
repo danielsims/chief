@@ -1,3 +1,6 @@
+import { UnavailableToolError } from "@chief/agent-runtime/durable-turn";
+
+import type { HostedAgentToolContext } from "../context";
 import { requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
 import {
@@ -18,6 +21,7 @@ export const hostedWebTools = [
     async (context, input) => {
       const url = publicWebUrl(requiredString(input, "url")).toString();
       const page = await fetchPage(context, url);
+      if ("snapshot" in page) return page.snapshot;
       return pageFrom(publicWebUrl(page.url), page.body, page.contentType);
     },
     { effect: "read_only" },
@@ -26,18 +30,13 @@ export const hostedWebTools = [
     "web.search",
     async (context, input) => {
       const query = requiredString(input, "query");
-      const page = await fetchPage(
-        context,
-        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-      );
-      const results = duckDuckGoResults(page.body);
-      if (!results.length)
+      if (!context.browser)
         throw new Error(
-          "Search found nothing this time. Try other words, or use the pages you already have.",
+          "The interactive browser is unavailable. Enable browser access for this agent; no alternate search engine will be used.",
         );
-      return { query, results };
+      return googleBrowserSearch(context.browser, query);
     },
-    { effect: "read_only" },
+    { effect: "read_only", requiresBrowser: true },
   ),
 ];
 
@@ -48,7 +47,10 @@ export const hostedWebTools = [
  * that keeps failing is closed for the rest of the turn.
  */
 async function fetchPage(
-  context: Parameters<typeof fetchThroughMachine>[0],
+  context: Pick<
+    HostedAgentToolContext,
+    "env" | "job" | "principal" | "browser"
+  >,
   url: string,
 ) {
   requireSiteOpen(context.job.id, url);
@@ -58,41 +60,74 @@ async function fetchPage(
     return await fetchPlain(url);
   } catch (error) {
     try {
+      if (context.browser) {
+        const page = await context.browser.open(url);
+        publicWebUrl(page.url);
+        const challenged = isChallengePage(page.text);
+        if (challenged) recordSiteFailure(context.job.id, url);
+        return {
+          snapshot: {
+            url: page.url,
+            title: page.title,
+            text: page.text.slice(0, MAX_TEXT_LENGTH),
+            links: [],
+            controls: page.controls,
+            browserUsed: true,
+            status: challenged ? "verification_required" : "loaded",
+            ...(challenged
+              ? {
+                  action:
+                    "The source requires verification in the browser. Do not retry or treat this page as source evidence.",
+                }
+              : undefined),
+          },
+        };
+      }
       const page = await readWithChrome(context.env.BROWSER, url);
       return { url: page.url, body: page.html, contentType: "text/html" };
-    } catch {
+    } catch (browserError) {
       recordSiteFailure(context.job.id, url);
-      throw error;
+      // A spent daily browser allowance is the reason worth reporting.
+      throw browserError instanceof UnavailableToolError ? browserError : error;
     }
   }
 }
 
-interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-}
-
-export function duckDuckGoResults(html: string): SearchResult[] {
-  return [
-    ...html.matchAll(
-      /class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gu,
-    ),
-  ]
-    .flatMap(([, link = "", title = "", snippet = ""]) => {
-      const target = new URL(decodeHtml(link), "https://duckduckgo.com");
-      const url = target.searchParams.get("uddg") ?? target.toString();
-      // Ads route through DuckDuckGo's own click tracker.
-      if (/duckduckgo\.com\/y\.js/u.test(url)) return [];
-      return [{ url, title: plainText(title), snippet: plainText(snippet) }];
-    })
-    .slice(0, 20);
-}
-
-function plainText(html: string) {
-  return decodeHtml(html.replace(/<[^>]+>/gu, " "))
-    .replaceAll(/\s+/gu, " ")
-    .trim();
+/** Google is a rendered browser page, not an API or an HTML scrape. */
+export async function googleBrowserSearch(
+  browser: Pick<import("@chief/agent-computer").AgentBrowser, "open">,
+  query: string,
+) {
+  const url = new URL("https://www.google.com/search");
+  url.searchParams.set("q", query);
+  const page = await browser.open(url.toString());
+  const location = new URL(page.url);
+  const verification =
+    location.pathname.startsWith("/sorry") ||
+    location.hostname === "consent.google.com" ||
+    /our systems have detected unusual traffic|verify (?:that )?you are human|recaptcha/iu.test(
+      page.text,
+    );
+  const javascriptRequired = /enable javascript|turn on javascript/iu.test(
+    page.text,
+  );
+  return {
+    engine: "google",
+    status: verification
+      ? "verification_required"
+      : javascriptRequired
+        ? "javascript_required"
+        : "loaded",
+    ...page,
+    text: page.text.slice(0, 16_000),
+    controls: page.controls.slice(0, 100),
+    ...(verification
+      ? {
+          action:
+            "Ask the user to complete Google's verification in this browser. Do not retry in a loop or change search engines.",
+        }
+      : undefined),
+  };
 }
 
 export async function readWebPage(source: string) {

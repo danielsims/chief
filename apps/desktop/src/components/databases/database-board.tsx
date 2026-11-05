@@ -62,14 +62,14 @@ export function DatabaseBoard({
   group,
   people,
   onOpenRow,
-  onOpenSource,
+  selectedRowId,
 }: {
   state: DatabaseState;
   rows: readonly DatabaseRow[];
   group: SelectField;
   people: readonly DatabasePersonOption[];
   onOpenRow: (row: DatabaseRow | { values: DatabaseRow["values"] }) => void;
-  onOpenSource: (row: DatabaseRow) => void;
+  selectedRowId?: string;
 }) {
   const database = state.data?.database;
   const [dragColumns, setDragColumns] = useState<Columns | null>(null);
@@ -89,6 +89,13 @@ export function DatabaseBoard({
         row,
         title: titleOf(database, row),
         assignee: personOf(people, row.values[assigneeField?.id ?? ""]),
+        details: database.fields
+          .filter((field) => field.type === "text")
+          .flatMap((field) => {
+            const text = cellAsText(row.values[field.id]);
+            return text ? [{ label: field.name, text }] : [];
+          })
+          .slice(0, 2),
       },
     ]),
   );
@@ -242,7 +249,7 @@ export function DatabaseBoard({
                       key={id}
                       card={card}
                       onOpen={() => onOpenRow(card.row)}
-                      onOpenSource={() => onOpenSource(card.row)}
+                      selected={id === selectedRowId}
                     />
                   ) : null;
                 }}

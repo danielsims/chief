@@ -246,7 +246,7 @@ function runtimeFor(env: Env): RelayRuntime {
     mode,
     endpoint ?? "",
     env.RELAY_OTLP_AUTHORIZATION ? "authorized" : "anonymous",
-    env.RELAY_DEPLOYMENT,
+    env.RELAY_TELEMETRY_DEPLOYMENT ?? env.RELAY_DEPLOYMENT,
     env.RELAY_ID,
   ].join("\u0000");
   const existing = runtimes.get(key);
@@ -277,7 +277,11 @@ function fullTelemetryRuntime(env: Env, endpoint: string): RelayRuntime {
     attributes: {
       "chief.relay.id": env.RELAY_ID,
       "chief.relay.url": env.AUTH_BASE_URL.replace(/\/$/u, ""),
-      "deployment.environment": env.RELAY_DEPLOYMENT,
+      "deployment.environment":
+        env.RELAY_TELEMETRY_DEPLOYMENT ?? env.RELAY_DEPLOYMENT,
+      ...(env.RELAY_GIT_SHA
+        ? { "service.version": env.RELAY_GIT_SHA }
+        : undefined),
     },
   };
   const telemetry = Layer.merge(

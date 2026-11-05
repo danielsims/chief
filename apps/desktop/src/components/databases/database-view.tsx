@@ -1,15 +1,24 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { Check, Columns3, ListFilter, Plus, Table2 } from "lucide-react";
-import { useNavigate } from "react-router";
+import {
+  Check,
+  CircleAlert,
+  Columns3,
+  ListFilter,
+  Plus,
+  Table2,
+} from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
 
 import type { DatabaseRow, DatabaseView as View } from "@chief/relay-contracts";
-import {
-  cellAsPerson,
-  databaseLimits,
-  databasePersonSchema,
-} from "@chief/relay-contracts";
+import { cellAsPerson, databasePersonSchema } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@chief/ui/components/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,13 +28,16 @@ import {
 } from "@chief/ui/components/dropdown-menu";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { RowDialogTarget } from "./database-row-dialog";
+import type { RowPanelTarget } from "./database-row-panel";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChiefNavigation } from "../../lib/chief-navigation-context";
+import { insetBandClass, insetCardClass } from "../inset-card";
+import { DatabaseActions } from "./database-actions";
 import { DatabaseBoard } from "./database-board";
-import { InlineField, PersonAvatar } from "./database-cells";
+import { PersonAvatar } from "./database-cells";
 import { firstField, newKey } from "./database-model";
-import { DatabaseRowDialog } from "./database-row-dialog";
+import { databaseViews, selectedDatabaseView } from "./database-presentation";
+import { DatabaseRowPanel } from "./database-row-panel";
 import { DatabaseTable } from "./database-table";
 import { useDatabase, usePeople } from "./use-database";
 
@@ -34,57 +46,78 @@ const tabClass =
 
 /**
  * A database as one of its views, a table or a board, with its rows opened
- * in a dialog. `leading` starts the toolbar and `actions` end it.
+ * in a side panel. `leading` starts the toolbar and `actions` end it.
  */
 export function DatabaseView({
   databaseId,
-  boardOnly = false,
-  compact = false,
   leading,
   newLabel = "New",
   actions,
+  onDeleted,
 }: {
   databaseId: string;
-  /** Shows only the board, with no other views to switch to. */
-  boardOnly?: boolean;
-  /** Opened inside a channel: switches between existing views, nothing more. */
-  compact?: boolean;
   leading?: ReactNode;
   /** What adding a row is called, such as "New action item"; null hides it. */
   newLabel?: string | null;
   actions?: ReactNode;
+  onDeleted?: () => void;
 }) {
   const state = useDatabase(databaseId);
   const people = usePeople();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const chiefNavigation = useChiefNavigation();
   const [viewId, setViewId] = useState<string>();
-  const [renaming, setRenaming] = useState(false);
   /** Whose rows are shown: anyone's, nobody's, or one person's. */
   const [assignee, setAssignee] = useState<string>("anyone");
-  const [dialog, setDialog] = useState<RowDialogTarget | null>(null);
+  const [initialField, setInitialField] = useState<string>();
+  const [pendingRow, setPendingRow] = useState<{
+    target: RowPanelTarget;
+    fieldId?: string;
+  } | null>(null);
+  const [dialog, setDialog] = useState<RowPanelTarget | null>(null);
   const database = state.data?.database;
 
   if (!database)
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid min-h-0 flex-1 place-items-center px-6">
         {state.error ? (
-          <p className="text-destructive px-6 text-sm">{state.error}</p>
-        ) : null}
+          <div role="alert" className={cn(insetBandClass, "w-full max-w-sm")}>
+            <div className={cn(insetCardClass, "flex items-start gap-3")}>
+              <CircleAlert
+                size={16}
+                className="text-muted-foreground mt-0.5 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-foreground text-sm font-medium">
+                  Couldn't load this database
+                </p>
+                <p className="text-muted-foreground mt-1 text-[13px] leading-5">
+                  {state.error}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={state.refresh}
+                >
+                  Try again
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">Loading…</p>
+        )}
       </div>
     );
 
-  const { views } = database;
-  const view =
-    (boardOnly
-      ? views.find((candidate) => candidate.layout === "board")
-      : views.find((candidate) => candidate.id === viewId)) ?? views[0];
+  const views = databaseViews(database);
+  const view = selectedDatabaseView(views, viewId);
   const group = database.fields.find(
     (field) => field.id === view?.groupBy && field.type === "select",
   );
-  // A board is used as a board: never put table/view controls above it.
-  const hideViewControls = boardOnly || view?.layout === "board";
   const person = firstField(database, "person");
   const keyOf = (value: { kind: string; id: string }) =>
     `${value.kind}:${value.id}`;
@@ -108,20 +141,41 @@ export function DatabaseView({
       ? { [person.id]: filteredPerson.data }
       : undefined),
   });
-  const openRow = (target: RowDialogTarget) =>
+  const openRow = (target: RowPanelTarget, fieldId?: string) => {
+    if (
+      dialog &&
+      ("id" in dialog ? dialog.id : "new") !==
+        ("id" in target ? target.id : "new")
+    ) {
+      setPendingRow({ target, fieldId });
+      return;
+    }
+    setInitialField(fieldId);
     setDialog(
       "id" in target
         ? target
         : { values: { ...newRowValues(), ...target.values } },
     );
+  };
   const saveViews = (next: View[], message: string) =>
-    void state.saveDatabase({ views: next }, message);
-  const addView = (next: View) => {
-    saveViews([...views, next], "Couldn't add that view.");
-    setViewId(next.id);
+    state.saveDatabase({ views: next }, message);
+  const addView = async (next: View) => {
+    if (views.some((view) => view.layout === next.layout)) return;
+    if (await saveViews([...views, next], "Couldn't add that view."))
+      setViewId(next.id);
+  };
+  const removeView = async (target: View) => {
+    if (views.length < 2) return;
+    if (
+      await saveViews(
+        views.filter((view) => view.layout !== target.layout),
+        "Couldn't remove that view.",
+      )
+    )
+      setViewId(undefined);
   };
   const openSource = (row: DatabaseRow) => {
-    setDialog(null);
+    // Keep the editor mounted until the router has allowed navigation.
     if (row.source?.kind === "thread")
       chiefNavigation.open({
         kind: "conversation",
@@ -135,244 +189,229 @@ export function DatabaseView({
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-6 pb-3">
-        {leading}
-        {hideViewControls || (compact && views.length < 2) ? null : (
-          <div className="flex min-w-0 items-center gap-0.5" role="tablist">
-            {views.map((candidate) => {
-              const active = candidate.id === view?.id;
-              const Icon = candidate.layout === "board" ? Columns3 : Table2;
-              if (active && renaming)
-                return (
-                  <div key={candidate.id} className={cn(tabClass, "w-32")}>
-                    <InlineField
-                      initial={candidate.name}
-                      placeholder="View name"
-                      maxLength={40}
-                      className="text-[12px]"
-                      onCommit={(name) => {
-                        setRenaming(false);
-                        if (name)
-                          saveViews(
-                            views.map((other) =>
-                              other.id === candidate.id
-                                ? { ...other, name }
-                                : other,
-                            ),
-                            "Couldn't rename that view.",
-                          );
-                      }}
-                      onCancel={() => setRenaming(false)}
-                    />
-                  </div>
-                );
-              const label = (
-                <>
-                  <Icon size={13} />
-                  {candidate.name}
-                </>
-              );
-              // The open view's tab opens its menu; the others switch to it.
-              return active ? (
-                <DropdownMenu key={candidate.id}>
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-6 pb-3">
+          {leading}
+          {views.length > 0 && (
+            <div className="flex min-w-0 items-center gap-0.5" role="tablist">
+              {[...views]
+                .sort(
+                  (a, b) =>
+                    Number(b.layout === "board") - Number(a.layout === "board"),
+                )
+                .map((candidate) => {
+                  const active = candidate.id === view?.id;
+                  const Icon = candidate.layout === "board" ? Columns3 : Table2;
+                  return (
+                    <ContextMenu key={candidate.id}>
+                      <ContextMenuTrigger asChild>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          data-active={active || undefined}
+                          className={tabClass}
+                          onClick={() => setViewId(candidate.id)}
+                        >
+                          <Icon size={13} />
+                          {candidate.name}
+                        </button>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem
+                          disabled={views.length === 1}
+                          onSelect={() => void removeView(candidate)}
+                        >
+                          Remove view
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  );
+                })}
+              {views.length < 2 &&
+              (!views.some((view) => view.layout === "table") ||
+                database.fields.some((field) => field.type === "select")) ? (
+                <DropdownMenu>
                   <DropdownMenuTrigger
-                    role="tab"
-                    aria-selected
-                    data-active
-                    className={tabClass}
+                    aria-label="Add view"
+                    title="Add view"
+                    className={cn(tabClass, "px-1.5")}
                   >
-                    {label}
+                    <Plus size={13} />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    onCloseAutoFocus={(event) => event.preventDefault()}
-                  >
-                    <DropdownMenuItem onSelect={() => setRenaming(true)}>
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      disabled={views.length === 1}
-                      onSelect={() => {
-                        setViewId(undefined);
-                        saveViews(
-                          views.filter((other) => other.id !== candidate.id),
-                          "Couldn't delete that view.",
-                        );
-                      }}
-                    >
-                      Delete view
-                    </DropdownMenuItem>
+                  <DropdownMenuContent align="start">
+                    {!views.some((view) => view.layout === "table") ? (
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void addView({
+                            id: newKey("view"),
+                            name: "Database",
+                            layout: "table",
+                          })
+                        }
+                      >
+                        <Table2 size={13} />
+                        Database
+                      </DropdownMenuItem>
+                    ) : null}
+                    {!views.some((view) => view.layout === "board") &&
+                    database.fields.some((field) => field.type === "select") ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <p className="text-muted-foreground px-2 py-1 text-[11px]">
+                          Board by
+                        </p>
+                        {database.fields.map((field) =>
+                          field.type === "select" ? (
+                            <DropdownMenuItem
+                              key={field.id}
+                              onSelect={() =>
+                                addView({
+                                  id: newKey("view"),
+                                  name: "Board",
+                                  layout: "board",
+                                  groupBy: field.id,
+                                })
+                              }
+                            >
+                              <Columns3 size={13} />
+                              {field.name}
+                            </DropdownMenuItem>
+                          ) : null,
+                        )}
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              ) : (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={false}
-                  className={tabClass}
-                  onClick={() => setViewId(candidate.id)}
-                >
-                  {label}
-                </button>
-              );
-            })}
-            {!compact && views.length < databaseLimits.views ? (
+              ) : null}
+            </div>
+          )}
+          <div className="ml-auto flex items-center gap-1.5">
+            {person ? (
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  aria-label="Add view"
-                  title="Add view"
-                  className={cn(tabClass, "px-1.5")}
-                >
-                  <Plus size={13} />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      addView({
-                        id: newKey("view"),
-                        name: "Table",
-                        layout: "table",
-                      })
-                    }
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={assignee === "anyone" ? "ghost" : "secondary"}
+                    size="sm"
+                    className="text-[12px]"
                   >
-                    <Table2 size={13} />
-                    Table
-                  </DropdownMenuItem>
-                  {database.fields.some((field) => field.type === "select") ? (
-                    <>
-                      <DropdownMenuSeparator />
-                      <p className="text-muted-foreground px-2 py-1 text-[11px]">
-                        Board by
-                      </p>
-                      {database.fields.map((field) =>
-                        field.type === "select" ? (
-                          <DropdownMenuItem
-                            key={field.id}
-                            onSelect={() =>
-                              addView({
-                                id: newKey("view"),
-                                name: "Board",
-                                layout: "board",
-                                groupBy: field.id,
-                              })
-                            }
-                          >
-                            <Columns3 size={13} />
-                            {field.name}
-                          </DropdownMenuItem>
-                        ) : null,
-                      )}
-                    </>
-                  ) : null}
+                    <ListFilter size={13} />
+                    {assignee === "anyone"
+                      ? "Filter"
+                      : assignee === "nobody"
+                        ? "Unassigned"
+                        : assignee === myKey
+                          ? "Assigned to me"
+                          : (filtered?.name ?? "Filter")}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-52">
+                  <p className="text-muted-foreground px-2 pt-1 pb-1.5 text-[11px]">
+                    {person.name}
+                  </p>
+                  {(
+                    [
+                      ["anyone", "Anyone"],
+                      ...(myKey ? [[myKey, "Assigned to me"] as const] : []),
+                      ["nobody", "Unassigned"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onSelect={() => setAssignee(key)}
+                    >
+                      {label}
+                      {assignee === key ? (
+                        <Check size={13} className="ml-auto" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <div className="max-h-56 overflow-y-auto">
+                    {people
+                      .filter((option) => keyOf(option) !== myKey)
+                      .map((option) => (
+                        <DropdownMenuItem
+                          key={keyOf(option)}
+                          onSelect={() => setAssignee(keyOf(option))}
+                        >
+                          <PersonAvatar person={option} />
+                          <span className="truncate">{option.name}</span>
+                          {assignee === keyOf(option) ? (
+                            <Check size={13} className="ml-auto" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
+            {newLabel ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openRow({ values: {} })}
+              >
+                <Plus size={13} />
+                {newLabel}
+              </Button>
+            ) : null}
+            {actions}
+            <DatabaseActions
+              database={database}
+              onDeleted={() => {
+                if (onDeleted) onDeleted();
+                else if (location.pathname === "/conversations") {
+                  const params = new URLSearchParams(location.search);
+                  params.delete("artifact");
+                  params.delete("database");
+                  void navigate(`${location.pathname}?${params}`);
+                } else void navigate("/artifacts");
+              }}
+            />
           </div>
-        )}
-        <div className="ml-auto flex items-center gap-1.5">
-          {person ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant={assignee === "anyone" ? "ghost" : "secondary"}
-                  size="sm"
-                  className="text-[12px]"
-                >
-                  <ListFilter size={13} />
-                  {assignee === "anyone"
-                    ? "Filter"
-                    : assignee === "nobody"
-                      ? "Unassigned"
-                      : assignee === myKey
-                        ? "Assigned to me"
-                        : (filtered?.name ?? "Filter")}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-52">
-                <p className="text-muted-foreground px-2 pt-1 pb-1.5 text-[11px]">
-                  {person.name}
-                </p>
-                {(
-                  [
-                    ["anyone", "Anyone"],
-                    ...(myKey ? [[myKey, "Assigned to me"] as const] : []),
-                    ["nobody", "Unassigned"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <DropdownMenuItem key={key} onSelect={() => setAssignee(key)}>
-                    {label}
-                    {assignee === key ? (
-                      <Check size={13} className="ml-auto" />
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <div className="max-h-56 overflow-y-auto">
-                  {people
-                    .filter((option) => keyOf(option) !== myKey)
-                    .map((option) => (
-                      <DropdownMenuItem
-                        key={keyOf(option)}
-                        onSelect={() => setAssignee(keyOf(option))}
-                      >
-                        <PersonAvatar person={option} />
-                        <span className="truncate">{option.name}</span>
-                        {assignee === keyOf(option) ? (
-                          <Check size={13} className="ml-auto" />
-                        ) : null}
-                      </DropdownMenuItem>
-                    ))}
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          {newLabel ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openRow({ values: {} })}
-            >
-              <Plus size={13} />
-              {newLabel}
-            </Button>
-          ) : null}
-          {actions}
         </div>
+        {view?.layout === "board" && group?.type !== "select" ? (
+          <div
+            role="status"
+            className="text-muted-foreground px-6 py-12 text-center text-sm"
+          >
+            This database needs a board view grouped by a select field.
+          </div>
+        ) : view?.layout === "board" && group?.type === "select" ? (
+          <DatabaseBoard
+            state={state}
+            rows={rows}
+            group={group}
+            people={people}
+            onOpenRow={openRow}
+            selectedRowId={dialog && "id" in dialog ? dialog.id : undefined}
+          />
+        ) : (
+          <DatabaseTable
+            state={state}
+            rows={rows}
+            people={people}
+            onOpenRow={openRow}
+          />
+        )}
       </div>
-      {state.error ? (
-        <p className="text-destructive px-6 pb-2 text-sm">{state.error}</p>
-      ) : null}
-      {view?.layout === "board" && group?.type === "select" ? (
-        <DatabaseBoard
-          state={state}
-          rows={rows}
-          group={group}
-          people={people}
-          onOpenRow={openRow}
-          onOpenSource={openSource}
-        />
-      ) : (
-        <DatabaseTable
-          state={state}
-          rows={rows}
-          people={people}
-          onOpenRow={openRow}
-        />
-      )}
       {dialog ? (
-        <DatabaseRowDialog
+        <DatabaseRowPanel
           key={"id" in dialog ? dialog.id : "new"}
           database={database}
           target={dialog}
+          initialField={initialField}
           people={people}
-          onClose={() => setDialog(null)}
-          onSubmit={(change) => {
-            setDialog(null);
-            void state.saveRow(change);
+          closingRequested={Boolean(pendingRow)}
+          onKeepEditing={() => setPendingRow(null)}
+          onClose={() => {
+            setDialog(pendingRow?.target ?? null);
+            setInitialField(pendingRow?.fieldId);
+            setPendingRow(null);
           }}
+          onSubmit={state.saveRow}
           onOpenSource={openSource}
           onRemove={(row) => {
             setDialog(null);

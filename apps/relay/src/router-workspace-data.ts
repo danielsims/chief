@@ -132,6 +132,9 @@ export function routeWorkspaceDataRequest(
             method: "POST",
             headers: {
               "x-chief-internal-operation": operation,
+              ...(request.headers.has("if-match")
+                ? { "if-match": request.headers.get("if-match") ?? "" }
+                : undefined),
               ...(schedules?.[2]
                 ? { "x-chief-schedule-id": decodeURIComponent(schedules[2]) }
                 : undefined),
