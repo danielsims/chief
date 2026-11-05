@@ -39,6 +39,7 @@ for (const { target, platform, zig } of targets) {
     [
       zig ? "zigbuild" : "build",
       "--release",
+      "--locked",
       "--features",
       "cli",
       "--target",

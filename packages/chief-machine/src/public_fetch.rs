@@ -38,22 +38,24 @@ fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
         || a == 0
         || (a == 100 && (64..=127).contains(&b))
         || (a == 198 && (b == 18 || b == 19))
+        || (a == 192 && b == 0 && ip.octets()[2] == 0)
+        || (a == 192 && b == 88 && ip.octets()[2] == 99)
         || a >= 240)
 }
 
-fn is_public(ip: IpAddr) -> bool {
+pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_public_v4(v4),
         IpAddr::V6(v6) => {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_public_v4(v4);
             }
-            let first = v6.segments()[0];
-            !(v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (first & 0xfe00) == 0xfc00
-                || (first & 0xffc0) == 0xfe80)
+            let [first, second, ..] = v6.segments();
+            // Global unicast only; reject transition/translation ranges that
+            // can route an apparently public destination into a local IPv4 network.
+            (first & 0xe000) == 0x2000
+                && first != 0x2002
+                && !(first == 0x2001 && (second < 0x0200 || second == 0x0db8))
         }
     }
 }
@@ -92,12 +94,13 @@ impl Resolve for PublicOnly {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_owned();
         Box::pin(async move {
-            let addresses: Vec<SocketAddr> =
-                tokio::task::spawn_blocking(move || {
-                    (host.as_str(), 0).to_socket_addrs().map(|found| found.collect())
-                })
-                .await
-                .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { error.into() })??;
+            let addresses: Vec<SocketAddr> = tokio::task::spawn_blocking(move || {
+                (host.as_str(), 0)
+                    .to_socket_addrs()
+                    .map(|found| found.collect())
+            })
+            .await
+            .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { error.into() })??;
             if addresses.is_empty() || addresses.iter().any(|address| !is_public(address.ip())) {
                 return Err("The host resolves to a private address.".into());
             }
@@ -112,6 +115,7 @@ pub async fn fetch(url: &str) -> Result<Fetched, String> {
     let url = Url::parse(url).map_err(|_| "The URL isn't valid.".to_string())?;
     check_url(&url)?;
     let client = reqwest::Client::builder()
+        .no_proxy()
         .dns_resolver(Arc::new(PublicOnly))
         .redirect(redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= MAX_REDIRECTS {
@@ -128,7 +132,10 @@ pub async fn fetch(url: &str) -> Result<Fetched, String> {
         .map_err(|error| error.to_string())?;
     let mut response = client
         .get(url)
-        .header("accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8")
+        .header(
+            "accept",
+            "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8",
+        )
         .header("accept-language", "en-AU,en;q=0.9")
         .send()
         .await
