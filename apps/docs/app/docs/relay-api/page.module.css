@@ -295,8 +295,7 @@
 
 .principles > div {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
+  gap: 6px;
   padding: 16px 0;
   border-bottom: 1px solid var(--docs-line);
 }
