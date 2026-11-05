@@ -6,3 +6,21 @@ pub mod public_fetch;
 
 #[cfg(feature = "cli")]
 pub mod protocol;
+
+#[cfg(feature = "cli")]
+pub mod agent;
+#[cfg(feature = "cli")]
+pub mod agent_adapter;
+#[cfg(feature = "cli")]
+pub mod browser;
+#[cfg(feature = "cli")]
+pub mod browser_proxy;
+#[cfg(feature = "cli")]
+pub mod host_storage;
+#[cfg(feature = "cli")]
+pub mod machine;
+#[cfg(feature = "cli")]
+pub mod relay_http;
+
+#[cfg(feature = "cli")]
+mod browser_cdp;
