@@ -1,3 +1,5 @@
+import { UnavailableToolError } from "@chief/agent-runtime/durable-turn";
+
 import type { HostedAgentToolContext } from "../context";
 import { requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
@@ -83,9 +85,10 @@ async function fetchPage(
       }
       const page = await readWithChrome(context.env.BROWSER, url);
       return { url: page.url, body: page.html, contentType: "text/html" };
-    } catch {
+    } catch (browserError) {
       recordSiteFailure(context.job.id, url);
-      throw error;
+      // A spent daily browser allowance is the reason worth reporting.
+      throw browserError instanceof UnavailableToolError ? browserError : error;
     }
   }
 }

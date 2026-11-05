@@ -280,6 +280,23 @@ async function sendMachine(
   });
 }
 
+const pinnedSessionSchema = z.object({ machineId: z.string(), at: z.number() });
+const sessionIdleMs = 60 * 60_000;
+
+/** Jobs often end without closing their browser; their pins expire instead. */
+async function forgetIdleSessions(storage: DurableObjectStorage) {
+  const stale = [
+    ...(await storage.list({ prefix: "machine.browser:" })).entries(),
+  ].flatMap(([key, value]) => {
+    const pin = pinnedSessionSchema.safeParse(value);
+    return !pin.success || Date.now() - pin.data.at > sessionIdleMs
+      ? [key]
+      : [];
+  });
+  for (let index = 0; index < stale.length; index += 128)
+    await storage.delete(stale.slice(index, index + 128));
+}
+
 /** Online paired machines whose owner lets this agent use them. */
 export function pairedMachines(
   ctx: { getWebSockets: (tag?: string) => MachineSocket[] },
@@ -324,7 +341,9 @@ export async function browseThroughWebMachine(
     );
   const input = machineBrowserCommandSchema.parse(await request.json());
   const key = `machine.browser:${principal.agentId}:${input.sessionId}`;
-  const pinned = await ctx.storage.get<string>(key);
+  const pinned = pinnedSessionSchema
+    .optional()
+    .parse(await ctx.storage.get(key))?.machineId;
   if (!pinned && input.operation === "close") return json({ closed: true });
   if (!pinned && input.operation !== "open")
     throw new HttpError(
@@ -349,7 +368,8 @@ export async function browseThroughWebMachine(
       "No authorized browser machine is online for this session.",
     );
   const machineId = machineAttachment(socket).machineId;
-  if (!pinned) await ctx.storage.put(key, machineId);
+  if (!pinned) await forgetIdleSessions(ctx.storage);
+  await ctx.storage.put(key, { machineId, at: Date.now() });
   const requestId = crypto.randomUUID();
   const answer = await sendMachine(
     socket,
