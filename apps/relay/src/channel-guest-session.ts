@@ -272,6 +272,11 @@ export class ChannelGuestSession extends ChannelGuestBase {
         body: message.body,
         createdAt: message.createdAt,
         cursor: message.sequence,
+        wakeReason:
+          new ChannelGuestDelivery(this.storage, this.env).wakeReason(
+            guest,
+            message,
+          ) ?? null,
       }));
     return channelGuestMessagePageSchema.parse({
       messages: projected,

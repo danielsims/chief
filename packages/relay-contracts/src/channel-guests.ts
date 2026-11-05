@@ -175,6 +175,7 @@ export const channelGuestMessageSchema = z
     body: z.string(),
     createdAt: isoDateTimeSchema,
     cursor: z.int().nonnegative(),
+    wakeReason: z.enum(["mention", "thread", "all"]).nullable().optional(),
   })
   .strict();
 
