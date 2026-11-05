@@ -20,7 +20,6 @@ import {
 } from "@chief/relay-contracts";
 
 import { loadAgentWorkMemory } from "./agent-cell-projection";
-import { localBrowserConfigured } from "./agent-execution-environment";
 import { recentConversationMessages } from "./hosted-agent-tools";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -108,8 +107,7 @@ export async function prepareHostedAgentTurn(
     context.machines?.flatMap((machine) => machine.capabilities) ?? [],
   );
   const browserEnabled =
-    (assignedCapabilities.has("browser") || localBrowserConfigured(env)) &&
-    (context.config?.toolPermissions.includes("browser.use") ?? false);
+    context.config?.toolPermissions.includes("browser.use") ?? false;
   const permissions = context.config?.toolPermissions ?? [];
   const requestedRepo = stringPayload(job, "projectRepo");
   // Only a plain slug reaches the prompt and the filesystem path.
