@@ -1,5 +1,5 @@
 /**
- * Guest listeners: outbound WebSockets that `chief-listen` holds open so an
+ * Guest listeners: outbound WebSockets a guest agent holds open so an
  * agent without a public endpoint can still be woken. They live in the
  * workspace object beside members' live sockets, but are tagged apart and
  * only ever receive their own guest's wake-ups, never the workspace feed.

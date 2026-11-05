@@ -119,7 +119,7 @@ export class ChannelGuestSession extends ChannelGuestBase {
     throw new HttpError(404, "not_found", "Guest operation not found.");
   }
 
-  /** A one-time ticket for `chief-listen` to open its listener socket, so
+  /** A one-time ticket for a guest to open its listener socket, so
    * the long-lived token never travels in a URL. */
   private async listenTicket(guest: ChannelGuestRow, origin: string) {
     const { ticket, expiresAt } = await new WorkspaceLiveStore(
