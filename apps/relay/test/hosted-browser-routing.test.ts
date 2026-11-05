@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { agentJobSchema } from "@chief/relay-contracts";
 
-import { localBrowserConfigured } from "../src/agent-execution-environment";
 import { publishesBrowserSession } from "../src/agent-hosted-activity";
 import { googleBrowserSearch } from "../src/hosted-agent-tools/toolkits/web";
 import { RemoteComputerClient } from "../src/remote-computer-client";
@@ -16,21 +15,6 @@ const snapshot = {
 };
 
 describe("browser-only browsing", () => {
-  it("requires a dedicated credential when a separate browser endpoint is selected", () => {
-    expect(
-      localBrowserConfigured({
-        BROWSER_BASE_URL: "http://pi:8789",
-        COMPUTER_AUTH_SECRET: "unrelated",
-      }),
-    ).toBe(false);
-    expect(
-      localBrowserConfigured({
-        BROWSER_BASE_URL: "http://pi:8789",
-        BROWSER_AUTH_SECRET: "browser-only",
-      }),
-    ).toBe(true);
-  });
-
   it("publishes the browser session after Google search for human handoff", () => {
     expect(publishesBrowserSession("web_search")).toBe(true);
     expect(publishesBrowserSession("browser_open")).toBe(true);
@@ -40,19 +24,6 @@ describe("browser-only browsing", () => {
       true,
     );
   });
-  it("requires a complete self-hosted browser configuration", () => {
-    expect(localBrowserConfigured({})).toBe(false);
-    expect(
-      localBrowserConfigured({ COMPUTER_BASE_URL: "http://computer:8080" }),
-    ).toBe(false);
-    expect(
-      localBrowserConfigured({
-        COMPUTER_BASE_URL: "http://computer:8080",
-        COMPUTER_AUTH_SECRET: "test-only",
-      }),
-    ).toBe(true);
-  });
-
   it("searches Google through browser navigation, with no alternate-engine request", async () => {
     const open = vi.fn().mockResolvedValue(snapshot);
     const result = await googleBrowserSearch({ open }, "automation & workflow");

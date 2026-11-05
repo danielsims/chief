@@ -7,6 +7,7 @@ import {
   revokeMachine,
 } from "./workspace-machine-keys";
 import {
+  browseThroughWebMachine,
   disconnectMachine,
   fetchThroughWebMachine,
   onlineMachineIds,
@@ -50,6 +51,11 @@ export function machineOperation(
           revokeMachine(ctx.storage, request, (machineId) =>
             disconnectMachine(ctx, machineId),
           ),
+      };
+    case "machine-browser":
+      return {
+        span: "workspace.machine.browser",
+        run: () => browseThroughWebMachine(ctx, channels(), request),
       };
     case "machine-web-fetch":
       return {

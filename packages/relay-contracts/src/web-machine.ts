@@ -97,3 +97,48 @@ export const machineClaimSchema = z.object({
 });
 
 export const pairedMachineRemovedSchema = z.object({ ok: z.literal(true) });
+
+/** Bounded, browser-only commands. Paths, scripts, CDP endpoints and executable
+ * configuration are deliberately absent from the remote protocol. */
+export const machineBrowserCommandSchema = z
+  .object({
+    sessionId: z.uuid(),
+    operation: z.enum([
+      "open",
+      "snapshot",
+      "click",
+      "fill",
+      "select",
+      "screenshot",
+      "close",
+    ]),
+    url: z.url().max(4096).optional(),
+    target: z
+      .object({
+        ref: z.string().max(16).optional(),
+        labels: z.array(z.string().max(500)).max(5).optional(),
+      })
+      .strict()
+      .optional(),
+    text: z.string().max(16_000).optional(),
+    values: z.array(z.string().max(1000)).max(30).optional(),
+  })
+  .strict();
+export const machineBrowserResultSchema = z.discriminatedUnion("ok", [
+  z.object({
+    type: z.literal("browser.result"),
+    requestId: z.uuid(),
+    ok: z.literal(true),
+    output: z.unknown(),
+  }),
+  z.object({
+    type: z.literal("browser.result"),
+    requestId: z.uuid(),
+    ok: z.literal(false),
+    error: z.string().max(500),
+  }),
+]);
+export type MachineBrowserResult = z.infer<typeof machineBrowserResultSchema>;
+export const machineCapabilitiesSchema = z
+  .object({ type: z.literal("machine.capabilities"), browser: z.boolean() })
+  .strict();
