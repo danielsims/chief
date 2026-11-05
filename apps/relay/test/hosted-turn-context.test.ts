@@ -30,12 +30,9 @@ import { inheritedThreadRootId } from "../src/hosted-agent-tools/toolkits/channe
 
 describe("hosted agent turn context", () => {
   it("keeps research lightweight and interactive work off the computer", () => {
-    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Find public pages with web_search",
-    );
-    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
-      "Use web_read for static pages",
-    );
+    // Browser and search guidance belongs only to turns that have them.
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).not.toContain("browser_open");
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).not.toContain("web_search");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
       "Use direct workspace tools for workspace operations",
     );
