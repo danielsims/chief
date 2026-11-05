@@ -3,11 +3,6 @@
 interface Env {
   /** Stable identifier for this relay installation. */
   RELAY_ID: string;
-  /** Self-hosted browser companion; these are already emitted by entrypoint.sh. */
-  COMPUTER_BASE_URL?: string;
-  COMPUTER_AUTH_SECRET?: string;
-  BROWSER_BASE_URL?: string;
-  BROWSER_AUTH_SECRET?: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_EMAIL_API_TOKEN: string;
   EMAIL_FROM_ADDRESS: string;
