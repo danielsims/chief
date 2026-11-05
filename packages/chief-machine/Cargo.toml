@@ -2,7 +2,7 @@
 name = "chief-machine"
 version = "0.1.0"
 edition = "2021"
-description = "Lend this machine's internet connection to your Chief workspace's agents."
+description = "Connect channel agents and lend isolated browser capacity to Chief workspaces."
 license = "UNLICENSED"
 publish = false
 
@@ -27,6 +27,13 @@ cli = [
   "tokio/signal",
   "tokio/sync",
   "tokio/time",
+  "tokio/process",
+  "tokio/io-util",
+  "tokio/io-std",
+  "tokio/net",
+  "dep:uuid",
+  "dep:fs2",
+  "dep:libc",
 ]
 
 [dependencies]
@@ -38,6 +45,10 @@ url = "2"
 base64 = { version = "0.22", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"], optional = true }
+
+uuid = { version = "1", features = ["v4", "v5", "serde"], optional = true }
+fs2 = { version = "0.4", optional = true }
+libc = { version = "0.2", optional = true }
 
 [profile.release]
 opt-level = "z"
