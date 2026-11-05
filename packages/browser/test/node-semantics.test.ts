@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { browserSnapshotLabel, browserSnapshotRef } from "../src/node.js";
+import type { BrowserBoundaryValue } from "../src/node.js";
+import {
+  AgentBrowserSession,
+  browserSnapshotLabel,
+  browserSnapshotRef,
+} from "../src/node.js";
 
 void test("uses an explicit browser ref without rewriting it", () => {
   assert.equal(browserSnapshotRef(["@e58", "M4 Pro"], {}), "@e58");
@@ -43,4 +48,34 @@ void test("describes the resolved interactive control instead of a contextual he
     browserSnapshotLabel(["Colour. Pick your favourite.", "Space Black"], refs),
     "Space Black",
   );
+});
+
+void test("readable snapshots include page text without changing the default control snapshot", async () => {
+  const session = new AgentBrowserSession({
+    sessionId: "readable-snapshot-test",
+    downloadPath: "/tmp/chief-browser-snapshot-test",
+  });
+  const commands: string[][] = [];
+  session.command = (args): Promise<BrowserBoundaryValue> => {
+    commands.push(args);
+    if (args[0] === "snapshot")
+      return Promise.resolve({
+        snapshot: "- paragraph: Article text\n- link More [ref=e1]",
+        refs: { e1: { name: "More", role: "link" } },
+      });
+    if (args[1] === "text")
+      return Promise.resolve({ text: "Readable article paragraph" });
+    if (args[1] === "url")
+      return Promise.resolve({ url: "https://example.com/article" });
+    return Promise.resolve({ title: "Article" });
+  };
+  const readable = await session.snapshot({ includeText: true });
+  assert.match(readable.snapshot, /Readable article paragraph/);
+  assert.ok(commands.some((args) => args.join(" ") === "get text body"));
+  assert.deepEqual(commands[0], ["wait", "body"]);
+  assert.deepEqual(commands[1], ["get", "text", "body"]);
+  assert.deepEqual(commands[2], ["snapshot", "--interactive", "--compact"]);
+  commands.length = 0;
+  await session.snapshot();
+  assert.deepEqual(commands[0], ["snapshot", "--interactive", "--compact"]);
 });

@@ -25,6 +25,18 @@ import { runEffect } from "./effect";
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 const browserOpenToolName = agentToolName("browser.open");
 const browserCloseToolName = agentToolName("browser.close");
+const webSearchToolName = agentToolName("web.search");
+
+export function publishesBrowserSession(toolName: string, result?: JsonValue) {
+  return (
+    toolName === browserOpenToolName ||
+    toolName === browserCloseToolName ||
+    toolName === webSearchToolName ||
+    (toolName === agentToolName("web.read") &&
+      isJsonObject(result) &&
+      result.browserUsed === true)
+  );
+}
 
 export function hostedActivityObserver(
   env: Env,
@@ -160,8 +172,7 @@ export async function publishHostedBrowserActivity(
   toolName: string,
   result: JsonValue,
 ) {
-  if (toolName !== browserOpenToolName && toolName !== browserCloseToolName)
-    return;
+  if (!publishesBrowserSession(toolName, result)) return;
   const conversationId = isJsonString(job.payload.conversationId)
     ? job.payload.conversationId
     : "mission-control";

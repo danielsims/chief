@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Hash, Lock, RefreshCw, Search, Table2 } from "lucide-react";
+import { Columns3, Hash, Lock, RefreshCw, Search, Table2 } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { WorkspaceFileRecord } from "@chief/agent-runtime/types";
@@ -20,6 +20,7 @@ import {
 import { MediaPreview } from "../components/files/media-preview";
 import { listColumnClass, ListRow } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
+import { pageBoard } from "../components/pages/page-board";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../lib/runtime";
 import { useWorkspaceChannels } from "../lib/workspace-channels-context";
@@ -32,6 +33,7 @@ const updatedFormatter = new Intl.DateTimeFormat(undefined, {
 const kinds = [
   "All",
   "Pages",
+  "Boards",
   "Databases",
   "Documents",
   "Images",
@@ -72,24 +74,24 @@ export function ArtifactsPage() {
   const artifacts = useMemo<Artifact[]>(
     () =>
       [
-        ...files.map((file): Artifact => ({
-          key: `file:${file.id}`,
-          kind: fileCategory(file),
-          name: file.name,
-          conversationId: file.sourceConversationId,
-          updatedAt: file.updatedAt,
-          file,
-        })),
-        ...databases
-          .filter((database) => !isBoard(database))
-          .map((database): Artifact => ({
-            key: `database:${database.id}`,
-            kind: "Databases",
-            name: database.name,
-            conversationId: database.channels[0],
-            updatedAt: database.updatedAt,
-            database,
+        ...files
+          .filter((file) => !pageBoard(file.previewContent))
+          .map((file): Artifact => ({
+            key: `file:${file.id}`,
+            kind: fileCategory(file),
+            name: file.name,
+            conversationId: file.sourceConversationId,
+            updatedAt: file.updatedAt,
+            file,
           })),
+        ...databases.map((database): Artifact => ({
+          key: `database:${database.id}`,
+          kind: isBoard(database) ? "Boards" : "Databases",
+          name: database.name,
+          conversationId: database.channels[0],
+          updatedAt: database.updatedAt,
+          database,
+        })),
       ].sort((left, right) => right.updatedAt - left.updatedAt),
     [files, databases],
   );
@@ -198,6 +200,8 @@ export function ArtifactsPage() {
                             size={15}
                             strokeWidth={1.5}
                           />
+                        ) : database && isBoard(database) ? (
+                          <Columns3 size={15} strokeWidth={1.5} />
                         ) : (
                           <Table2 size={15} strokeWidth={1.5} />
                         )}

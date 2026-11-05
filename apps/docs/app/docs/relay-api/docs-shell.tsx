@@ -240,7 +240,7 @@ export function DocsShell({ model }: { model: DocsModel }) {
         </aside>
         <article className={styles.main}>
           <section className={styles.introduction} id="introduction">
-            <h1>{model.title}</h1>
+            <h1>Relay API</h1>
             <p className={styles.lede}>{model.description}</p>
             <div className={styles.introGrid}>
               <div>

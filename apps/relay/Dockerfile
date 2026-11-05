@@ -33,6 +33,8 @@ RUN --mount=type=cache,id=relay-pnpm,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store \
   && pnpm install --frozen-lockfile --filter @chief/relay...
 
+FROM dependencies AS source
+
 COPY tooling/oxlint ./tooling/oxlint
 COPY tooling/prettier ./tooling/prettier
 COPY tooling/typescript ./tooling/typescript
@@ -70,7 +72,12 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /app
+# Keep the large installed dependency tree cached across source-only experiments.
+# Workspace package symlinks stay intact; only these small source overlays change.
 COPY --from=dependencies --chown=chief:chief /source ./
+COPY --from=source --chown=chief:chief /source/tooling ./tooling
+COPY --from=source --chown=chief:chief /source/packages ./packages
+COPY --from=source --chown=chief:chief /source/apps/relay ./apps/relay
 COPY --chown=chief:chief apps/relay/docker/entrypoint.sh /usr/local/bin/relay
 
 USER chief

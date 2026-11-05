@@ -222,7 +222,7 @@ export function ChiefChatAuxiliaryPanels({
   // thread's work only, and returns to the thread.
   const threadActivityTurns = useMemo(
     () =>
-      threadAgent && threadRootId
+      threadRootId
         ? activityTurns.filter((turn) => turn.threadRootId === threadRootId)
         : [],
     [activityTurns, threadAgent, threadRootId],
@@ -497,7 +497,7 @@ export function ChiefChatAuxiliaryPanels({
                 running={threadActivityAgents.length > 0}
                 statusLabel={threadStatusLabel}
                 idleLabel={
-                  threadAgent && threadActivityTurns.length > 0
+                  threadActivityTurns.length > 0
                     ? threadActivitySteps > 0
                       ? `${threadActivitySteps} ${threadActivitySteps === 1 ? "step" : "steps"}`
                       : "Activity"
@@ -524,7 +524,7 @@ export function ChiefChatAuxiliaryPanels({
     return thread;
   }
 
-  const threadScoped = Boolean(threadAgent && threadRootId);
+  const threadScoped = Boolean(threadRootId);
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
       error={controls.error}

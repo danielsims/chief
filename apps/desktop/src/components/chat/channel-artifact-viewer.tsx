@@ -6,9 +6,11 @@ import { channelArtifactPath } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
 import { useAuth } from "../../lib/auth/auth-context";
-import { useWorkspaceFile } from "../../lib/runtime";
+import { useWorkspaceFile, useWorkspaceFiles } from "../../lib/runtime";
 import { ArtifactContent } from "../files/artifact-content";
 import { downloadFileBlob, fileDownloadName } from "../files/file-presentation";
+import { pageBoard } from "../pages/page-board";
+import { ChannelDatabaseViewer } from "./channel-database-viewer";
 
 export function ChannelArtifactViewer({
   fileId,
@@ -24,6 +26,12 @@ export function ChannelArtifactViewer({
     cloudOrganizationId,
     fileId,
   );
+  const { files } = useWorkspaceFiles(cloudOrganizationId);
+  const summary = files.find(
+    (candidate) =>
+      candidate.id === fileId &&
+      candidate.sourceConversationId === conversationId,
+  );
   const navigate = useNavigate();
   const [draft, setDraft] = useState<{
     content: string;
@@ -33,6 +41,25 @@ export function ChannelArtifactViewer({
   const available = file?.sourceConversationId === conversationId;
   const changed = draft && file && draft.version !== file.currentVersionId;
   if (changed && file.content === draft.content && !saving) setDraft(null);
+  const board = available
+    ? pageBoard(file.content)
+    : pageBoard(summary?.previewContent);
+  if (board && !draft)
+    return (
+      <ChannelDatabaseViewer
+        databaseId={board.database}
+        conversationId={conversationId}
+        onClosed={onBack}
+      />
+    );
+  if (loading && !file)
+    return (
+      <div
+        className="flex min-h-0 flex-1"
+        aria-busy="true"
+        aria-label="Loading artifact"
+      />
+    );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-border/60 flex min-h-14 shrink-0 items-center gap-3 border-b px-5">

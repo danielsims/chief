@@ -35,7 +35,7 @@ export function initializeWorkspaceMachines(storage: DurableObjectStorage) {
   machinesInsertInitializeWorkspaceMachines(storage, {
     machineId: "00000000-0000-4000-8000-000000000001",
     name: "Cloudflare Computer",
-    capabilitiesJson: JSON.stringify(["browser", "screen"]),
+    capabilitiesJson: JSON.stringify(["screen"]),
     agentIdsJson: JSON.stringify(["brand", "prospector", "setup"]),
     lastSeenAt: now,
     createdAt: now,

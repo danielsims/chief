@@ -46,3 +46,55 @@ describe("hosted web tools", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+it("uses the selected workspace browser when a source rejects plain fetching", async () => {
+  const open = vi.fn().mockResolvedValue({
+    url: "https://example.com/public",
+    title: "Rendered source",
+    text: "Readable JavaScript page evidence.",
+    controls: [],
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("Blocked", { status: 403 })),
+  );
+  try {
+    const { hostedWebTools } =
+      await import("../src/hosted-agent-tools/toolkits/web");
+    const read = hostedWebTools[0];
+    if (!read) throw new Error("Missing web read tool");
+    const context: Parameters<typeof read.execute>[0] = {
+      env: {} as Env,
+      job: {
+        id: "selected-browser-fallback",
+        workspaceId: "test",
+        agentId: "prospector",
+        payload: {},
+      } as Parameters<typeof read.execute>[0]["job"],
+      principal: {} as Parameters<typeof read.execute>[0]["principal"],
+      browser: {
+        open,
+        snapshot: open,
+        click: open,
+        type: open,
+        select: open,
+        screenshot: vi.fn().mockResolvedValue(new Uint8Array()),
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+      computer: {} as Parameters<typeof read.execute>[0]["computer"],
+      computerEnabled: false,
+    };
+    const result = await read.execute(context, {
+      url: "https://example.com/public",
+    });
+    expect(open).toHaveBeenCalledWith("https://example.com/public");
+    expect(result).toMatchObject({
+      title: "Rendered source",
+      text: "Readable JavaScript page evidence.",
+      browserUsed: true,
+      status: "loaded",
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

@@ -369,7 +369,7 @@ describe("workspace data", () => {
           name: "Cloudflare Computer",
           kind: "cloudflare",
           status: "online",
-          capabilities: ["browser", "screen"],
+          capabilities: ["screen"],
         }),
       ],
     });

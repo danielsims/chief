@@ -82,8 +82,8 @@ interface SearchItem {
 const RESULT_GROUPS = [
   "Action",
   "Person",
-  "Channel",
   "Agent",
+  "Channel",
   "Message",
   "Workspace",
   "Setting",
@@ -330,8 +330,8 @@ export function WorkspaceSearch() {
       return [
         ...actions.slice(0, 3),
         ...people.slice(0, 4),
+        ...agents,
         ...channels.slice(0, 3),
-        ...agents.slice(0, 3),
         ...otherWorkspaces,
         ...destinations,
       ];
@@ -562,7 +562,11 @@ export function WorkspaceSearch() {
                             transparentWhenLoaded
                           />
                         ) : item.kind === "Agent" ? (
-                          <AgentAvatar label={item.label} className="size-7" />
+                          <AgentAvatar
+                            agentId={item.id}
+                            label={item.label}
+                            className="size-7"
+                          />
                         ) : item.kind === "Person" ? (
                           <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-[28%] text-[11px] font-semibold">
                             <AvatarImage
@@ -579,7 +583,7 @@ export function WorkspaceSearch() {
                           </span>
                         ) : null}
                         <span className="min-w-0 flex-1 space-y-0.5">
-                          <span className="block truncate text-sm font-semibold">
+                          <span className="block truncate text-sm font-medium">
                             {item.label}
                           </span>
                           <span className="text-muted-foreground block truncate text-xs">

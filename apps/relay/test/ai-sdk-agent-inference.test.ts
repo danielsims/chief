@@ -5,7 +5,10 @@ import { z } from "zod";
 import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 
-import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
+import {
+  AiSdkAgentInference,
+  retryModelAdmission,
+} from "../src/ai-sdk-agent-inference";
 import { traceContext } from "./ai-sdk-agent-inference-harness";
 
 const requestSchema = z.object({
@@ -21,7 +24,7 @@ describe("AiSdkAgentInference", () => {
     .object({ OPENCODE_API_KEY: z.string().optional() })
     .parse(env).OPENCODE_API_KEY;
 
-  it("sends DeepSeek V4 Flash through the OpenCode Go API", async () => {
+  it("sends DeepSeek V4.1 Flash through the OpenCode Go API", async () => {
     let requestBody: unknown;
     let requestSignal: AbortSignal | null | undefined;
     const request = async function (
@@ -59,7 +62,7 @@ describe("AiSdkAgentInference", () => {
     });
 
     expect(requestSchema.parse(requestBody)).toMatchObject({
-      model: "deepseek-v4-flash",
+      model: "deepseek-v4.1-flash",
       messages: [{ role: "system" }, { role: "user" }],
     });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
@@ -454,4 +457,51 @@ describe("AiSdkAgentInference", () => {
       });
     },
   );
+});
+
+describe("bounded provider admission recovery", () => {
+  it("retries two capacity refusals and then returns the original operation's result", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const result = await retryModelAdmission(
+      async () => {
+        calls++;
+        if (calls < 3)
+          throw new Error(
+            "[ttft_admission_refused] the cell is at capacity; retry shortly (after 2 s)",
+          );
+        return "ready";
+      },
+      async (delay) => {
+        delays.push(delay);
+      },
+    );
+    expect(result).toBe("ready");
+    expect(calls).toBe(3);
+    expect(delays).toEqual([2000, 4000]);
+  });
+  it("stops after three refusals and never retries unrelated failures", async () => {
+    let calls = 0;
+    await expect(
+      retryModelAdmission(
+        async () => {
+          calls++;
+          throw new Error("[ttft_admission_refused] capacity");
+        },
+        async () => undefined,
+      ),
+    ).rejects.toThrow("capacity");
+    expect(calls).toBe(3);
+    calls = 0;
+    await expect(
+      retryModelAdmission(
+        async () => {
+          calls++;
+          throw new Error("Invalid API key");
+        },
+        async () => undefined,
+      ),
+    ).rejects.toThrow("Invalid API key");
+    expect(calls).toBe(1);
+  });
 });

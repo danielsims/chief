@@ -24,6 +24,7 @@ describe("public relay routes", () => {
       {
         ...relayEnv(),
         RELAY_PUBLIC_URL: undefined,
+        RELAY_TELEMETRY_DEPLOYMENT: "exp-candidate-browser",
       },
       createExecutionContext(),
     );

@@ -14,6 +14,7 @@ import { Sidebar } from "./sidebar";
 import { WorkspaceContentSurface } from "./workspace-content-surface";
 import { WorkspaceRail } from "./workspace-rail";
 import { WorkspaceSearch } from "./workspace-search";
+import { WorkspaceSidePanelHost } from "./workspace-side-panel";
 
 const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = 232;
@@ -42,6 +43,8 @@ export function Layout({
   const workspaceId = useRelaySession().snapshot?.id;
   const overview = location.pathname === "/";
   const channel = location.pathname.startsWith("/conversations");
+  // The automations list draws its own cards beside the calendar panel.
+  const split = channel || location.pathname === "/schedule";
   const settings = location.pathname.startsWith("/settings");
   const reducedMotion = useReducedMotion();
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
@@ -103,7 +106,7 @@ export function Layout({
             onToggleSidebar={toggleActiveSidebar}
             canToggleSidebar={workspaceNavigationAvailable}
           />
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             {activeSidebarOpen ? (
               <div
                 style={{ width: sidebarWidth }}
@@ -130,29 +133,32 @@ export function Layout({
                 </AnimatePresence>
               </div>
             ) : null}
-            <WorkspaceContentSurface
-              balancedGutter={!activeSidebarOpen}
-              split={Boolean(channel)}
-            >
-              {/* Keyed by workspace so no page carries one workspace's
-                  state into another. */}
-              <div
-                key={workspaceId ?? "none"}
-                className={cn(
-                  "min-h-0 min-w-0 flex-1",
-                  settings
-                    ? "overflow-y-auto"
-                    : channel
-                      ? // Conversation cards draw their own edges and shadows
-                        // into the gutter, so nothing here clips them.
-                        undefined
-                      : "overflow-y-auto px-8 pb-8",
-                  overview && "overflow-hidden px-8 pb-8",
-                )}
+            <WorkspaceSidePanelHost>
+              <WorkspaceContentSurface
+                balancedGutter={!activeSidebarOpen}
+                split={split}
               >
-                {children ?? <Outlet />}
-              </div>
-            </WorkspaceContentSurface>
+                {/* Keyed by workspace so no page carries one workspace's
+                  state into another. */}
+                <div
+                  key={workspaceId ?? "none"}
+                  className={cn(
+                    "min-h-0 min-w-0 flex-1",
+                    settings
+                      ? "overflow-y-auto"
+                      : split
+                        ? // Conversation and automations cards draw their own
+                          // edges and shadows into the gutter, so nothing here
+                          // clips them.
+                          undefined
+                        : "overflow-y-auto px-8 pb-8",
+                    overview && "overflow-hidden px-8 pb-8",
+                  )}
+                >
+                  {children ?? <Outlet />}
+                </div>
+              </WorkspaceContentSurface>
+            </WorkspaceSidePanelHost>
           </div>
         </div>
       </div>

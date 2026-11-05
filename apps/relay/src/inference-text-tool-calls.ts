@@ -1,29 +1,31 @@
 /**
- * DeepSeek models occasionally emit their native tool-call markup (DSML) as
- * plain text instead of through the tool-calling interface. Posted verbatim,
- * that markup reaches people as gibberish, and the intended tool calls never
- * run. This recovers the calls and removes the markup from the text.
+ * DeepSeek models occasionally emit their native tool-call markup as plain
+ * text instead of through the tool-calling interface. Posted verbatim, that
+ * markup reaches people as gibberish, and the intended tool calls never run.
+ * This recovers the calls and removes the markup from the text.
+ *
+ * The provider has used two spellings: `<|DSML|tool_calls>` and the token
+ * form `<|｜DSML｜| calls>`. Both are accepted here.
  */
 import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import { parseJsonValue } from "@chief/relay-contracts";
 
-// The model writes a full-width bar (U+FF5C); tolerate an ASCII bar too.
-const BAR = "[｜|]";
-const DSML = `<${BAR}DSML${BAR}`;
-const DSML_CLOSE = `</${BAR}DSML${BAR}`;
+// Full-width bars are what the model writes; tolerate ASCII bars too.
+const OPEN = "<[｜|](?:DSML|｜DSML｜)[｜|]";
+const CLOSE = "</[｜|](?:DSML|｜DSML｜)[｜|]";
 const blockPattern = new RegExp(
-  `${DSML}tool_calls>([\\s\\S]*?)(?:${DSML_CLOSE}tool_calls>|$)`,
+  `${OPEN}\\s*(?:tool_calls|calls)>([\\s\\S]*?)(?:${CLOSE}\\s*(?:tool_calls|calls)>|$)`,
   "gu",
 );
 const invokePattern = new RegExp(
-  `${DSML}invoke\\s+name="([^"]+)"\\s*>([\\s\\S]*?)${DSML_CLOSE}invoke>`,
+  `${OPEN}\\s*invoke\\s+name="([^"]+)"\\s*>([\\s\\S]*?)${CLOSE}\\s*invoke>`,
   "gu",
 );
 const parameterPattern = new RegExp(
-  `${DSML}parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>([\\s\\S]*?)${DSML_CLOSE}parameter>`,
+  `${OPEN}\\s*parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>([\\s\\S]*?)${CLOSE}\\s*parameter>`,
   "gu",
 );
-const anyMarkup = new RegExp(`${DSML}|${DSML_CLOSE}`, "u");
+const anyMarkup = new RegExp(`${OPEN}|${CLOSE}`, "u");
 
 export interface TextToolCall {
   name: string;

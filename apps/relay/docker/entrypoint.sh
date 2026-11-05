@@ -72,10 +72,12 @@ for binding in \
   RELAY_ID \
   RELAY_PUBLIC_URL \
   RELAY_DEPLOYMENT \
+  RELAY_TELEMETRY_DEPLOYMENT \
   RELAY_TELEMETRY_MODE \
   RELAY_TELEMETRY_INCLUDE_CONTENT \
   RELAY_OTLP_ENDPOINT \
   RELAY_OTLP_AUTHORIZATION \
+  RELAY_GIT_SHA \
   ACCOUNT_IDENTITY_MODE \
   AUTH_BASE_URL \
   AUTH_UI_ORIGIN \
@@ -108,7 +110,16 @@ case "${1:-serve}" in
       --persist-to "$state_dir"
     ;;
   serve)
+    # Without an explicit upstream, wrangler dev rewrites Host and Origin to
+    # the production route in wrangler.jsonc, and Better Auth then rejects
+    # every browser request as coming from an untrusted origin.
+    public_url="${RELAY_PUBLIC_URL:-$AUTH_BASE_URL}"
+    upstream_protocol="${public_url%%://*}"
+    upstream_host="${public_url#*://}"
+    upstream_host="${upstream_host%%/*}"
     exec "$wrangler_binary" dev \
+      --local-upstream "$upstream_host" \
+      --upstream-protocol "$upstream_protocol" \
       --cwd /app/apps/relay \
       --env-file "$runtime_env" \
       --local \

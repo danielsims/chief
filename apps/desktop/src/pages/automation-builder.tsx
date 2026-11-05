@@ -261,9 +261,11 @@ export function AutomationBuilderPage() {
       workspaceId,
       automationId,
       schedule?.updatedAt ?? null,
-      dirty && (schedule || draft.steps.length || draft.title) ? draft : null,
+      dirty && (schedule || draft.steps.length || draft.title || chatOpen)
+        ? draft
+        : null,
     );
-  }, [automationId, dirty, draft, loaded, schedule, workspaceId]);
+  }, [automationId, chatOpen, dirty, draft, loaded, schedule, workspaceId]);
   const status = schedule?.status ?? "new";
   const patch = (next: Partial<AutomationDraft>) =>
     setDraft((current) => ({ ...current, ...next }));
@@ -380,13 +382,13 @@ export function AutomationBuilderPage() {
   const remove = async () => {
     if (!client || !schedule) return;
     await client.schedules.delete(schedule.id);
-    void navigate("/schedule/automations");
+    void navigate("/schedule");
   };
 
   // Chief builds and refines the automation in a chat of its own; what's on
   // screen is saved first so that's what it works from.
   const chat = useAutomationChat(chatId, () => {
-    if (!client || dirty) return;
+    if (!client || (schedule && dirty)) return;
     void client.schedules
       .list()
       .then((records) => {
@@ -418,7 +420,7 @@ export function AutomationBuilderPage() {
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-black/[0.055] px-5 dark:border-white/[0.06]">
           <nav className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px]">
             <Link
-              to="/schedule/automations"
+              to="/schedule"
               className="text-muted-foreground hover:text-foreground shrink-0 transition-colors"
             >
               Automations
@@ -533,18 +535,33 @@ export function AutomationBuilderPage() {
               </DropdownMenu>
             ) : null}
             {!dirty && (status === "needs_approval" || status === "draft") ? (
-              <Button
-                size="sm"
-                disabled={busy || (draft.steps.length > 0 && !runs.testPassed)}
-                title={
-                  draft.steps.length > 0 && !runs.testPassed
-                    ? "Test it first. Writes are only previewed during a test."
-                    : undefined
-                }
-                onClick={() => setReviewing(true)}
-              >
-                Review and turn on
-              </Button>
+              <>
+                {draft.steps.length > 0 ? (
+                  <span className="text-muted-foreground text-[11px]">
+                    {runs.testing
+                      ? "Testing…"
+                      : runs.testPassed
+                        ? "Test passed"
+                        : runs.testState
+                          ? `Last test ${runs.testState}`
+                          : "Test required"}
+                  </span>
+                ) : null}
+                <Button
+                  size="sm"
+                  disabled={
+                    busy || (draft.steps.length > 0 && !runs.testPassed)
+                  }
+                  title={
+                    draft.steps.length > 0 && !runs.testPassed
+                      ? "Test it first. Writes are only previewed during a test."
+                      : undefined
+                  }
+                  onClick={() => setReviewing(true)}
+                >
+                  Review and turn on
+                </Button>
+              </>
             ) : (
               <Button
                 size="sm"
@@ -628,11 +645,14 @@ export function AutomationBuilderPage() {
               </div>
             </div>
             {chatOpen ? (
-              <div className="pointer-events-none absolute inset-y-2 right-2 z-30 flex">
+              <div
+                className="z-30 flex shrink-0 justify-end py-2 pr-2 pl-2 max-[900px]:!w-0 max-[900px]:p-0"
+                style={{ width: chatSizing.widthPx + 16 }}
+              >
                 <AutomationChatPanel
                   chat={chat}
                   sizing={chatSizing}
-                  className="pointer-events-auto max-w-[calc(100vw-420px)] shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]"
+                  className="max-w-full shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]"
                   onClose={() => setChatOpen(false)}
                 />
               </div>

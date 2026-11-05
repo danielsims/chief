@@ -197,7 +197,7 @@ export class ChannelGuestDelivery {
   /** Mentions and threads always wake; "all" adds every other message.
    * Guests only wake each other by explicit mention, so two agents cannot
    * loop on a thread. */
-  private wakeReason(guest: ChannelGuestRow, message: ConversationMessage) {
+  wakeReason(guest: ChannelGuestRow, message: ConversationMessage) {
     if (
       mentions(message.body, guest.name) ||
       mentions(message.body, guestHandle(this.storage, guest))

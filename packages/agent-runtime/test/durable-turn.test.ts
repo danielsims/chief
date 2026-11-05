@@ -6,6 +6,7 @@ import type { AgentInferenceRequest } from "@chief/agent-computer";
 import type { DurableTool } from "../src/durable-turn/types.js";
 import { MemoryCellPersistence } from "../src/cells/memory-persistence.js";
 import {
+  compactTurn,
   recentCompleteMessages,
   shouldCompact,
 } from "../src/durable-turn/context.js";
@@ -542,4 +543,56 @@ void test("a durable turn forwards provider-neutral inference progress before co
     "provider:completed",
     "observer:completed",
   ]);
+});
+
+void test("a retained large tool batch cannot trigger compaction without progress", async () => {
+  const persistence = new MemoryCellPersistence();
+  const turn = await runner(persistence).create(baseTurn());
+  const calls = Array.from({ length: 12 }, (_, index) => ({
+    id: `batch-${index}`,
+    name: "read_probe",
+    arguments: {},
+  }));
+  turn.messages = [
+    { role: "assistant", content: null, toolCalls: calls },
+    ...calls.map((call) => ({
+      role: "tool" as const,
+      content: "result",
+      toolCallId: call.id,
+      name: call.name,
+    })),
+  ];
+  const inference = fakeInference(
+    () => ({ content: "invalid checkpoint", toolCalls: [] }),
+    { contextWindowTokens: 100, estimateTokens: 90 },
+  );
+  const input = {
+    inference,
+    turn,
+    tools: [],
+    maxOutputTokens: 10,
+    policy: { compactionRatio: 0.75 },
+  };
+  assert.equal(shouldCompact(input), true);
+  turn.checkpoint = await compactTurn(input);
+  assert.equal(recentCompleteMessages(turn.messages).length, 13);
+  assert.equal(shouldCompact(input), false);
+  turn.messages.push({ role: "assistant", content: "Continue research." });
+  assert.equal(shouldCompact(input), false);
+  for (let index = 0; index < 5; index += 1) {
+    turn.messages.push(
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [{ id: `next-${index}`, name: "read_probe", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "result",
+        toolCallId: `next-${index}`,
+        name: "read_probe",
+      },
+    );
+  }
+  assert.equal(shouldCompact(input), true);
 });

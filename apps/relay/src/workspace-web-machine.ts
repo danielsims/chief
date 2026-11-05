@@ -1,10 +1,15 @@
 import { Predicate } from "effect";
 import { z } from "zod";
 
-import type { WebMachineFetchResult } from "@chief/relay-contracts";
+import type {
+  MachineBrowserResult,
+  WebMachineFetchResult,
+} from "@chief/relay-contracts";
 import {
   agentIdSchema,
   isJsonString,
+  machineBrowserCommandSchema,
+  machineBrowserResultSchema,
   parseJsonObject,
   webMachineFetchResultSchema,
   webMachinePolicyMessageSchema,
@@ -15,7 +20,7 @@ import {
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { HttpError, json } from "./http";
 import { readTrustedContext } from "./internal-context";
-import { requireNativeAgent, workspaceAgent } from "./workspace-agent-runtime";
+import { requireNativeAgent } from "./workspace-agent-runtime";
 
 /**
  * A member's desktop lends this workspace's agents its internet connection.
@@ -28,7 +33,19 @@ export const webMachineTag = "web-machine";
 const answerWithinMs = 30_000;
 // WebSocket.OPEN, which the Workers runtime doesn't define as a static.
 const openSocket = 1;
-const pending = new Map<string, (result: WebMachineFetchResult) => void>();
+export type MachineSocket = Pick<
+  WebSocket,
+  | "readyState"
+  | "deserializeAttachment"
+  | "serializeAttachment"
+  | "send"
+  | "close"
+>;
+type MachineResult = WebMachineFetchResult | MachineBrowserResult;
+const pending = new Map<
+  string,
+  { socket: MachineSocket; resolve: (result: MachineResult) => void }
+>();
 
 const webMachineAttachmentSchema = z.object({
   ownerUserId: z.string(),
@@ -75,18 +92,8 @@ export function isWebMachine(ctx: DurableObjectState, socket: WebSocket) {
   return ctx.getTags(socket).includes(webMachineTag);
 }
 
-function machineAttachment(socket: WebSocket) {
+function machineAttachment(socket: MachineSocket) {
   return webMachineAttachmentSchema.parse(socket.deserializeAttachment());
-}
-
-/** An agent's owner; built-in agents belong to the workspace's creator. */
-function agentOwner(storage: DurableObjectStorage, agentId: string) {
-  try {
-    return workspaceAgent(storage, agentId).ownerUserId;
-  } catch (error) {
-    if (!(error instanceof HttpError) || error.status !== 404) throw error;
-    return requireNativeAgent(storage, agentId).ownerUserId;
-  }
 }
 
 /** Whether a machine's owner lets this agent, for this person, use it. */
@@ -111,7 +118,7 @@ function admits(
 }
 
 /** Whether the machine is within its rate limits, counting this fetch. */
-function withinLimits(socket: WebSocket, now: number) {
+function withinLimits(socket: MachineSocket, now: number) {
   const machine = machineAttachment(socket);
   const lastHour = (machine.servedAt ?? []).filter(
     (at) => now - at < 60 * 60_000,
@@ -129,9 +136,16 @@ function withinLimits(socket: WebSocket, now: number) {
   return true;
 }
 
-export function receiveWebMachineMessage(socket: WebSocket, message: string) {
+export function receiveWebMachineMessage(
+  socket: MachineSocket,
+  message: string,
+) {
   if (message === "ping") {
     socket.send("pong");
+    return;
+  }
+  if (message.length > 2_900_000) {
+    socket.close(1009, "Machine message too large");
     return;
   }
   let data: unknown;
@@ -151,12 +165,15 @@ export function receiveWebMachineMessage(socket: WebSocket, message: string) {
     } satisfies WebMachineAttachment);
     return;
   }
-  const result = webMachineFetchResultSchema.safeParse(data);
+  const result = z
+    .union([webMachineFetchResultSchema, machineBrowserResultSchema])
+    .safeParse(data);
   if (!result.success) {
     socket.close(1008, "Invalid machine message");
     return;
   }
-  pending.get(result.data.requestId)?.(result.data);
+  const waiting = pending.get(result.data.requestId);
+  if (waiting?.socket === socket) waiting.resolve(result.data);
 }
 
 /**
@@ -169,8 +186,10 @@ export async function fetchThroughWebMachine(
   request: Request,
 ) {
   const { principal, workspaceId } = readTrustedContext(request);
-  if (principal.kind !== "agent")
+  if (principal.kind !== "agent" || principal.workspaceId !== workspaceId)
     throw new HttpError(403, "agents_only", "Only agents can use a machine.");
+  channels.requirePrincipalMember(principal);
+  const agent = requireNativeAgent(ctx.storage, principal.agentId);
   const agentId = agentIdSchema.parse(principal.agentId);
   const input = parseJsonObject(await request.json());
   const url = input?.url;
@@ -180,7 +199,7 @@ export async function fetchThroughWebMachine(
   if (!isJsonString(url))
     return json({ error: "invalid_url" }, { status: 400 });
   const agentOwnerId =
-    agentOwner(ctx.storage, agentId) ??
+    agent.ownerUserId ??
     String(channels.requireWorkspace(workspaceId).created_by_user_id);
   // The most recently connected machine is the one most likely awake; one
   // that's used up its allowance is passed over for the next.
@@ -201,28 +220,176 @@ export async function fetchThroughWebMachine(
     .find((candidate) => withinLimits(candidate, now));
   if (!socket) return json({ error: "no_machine" }, { status: 404 });
   const requestId = crypto.randomUUID();
-  const result = await new Promise<WebMachineFetchResult | undefined>(
-    (resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId);
-        resolve(undefined);
-      }, answerWithinMs);
-      pending.set(requestId, (answer) => {
+  const result = await sendMachine(
+    socket,
+    requestId,
+    {
+      type: "web.fetch",
+      requestId,
+      url,
+      agentId,
+      ...(requesterUserId ? { requesterUserId } : undefined),
+    },
+    answerWithinMs,
+  );
+  if (!result) return json({ error: "machine_timeout" }, { status: 504 });
+  return json(webMachineFetchResultSchema.parse(result));
+}
+
+/** Correlate a reply with the exact socket that received the request. Another
+ * enrolled machine cannot complete it by guessing or observing an ID. */
+async function sendMachine(
+  socket: MachineSocket,
+  requestId: string,
+  command: {
+    type: string;
+    requestId: string;
+    agentId: string;
+    url?: string;
+    requesterUserId?: string;
+    sessionId?: string;
+    operation?: string;
+    target?: { ref?: string; labels?: string[] };
+    text?: string;
+    values?: string[];
+  },
+  timeout: number,
+) {
+  if (pending.size >= 128)
+    throw new HttpError(429, "machine_busy", "Machine capacity is occupied.");
+  return new Promise<MachineResult | undefined>((resolve) => {
+    const timer = setTimeout(() => {
+      pending.delete(requestId);
+      resolve(undefined);
+    }, timeout);
+    pending.set(requestId, {
+      socket,
+      resolve: (answer) => {
         clearTimeout(timer);
         pending.delete(requestId);
         resolve(answer);
-      });
-      socket.send(
-        JSON.stringify({
-          type: "web.fetch",
-          requestId,
-          url,
-          agentId,
-          ...(requesterUserId ? { requesterUserId } : undefined),
-        }),
-      );
+      },
+    });
+    try {
+      socket.send(JSON.stringify(command));
+    } catch {
+      clearTimeout(timer);
+      pending.delete(requestId);
+      resolve(undefined);
+    }
+  });
+}
+
+const pinnedSessionSchema = z.object({ machineId: z.string(), at: z.number() });
+const sessionIdleMs = 60 * 60_000;
+
+/** Jobs often end without closing their browser; their pins expire instead. */
+async function forgetIdleSessions(storage: DurableObjectStorage) {
+  const stale = [
+    ...(await storage.list({ prefix: "machine.browser:" })).entries(),
+  ].flatMap(([key, value]) => {
+    const pin = pinnedSessionSchema.safeParse(value);
+    return !pin.success || Date.now() - pin.data.at > sessionIdleMs
+      ? [key]
+      : [];
+  });
+  for (let index = 0; index < stale.length; index += 128)
+    await storage.delete(stale.slice(index, index + 128));
+}
+
+/** Online paired machines whose owner lets this agent use them. */
+export function pairedMachines(
+  ctx: { getWebSockets: (tag?: string) => MachineSocket[] },
+  agentId: string,
+  ownerId: string,
+) {
+  return ctx.getWebSockets(webMachineTag).filter((candidate) => {
+    const attachment = machineAttachment(candidate);
+    return (
+      candidate.readyState === openSocket &&
+      !!attachment.machineId &&
+      admits(attachment, agentId, ownerId, undefined)
+    );
+  });
+}
+
+/** Only the trusted native runtime can dispatch browser operations. Session
+ * affinity persists across DO wakeups; an offline machine never causes a
+ * session to attach to a different machine's tab. */
+export async function browseThroughWebMachine(
+  ctx: Pick<DurableObjectState, "storage"> & {
+    getWebSockets: (tag?: string) => MachineSocket[];
+  },
+  channels: WorkspaceChannelStore,
+  request: Request,
+) {
+  const { principal, workspaceId } = readTrustedContext(request);
+  if (principal.kind !== "agent" || principal.workspaceId !== workspaceId)
+    throw new HttpError(
+      403,
+      "agents_only",
+      "Only workspace agents can use a machine.",
+    );
+  channels.requirePrincipalMember(principal);
+  const agent = requireNativeAgent(ctx.storage, principal.agentId);
+  const config = channels.agentConfiguration(principal.agentId);
+  if (!config.enabled || !config.toolPermissions.includes("browser.use"))
+    throw new HttpError(
+      403,
+      "browser_denied",
+      "Browser access is disabled for this agent.",
+    );
+  const input = machineBrowserCommandSchema.parse(await request.json());
+  const key = `machine.browser:${principal.agentId}:${input.sessionId}`;
+  const pinned = pinnedSessionSchema
+    .optional()
+    .parse(await ctx.storage.get(key))?.machineId;
+  if (!pinned && input.operation === "close") return json({ closed: true });
+  if (!pinned && input.operation !== "open")
+    throw new HttpError(
+      409,
+      "browser_not_open",
+      "Open an owned browser session first.",
+    );
+  const owner =
+    agent.ownerUserId ??
+    String(channels.requireWorkspace(workspaceId).created_by_user_id);
+  const socket = pairedMachines(ctx, principal.agentId, owner)
+    .filter(
+      (candidate) =>
+        !pinned || machineAttachment(candidate).machineId === pinned,
+    )
+    .reverse()
+    .find((candidate) => withinLimits(candidate, Date.now()));
+  if (!socket)
+    throw new HttpError(
+      503,
+      "browser_unavailable",
+      "No authorized browser machine is online for this session.",
+    );
+  const machineId = machineAttachment(socket).machineId;
+  if (!pinned) await forgetIdleSessions(ctx.storage);
+  await ctx.storage.put(key, { machineId, at: Date.now() });
+  const requestId = crypto.randomUUID();
+  const answer = await sendMachine(
+    socket,
+    requestId,
+    {
+      ...input,
+      type: "browser.request",
+      requestId,
+      agentId: principal.agentId,
     },
+    60_000,
   );
-  if (!result) return json({ error: "machine_timeout" }, { status: 504 });
-  return json(result);
+  if (!answer)
+    throw new HttpError(
+      504,
+      "browser_timeout",
+      "Browser machine did not answer in time.",
+    );
+  const result = machineBrowserResultSchema.parse(answer);
+  if (!result.ok) throw new HttpError(502, "browser_failed", result.error);
+  if (input.operation === "close") await ctx.storage.delete(key);
+  return json(result.output);
 }
