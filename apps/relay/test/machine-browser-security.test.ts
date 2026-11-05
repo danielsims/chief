@@ -20,13 +20,11 @@ function socket(owner: string, id: string) {
     ownerUserId: string;
     machineId: string;
     policy: { allow: string };
-    browser: boolean;
     servedAt?: number[];
   } = {
     ownerUserId: owner,
     machineId: id,
     policy: { allow: "mine" },
-    browser: true,
   };
   let send: (value: string) => void = vi.fn();
   const ws = {

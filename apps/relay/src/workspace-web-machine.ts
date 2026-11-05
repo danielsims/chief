@@ -10,7 +10,6 @@ import {
   isJsonString,
   machineBrowserCommandSchema,
   machineBrowserResultSchema,
-  machineCapabilitiesSchema,
   parseJsonObject,
   webMachineFetchResultSchema,
   webMachinePolicyMessageSchema,
@@ -50,7 +49,6 @@ const pending = new Map<
 
 const webMachineAttachmentSchema = z.object({
   ownerUserId: z.string(),
-  browser: z.boolean().optional(),
   /** Set for a paired machine; a member's desktop has none. */
   machineId: z.string().optional(),
   policy: webMachinePolicySchema,
@@ -165,14 +163,6 @@ export function receiveWebMachineMessage(
       ...machineAttachment(socket),
       policy: policy.success ? policy.data.policy : { allow: "mine" },
     } satisfies WebMachineAttachment);
-    return;
-  }
-  const capabilities = machineCapabilitiesSchema.safeParse(data);
-  if (capabilities.success) {
-    socket.serializeAttachment({
-      ...machineAttachment(socket),
-      browser: capabilities.data.browser,
-    });
     return;
   }
   const result = z
@@ -290,6 +280,22 @@ async function sendMachine(
   });
 }
 
+/** Online paired machines whose owner lets this agent use them. */
+export function pairedMachines(
+  ctx: { getWebSockets: (tag?: string) => MachineSocket[] },
+  agentId: string,
+  ownerId: string,
+) {
+  return ctx.getWebSockets(webMachineTag).filter((candidate) => {
+    const attachment = machineAttachment(candidate);
+    return (
+      candidate.readyState === openSocket &&
+      !!attachment.machineId &&
+      admits(attachment, agentId, ownerId, undefined)
+    );
+  });
+}
+
 /** Only the trusted native runtime can dispatch browser operations. Session
  * affinity persists across DO wakeups; an offline machine never causes a
  * session to attach to a different machine's tab. */
@@ -329,18 +335,11 @@ export async function browseThroughWebMachine(
   const owner =
     agent.ownerUserId ??
     String(channels.requireWorkspace(workspaceId).created_by_user_id);
-  const socket = ctx
-    .getWebSockets(webMachineTag)
-    .filter((candidate) => {
-      const attachment = machineAttachment(candidate);
-      return (
-        candidate.readyState === openSocket &&
-        attachment.browser === true &&
-        !!attachment.machineId &&
-        (!pinned || attachment.machineId === pinned) &&
-        admits(attachment, principal.agentId, owner, undefined)
-      );
-    })
+  const socket = pairedMachines(ctx, principal.agentId, owner)
+    .filter(
+      (candidate) =>
+        !pinned || machineAttachment(candidate).machineId === pinned,
+    )
     .reverse()
     .find((candidate) => withinLimits(candidate, Date.now()));
   if (!socket)

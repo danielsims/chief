@@ -139,6 +139,3 @@ export const machineBrowserResultSchema = z.discriminatedUnion("ok", [
   }),
 ]);
 export type MachineBrowserResult = z.infer<typeof machineBrowserResultSchema>;
-export const machineCapabilitiesSchema = z
-  .object({ type: z.literal("machine.capabilities"), browser: z.boolean() })
-  .strict();

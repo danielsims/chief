@@ -302,16 +302,6 @@ async fn connect(config: &Config) -> Ended {
     }
     println!("{}  connected", now());
 
-    if sink
-        .send(Message::text(
-            serde_json::json!({"type":"machine.capabilities","browser":crate::browser::enabled()})
-                .to_string(),
-        ))
-        .await
-        .is_err()
-    {
-        return Ended::Dropped("Capability announcement failed".into());
-    }
     let browsers = Arc::new(tokio::sync::Mutex::new(crate::browser::Sessions::default()));
     let browser_slot = Arc::new(Semaphore::new(1));
     let mut tasks = tokio::task::JoinSet::new();

@@ -75,6 +75,7 @@ import {
 import {
   acceptWebMachine,
   isWebMachine,
+  pairedMachines,
   receiveWebMachineMessage,
   webMachineTag,
 } from "./workspace-web-machine";
@@ -256,7 +257,14 @@ export class WorkspaceObject extends DurableObject<Env> {
 
       if (workspaceAccessRouter.matches(operation)) {
         return yield* attempt("workspace.access", () =>
-          workspaceAccessRouter.route(ctx.storage, env, request, operation),
+          workspaceAccessRouter.route(
+            ctx.storage,
+            env,
+            request,
+            operation,
+            (agentId, ownerId) =>
+              pairedMachines(ctx, agentId, ownerId).length > 0,
+          ),
         );
       }
 
