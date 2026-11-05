@@ -8,8 +8,6 @@ interface Env {
   COMPUTER_AUTH_SECRET?: string;
   BROWSER_BASE_URL?: string;
   BROWSER_AUTH_SECRET?: string;
-  /** Optional Exa key; web search works without one at a lower rate limit. */
-  EXA_API_KEY?: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_EMAIL_API_TOKEN: string;
   EMAIL_FROM_ADDRESS: string;
