@@ -16,7 +16,12 @@ const snapshot = {
 
 describe("browser-only browsing", () => {
   it("publishes the browser session after Google search for human handoff", () => {
-    expect(publishesBrowserSession("web_search")).toBe(true);
+    expect(publishesBrowserSession("web_search", { engine: "google" })).toBe(
+      true,
+    );
+    expect(publishesBrowserSession("web_search", { engine: "exa" })).toBe(
+      false,
+    );
     expect(publishesBrowserSession("browser_open")).toBe(true);
     expect(publishesBrowserSession("browser_close")).toBe(true);
     expect(publishesBrowserSession("web_read")).toBe(false);

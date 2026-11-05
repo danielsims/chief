@@ -130,7 +130,14 @@ export async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
   if (!response.ok) throw new Error("The plugin catalog is unavailable.");
   const document = hostedPluginCatalogSchema.parse(await response.json());
   return document.data.flatMap((entry) => {
-    if (entry.kind !== "mcp" || !entry.slug || !entry.name || !entry.domain)
+    // Exa already powers every agent's built-in web search.
+    if (
+      entry.kind !== "mcp" ||
+      !entry.slug ||
+      !entry.name ||
+      !entry.domain ||
+      entry.domain === "exa.ai"
+    )
       return [];
     return [
       {
