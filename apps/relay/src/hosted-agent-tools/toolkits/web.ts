@@ -1,10 +1,10 @@
 import type { HostedAgentToolContext } from "../context";
+import { exaRead, exaSearch } from "../exa";
 import { requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
 import {
   fetchThroughMachine,
   isChallengePage,
-  readWithChrome,
   recordSiteFailure,
   requireSiteOpen,
 } from "../web-access";
@@ -28,20 +28,25 @@ export const hostedWebTools = [
     "web.search",
     async (context, input) => {
       const query = requiredString(input, "query");
-      if (!context.browser)
-        throw new Error(
-          "The interactive browser is unavailable. Enable browser access for this agent; no alternate search engine will be used.",
-        );
-      return googleBrowserSearch(context.browser, query);
+      try {
+        return await exaSearch(context.env, query);
+      } catch (error) {
+        // A lent browser machine searches Google from its owner's own IP.
+        if (context.browser)
+          return await googleBrowserSearch(context.browser, query).catch(() => {
+            throw error;
+          });
+        throw error;
+      }
     },
-    { effect: "read_only", requiresBrowser: true },
+    { effect: "read_only" },
   ),
 ];
 
 /**
- * Every page an agent reads, search results included, comes through here: a
- * machine lent to the workspace if one is online, otherwise the cloud, where
- * a site that refuses a plain fetch gets one try in a real browser. A site
+ * Every page an agent reads comes through here: a machine lent to the
+ * workspace if one is online, otherwise a plain fetch from the relay. A site
+ * that refuses that gets one try in a lent browser, then through Exa. A site
  * that keeps failing is closed for the rest of the turn.
  */
 async function fetchPage(
@@ -81,11 +86,14 @@ async function fetchPage(
           },
         };
       }
-      const page = await readWithChrome(context.env.BROWSER, url);
-      return { url: page.url, body: page.html, contentType: "text/html" };
-    } catch {
-      recordSiteFailure(context.job.id, url);
       throw error;
+    } catch {
+      try {
+        return { snapshot: await exaRead(context.env, url) };
+      } catch {
+        recordSiteFailure(context.job.id, url);
+        throw error;
+      }
     }
   }
 }

@@ -1,5 +1,3 @@
-import type { BrowserWorker } from "@cloudflare/puppeteer";
-
 import {
   isJsonString,
   parseJsonObject,
@@ -7,13 +5,11 @@ import {
 } from "@chief/relay-contracts";
 
 import type { HostedAgentToolContext } from "./context";
-import { launchBrowser } from "../cloudflare-agent-browser";
 import { workspaceOperation } from "./toolkits/channels";
 
 /**
- * How hosted agents reach the web from Cloudflare. Plain fetches are fast but
- * many sites refuse them from a datacenter; a real Chrome from Browser
- * Rendering gets through most of those, so it's the fallback, not the default.
+ * How hosted agents reach the web from the relay. Plain fetches are fast but
+ * many sites refuse them from a datacenter, so a lent machine is preferred.
  */
 
 export const chromeUserAgent =
@@ -25,28 +21,6 @@ const challengeText =
 /** A page that loaded but is a bot wall rather than the content. */
 export function isChallengePage(html: string) {
   return challengeText.test(html.slice(0, 20_000));
-}
-
-/** Loads a page in a real Chrome and returns its final URL and HTML. */
-export async function readWithChrome(binding: BrowserWorker, url: string) {
-  const browser = await launchBrowser(binding);
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent(chromeUserAgent);
-    const response = await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 25_000,
-    });
-    // Script-built pages fill in after the first paint.
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    const html = await page.content();
-    const status = response?.status() ?? 0;
-    if (status >= 400 || isChallengePage(html))
-      throw new Error(`The web page refused a real browser (HTTP ${status}).`);
-    return { url: page.url(), html };
-  } finally {
-    await browser.close().catch(() => undefined);
-  }
 }
 
 // Failures per site within one agent turn. Past the budget the site is closed
