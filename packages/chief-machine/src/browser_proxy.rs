@@ -147,8 +147,16 @@ async fn forward(client: &mut TcpStream) -> Result<(), String> {
                 None => url.path().to_string(),
             };
             let mut outgoing = format!("{method} {path} HTTP/1.1\r\n");
+            let mut body_length = 0u64;
             for line in text.lines().skip(1).filter(|line| !line.is_empty()) {
                 let key = line.split(':').next().unwrap_or("").to_ascii_lowercase();
+                let value = line.split_once(':').map_or("", |(_, v)| v.trim());
+                if key == "transfer-encoding" {
+                    return Err("Chunked proxy uploads are refused.".into());
+                }
+                if key == "content-length" {
+                    body_length = value.parse().map_err(|_| "Invalid content length.")?;
+                }
                 if ![
                     "proxy-authorization",
                     "proxy-connection",
@@ -169,6 +177,24 @@ async fn forward(client: &mut TcpStream) -> Result<(), String> {
                 .write_all(outgoing.as_bytes())
                 .await
                 .map_err(|_| "Public request failed.")?;
+            // One request per connection: later pipelined requests could name
+            // another host, so nothing past this body is forwarded.
+            let (read_client, mut write_client) = client.split();
+            let (read_remote, mut write_remote) = remote.split();
+            tokio::io::copy(
+                &mut read_client.take(body_length.min(8 * 1024 * 1024)),
+                &mut write_remote,
+            )
+            .await
+            .map_err(|_| "Public request failed.")?;
+            tokio::io::copy(&mut read_remote.take(8 * 1024 * 1024), &mut write_client)
+                .await
+                .map_err(|_| "Browser proxy stream ended.")?;
+            write_client
+                .shutdown()
+                .await
+                .map_err(|_| "Browser proxy stream ended.")?;
+            return Ok(());
         }
         let (read_client, mut write_client) = client.split();
         let (read_remote, mut write_remote) = remote.split();
