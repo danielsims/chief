@@ -61,6 +61,7 @@ export interface HostingContext {
   agent?: { id: string; name: string; role: string; instructions?: string };
   config?: AgentConfig;
   machines?: Machine[];
+  machineOnline?: boolean;
   people?: { id: string; name: string; role: string }[];
 }
 
@@ -107,7 +108,8 @@ export async function prepareHostedAgentTurn(
     context.machines?.flatMap((machine) => machine.capabilities) ?? [],
   );
   const browserEnabled =
-    context.config?.toolPermissions.includes("browser.use") ?? false;
+    context.machineOnline === true &&
+    (context.config?.toolPermissions.includes("browser.use") ?? false);
   const permissions = context.config?.toolPermissions ?? [];
   const requestedRepo = stringPayload(job, "projectRepo");
   // Only a plain slug reaches the prompt and the filesystem path.
