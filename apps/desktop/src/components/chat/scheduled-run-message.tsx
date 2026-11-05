@@ -74,12 +74,9 @@ export function ScheduledRunMessage({
         </span>
       </span>
       <span className={cn(insetCardClass, "block")}>
-        <span className="block text-sm leading-5 font-medium">{run.title}</span>
-        {failed && progress.summary ? (
-          <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-4">
-            {progress.summary}
-          </span>
-        ) : null}
+        <span className="block truncate text-sm leading-5 font-medium">
+          {run.title}
+        </span>
         <span className="mt-2.5 flex items-center gap-2">
           {progress ? (
             <AutomationInvolved
