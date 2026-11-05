@@ -331,7 +331,7 @@ function Node({
           </span>
         ) : null}
         {detail ? (
-          <span className="text-muted-foreground mt-1.5 line-clamp-2 block text-[12px] leading-[18px]">
+          <span className="text-muted-foreground mt-1.5 line-clamp-2 text-[12px] leading-[18px]">
             {detail}
           </span>
         ) : null}
