@@ -10,10 +10,7 @@ import { agentIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 import type { ExecutorConfig } from "./config";
 import { executionRoot } from "./paths";
 
-const browserTabSchema = z.object({ tabId: z.string() });
-
 export class BrowserRegistry {
-  private readonly cdpTabs = new Map<string, string>();
   private readonly sessions = new Map<
     string,
     { generation: number; session: AgentBrowserSession }
@@ -45,8 +42,7 @@ export class BrowserRegistry {
       downloadPath: directory,
       encryptionKey: this.config.COMPUTER_BROWSER_ENCRYPTION_KEY,
       executablePath: this.config.CHROMIUM_EXECUTABLE_PATH,
-      restore: this.config.BROWSER_CDP_URL ? false : restoreKey,
-      cdp: this.config.BROWSER_CDP_URL,
+      restore: restoreKey,
       colorScheme: "dark",
     });
     this.sessions.set(key, { generation: nextGeneration, session });
@@ -56,27 +52,13 @@ export class BrowserRegistry {
   async open(lease: ExecutionLease, url: string, fresh: boolean) {
     assertBrowserUrlAllowed(url, lease);
     let session = this.session(lease);
-    if (this.config.BROWSER_CDP_URL && !this.cdpTabs.has(session.sessionId)) {
-      const tab = await session.command([
-        "tab",
-        "new",
-        "--label",
-        session.sessionId,
-      ]);
-      const parsed = browserTabSchema.safeParse(tab);
-      if (!parsed.success)
-        throw new Error("The browser did not create a dedicated tab.");
-      this.cdpTabs.set(session.sessionId, parsed.data.tabId);
-    }
-    if (fresh && !this.config.BROWSER_CDP_URL) {
+    if (fresh) {
       await session.close().catch(() => undefined);
       await session.clearSavedState().catch(() => undefined);
     }
     try {
       await session.open(url, { width: 1280, height: 800 });
     } catch (firstFailure) {
-      // Never close or restart a browser owned by the person using this machine.
-      if (this.config.BROWSER_CDP_URL) throw firstFailure;
       void session.close().catch(() => undefined);
       session = this.replaceSession(lease);
       try {
@@ -92,18 +74,12 @@ export class BrowserRegistry {
   }
 
   async snapshot(lease: ExecutionLease) {
-    const snapshot = await this.session(lease).snapshot({ includeText: true });
+    const snapshot = await this.session(lease).snapshot();
     return {
       url: snapshot.url,
       title: snapshot.title,
-      text:
-        snapshot.snapshot.length > 40_000
-          ? `${snapshot.snapshot.slice(0, 40_000)}\n[Page snapshot truncated at 40000 characters]`
-          : snapshot.snapshot,
-      controls: (
-        snapshot.snapshot.split("\n\nPage controls:\n").at(-1) ??
-        snapshot.snapshot
-      )
+      text: snapshot.snapshot,
+      controls: snapshot.snapshot
         .split("\n")
         .filter((line) => line.includes("ref=")),
     };
@@ -143,13 +119,6 @@ export class BrowserRegistry {
   }
 
   async close(lease: ExecutionLease) {
-    if (this.config.BROWSER_CDP_URL) {
-      const session = this.session(lease);
-      const tab = this.cdpTabs.get(session.sessionId);
-      if (tab) await session.command(["tab", "close", tab]);
-      this.cdpTabs.delete(session.sessionId);
-      return;
-    }
     await this.session(lease)
       .close()
       .catch(() => undefined);

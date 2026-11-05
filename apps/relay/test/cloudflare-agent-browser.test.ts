@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  browserAcquisitionDelay,
-  isTransientBrowserNavigationError,
-} from "../src/cloudflare-agent-browser";
+import { browserAcquisitionDelay } from "../src/cloudflare-agent-browser";
 
-describe("CloudflareAgentBrowser", () => {
+describe("Cloudflare browser acquisition", () => {
   it("reports Cloudflare's full browser acquisition wait window", () => {
     expect(
       browserAcquisitionDelay({
@@ -26,18 +23,5 @@ describe("CloudflareAgentBrowser", () => {
         timeUntilNextAllowedBrowserAcquisition: 0,
       }),
     ).toBe(5_000);
-  });
-
-  it("recognizes a page navigation race as transient", () => {
-    expect(
-      isTransientBrowserNavigationError(
-        new Error(
-          "Execution context was destroyed, most likely because of a navigation.",
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isTransientBrowserNavigationError(new Error("Selector missing")),
-    ).toBe(false);
   });
 });

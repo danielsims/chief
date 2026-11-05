@@ -13,12 +13,6 @@ const commonConfigSchema = z.object({
   COMPUTER_BROWSER_ENCRYPTION_KEY: z.string().min(32),
   COMPUTER_BROWSER_STREAM_SECRET: z.string().min(32),
   CHROMIUM_EXECUTABLE_PATH: z.string().trim().min(1).optional(),
-  BROWSER_CDP_URL: z.string().trim().min(1).optional(),
-  EXECUTOR_BROWSER_ONLY: z
-    .enum(["true", "false"])
-    .transform((v) => v === "true")
-    .optional(),
-  LISTEN_HOST: z.string().trim().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65_535).default(8080),
 });
 
@@ -56,9 +50,6 @@ export function readConfig(environment: NodeJS.ProcessEnv): ExecutorConfig {
     COMPUTER_BROWSER_ENCRYPTION_KEY: browserEncryptionKey,
     COMPUTER_BROWSER_STREAM_SECRET: browserStreamSecret,
     CHROMIUM_EXECUTABLE_PATH: environment.CHROMIUM_EXECUTABLE_PATH,
-    BROWSER_CDP_URL: environment.BROWSER_CDP_URL,
-    EXECUTOR_BROWSER_ONLY: environment.EXECUTOR_BROWSER_ONLY,
-    LISTEN_HOST: environment.LISTEN_HOST,
     PORT: environment.PORT,
   });
   const issuer = environment.EXECUTOR_AUTH_ISSUER;

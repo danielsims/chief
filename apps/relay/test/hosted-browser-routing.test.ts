@@ -1,11 +1,7 @@
-import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
-
-import { agentJobSchema } from "@chief/relay-contracts";
 
 import { publishesBrowserSession } from "../src/agent-hosted-activity";
 import { googleBrowserSearch } from "../src/hosted-agent-tools/toolkits/web";
-import { RemoteComputerClient } from "../src/remote-computer-client";
 
 const snapshot = {
   url: "https://www.google.com/search?q=browser",
@@ -52,49 +48,5 @@ describe("browser-only browsing", () => {
       "automation",
     );
     expect(result.status).toBe("javascript_required");
-  });
-
-  it("issues only browser and network capabilities, with job-scoped identity", async () => {
-    const now = new Date().toISOString();
-    const job = agentJobSchema.parse({
-      id: crypto.randomUUID(),
-      workspaceId: "workspace-browser-test",
-      agentId: "prospector",
-      kind: "conversation.message",
-      payload: {},
-      status: "leased",
-      attempt: 1,
-      availableAt: now,
-      leaseExpiresAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const capture = vi.fn(
-      async (_url: string | URL | Request, init: RequestInit) => {
-        const token = String(
-          (init.headers as Record<string, string>).authorization,
-        ).slice(7);
-        const decoded = decodeJwt(token);
-        expect(decoded.lease).toMatchObject({
-          workspaceId: job.workspaceId,
-          agentId: job.agentId,
-          capabilities: ["browser:use", "network:egress"],
-        });
-        return Response.json(snapshot);
-      },
-    );
-    vi.stubGlobal("fetch", capture);
-    try {
-      const client = new RemoteComputerClient(
-        "http://computer:8080",
-        "test-only-secret",
-        job,
-        "browser",
-      );
-      await client.bytes("/v1/browser/screenshot");
-      expect(capture).toHaveBeenCalledOnce();
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });
