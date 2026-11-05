@@ -31,9 +31,7 @@ export function publishesBrowserSession(toolName: string, result?: JsonValue) {
   return (
     toolName === browserOpenToolName ||
     toolName === browserCloseToolName ||
-    (toolName === webSearchToolName &&
-      isJsonObject(result) &&
-      result.engine === "google") ||
+    toolName === webSearchToolName ||
     (toolName === agentToolName("web.read") &&
       isJsonObject(result) &&
       result.browserUsed === true)
