@@ -39,7 +39,10 @@ export async function getLatestRelease(): Promise<GitHubRelease | null> {
     },
   );
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error(`GitHub latest release lookup failed (${response.status}).`);
+    return null;
+  }
 
   const release = githubReleaseSchema.safeParse(await response.json());
   return release.success ? release.data : null;
