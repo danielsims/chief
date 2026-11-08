@@ -117,4 +117,19 @@ extension ProjectSummary {
     let value = repositoryWebURL ?? canonicalRemoteURL
     return value.flatMap(URL.init(string:))
   }
+
+  /// Where a repository's icon can come from, best first. A GitHub owner's
+  /// avatar is the repository's face there; other hosts offer their own icon.
+  /// Chief Git and local repositories have no host to ask.
+  var iconCandidates: [WorkspaceFaviconSource.Candidate] {
+    guard !["chief-git", "local"].contains(providerID) else { return [] }
+    let remotes = [repositoryWebURL, canonicalRemoteURL].compactMap { $0.flatMap(URL.init(string:)) }
+    guard let remote = remotes.first(where: { $0.host != nil }), let host = remote.host?.lowercased()
+    else { return [] }
+    let owner = remote.pathComponents.first { $0 != "/" }
+    let avatar = host == "github.com"
+      ? owner.flatMap { URL(string: "https://github.com/\($0).png?size=128") }
+      : nil
+    return WorkspaceFaviconSource.candidates(website: "https://\(host)", imageURL: avatar)
+  }
 }

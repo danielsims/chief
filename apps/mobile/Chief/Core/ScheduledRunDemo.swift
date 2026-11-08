@@ -54,6 +54,12 @@ enum ScheduledRunDemo {
         .init(
           id: "content", agentId: "content", phase: "contribute", state: "pending",
           assignment: "Review the draft.", evidence: nil, error: nil),
-      ], summary: nil)
+      ], summary: nil, scheduledAt: Date.now.timeIntervalSince1970 * 1000)
+  }
+  static var schedule: WorkspaceSchedule {
+    WorkspaceSchedule(
+      id: "demo-schedule", title: "Create a launch asset", status: "active", agentId: "chief",
+      collaborators: ["brand", "content"], triggerMode: "cron", cron: "0 9 * * 1-5",
+      timezone: "UTC", onceAt: nil, updatedAt: 0)
   }
 }

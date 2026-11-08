@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Transcript row model
 
@@ -195,5 +196,88 @@ struct MessageBody: View {
 
   var body: some View {
     MarkdownMessageBody(source: text, channelNames: channelNames)
+  }
+}
+
+// MARK: - Keyboard follow
+
+/// Keeps the latest message just above the composer as the keyboard or the
+/// composer moves. Both shrink the transcript's uncovered height — as a bottom
+/// inset or a smaller frame — which on its own leaves the messages where they
+/// were, so the scroll offset moves by the same amount in the same pass. The
+/// keyboard's inset arrives through the safe area, which isn't observable, so
+/// its notification re-checks inside the keyboard's own animation.
+struct LatestMessagePin: UIViewRepresentable {
+  func makeUIView(context: Context) -> PinView { PinView() }
+  func updateUIView(_ view: PinView, context: Context) {}
+
+  final class PinView: UIView {
+    private var observations: [NSKeyValueObservation] = []
+    /// The height of the transcript not covered by the composer or keyboard.
+    private var viewport: CGFloat?
+
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      observations = []
+      viewport = nil
+      NotificationCenter.default.removeObserver(self)
+      guard window != nil, let scrollView = enclosingScrollView else { return }
+      viewport = Self.viewport(of: scrollView)
+      observations = [
+        scrollView.observe(\UIScrollView.contentInset) { [weak self] scrollView, _ in
+          MainActor.assumeIsolated { self?.follow(scrollView) }
+        },
+        scrollView.observe(\UIScrollView.bounds) { [weak self] scrollView, _ in
+          MainActor.assumeIsolated { self?.follow(scrollView) }
+        },
+      ]
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(keyboardWillChangeFrame),
+        name: UIResponder.keyboardWillChangeFrameNotification,
+        object: nil
+      )
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+      guard let scrollView = enclosingScrollView, let info = notification.userInfo,
+        let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
+        let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
+      else { return }
+      UIView.animate(
+        withDuration: duration,
+        delay: 0,
+        options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState]
+      ) {
+        scrollView.superview?.layoutIfNeeded()
+        self.follow(scrollView)
+      }
+    }
+
+    private func follow(_ scrollView: UIScrollView) {
+      let new = Self.viewport(of: scrollView)
+      guard let old = viewport, new != old else { return }
+      viewport = new
+      // Only while the latest message was in view, and never against a finger.
+      guard !scrollView.isTracking, !scrollView.isDecelerating,
+        scrollView.contentOffset.y + old >= scrollView.contentSize.height - 96
+      else { return }
+      let top = -scrollView.adjustedContentInset.top
+      let bottom = max(top, scrollView.contentSize.height - new)
+      scrollView.contentOffset.y = min(max(scrollView.contentOffset.y + old - new, top), bottom)
+    }
+
+    private var enclosingScrollView: UIScrollView? {
+      var view = superview
+      while let current = view {
+        if let scrollView = current as? UIScrollView { return scrollView }
+        view = current.superview
+      }
+      return nil
+    }
+
+    private static func viewport(of scrollView: UIScrollView) -> CGFloat {
+      scrollView.bounds.height - scrollView.adjustedContentInset.bottom
+    }
   }
 }

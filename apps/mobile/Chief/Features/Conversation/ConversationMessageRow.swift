@@ -363,7 +363,7 @@ private enum MessageSheet: String, Identifiable {
 
 /// An outside agent's own picture, its Grok Bot colour, its provider's logo,
 /// or its initial, in that order.
-private struct GuestAvatar: View {
+struct GuestAvatar: View {
   let guest: GuestAuthor
   let size: CGFloat
 

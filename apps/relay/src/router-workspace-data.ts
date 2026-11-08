@@ -14,6 +14,9 @@ const filesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const fileRoute = /^\/v1\/workspaces\/([^/]+)\/files\/([^/]+)$/u;
 const projectsRoute = /^\/v1\/workspaces\/([^/]+)\/projects$/u;
 const projectRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)$/u;
+const projectIconsRoute = /^\/v1\/workspaces\/([^/]+)\/projects\/icons$/u;
+const projectIconRoute =
+  /^\/v1\/workspaces\/([^/]+)\/projects\/([^/]+)\/icon$/u;
 const machinesRoute = /^\/v1\/workspaces\/([^/]+)\/machines$/u;
 const machineRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/([^/]+)$/u;
 const databasesRoute =
@@ -32,6 +35,9 @@ export function routeWorkspaceDataRequest(
     const file = fileRoute.exec(url.pathname);
     const projects = projectsRoute.exec(url.pathname);
     const project = projectRoute.exec(url.pathname);
+    const projectIcons = projectIconsRoute.exec(url.pathname);
+    const projectIcon = projectIconRoute.exec(url.pathname);
+    const projectId = project?.[2] ?? projectIcon?.[2];
     const machines = machinesRoute.exec(url.pathname);
     const machine = machineRoute.exec(url.pathname);
     const database = databasesRoute.exec(url.pathname);
@@ -67,9 +73,15 @@ export function routeWorkspaceDataRequest(
       rawWorkspaceId = projects[1];
       operation =
         request.method === "GET" ? "data-projects-list" : "data-project-create";
+    } else if (projectIcons && request.method === "GET") {
+      rawWorkspaceId = projectIcons[1];
+      operation = "data-project-icons-list";
     } else if (project && request.method === "DELETE") {
       rawWorkspaceId = project[1];
       operation = "data-project-delete";
+    } else if (projectIcon && request.method === "PUT") {
+      rawWorkspaceId = projectIcon[1];
+      operation = "data-project-icon-update";
     } else if (machines && ["GET", "POST"].includes(request.method)) {
       rawWorkspaceId = machines[1];
       operation =
@@ -141,8 +153,8 @@ export function routeWorkspaceDataRequest(
               ...(file?.[2]
                 ? { "x-chief-workspace-file-id": decodeURIComponent(file[2]) }
                 : undefined),
-              ...(project?.[2]
-                ? { "x-chief-project-id": decodeURIComponent(project[2]) }
+              ...(projectId
+                ? { "x-chief-project-id": decodeURIComponent(projectId) }
                 : undefined),
               ...(machine?.[2]
                 ? { "x-chief-machine-id": decodeURIComponent(machine[2]) }

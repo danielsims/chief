@@ -1057,7 +1057,7 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
-enum JSONValue: Codable, Sendable {
+enum JSONValue: Codable, Equatable, Sendable {
   case string(String)
   case number(Double)
   case bool(Bool)

@@ -14,11 +14,19 @@ struct WorkspaceFileRecord: Codable, Equatable, Identifiable, Sendable {
   let title: String
   let mimeType: String
   let content: String
+  /// Set on uploaded media; its bytes live in the relay's artifact store.
+  var asset: WorkspaceFileAsset?
   let conversationId: String
   let authorAgentId: String
   let version: Int
   let createdAt: String
   let updatedAt: String
+}
+
+struct WorkspaceFileAsset: Codable, Equatable, Sendable {
+  let artifactId: String
+  let agentId: String
+  let bytes: Int
 }
 
 struct WorkspaceFileSaveInput: Encodable, Sendable {

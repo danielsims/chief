@@ -108,6 +108,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const snapshot = this.snapshot;
     try {
       const projects = await localProjectSnapshots(
+        this.relay,
         snapshot.id,
         relayProjectSnapshots(snapshot.projects),
       );
