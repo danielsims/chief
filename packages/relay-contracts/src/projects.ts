@@ -85,3 +85,40 @@ export const relayProjectDeleteResultSchema = z
 
 export type RelayProject = z.infer<typeof relayProjectSchema>;
 export type RelayProjectCreate = z.infer<typeof relayProjectCreateSchema>;
+
+/**
+ * A project's app icon, found in a checkout by the machine that has one. The
+ * same raster formats and 512 KB ceiling as the desktop's own icon scan.
+ */
+export const projectIconDataUrlSchema = z
+  .string()
+  .max(700_000)
+  .regex(/^data:image\/(?:png|jpeg|webp|x-icon);base64,[A-Za-z0-9+/]+={0,2}$/u);
+
+export const relayProjectIconUpdateSchema = z
+  .object({ dataUrl: projectIconDataUrlSchema.optional() })
+  .strict();
+
+export const relayProjectIconResultSchema = z
+  .object({
+    projectId: z.string().trim().min(1).max(128),
+    hasIcon: z.boolean(),
+  })
+  .strict();
+
+export const relayProjectIconsResultSchema = z
+  .object({
+    icons: z.array(
+      z
+        .object({
+          projectId: z.string().trim().min(1).max(128),
+          dataUrl: projectIconDataUrlSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export type RelayProjectIconUpdate = z.infer<
+  typeof relayProjectIconUpdateSchema
+>;

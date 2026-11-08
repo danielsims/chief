@@ -219,6 +219,9 @@ void test("routes createChannel through the relay and emits the created channel"
     startDirectMessage() {
       throw new Error("not used in this test");
     },
+    updateProjectIcon() {
+      throw new Error("not used in this test");
+    },
     updateWorkspaceFile() {
       throw new Error("not used in this test");
     },
@@ -357,6 +360,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
     registerAgentKey: unused,
     saveAgentConfig: unused,
     startDirectMessage: unused,
+    updateProjectIcon: unused,
     updateWorkspaceFile: unused,
     listWorkspaceSecrets: unused,
     setWorkspaceSecret: unused,

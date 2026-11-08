@@ -23,6 +23,8 @@ protocol RelayServing: Sendable {
   /// Creates a repository hosted by the workspace's own relay.
   func createWorkspaceGitRepository(workspaceID: String, name: String) async throws
     -> ProjectSummary
+  /// The app icons machines with a checkout found, by project ID.
+  func projectIcons(workspaceID: String) async throws -> [String: Data]
   func githubConnection(workspaceID: String) async throws -> GitHubConnection
   /// Where GitHub asks which repositories to share with the workspace.
   func githubInstallURL(workspaceID: String) async throws -> URL
@@ -171,6 +173,9 @@ protocol RelayServing: Sendable {
   func workspaceSecretNames(workspaceID: String) async throws -> [String]
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
   func deleteWorkspaceSecret(workspaceID: String, name: String) async throws
+  func databases(workspaceID: String) async throws -> [WorkspaceDatabase]
+  func database(workspaceID: String, databaseID: String) async throws -> WorkspaceDatabaseWithRows
+  func saveDatabaseRow(workspaceID: String, databaseID: String, rowID: String, values: [String: JSONValue]) async throws -> WorkspaceDatabaseRow
   func replies(
     workspaceID: String,
     conversationID: String,
@@ -213,6 +218,11 @@ protocol RelayServing: Sendable {
     conversationID: String,
     signingIdentity: NostrIdentity
   ) async throws -> WorkspaceFileRecord
+  func schedules(workspaceID: String) async throws -> [WorkspaceSchedule]
+  func schedules(workspaceID: String, from: Double, to: Double) async throws -> [WorkspaceSchedule]
+  func pluginConnections(workspaceID: String) async throws -> [WorkspacePluginConnection]
+  func automationTools(workspaceID: String) async throws -> [AutomationChiefTool]
+  func scheduleAction(workspaceID: String, scheduleID: String, action: String, commandID: String) async throws -> WorkspaceSchedule
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun
   func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun]
   func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun
@@ -223,6 +233,7 @@ protocol RelayServing: Sendable {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [WorkspaceFileRecord]
+  func workspaceAsset(workspaceID: String, asset: WorkspaceFileAsset) async throws -> Data
 }
 
 extension RelayServing {
@@ -243,6 +254,10 @@ extension RelayServing {
     providerID _: String
   ) async throws -> ProjectSummary {
     throw RelayError.unavailable
+  }
+
+  func projectIcons(workspaceID _: String) async throws -> [String: Data] {
+    [:]
   }
 
   func createWorkspaceGitRepository(workspaceID _: String, name _: String) async throws
@@ -323,6 +338,8 @@ extension RelayServing {
     throw RelayError.unavailable
   }
 
+  func schedules(workspaceID: String) async throws -> [WorkspaceSchedule] { throw RelayError.unavailable }
+  func scheduleAction(workspaceID: String, scheduleID: String, action: String, commandID: String) async throws -> WorkspaceSchedule { throw RelayError.unavailable }
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
   func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] { throw RelayError.unavailable }
   func addRunCollaborator(workspaceID: String, runID: String, agentID: String, assignment: String, signingIdentity: NostrIdentity) async throws -> WorkspaceScheduleRun { throw RelayError.unavailable }
@@ -337,6 +354,9 @@ extension RelayServing {
     workspaceID: String,
     signingIdentity: NostrIdentity?
   ) async throws -> [WorkspaceFileRecord] { [] }
+  func workspaceAsset(workspaceID: String, asset: WorkspaceFileAsset) async throws -> Data {
+    throw RelayError.unavailable
+  }
 
   func message(workspaceID: String, conversationID: String, messageID: String) async throws -> ConversationMessage {
     let page = try await messages(workspaceID: workspaceID, conversationID: conversationID, after: nil)
@@ -699,6 +719,22 @@ actor URLSessionRelayClient: RelayServing {
         )
       )
     )
+  }
+
+  func projectIcons(workspaceID: String) async throws -> [String: Data] {
+    struct Icon: Decodable {
+      let projectId: String
+      let dataUrl: String
+    }
+    struct Result: Decodable { let icons: [Icon] }
+    let result: Result = try await request(
+      path: "/v1/workspaces/\(workspaceID)/projects/icons", method: "GET")
+    return result.icons.reduce(into: [:]) { icons, icon in
+      guard let comma = icon.dataUrl.firstIndex(of: ","),
+        let data = Data(base64Encoded: String(icon.dataUrl[icon.dataUrl.index(after: comma)...]))
+      else { return }
+      icons[icon.projectId] = data
+    }
   }
 
   func githubConnection(workspaceID: String) async throws -> GitHubConnection {
@@ -1437,6 +1473,14 @@ actor URLSessionRelayClient: RelayServing {
     return result.file
   }
 
+  func schedules(workspaceID: String) async throws -> [WorkspaceSchedule] {
+    let result: WorkspaceScheduleList = try await request(path: "/v1/workspaces/\(workspaceID)/schedules", method: "GET")
+    return result.schedules
+  }
+  func scheduleAction(workspaceID: String, scheduleID: String, action: String, commandID: String) async throws -> WorkspaceSchedule {
+    let encoded = scheduleID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? scheduleID
+    return try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(encoded)/actions", method: "POST", body: JSONEncoder().encode(["action": action, "commandId": commandID]))
+  }
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun {
     func segment(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? value }
     return try await request(path: "/v1/workspaces/\(workspaceID)/schedules/\(segment(scheduleID))/runs/\(segment(runID))/actions", method: "POST", body: JSONEncoder().encode(["action": action, "commandId": commandID]))
@@ -1469,6 +1513,9 @@ actor URLSessionRelayClient: RelayServing {
       signer: signingIdentity
     )
     return result.files
+  }
+  func workspaceAsset(workspaceID: String, asset: WorkspaceFileAsset) async throws -> Data {
+    try await data(path: "/v1/workspaces/\(workspaceID)/agents/\(asset.agentId)/artifacts/\(asset.artifactId)", method: "GET")
   }
 
   private static func guessContentType(fileName: String, data: Data) -> String {
@@ -1663,6 +1710,15 @@ actor URLSessionRelayClient: RelayServing {
     body: Data? = nil,
     signer: NostrIdentity? = nil
   ) async throws -> Response {
+    try decoder.decode(Response.self, from: await data(path: path, method: method, body: body, signer: signer))
+  }
+
+  private func data(
+    path: String,
+    method: String,
+    body: Data? = nil,
+    signer: NostrIdentity? = nil
+  ) async throws -> Data {
     let url = URL(string: path, relativeTo: configuration.relayURL)!.absoluteURL
     var request = URLRequest(url: url)
     request.httpMethod = method
@@ -1722,7 +1778,7 @@ actor URLSessionRelayClient: RelayServing {
     relayLog.info("\(method) \(path) -> \(http.statusCode)")
     print("[Chief] relay \(method) \(path) -> \(http.statusCode)")
     if http.statusCode == 204 { throw RelayError.httpStatus(204) }
-    return try decoder.decode(Response.self, from: data)
+    return data
   }
 
   private func requireConfiguredRelay(_ relayURL: URL) throws {

@@ -13,19 +13,22 @@ struct WorkspaceIdentityAvatar: View {
   /// Drops the tile so the mark sits directly on the page background.
   var plain = false
 
-  @State private var imageStore = WorkspaceIdentityImageStore.shared
+  @State private var imageStore = IdentityImageStore.shared
 
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
         .fill(plain ? ChiefTheme.background : ChiefTheme.elevated)
-      Text(initial)
-        .font(.system(size: size * 0.38, weight: .semibold))
-        .foregroundStyle(ChiefTheme.accent)
+      // The initial only stands in until a logo loads, so a transparent
+      // logo never shows it underneath.
       if let image = imageStore.image(for: identityKey) {
         Image(uiImage: image)
           .resizable()
           .scaledToFill()
+      } else {
+        Text(initial)
+          .font(.system(size: size * 0.38, weight: .semibold))
+          .foregroundStyle(ChiefTheme.accent)
       }
     }
     .frame(width: size, height: size)
@@ -38,9 +41,8 @@ struct WorkspaceIdentityAvatar: View {
     }
     .task(id: identityKey) {
       await imageStore.load(
-        identityKey: identityKey,
-        website: website,
-        imageURL: imageURL
+        key: identityKey,
+        candidates: WorkspaceFaviconSource.candidates(website: website, imageURL: imageURL)
       )
     }
     .accessibilityLabel(name)
@@ -60,10 +62,12 @@ struct WorkspaceIdentityAvatar: View {
 
 }
 
+/// The first image that loads and is large enough among a mark's candidate
+/// sources, kept for the session by the key of what it stands for.
 @MainActor
 @Observable
-private final class WorkspaceIdentityImageStore {
-  static let shared = WorkspaceIdentityImageStore()
+final class IdentityImageStore {
+  static let shared = IdentityImageStore()
   private var images: [String: UIImage] = [:]
   private var loading = Set<String>()
 
@@ -71,18 +75,22 @@ private final class WorkspaceIdentityImageStore {
     images[key]
   }
 
-  func load(identityKey: String, website: String?, imageURL: URL?) async {
-    guard images[identityKey] == nil, loading.insert(identityKey).inserted else { return }
-    defer { loading.remove(identityKey) }
-    for candidate in WorkspaceFaviconSource.candidates(
-      website: website,
-      imageURL: imageURL
-    ) {
+  /// Decodes an image the relay already sent, once per key. False when it
+  /// is not an image this device can show.
+  func load(key: String, data: Data) -> Bool {
+    if images[key] == nil { images[key] = UIImage(data: data) }
+    return images[key] != nil
+  }
+
+  func load(key: String, candidates: [WorkspaceFaviconSource.Candidate]) async {
+    guard images[key] == nil, loading.insert(key).inserted else { return }
+    defer { loading.remove(key) }
+    for candidate in candidates {
       guard !Task.isCancelled,
         let loaded = await BrandLogoImage.load(url: candidate.url),
         candidate.accepts(loaded)
       else { continue }
-      images[identityKey] = loaded
+      images[key] = loaded
       return
     }
   }

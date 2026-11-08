@@ -94,11 +94,16 @@ function validCount(value: JsonValue | undefined) {
 
 export function workspaceDataCapability(operation: string) {
   if (operation === "data-brand-save") return "brand-profile-write";
-  if (operation === "data-projects-list") return "projects.read";
+  if (
+    operation === "data-projects-list" ||
+    operation === "data-project-icons-list"
+  )
+    return "projects.read";
   if (operation === "data-machines-list") return "machines.read";
   if (
     operation === "data-project-create" ||
-    operation === "data-project-delete"
+    operation === "data-project-delete" ||
+    operation === "data-project-icon-update"
   )
     return "projects.write";
   if (

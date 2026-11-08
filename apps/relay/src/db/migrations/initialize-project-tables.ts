@@ -34,5 +34,10 @@ export function initializeProjectTables<
       created_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS project_icons (
+      project_id TEXT PRIMARY KEY,
+      data_url TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }

@@ -31,6 +31,7 @@ interface WorkspaceDataContext {
     | "listAgentJobs"
     | "listProjects"
     | "listWorkspaceFiles"
+    | "updateProjectIcon"
     | "updateWorkspaceFile"
   > &
     ProjectGitHubAccess;
@@ -199,6 +200,7 @@ async function listProjects(context: WorkspaceDataContext) {
     type: "projects",
     workspaceId: context.snapshot.id,
     projects: await localProjectSnapshots(
+      context.relay,
       context.snapshot.id,
       projects.map(relayProjectSnapshot),
     ),

@@ -47,6 +47,8 @@ import {
   relayDiscoverySchema,
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
+  relayProjectIconResultSchema,
+  relayProjectIconUpdateSchema,
   relayProjectSchema,
   relayProjectsResultSchema,
   revokeWorkspaceInviteResultSchema,
@@ -559,6 +561,20 @@ export class RelayClientBase {
       relayProjectDeleteResultSchema,
       true,
       { method: "DELETE" },
+    );
+  }
+
+  /** Stores the icon a checkout of the project shows, or clears it. */
+  async updateProjectIcon(projectId: string, dataUrl: string | undefined) {
+    return await this.fetchJson(
+      this.workspaceUrl(`projects/${encodeURIComponent(projectId)}/icon`),
+      relayProjectIconResultSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(relayProjectIconUpdateSchema.parse({ dataUrl })),
+      },
     );
   }
 
