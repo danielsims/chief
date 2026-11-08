@@ -3,6 +3,9 @@ import {
   projectRepositoryFilesSchema,
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
+  relayProjectIconResultSchema,
+  relayProjectIconsResultSchema,
+  relayProjectIconUpdateSchema,
   relayProjectSchema,
   relayProjectsResultSchema,
   workspaceIdSchema,
@@ -14,6 +17,9 @@ import { addProjectRepositoryFiles } from "./db/migrations/add-project-repositor
 import { getProjectColumns } from "./db/migrations/get-project-columns";
 import { initializeProjectTables } from "./db/migrations/initialize-project-tables";
 import { HttpError, json, parseJson } from "./http";
+import { projectIconsDelete } from "./queries/project-icons/delete";
+import { projectIconsFindAll } from "./queries/project-icons/find-all";
+import { projectIconsUpsert } from "./queries/project-icons/upsert";
 import { projectStoreMigrationsFindMigrateSnapshotProjects } from "./queries/project-store-migrations/find-migrate-snapshot-projects";
 import { projectStoreMigrationsInsertMigrateSnapshotProjects } from "./queries/project-store-migrations/insert-migrate-snapshot-projects";
 import { projectsDeleteRemove } from "./queries/projects/delete-remove";
@@ -74,6 +80,12 @@ export async function routeWorkspaceProjects(
   }
   if (operation === "data-project-delete") {
     return deleteProject(storage, request, workspaceId);
+  }
+  if (operation === "data-project-icons-list") {
+    return listProjectIcons(storage);
+  }
+  if (operation === "data-project-icon-update") {
+    return await updateProjectIcon(storage, request);
   }
   if (
     operation === "git-info-refs" ||
@@ -295,9 +307,54 @@ function deleteProject(
     throw new HttpError(404, "project_not_found", "Project not found.");
   }
   projectsDeleteRemove(storage, projectId);
+  projectIconsDelete(storage, projectId);
   syncSnapshotProjects(storage, workspaceId);
   return json(
     relayProjectDeleteResultSchema.parse({ id: projectId, deleted: true }),
+  );
+}
+
+// Icons live beside the project record rather than on it: they are found by
+// whichever machine has a checkout, and kept out of the workspace snapshot.
+function listProjectIcons(storage: DurableObjectStorage) {
+  return json(
+    relayProjectIconsResultSchema.parse({
+      icons: projectIconsFindAll(storage).map((row) => ({
+        projectId: row.project_id,
+        dataUrl: row.data_url,
+      })),
+    }),
+  );
+}
+
+async function updateProjectIcon(
+  storage: DurableObjectStorage,
+  request: Request,
+) {
+  const projectId = request.headers.get("x-chief-project-id")?.trim();
+  if (!projectId) {
+    throw new HttpError(400, "project_id_missing", "Project id is required.");
+  }
+  if (!firstRow(projectsFindCreateProject(storage, projectId))) {
+    throw new HttpError(404, "project_not_found", "Project not found.");
+  }
+  const { dataUrl } = relayProjectIconUpdateSchema.parse(
+    await parseJson(request),
+  );
+  if (dataUrl) {
+    projectIconsUpsert(storage, {
+      projectId,
+      dataUrl,
+      updatedAt: new Date().toISOString(),
+    });
+  } else {
+    projectIconsDelete(storage, projectId);
+  }
+  return json(
+    relayProjectIconResultSchema.parse({
+      projectId,
+      hasIcon: Boolean(dataUrl),
+    }),
   );
 }
 

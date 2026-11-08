@@ -19,13 +19,86 @@ struct ConversationView: View {
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
-  /// The floating footer's height, kept clear under the last message.
-  @State private var footerHeight: CGFloat = 0
+  @State private var view = ChannelView.messages
+  @State private var openTabs: [ChannelTab] = []
+  @State private var artifacts = ChannelArtifacts()
 
   var body: some View {
+    Group {
+      switch shownView {
+      case .messages:
+        transcript
+      case .artifacts:
+        ChannelArtifactsList(
+          channelName: conversation?.name ?? "",
+          artifacts: artifacts,
+          open: open,
+          refresh: loadArtifacts
+        )
+      case .tab(let tab):
+        ChannelArtifactTab(tab: tab, artifacts: artifacts, refresh: loadArtifacts)
+      }
+    }
+    .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
+    .safeAreaInset(edge: .top, spacing: 0) {
+      VStack(spacing: 0) {
+        PageDetailBar(title: conversation?.name ?? "Conversation") {
+          if isMember {
+            Button {
+              Haptics.medium()
+              showsMenu = true
+            } label: {
+              PageBarIcon(systemName: "ellipsis")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Conversation options")
+          }
+        }
+        if showsTabs {
+          ChannelViewTabs(
+            selection: view,
+            items: artifacts.items(opened: openTabs),
+            select: { view = $0 },
+            close: close
+          )
+          // Over the bar's hairline, so the header ends in one line as on desktop.
+          .padding(.top, -0.5)
+        }
+      }
+    }
+    .background(ChiefTheme.background.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
+    .background(InteractivePopEnabler())
+    .sheet(isPresented: $showsMenu) {
+      ConversationMenuSheet { showsActivity = true }
+    }
+    .navigationDestination(isPresented: $showsActivity) {
+      ConversationActivityView(conversationID: conversationID)
+    }
+    .task(id: conversationID) {
+      model.setVisibleConversation(conversationID)
+      async let access: Void = model.refreshCurrentChannelMemberships()
+      async let members: Void = loadChannelAgents()
+      await load()
+      await access
+      await members
+      model.markChannelRead(conversationID: conversationID)
+    }
+    .task(id: conversationID) {
+      openTabs = ChannelTabStore.tabs(conversationID)
+      if showsTabs { await loadArtifacts() }
+    }
+    .onChange(of: draft) { _, value in
+      model.notifyTyping(conversationID: conversationID, draft: value)
+    }
+    .onDisappear {
+      model.clearVisibleConversation(conversationID)
+    }
+  }
+
+  private var transcript: some View {
     content
-      .contentMargins(.bottom, footerHeight + 16, for: .scrollContent)
-      .ignoresSafeArea(.container, edges: .bottom)
+      .contentMargins(.bottom, 16, for: .scrollContent)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(spacing: 0) {
           if isMember, let workspaceID = model.workspace?.id {
@@ -48,50 +121,17 @@ struct ConversationView: View {
           }
           participationFooter
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-          footerHeight = height
-        }
       }
-    .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
-    .safeAreaInset(edge: .top, spacing: 0) {
-      PageDetailBar(title: conversation?.name ?? "Conversation") {
-        if isMember {
-          Button {
-            Haptics.medium()
-            showsMenu = true
-          } label: {
-            PageBarIcon(systemName: "ellipsis")
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Conversation options")
-        }
-      }
-    }
-    .background(ChiefTheme.background.ignoresSafeArea())
-    .toolbar(.hidden, for: .navigationBar)
-    .background(InteractivePopEnabler())
-    .sheet(isPresented: $showsMenu) {
-      ConversationMenuSheet { showsActivity = true }
-    }
-    .navigationDestination(isPresented: $showsActivity) {
-      ConversationActivityView(conversationID: conversationID)
-    }
-    .task(id: conversationID) {
-      model.setVisibleConversation(conversationID)
-      async let access: Void = model.refreshCurrentChannelMemberships()
-      async let members: Void = loadChannelAgents()
-      await load()
-      await access
-      await members
-      model.markChannelRead(conversationID: conversationID)
-    }
-    .refreshable { await load() }
-    .onChange(of: draft) { _, value in
-      model.notifyTyping(conversationID: conversationID, draft: value)
-    }
-    .onDisappear {
-      model.clearVisibleConversation(conversationID)
-    }
+      .refreshable { await load() }
+  }
+
+  /// Channels show their views as tabs; DMs are only messages, as on desktop.
+  private var showsTabs: Bool {
+    conversation?.kind == .channel
+  }
+
+  private var shownView: ChannelView {
+    showsTabs ? view : .messages
   }
 
   @ViewBuilder
@@ -200,6 +240,28 @@ struct ConversationView: View {
 
   private func retryLoad() {
     Task { await load() }
+  }
+
+  private func loadArtifacts() async {
+    await artifacts.load(conversationID: conversationID, model: model)
+  }
+
+  /// Opening an artifact keeps it as a tab until it's closed.
+  private func open(_ tab: ChannelTab) {
+    let tab = artifacts.canonical(tab)
+    if let index = openTabs.firstIndex(of: tab) {
+      openTabs[index].name = tab.name ?? openTabs[index].name
+    } else {
+      openTabs.append(tab)
+    }
+    ChannelTabStore.save(openTabs, for: conversationID)
+    view = .tab(tab)
+  }
+
+  private func close(_ tab: ChannelTab) {
+    openTabs.removeAll { artifacts.canonical($0) == tab }
+    ChannelTabStore.save(openTabs, for: conversationID)
+    if view == .tab(tab) { view = .artifacts }
   }
 
   private func loadChannelAgents() async {

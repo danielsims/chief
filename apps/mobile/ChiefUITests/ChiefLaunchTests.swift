@@ -9,7 +9,7 @@ final class ChiefLaunchTests: XCTestCase {
 
     XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["Plugins"].exists)
-    XCTAssertTrue(app.buttons["Projects"].exists)
+    XCTAssertTrue(app.buttons["Repositories"].exists)
     XCTAssertTrue(app.staticTexts["Channels"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["DMs"].exists)
     XCTAssertFalse(app.navigationBars["Overview"].exists)
@@ -18,8 +18,8 @@ final class ChiefLaunchTests: XCTestCase {
 
     app.buttons["Plugins"].tap()
     XCTAssertTrue(app.staticTexts["Plugins"].waitForExistence(timeout: 3))
-    app.buttons["Projects"].tap()
-    XCTAssertTrue(app.buttons["Add project"].waitForExistence(timeout: 3))
+    app.buttons["Repositories"].tap()
+    XCTAssertTrue(app.buttons["Add repository"].waitForExistence(timeout: 3))
     app.buttons["Home"].tap()
 
     // Tapping a channel opens the conversation view with its messages.

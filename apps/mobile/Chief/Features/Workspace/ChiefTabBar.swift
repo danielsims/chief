@@ -7,14 +7,32 @@ struct ChiefTabBar: View {
   let unreadCount: Int
 
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 20) {
-        tab(.home, "Home", badge: unreadCount)
-        tab(.plugins, "Plugins")
-        tab(.projects, "Projects")
+    ScrollViewReader { proxy in
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 20) {
+          tab(.home, "Home")
+          tab(.inbox, "Inbox", badge: unreadCount)
+          tab(.boards, "Boards")
+          tab(.automations, "Automations")
+          tab(.agents, "Agents")
+          tab(.plugins, "Plugins")
+          tab(.repositories, "Repositories")
+          tab(.artifacts, "Artifacts")
+        }
+        .padding(.horizontal, 2)
       }
-      .padding(.horizontal, 2)
+      .onAppear { proxy.scrollTo(selection, anchor: .center) }
+      // Follow the nearest page mid-drag, so the active label is centred
+      // before the page settles rather than left off-screen.
+      .onChange(of: nearest) { _, tab in
+        withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(tab, anchor: .center) }
+      }
     }
+  }
+
+  private var nearest: WorkspaceTab {
+    let tabs = WorkspaceTab.allCases
+    return tabs[min(max(Int(progress.rounded()), 0), tabs.count - 1)]
   }
 
   private func emphasis(of tab: WorkspaceTab) -> Double {
@@ -31,7 +49,7 @@ struct ChiefTabBar: View {
         Text(label)
           .font(.system(size: 16, weight: .semibold))
           .tracking(-0.2)
-        if badge > 0 && tab == .home {
+        if badge > 0 {
           Text(badge > 99 ? "99+" : "\(badge)")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(ChiefTheme.onPrimary)
@@ -47,6 +65,7 @@ struct ChiefTabBar: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .id(tab)
     .accessibilityLabel(label)
     .accessibilityAddTraits(selection == tab ? [.isSelected] : [])
   }

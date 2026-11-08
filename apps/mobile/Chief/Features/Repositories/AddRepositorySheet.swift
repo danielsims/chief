@@ -3,7 +3,7 @@ import SwiftUI
 /// Connecting source control, as on desktop: a repository hosted on the
 /// workspace's relay, or a GitHub repository by link. A private GitHub
 /// repository needs GitHub connected first, which happens on GitHub itself.
-struct AddProjectSheet: View {
+struct AddRepositorySheet: View {
   private enum Source: Hashable { case chiefGit, github }
 
   @Environment(AppModel.self) private var model

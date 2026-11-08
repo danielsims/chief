@@ -146,7 +146,10 @@ struct ThreadView: View {
             .frame(height: 1)
             .id(latestAnchorID)
         }
-        .padding(ChiefTheme.pagePadding)
+        .background(LatestMessagePin())
+        // No bottom padding: the latest anchor ends the content, so scrolling to
+        // it and the keyboard keeping the end in view rest in the same place.
+        .padding([.horizontal, .top], ChiefTheme.pagePadding)
       }
       // Short conversations start at the top and fill downwards; longer
       // ones open at, and follow, the latest message.

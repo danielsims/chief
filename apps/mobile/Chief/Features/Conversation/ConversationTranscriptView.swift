@@ -29,11 +29,14 @@ struct ConversationTranscriptView: View {
             .frame(height: 1)
             .id(latestAnchorID)
         }
+        .background(LatestMessagePin())
         .animation(
           hasPositionedInitially ? .easeOut(duration: 0.3) : nil,
           value: messages.map(\.id)
         )
-        .padding(ChiefTheme.pagePadding)
+        // No bottom padding: the latest anchor ends the content, so scrolling to
+        // it and the keyboard keeping the end in view rest in the same place.
+        .padding([.horizontal, .top], ChiefTheme.pagePadding)
       }
       // Short conversations start at the top and fill downwards; longer
       // ones open at, and follow, the latest message.

@@ -9,7 +9,7 @@ private enum WorkspaceChrome {
 
 /// One navigation stack holds the whole workspace. Its root is a fixed header
 /// above horizontally paged sections, so swiping only moves the page content,
-/// and anything pushed (a conversation, a project) covers the header with its
+/// and anything pushed (a conversation, a repository) covers the header with its
 /// own back bar.
 struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
@@ -76,8 +76,13 @@ private struct WorkspacePages: View {
     @Bindable var model = model
     switch tab {
     case .home: HomeView(path: $model.navigationPath)
+    case .inbox: InboxView()
+    case .agents: AgentsView()
+    case .automations: AutomationsView()
+    case .boards: BoardsView()
+    case .repositories: RepositoriesView()
+    case .artifacts: ArtifactsView()
     case .plugins: PluginsView()
-    case .projects: ProjectsView()
     }
   }
 }
@@ -252,7 +257,7 @@ private struct WorkspaceAvatar: View {
   }
 }
 
-/// The header for pushed screens (channels, DMs, project detail). It sits at the
+/// The header for pushed screens (channels, DMs, repository detail). It sits at the
 /// same height and border as the main page header so navigation doesn't shift.
 struct PageDetailBar<Trailing: View>: View {
   @Environment(\.dismiss) private var dismiss
@@ -384,9 +389,6 @@ struct HomeView: View {
       Text(greetingText)
         .font(.system(size: 26, weight: .regular, design: .rounded))
         .tracking(-0.6)
-      Text("Your conversations and agents.")
-        .font(.system(size: 14))
-        .foregroundStyle(ChiefTheme.secondary)
     }
     .padding(.horizontal, ChiefTheme.pagePadding)
   }
@@ -514,7 +516,7 @@ struct PluginsView: View {
   }
 }
 
-/// The search field at the top of the Plugins and Projects pages.
+/// The search field at the top of the Plugins and Repositories pages.
 struct ChiefSearchField: View {
   let prompt: String
   @Binding var text: String
