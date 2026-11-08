@@ -1,46 +1,71 @@
 import SwiftUI
 
-struct ProjectsView: View {
+struct RepositoriesView: View {
+  private enum Filter: CaseIterable {
+    case all, repositories, agents
+
+    var label: String {
+      switch self {
+      case .all: "All repositories"
+      case .repositories: "Repositories"
+      case .agents: "Agents' repositories"
+      }
+    }
+  }
+
   @Environment(AppModel.self) private var model
-  @State private var showsAddProject = false
+  @State private var showsAddRepository = false
   @State private var search = ""
+  @State private var filter = Filter.all
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack {
-        Text("Projects")
+        Text("Repositories")
           .font(.system(size: 26, weight: .regular, design: .rounded))
           .tracking(-0.6)
         Spacer()
+        Menu {
+          Picker("Show", selection: $filter) {
+            ForEach(Filter.allCases, id: \.self) { Text($0.label) }
+          }
+        } label: {
+          PageBarIcon(systemName: "line.3.horizontal.decrease")
+        }
+        .accessibilityLabel("Filter repositories")
         Button {
           Haptics.medium()
-          showsAddProject = true
+          showsAddRepository = true
         } label: {
           PageBarIcon(systemName: "plus")
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Add project")
+        .accessibilityLabel("Add repository")
       }
       .frame(height: 34)
       .padding(.horizontal, ChiefTheme.pagePadding)
       .padding(.top, 16)
       if !projects.isEmpty {
-        ChiefSearchField(prompt: "Search projects", text: $search)
+        ChiefSearchField(prompt: "Search repositories", text: $search)
       }
       Group {
       if projects.isEmpty {
-        EmptyProjectsView(showsAddProject: $showsAddProject)
+        EmptyRepositoriesView(showsAddRepository: $showsAddRepository)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
           .padding(ChiefTheme.pagePadding)
           .padding(.bottom, 60)
       } else {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 0) {
+            if filteredProjects.isEmpty {
+              ContentUnavailableView("No matching repositories", systemImage: "magnifyingglass")
+                .foregroundStyle(ChiefTheme.secondary)
+            }
             ForEach(filteredProjects) { project in
               NavigationLink {
-                ProjectDetailView(project: project)
+                RepositoryDetailView(project: project)
               } label: {
-                ProjectCard(project: project)
+                RepositoryRow(project: project)
               }
               .buttonStyle(.plain)
               .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
@@ -49,14 +74,15 @@ struct ProjectsView: View {
           .padding(.horizontal, ChiefTheme.pagePadding)
           .padding(.bottom, ChiefTheme.pagePadding)
         }
+        .refreshable { await model.hydrateWorkspace() }
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(ChiefTheme.background)
     .toolbar(.hidden, for: .navigationBar)
-    .sheet(isPresented: $showsAddProject) {
-      AddProjectSheet()
+    .sheet(isPresented: $showsAddRepository) {
+      AddRepositorySheet()
     }
   }
 
@@ -64,40 +90,47 @@ struct ProjectsView: View {
 
   private var filteredProjects: [ProjectSummary] {
     let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return projects }
-    return projects.filter {
-      $0.name.localizedCaseInsensitiveContains(query)
+    return projects.filter { project in
+      switch filter {
+      case .all: true
+      case .repositories: project.agentID == nil
+      case .agents: project.agentID != nil
+      }
+    }.filter {
+      query.isEmpty
+        || $0.name.localizedCaseInsensitiveContains(query)
         || $0.repository.localizedCaseInsensitiveContains(query)
     }
   }
 }
 
-/// A project row, matching the Plugins rows: quiet, no card chrome.
-private struct ProjectCard: View {
+/// A repository row, as on desktop: where it lives and its branch.
+private struct RepositoryRow: View {
   let project: ProjectSummary
 
   var body: some View {
     HStack(spacing: 12) {
-      RepositoryMark(size: 40)
+      RepositoryMark(project: project, size: 40)
       VStack(alignment: .leading, spacing: 3) {
         Text(project.name)
           .font(.system(size: 15, weight: .medium))
-        Text("\(project.providerName) · \(project.defaultBranch)")
+        Text(project.canonicalRemoteURL ?? "Local-only repository")
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
       }
       .lineLimit(1)
       Spacer(minLength: 8)
-      Image(systemName: "chevron.right")
-        .font(.system(size: 10))
-        .foregroundStyle(ChiefTheme.tertiary)
+      Label(project.defaultBranch, systemImage: "arrow.triangle.branch")
+        .font(.system(size: 12))
+        .foregroundStyle(ChiefTheme.secondary)
+        .lineLimit(1)
     }
     .frame(minHeight: 62)
     .contentShape(Rectangle())
   }
 }
 
-private struct ProjectDetailView: View {
+private struct RepositoryDetailView: View {
   let project: ProjectSummary
 
   var body: some View {
@@ -105,7 +138,7 @@ private struct ProjectDetailView: View {
       PageDetailBar(title: project.name)
       ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
-        ProjectHeader(project: project)
+        RepositoryHeader(project: project)
         RepositoryToolbar(project: project)
 
         if let tree = project.repositoryTree {
@@ -124,12 +157,12 @@ private struct ProjectDetailView: View {
   }
 }
 
-private struct ProjectHeader: View {
+private struct RepositoryHeader: View {
   let project: ProjectSummary
 
   var body: some View {
     HStack(alignment: .top, spacing: 14) {
-      RepositoryMark(size: 46)
+      RepositoryMark(project: project, size: 46)
       VStack(alignment: .leading, spacing: 5) {
         Text(project.name)
           .font(.system(size: 20, weight: .semibold))
@@ -221,9 +254,9 @@ private struct RepositoryEntryRow: View {
     NavigationLink {
       switch entry.kind {
       case .directory:
-        ProjectDirectoryView(project: project, tree: tree, path: entry.path)
+        RepositoryDirectoryView(project: project, tree: tree, path: entry.path)
       case .file:
-        ProjectFileView(project: project, file: tree.file(at: entry.path))
+        RepositoryFileView(project: project, file: tree.file(at: entry.path))
       }
     } label: {
       HStack(spacing: 12) {
@@ -263,7 +296,7 @@ private struct RepositoryEntryRow: View {
   }
 }
 
-private struct ProjectDirectoryView: View {
+private struct RepositoryDirectoryView: View {
   let project: ProjectSummary
   let tree: ProjectRepositoryTree
   let path: String
@@ -283,7 +316,7 @@ private struct ProjectDirectoryView: View {
   }
 }
 
-private struct ProjectFileView: View {
+private struct RepositoryFileView: View {
   let project: ProjectSummary
   let file: ProjectRepositorySourceFile?
 
@@ -339,7 +372,7 @@ private struct RepositoryBreadcrumb: View {
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 6) {
-        Image(systemName: "shippingbox")
+        Image(systemName: "folder")
         ForEach(Array(path.split(separator: "/").enumerated()), id: \.offset) { _, component in
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
@@ -379,38 +412,71 @@ private struct RepositoryUnavailableView: View {
   }
 }
 
+/// A repository's icon: its own app icon from a desktop checkout, else its
+/// GitHub owner's avatar or its Git host's icon, then the agent that keeps it,
+/// and the folder desktop uses when none resolve.
 private struct RepositoryMark: View {
+  @Environment(AppModel.self) private var model
+  @Environment(\.agentAvatars) private var agentAvatars
+  @State private var imageStore = IdentityImageStore.shared
+  let project: ProjectSummary
   var size: CGFloat = 42
 
+  private var projectIcon: Data? { model.projectIcons[project.id] }
+  private var projectIconKey: String {
+    "project-icon|\(project.id)|\(projectIcon.map { "\($0.count)|\($0.hashValue)" } ?? "")"
+  }
+
   var body: some View {
-    Image(systemName: "shippingbox")
-      .font(.system(size: size * 0.42, weight: .medium))
-      .foregroundStyle(.primary)
-      .frame(width: size, height: size)
-      .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: size * 0.24))
-      .overlay {
-        RoundedRectangle(cornerRadius: size * 0.24)
-          .stroke(ChiefTheme.line)
+    Group {
+      if let image = imageStore.image(for: projectIconKey) ?? imageStore.image(for: project.id) {
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFill()
+          .frame(width: size, height: size)
+          .background(ChiefTheme.elevated)
+          .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+          .overlay {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+              .stroke(ChiefTheme.line)
+          }
+      } else if let avatar = project.agentID.flatMap({ agentAvatars[$0] }) {
+        AgentAvatarView(avatar: avatar, size: size)
+      } else {
+        Image(systemName: "folder")
+          .font(.system(size: size * 0.4, weight: .regular))
+          .foregroundStyle(.primary)
+          .frame(width: size, height: size)
+          .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+          .overlay {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+              .stroke(ChiefTheme.line)
+          }
       }
+    }
+    .task(id: projectIconKey) {
+      if let projectIcon, imageStore.load(key: projectIconKey, data: projectIcon) { return }
+      await imageStore.load(key: project.id, candidates: project.iconCandidates)
+    }
   }
 }
 
-private struct EmptyProjectsView: View {
-  @Binding var showsAddProject: Bool
+private struct EmptyRepositoriesView: View {
+  @Binding var showsAddRepository: Bool
 
   var body: some View {
     ChiefCard {
       VStack(spacing: 12) {
-        Image(systemName: "shippingbox")
+        Image(systemName: "folder")
           .font(.system(size: 26))
           .foregroundStyle(ChiefTheme.secondary)
-        Text("Connect a Git repository")
+        Text("No repositories yet")
           .font(.system(size: 17, weight: .semibold))
-        Text("Projects keep code, branches, and reviews in the workspace.")
+        Text("Add a repository on Chief Git or GitHub.")
           .font(.system(size: 14))
           .foregroundStyle(ChiefTheme.secondary)
           .multilineTextAlignment(.center)
-        Button("Add project") { showsAddProject = true }
+        Button("Add repository") { showsAddRepository = true }
           .buttonStyle(.borderedProminent)
           .tint(ChiefTheme.primary)
           .foregroundStyle(ChiefTheme.onPrimary)

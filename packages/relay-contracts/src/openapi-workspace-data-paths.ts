@@ -7,6 +7,9 @@ import {
 import {
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
+  relayProjectIconResultSchema,
+  relayProjectIconsResultSchema,
+  relayProjectIconUpdateSchema,
   relayProjectSchema,
   relayProjectsResultSchema,
 } from "./projects";
@@ -175,6 +178,52 @@ export const workspaceDataOpenApiPaths = {
         "401": errorResponse,
         "403": errorResponse,
         "409": errorResponse,
+      },
+    },
+  },
+  "/v1/workspaces/{workspaceId}/projects/icons": {
+    get: {
+      operationId: "listProjectIcons",
+      summary: "List project icons",
+      description:
+        "Returns the app icons that machines with a checkout found for the workspace's projects.",
+      tags: ["Projects"],
+      parameters: [pathParameter("workspaceId")],
+      responses: {
+        "200": jsonResponse(
+          "Project icons as image data URLs.",
+          relayProjectIconsResultSchema,
+        ),
+        "401": errorResponse,
+        "403": errorResponse,
+      },
+    },
+  },
+  "/v1/workspaces/{workspaceId}/projects/{projectId}/icon": {
+    put: {
+      operationId: "updateProjectIcon",
+      summary: "Set a project icon",
+      description:
+        "Stores the app icon found in a checkout of the project, or clears it when no data URL is sent.",
+      tags: ["Projects"],
+      parameters: [pathParameter("workspaceId"), pathParameter("projectId")],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: jsonSchema(relayProjectIconUpdateSchema),
+          },
+        },
+      },
+      responses: {
+        "200": jsonResponse(
+          "Whether the project now has an icon.",
+          relayProjectIconResultSchema,
+        ),
+        "400": errorResponse,
+        "401": errorResponse,
+        "403": errorResponse,
+        "404": errorResponse,
       },
     },
   },

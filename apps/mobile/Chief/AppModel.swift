@@ -131,6 +131,8 @@ final class AppModel {
   /// Relay-authoritative run history, keyed by the isolated agent mailbox.
   /// Terminal failures remain visible and retryable across process restarts.
   private(set) var agentJobsByAgentID: [String: [AgentJobRecord]] = [:]
+  /// Each repository's own app icon, found in a checkout on a desktop.
+  private(set) var projectIcons: [String: Data] = [:]
   /// True while the user is adding ANOTHER workspace (Add workspace). Distinguishes
   /// creating a new org from re-entering an already-completed one, which the
   /// single-workspace idempotency guard in completeOnboarding guards against.
@@ -625,6 +627,14 @@ final class AppModel {
     }
   }
 
+  private func refreshProjectIcons(for snapshot: WorkspaceSnapshot) async {
+    guard !snapshot.projects.isEmpty,
+      let icons = try? await relay.projectIcons(workspaceID: snapshot.id),
+      workspace?.id == snapshot.id
+    else { return }
+    projectIcons = icons
+  }
+
   private func refreshAgentJobs(for snapshot: WorkspaceSnapshot) async {
     let relay = relay
     let fetched = await withTaskGroup(
@@ -953,6 +963,7 @@ final class AppModel {
       await refreshAgentConfigCache(for: loaded)
       await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentJobs(for: loaded)
+      await refreshProjectIcons(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       scheduleWorkspaceRefreshAfterMembershipGrant(expectedID: loaded.id)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
@@ -1804,9 +1815,11 @@ final class AppModel {
     }
   }
 
-  func openConversation(_ id: String, threadRootID: String? = nil) {
+  func openConversation(
+    _ id: String, threadRootID: String? = nil, returningTo tab: WorkspaceTab = .home
+  ) {
     let id = workspace?.conversationID(for: id) ?? id
-    selectedTab = .home
+    selectedTab = tab
     selectedConversationID = id
     navigationPath = [id]
     if let threadRootID, !threadRootID.isEmpty {
@@ -2391,6 +2404,38 @@ final class AppModel {
     else { return }
     visibleThreadRootID = nil
     markChannelRead(conversationID: conversationID)
+  }
+
+  /// Desktop's Inbox: what others sent across every conversation this phone
+  /// reads, newest first, with each message's read state.
+  var inboxMessages: [InboxMessage] {
+    guard let workspace else { return [] }
+    let ownIDs: Set<String> = [
+      session?.user.id, "workspace-owner", (try? NostrKeychainStore().load())?.publicKeyHex,
+    ].reduce(into: []) { ids, id in if let id { ids.insert(id) } }
+    let messages = workspace.conversations
+      .filter { isConversationJoined($0.id) }
+      .flatMap { conversation in
+        conversations.messages(workspaceID: workspace.id, conversationID: conversation.id)
+          .filter { message in
+            switch message.author {
+            case .system: return false
+            case .user(let id, _) where ownIDs.contains(id): return false
+            default: return !message.deleted && !message.isAgentActivityProjection
+            }
+          }
+          .map { InboxMessage(message: $0, conversation: conversation, unread: isUnread($0)) }
+      }
+      .sorted { $0.message.createdAt > $1.message.createdAt }
+    return Array(messages.prefix(200))
+  }
+
+  func markInboxMessageRead(_ item: InboxMessage) {
+    if let root = item.message.threadRootID {
+      markThreadRead(conversationID: item.conversation.id, rootMessageID: root)
+    } else {
+      markChannelRead(conversationID: item.conversation.id)
+    }
   }
 
   func markChannelRead(conversationID: String) {
@@ -3258,6 +3303,14 @@ extension AppModel {
   }
 }
 
+struct InboxMessage: Identifiable {
+  let message: ConversationMessage
+  let conversation: ConversationSummary
+  let unread: Bool
+
+  var id: String { message.id }
+}
+
 extension ConversationMessage {
   fileprivate func isOwnMessage(session: ChiefSession?) -> Bool {
     guard case .user(let id, _) = author else { return false }
@@ -3266,8 +3319,14 @@ extension ConversationMessage {
   }
 }
 
+/// The desktop sidebar's order.
 enum WorkspaceTab: Hashable, CaseIterable {
   case home
+  case inbox
+  case boards
+  case automations
+  case agents
   case plugins
-  case projects
+  case repositories
+  case artifacts
 }

@@ -35,6 +35,7 @@ export type RelayRuntimeRelay = Pick<
   | "startDirectMessage"
   | "stopConversation"
   | "subscribeWorkspace"
+  | "updateProjectIcon"
   | "updateWorkspaceFile"
 > &
   ProjectGitHubAccess;

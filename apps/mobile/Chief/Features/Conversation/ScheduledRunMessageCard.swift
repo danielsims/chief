@@ -30,47 +30,65 @@ struct ScheduledRunMessageCard: View {
     }
     .contextMenu { Button("Run details") { showsDetails = true } }
     .sheet(isPresented: $showsDetails) { ScheduledRunDetailView(reference: reference) }
+    .task(id: model.workspace?.id) {
+      guard let workspaceID = model.workspace?.id else { return }
+      await AutomationCatalogue.shared.load(workspaceID: workspaceID, relay: model.relay)
+    }
   }
 
+  /// Desktop's run card: the band says what the run is doing, the card what
+  /// it is and who it involves, drawn like an automation step.
   private var content: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 8) {
-        Text("Scheduled run").font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
-        Spacer(minLength: 4)
-        if !workers.isEmpty {
-          MatrixLoader(size: 13).foregroundStyle(ChiefTheme.secondary)
-            .accessibilityHidden(true)
-          Text(workers.map(name).joined(separator: ", ") + " working")
+    InsetBand {
+      Text(run?.isTest == true ? "Test run" : "Scheduled run")
+      Spacer(minLength: 4)
+      status
+      if openThread != nil {
+        Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundStyle(
+          ChiefTheme.tertiary)
+      }
+    } content: {
+      VStack(alignment: .leading, spacing: 10) {
+        Text(reference.title).font(.system(size: 14, weight: .medium)).foregroundStyle(
+          ChiefTheme.accent
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        if !team.isEmpty {
+          HStack(spacing: 8) {
+            AutomationInvolvedStack(
+              lead: team[0], collaborators: Array(team.dropFirst()),
+              steps: run?.schedule.automation?.steps ?? [], size: 20)
+            Text(team.map(name).joined(separator: ", ")).font(.system(size: 12))
+              .foregroundStyle(ChiefTheme.secondary).lineLimit(2)
+          }
+        }
+        if replyCount > 0, openThread != nil {
+          Text("\(replyCount) \(replyCount == 1 ? "reply" : "replies")")
             .font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
-            .lineLimit(1)
-            .accessibilityIdentifier("scheduled-run-progress")
-        } else if run?.state == "queued" {
-          Text("Queued").font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
         }
-        if openThread != nil {
-          Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundStyle(
-            ChiefTheme.tertiary)
-        }
-      }
-      Text(reference.title).font(.system(size: 14, weight: .medium)).foregroundStyle(
-        ChiefTheme.accent
-      )
-      .fixedSize(horizontal: false, vertical: true)
-      if !team.isEmpty {
-        HStack(spacing: 8) {
-          ThreadParticipantStack(
-            participants: team.map { .agent(id: $0, name: name($0)) }, replyingAgentID: nil)
-          Text(team.map(name).joined(separator: ", ")).font(.system(size: 12))
-            .foregroundStyle(ChiefTheme.secondary).lineLimit(2)
-        }
-      }
-      if replyCount > 0, openThread != nil {
-        Text("\(replyCount) \(replyCount == 1 ? "reply" : "replies")")
-          .font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
       }
     }
-    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-    .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChiefTheme.line, lineWidth: 0.5))
+  }
+
+  @ViewBuilder private var status: some View {
+    if !workers.isEmpty {
+      MatrixLoader(size: 12).accessibilityHidden(true)
+      Text(workers.map(name).joined(separator: ", ") + " working")
+        .accessibilityIdentifier("scheduled-run-progress")
+    } else if run?.state == "running",
+      let step = (run?.schedule.automation?.steps ?? []).walked.first(where: {
+        run?.automation?.nodes[$0.id]?.state == "running"
+      })
+    {
+      // A tool step has no agent working, but the run is still busy with it.
+      MatrixLoader(size: 12).accessibilityHidden(true)
+      Text(step.title)
+    } else if run?.state == "queued" {
+      Text("Queued")
+    } else if run?.state == "failed" || run?.state == "blocked" {
+      Text("Failed").foregroundStyle(.red)
+    } else if run?.state == "completed" {
+      Text("Done")
+    }
   }
 }

@@ -824,7 +824,7 @@ private struct ProjectRecommendationMessageComponent: View {
       RoundedRectangle(cornerRadius: 16).stroke(ChiefTheme.line, lineWidth: 0.5)
     }
     .sheet(isPresented: $showsConnect) {
-      AddProjectSheet(initialRemoteURL: remoteURL ?? "")
+      AddRepositorySheet(initialRemoteURL: remoteURL ?? "")
     }
   }
 

@@ -3,6 +3,7 @@ import Foundation
 actor FixtureRelayClient: RelayServing {
     private var fixtureMessages = DemoWorkspace.messages + (ScheduledRunDemo.enabled ? [ScheduledRunDemo.message, ScheduledRunDemo.reply] : [])
     private var provisioningCredential: String?
+    private var boardRows = DemoWorkspace.boardRows
 
     func workspaceSettings(workspaceID: String) async throws -> WorkspaceSettingsData {
         WorkspaceSettingsData(
@@ -12,11 +13,31 @@ actor FixtureRelayClient: RelayServing {
         )
     }
 
+    func schedules(workspaceID: String) async throws -> [WorkspaceSchedule] {
+      ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id ? [ScheduledRunDemo.schedule] : []
+    }
     func scheduleRuns(workspaceID: String, scheduleID: String) async throws -> [WorkspaceScheduleRun] {
       ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id && scheduleID == "demo-schedule" ? [ScheduledRunDemo.run] : []
     }
     func listWorkspaceFiles(workspaceID: String, signingIdentity: NostrIdentity?) async throws -> [WorkspaceFileRecord] {
       ScheduledRunDemo.enabled && workspaceID == DemoWorkspace.snapshot.id ? [ScheduledRunDemo.file] : []
+    }
+
+    func databases(workspaceID: String) async throws -> [WorkspaceDatabase] { [DemoWorkspace.board] }
+
+    func database(workspaceID: String, databaseID: String) async throws -> WorkspaceDatabaseWithRows {
+        WorkspaceDatabaseWithRows(database: DemoWorkspace.board, rows: boardRows)
+    }
+
+    func saveDatabaseRow(
+        workspaceID: String,
+        databaseID: String,
+        rowID: String,
+        values: [String: JSONValue]
+    ) async throws -> WorkspaceDatabaseRow {
+        guard let index = boardRows.firstIndex(where: { $0.id == rowID }) else { throw RelayError.httpStatus(404) }
+        boardRows[index].values.merge(values) { $1 }
+        return boardRows[index]
     }
 
     func bindDeviceIdentity(accountToken: String) async throws {}
@@ -558,6 +579,45 @@ enum DemoWorkspace {
             )
         ]
     )
+
+    static let board = WorkspaceDatabase(
+        id: WorkspaceDatabase.workspaceBoardID,
+        name: "Workspace Board",
+        fields: [
+            .init(id: "title", name: "Title", type: "title"),
+            .init(
+                id: "status",
+                name: "Status",
+                type: "select",
+                options: [
+                    .init(id: "backlog", name: "Backlog", color: "gray"),
+                    .init(id: "needs_you", name: "Needs you", color: "amber"),
+                    .init(id: "waiting", name: "Waiting", color: "blue"),
+                    .init(id: "done", name: "Done", color: "green")
+                ]
+            ),
+            .init(id: "assignee", name: "Assignee", type: "person")
+        ],
+        views: [.init(layout: "board", groupBy: "status")]
+    )
+
+    static let boardRows: [WorkspaceDatabaseRow] = [
+        ("Review the relay", "needs_you", "engineer"),
+        ("Connect GitHub", "backlog", "chief"),
+        ("Start mobile QA", "waiting", "engineer"),
+        ("Set up the workspace", "done", "chief")
+    ].enumerated().map { index, card in
+        WorkspaceDatabaseRow(
+            id: "card-\(index)",
+            values: [
+                "title": .string(card.0),
+                "status": .string(card.1),
+                "assignee": .object(["kind": .string("agent"), "id": .string(card.2)])
+            ],
+            body: "",
+            position: Double(index)
+        )
+    }
 
     static let messages: [ConversationMessage] = [
         .init(

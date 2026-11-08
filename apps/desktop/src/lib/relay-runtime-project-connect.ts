@@ -8,7 +8,10 @@ import type {
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import { RelayClientError } from "@chief/relay-client";
-import { relayProjectCreateSchema } from "@chief/relay-contracts";
+import {
+  projectIconDataUrlSchema,
+  relayProjectCreateSchema,
+} from "@chief/relay-contracts";
 
 import { requestDesktopPluginHost } from "./desktop-plugin-host";
 import {
@@ -103,7 +106,12 @@ export function githubRepositoryName(remoteUrl: string) {
   return match ? `${match[1]}/${match[2]}` : undefined;
 }
 
+/**
+ * Merges this machine's checkouts into the relay's projects, and shares the
+ * icon each checkout shows so devices without one show the same icon.
+ */
 export async function localProjectSnapshots(
+  relay: Pick<RelayClient, "updateProjectIcon">,
   workspaceId: string,
   snapshots: ProjectRepositorySnapshot[],
 ): Promise<ProjectRepositorySnapshot[]> {
@@ -117,7 +125,7 @@ export async function localProjectSnapshots(
       .parse(response.snapshots)
       .map((snapshot) => [snapshot.project.id, snapshot]),
   );
-  return snapshots.map((snapshot) => {
+  const merged = snapshots.map((snapshot) => {
     const connected = local.get(snapshot.project.id);
     return connected
       ? {
@@ -128,6 +136,30 @@ export async function localProjectSnapshots(
         }
       : snapshot;
   });
+  void shareProjectIcons(relay, merged);
+  return merged;
+}
+
+// What this machine last told the relay about each project's icon, so a
+// refresh only sends the icons that changed.
+const sharedProjectIcons = new Map<string, string | null>();
+
+// A failed share is retried on the next refresh.
+async function shareProjectIcons(
+  relay: Pick<RelayClient, "updateProjectIcon">,
+  snapshots: readonly ProjectRepositorySnapshot[],
+) {
+  await Promise.allSettled(
+    snapshots
+      .filter((snapshot) => snapshot.binding && snapshot.available)
+      .map(async ({ project, iconDataUrl }) => {
+        const dataUrl =
+          projectIconDataUrlSchema.safeParse(iconDataUrl).data ?? null;
+        if (sharedProjectIcons.get(project.id) === dataUrl) return;
+        await relay.updateProjectIcon(project.id, dataUrl ?? undefined);
+        sharedProjectIcons.set(project.id, dataUrl);
+      }),
+  );
 }
 
 export async function queryRelayProject(

@@ -29,14 +29,7 @@ struct ArtifactMessageComponent: View {
         NavigationStack {
           Group {
             if let file, model.workspace?.id == message.workspaceID {
-              if file.mimeType == "text/html" {
-                IsolatedArtifactHTML(content: file.content)
-              } else {
-                ScrollView {
-                  MarkdownMessageBody(source: file.content, channelNames: []).padding(20).frame(
-                    maxWidth: .infinity, alignment: .leading)
-                }
-              }
+              ArtifactContent(file: file)
             } else if let error {
               VStack(spacing: 16) {
                 Text(error).foregroundStyle(.secondary)
@@ -72,6 +65,22 @@ struct ArtifactMessageComponent: View {
           }
         }
       }
+  }
+}
+
+/// A text artifact as Canvas shows it: HTML in an isolated web view, anything else as markdown.
+struct ArtifactContent: View {
+  let file: WorkspaceFileRecord
+
+  var body: some View {
+    if file.mimeType == "text/html" {
+      IsolatedArtifactHTML(content: file.content)
+    } else {
+      ScrollView {
+        MarkdownMessageBody(source: file.content, channelNames: []).padding(20).frame(
+          maxWidth: .infinity, alignment: .leading)
+      }
+    }
   }
 }
 
