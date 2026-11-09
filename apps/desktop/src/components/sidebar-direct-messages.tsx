@@ -323,8 +323,10 @@ export function SidebarDirectMessages({
         return [
           {
             channelId: channel.id,
+            userId,
             name: person?.name ?? previous?.name ?? channel.name,
             image: person?.image ?? previous?.image,
+            lastMessageAt: channel.lastMessageAt,
           },
         ];
       })
@@ -440,7 +442,10 @@ export function SidebarDirectMessages({
         kind: "person" as const,
         key: `channel:${direct.channelId}`,
         direct,
-        live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
+        live: Math.max(
+          lastMessageAtByChannel.get(direct.channelId) ?? 0,
+          direct.lastMessageAt ?? 0,
+        ),
       })),
       ...messageableIds.map((agentId) => ({
         kind: "agent" as const,

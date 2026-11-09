@@ -33,6 +33,8 @@ export interface WorkspaceChannel {
   version: number;
   createdAt: number;
   updatedAt: number;
+  /** When the relay last saw a message here (ms), before any history loads. */
+  lastMessageAt?: number;
 }
 
 export interface ChannelActor {

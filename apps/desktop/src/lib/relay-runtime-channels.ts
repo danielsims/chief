@@ -51,13 +51,24 @@ export async function loadRelayWorkspaceChannels(
       membership,
     ]),
   );
-  const channels: WorkspaceChannel[] = records.map((channel, index) =>
-    workspaceChannelFromRelay(
-      channel,
-      memberLists[index] ?? [],
-      currentByChannel.get(channel.id),
+  const lastMessageAt = new Map(
+    snapshot.conversations.flatMap((conversation) =>
+      conversation.lastMessageAt
+        ? [[conversation.id, Date.parse(conversation.lastMessageAt)] as const]
+        : [],
     ),
   );
+  const channels: WorkspaceChannel[] = records.map((channel, index) => {
+    const at = lastMessageAt.get(channel.id);
+    return {
+      ...workspaceChannelFromRelay(
+        channel,
+        memberLists[index] ?? [],
+        currentByChannel.get(channel.id),
+      ),
+      ...(at ? { lastMessageAt: at } : undefined),
+    };
+  });
   return { channels, currentMemberships };
 }
 

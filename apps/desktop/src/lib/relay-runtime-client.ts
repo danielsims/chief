@@ -467,7 +467,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
                   agent: conversation.directAgentId,
                   title: conversation.name,
                   lastText: conversation.lastMessage ?? "",
-                  lastAt: 0,
+                  lastAt: conversation.lastMessageAt
+                    ? Date.parse(conversation.lastMessageAt)
+                    : 0,
                   running: false,
                 },
               ]
