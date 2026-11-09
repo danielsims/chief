@@ -118,17 +118,17 @@ export function routeWorkspaceMcp(
           workspaceId,
         }),
       );
-      // A computer publishes what its local ChatGPT or Claude Code can run,
-      // so a phone can offer the same models when it configures an agent.
-      const key = `provider-models/${workspaceId}/${provider}.json`;
+      // A person's computer publishes what its local ChatGPT or Claude Code
+      // can run, so their own phone can offer it. Each person has their own.
+      if (principal.kind !== "user")
+        return relayError(
+          403,
+          "provider_models_denied",
+          "Only a person's own devices share models.",
+          requestId,
+        );
+      const key = `provider-models/${workspaceId}/${principal.userId}/${provider}.json`;
       if (request.method === "PUT") {
-        if (principal.kind !== "user")
-          return relayError(
-            403,
-            "provider_models_denied",
-            "Only a person's computer can publish its models.",
-            requestId,
-          );
         const input = yield* attempt("relay.provider_models.body", async () =>
           localProviderModelsSchema.parse(await authenticated.request.json()),
         );
