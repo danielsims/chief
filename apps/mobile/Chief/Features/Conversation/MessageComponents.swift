@@ -549,7 +549,9 @@ private struct AuthenticatedRelayImage: View {
     }
 
     do {
-      let (data, response) = try await URLSession.shared.data(for: request)
+      // Never follow a redirect: it would carry the device's credentials along.
+      let (data, response) = try await URLSession.shared.data(
+        for: request, delegate: RefuseRedirects())
       guard let http = response as? HTTPURLResponse,
         (200..<300).contains(http.statusCode),
         let decoded = UIImage(data: data)
@@ -873,5 +875,15 @@ private struct ProjectRecommendationMessageComponent: View {
       return host.replacingOccurrences(of: "www.", with: "")
     }
     return description
+  }
+}
+
+/// Stops a request at its first redirect instead of following it.
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest
+  ) async -> URLRequest? {
+    nil
   }
 }
