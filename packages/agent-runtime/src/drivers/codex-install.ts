@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   createWriteStream,
   existsSync,
+  readdirSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
@@ -69,7 +70,7 @@ async function ensureCodexAdapter() {
     /* Not included in the desktop download. */
   }
   const root = join(homedir(), ".chief", "runtimes", "codex-acp");
-  const destination = join(root, "1.6.2");
+  const destination = join(root, "2.6.0");
   const entry = join(destination, "dist", "index.js");
   if (existsSync(entry)) return entry;
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -78,8 +79,8 @@ async function ensureCodexAdapter() {
     const archive = join(staging, "adapter.tgz");
     reportSetup("downloading", "Downloading the Codex adapter", 0);
     await downloadVerified(
-      "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.6.2.tgz",
-      "sha512-2eF1mbs1gTqkZJSLYOun/pFDx37sYa7W63HOPezC37b/R8AYms5O1nfQu8lrqFSGDrwDZkASVORymLcqjCNqyA==",
+      "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-2.6.0.tgz",
+      "sha512-/PBsd0H6URy4bhXhAeXqwb7RqctbXfNceRihAh6nDmn5HJ873uzoHvHxF45YmeWfgOKKRrNRLZjYsket2a7EsQ==",
       archive,
       (percent) =>
         reportSetup("downloading", "Downloading the Codex adapter", percent),
@@ -122,11 +123,68 @@ export function ensureCodexBinary(): Promise<string> {
   return preparing;
 }
 
+function codexVersion(output: string) {
+  const match = /(\d+)\.(\d+)\.(\d+)/u.exec(output);
+  return match ? [match[1], match[2], match[3]].map(Number) : undefined;
+}
+
+function newer(left: number[], right: number[]) {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
+}
+
+/**
+ * The newest Codex this computer already has: the one inside the ChatGPT app,
+ * npm or nvm installs, Homebrew, and the usual bin folders. Chief uses the
+ * person's own Codex rather than shipping one, so its models match theirs.
+ */
+async function installedCodex() {
+  const executable = process.platform === "win32" ? "codex.exe" : "codex";
+  const home = homedir();
+  const nvm = join(home, ".nvm", "versions", "node");
+  const directories = [
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin",
+    join(home, ".local", "bin"),
+    join(home, ".codex", "bin"),
+    join(home, ".volta", "bin"),
+    join(home, ".bun", "bin"),
+    join(home, ".npm-global", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    ...(existsSync(nvm)
+      ? readdirSync(nvm).map((version) => join(nvm, version, "bin"))
+      : []),
+  ];
+  const candidates = [
+    ...new Set(
+      directories
+        .filter(Boolean)
+        .map((directory) => join(directory, executable)),
+    ),
+  ].filter((path) => existsSync(path));
+  const minimum = codexVersion(CODEX_VERSION) ?? [0, 0, 0];
+  let best: { path: string; version: number[] } | undefined;
+  for (const path of candidates) {
+    const version = await run(path, ["--version"], { timeout: 10_000 })
+      .then(({ stdout }) => codexVersion(stdout))
+      .catch(() => undefined);
+    // Older releases don't speak the adapter's protocol.
+    if (!version || newer(minimum, version)) continue;
+    if (!best || newer(version, best.version)) best = { path, version };
+  }
+  return best?.path;
+}
+
 async function resolveCodexBinary() {
   const override = process.env.CODEX_PATH;
   if (override) return override;
   const packaged = process.env.CHIEF_CODEX_BINARY;
   if (packaged && existsSync(packaged)) return packaged;
+  const installed = await installedCodex();
+  if (installed) return installed;
   const target = `${process.platform}-${process.arch}`;
   const distribution = codexDistributions[target];
   if (!distribution) throw new Error(`Codex is not available for ${target}.`);
