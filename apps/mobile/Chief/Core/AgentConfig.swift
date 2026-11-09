@@ -32,21 +32,6 @@ struct AgentConfig: Codable, Equatable, Sendable {
     set { inference.model = newValue }
   }
 
-  static let allCapabilities = [
-    "analytics-chart",
-    "trend-memory",
-    "content-calendar",
-    "campaign-memory",
-    "schedule-manager",
-  ]
-
-  static let allIntegrations = [
-    "google-analytics",
-    "google-ads",
-    "slack",
-    "github",
-  ]
-
   static let allToolPermissions = AgentToolPermissionID.allCases.map(\.rawValue)
 
   private static let baseToolPermissions: Set<String> = [

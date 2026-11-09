@@ -33,7 +33,7 @@ struct AgentDetailView: View {
       }
       SettingsSection(title: "Settings") {
         NavigationLink {
-          AgentConfigurationView(config: $config, onChange: persist)
+          AgentConfigurationView(agentName: agent.name, config: $config, onChange: persist)
         } label: {
           SettingsDestination(
             title: "Configuration", icon: "slider.horizontal.3", detail: config.model)
