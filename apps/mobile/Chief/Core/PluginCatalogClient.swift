@@ -162,6 +162,8 @@ final class PluginCatalogClient {
 
   /// Finds a catalog plugin by id, then falls back to the card payload so a
   /// recommended plugin still connects when it sits outside the preferred 30.
+  /// The fallback is named by its domain, never the card's text, so a card
+  /// can't label one service's server as another's.
   static func resolve(
     id: String,
     catalog: [PluginOption],
@@ -172,12 +174,11 @@ final class PluginCatalogClient {
     if let match = catalog.first(where: { $0.id == id }) { return match }
     let trimmedDomain = domain?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     guard trimmedDomain.contains(".") else { return nil }
-    let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let trimmedDescription =
       description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return PluginOption(
       id: id,
-      name: trimmedName.isEmpty ? id : trimmedName,
+      name: trimmedDomain,
       domain: trimmedDomain,
       description: trimmedDescription.isEmpty
         ? "Connect this service to your Chief agents."
@@ -268,13 +269,22 @@ final class PluginCatalogClient {
         scheme: scheme,
         label: Self.keyLabel(use.id),
         docsURL: use.evidence.first { $0.hasPrefix("https://") }.flatMap(URL.init(string:))
-          ?? plugin.homepageURL
+          ?? plugin.homepageURL.flatMap { $0.scheme?.lowercased() == "https" ? $0 : nil }
       )
     }
     guard let header = candidates.first(where: { $0.scheme == "Bearer" }) ?? candidates.first
     else {
       throw PluginConnectError(
         "\(plugin.name) needs an API key. Add it with Add MCP server on desktop.")
+    }
+    // A pasted key is the real credential, so it only goes to the plugin's
+    // own domain, never to wherever a catalog entry happens to point.
+    let host = endpoint.host?.lowercased() ?? ""
+    let owner = plugin.domain.lowercased().replacingOccurrences(
+      of: "^www\\.", with: "", options: .regularExpression)
+    guard host == owner || host.hasSuffix(".\(owner)") else {
+      throw PluginConnectError(
+        "\(plugin.name)’s server is at \(host), not \(owner). Add it on desktop if you trust it.")
     }
     return PluginSurface(
       endpoint: endpoint,
