@@ -457,14 +457,6 @@ export function PluginDetailDialog({
   const added = plugin && plugin.status !== "available";
   const connected = plugin?.status === "connected";
   const auth = plugin?.connection?.auth;
-  const connectLabel =
-    plugin?.status === "waiting"
-      ? "Reopen sign-in"
-      : plugin?.status === "failed" || plugin?.status === "error"
-        ? "Try again"
-        : plugin?.status === "reconnect"
-          ? "Reconnect"
-          : "Connect";
 
   return (
     <Dialog
@@ -558,9 +550,7 @@ export function PluginDetailDialog({
                   }
                 >
                   <span className={cn(busy && "invisible")}>
-                    {plugin.status === "available"
-                      ? "Add plugin"
-                      : connectLabel}
+                    {plugin.status === "reconnect" ? "Reconnect" : "Install"}
                   </span>
                   {busy ? (
                     <LoaderCircle
