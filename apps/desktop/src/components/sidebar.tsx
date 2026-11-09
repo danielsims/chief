@@ -291,13 +291,18 @@ export function Sidebar({
       localChats.chats,
     ],
   );
+  // The relay's last-message time orders DMs before their history loads.
   const lastMessageAtByAgent = new Map(
-    directMessageIds.map((agentId) => [
-      agentId,
-      lastMessageAtByChannel.get(
-        directMessageChatForAgent(localChats.chats, agentId)?.id ?? "",
-      ) ?? 0,
-    ]),
+    directMessageIds.map((agentId) => {
+      const chat = directMessageChatForAgent(localChats.chats, agentId);
+      return [
+        agentId,
+        Math.max(
+          lastMessageAtByChannel.get(chat?.id ?? "") ?? 0,
+          chat?.lastAt ?? 0,
+        ),
+      ];
+    }),
   );
   const unreadDirectMessageCounts = new Map(
     directMessageIds.map((agentId) => [
