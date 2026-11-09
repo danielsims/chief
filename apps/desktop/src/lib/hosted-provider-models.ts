@@ -21,6 +21,7 @@ const gatewayCatalogSchema = z.object({
   ),
 });
 
+/** Both Claude Code and Codex models arrive from the plugin host in this shape. */
 const claudeCodeCatalogSchema = z.object({
   models: z.array(
     z.object({
@@ -74,7 +75,7 @@ export async function listHostedProviderModels(
       .sort((left, right) => left.label.localeCompare(right.label));
   }
   if (driver === "claude") return await claudeCodeModels();
-  return [];
+  return await codexModels();
 }
 
 /** Claude Code reports its own models, so this list never needs updating. */
@@ -84,6 +85,12 @@ async function claudeCodeModels(): Promise<ProviderModelOption[]> {
   return claudeCodeCatalogSchema
     .parse(response)
     .models.filter((model) => model.value !== "default");
+}
+
+/** The models this computer's Codex offers for the signed-in ChatGPT account. */
+async function codexModels(): Promise<ProviderModelOption[]> {
+  const response = await requestDesktopPluginHost("/models/codex", {});
+  return claudeCodeCatalogSchema.parse(response).models;
 }
 
 export async function hostedProviderModelsMessage(

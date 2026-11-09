@@ -193,6 +193,7 @@ void test("routes createChannel through the relay and emits the created channel"
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).schedules,
+    publishLocalProviderModels: () => Promise.resolve(),
     plugins: new RelayClient({
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
@@ -346,6 +347,7 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
     }).schedules,
+    publishLocalProviderModels: () => Promise.resolve(),
     plugins: new RelayClient({
       relayUrl: "https://relay.test",
       workspaceId: "workspace-a",
