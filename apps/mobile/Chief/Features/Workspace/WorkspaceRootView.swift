@@ -1,8 +1,7 @@
-import SafariServices
 import SwiftUI
 import UIKit
 
-private enum WorkspaceChrome {
+enum WorkspaceChrome {
   static let bottomClearance: CGFloat = 24
   static let headerHeight: CGFloat = 52
 }
@@ -141,80 +140,55 @@ private struct WorkspaceSwitcherSheet: View {
 
   var body: some View {
     NavigationStack {
-      List {
+      SettingsPage {
         ForEach(model.workspaceRelayGroups()) { group in
-          Section(group.label) {
+          SettingsSection(title: group.label) {
             ForEach(group.workspaces) { summary in
               Button {
-                Haptics.medium()
-                if summary.id != model.workspace?.id {
-                  Task {
-                    if await model.switchWorkspace(workspaceID: summary.id) {
-                      Haptics.success()
-                      dismiss()
-                    } else {
-                      Haptics.error()
-                    }
-                  }
-                } else {
-                  dismiss()
-                }
+                select(summary.id)
               } label: {
-                HStack(spacing: 12) {
+                SettingsRow {
                   WorkspaceIdentityAvatar(
                     name: summary.name,
                     website: summary.website,
                     imageURL: summary.imageURL,
-                    size: 38
+                    size: 26
                   )
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text(summary.name).font(.system(size: 15, weight: .semibold))
-                    Text(group.label)
-                      .font(.system(size: 13))
-                      .foregroundStyle(ChiefTheme.secondary)
-                  }
-                  Spacer()
+                  Text(summary.name).foregroundStyle(ChiefTheme.accent).lineLimit(1)
+                  Spacer(minLength: 8)
                   if summary.id == model.workspace?.id {
-                    Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
+                    Image(systemName: "checkmark")
+                      .font(.system(size: 13, weight: .semibold))
+                      .foregroundStyle(ChiefTheme.accent)
                   }
                 }
               }
               .buttonStyle(.plain)
             }
-            Button(role: .destructive) {
-              Haptics.heavy()
+            SettingsActionRow(
+              title: "Sign out", icon: "rectangle.portrait.and.arrow.right", role: .destructive,
+              isWorking: signingOutRelay == group.relayURL
+            ) {
               signingOutRelay = group.relayURL
-            } label: {
-              Label("Sign out of \(group.label)", systemImage: "rectangle.portrait.and.arrow.right")
             }
             .disabled(signingOutRelay != nil)
           }
         }
-        Section {
-          Button {
-            Haptics.heavy()
+        SettingsSection(title: "More") {
+          SettingsActionRow(title: "Create workspace", icon: "plus") {
             dismiss()
             model.showWorkspaceSetup()
-          } label: {
-            Label("Create workspace", systemImage: "plus")
           }
-          Button {
-            Haptics.heavy()
-            joinSheet = true
-          } label: {
-            Label("Join workspace", systemImage: "link")
-          }
+          SettingsActionRow(title: "Join workspace", icon: "link") { joinSheet = true }
           NavigationLink {
             ConnectionSettingsView()
           } label: {
-            Label("Manage relays", systemImage: "network")
+            SettingsDestination(title: "Manage relays", icon: "network")
           }
+          .buttonStyle(.plain)
         }
       }
-      .scrollContentBackground(.hidden)
-      .background(ChiefSheetPalette.background)
       .navigationTitle("Workspaces")
-      .navigationBarTitleDisplayMode(.inline)
       .task { await model.refreshWorkspaces() }
       .alert(
         "Sign out of this relay?",
@@ -237,8 +211,20 @@ private struct WorkspaceSwitcherSheet: View {
         Text("Workspaces on this relay will leave this iPhone. Other relays stay signed in.")
       }
     }
-    .chiefSheet([.height(460), .large])
     .sheet(isPresented: $joinSheet) { JoinWorkspaceSheet() }
+  }
+
+  private func select(_ id: String) {
+    Haptics.medium()
+    guard id != model.workspace?.id else { return dismiss() }
+    Task {
+      if await model.switchWorkspace(workspaceID: id) {
+        Haptics.success()
+        dismiss()
+      } else {
+        Haptics.error()
+      }
+    }
   }
 }
 
