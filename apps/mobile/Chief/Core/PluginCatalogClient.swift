@@ -35,7 +35,6 @@ struct PluginOption: Equatable, Identifiable, Sendable {
   }
 
   static let preferred: [PluginOption] = [
-    .init(id: "google-workspace", name: "Google Workspace", domain: "workspace.google.com"),
     .init(id: "granola", name: "Granola", domain: "granola.ai"),
     .init(id: "notion", name: "Notion", domain: "notion.com"),
     .init(id: "vercel", name: "Vercel", domain: "vercel.com"),
@@ -201,8 +200,6 @@ final class PluginCatalogClient {
         !name.isEmpty,
         let domain = entry.domain?.trimmingCharacters(in: .whitespacesAndNewlines),
         domain.contains("."),
-        // GitHub is a project provider, connected as a Git repository.
-        domain != "github.com",
         let slug = entry.slug, !slug.isEmpty
       else { return nil }
       return PluginOption(
