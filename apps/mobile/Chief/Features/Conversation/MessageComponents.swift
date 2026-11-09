@@ -507,6 +507,10 @@ private struct AuthenticatedRelayImage: View {
       failed = true
       return
     }
+    // The relay binds requests to this device, as every other relay call does.
+    if let deviceAuthorization = await DeviceAuthorizationVault.shared.load(for: relayURL) {
+      request.setValue(deviceAuthorization, forHTTPHeaderField: "x-chief-device-authorization")
+    }
 
     do {
       let (data, response) = try await URLSession.shared.data(for: request)
