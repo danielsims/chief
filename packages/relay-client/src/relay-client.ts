@@ -13,6 +13,7 @@ import type {
   DirectParticipant,
   DirectStartResult,
   JsonObject,
+  LocalProviderModels,
   LogBatch,
   LogPage,
   Machine,
@@ -39,6 +40,7 @@ import {
   createNativeAgentResultSchema,
   directStartCommandSchema,
   directStartResultSchema,
+  localProviderModelsSchema,
   logPageSchema,
   logReceiptSchema,
   machineCreateSchema,
@@ -205,6 +207,28 @@ export class RelayClient extends RelayVercelProvisioning {
       `agents/${encodeURIComponent(agentId)}/config`,
     );
     return await this.fetchJson(url, agentConfigResultSchema);
+  }
+  /** What this computer's ChatGPT or Claude Code can run, for phones to list. */
+  async publishLocalProviderModels(
+    provider: "codex" | "claude",
+    models: LocalProviderModels["models"],
+  ) {
+    await this.fetchJson(
+      this.workspaceUrl(`provider-models/${provider}`),
+      localProviderModelsSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ models }),
+      },
+    );
+  }
+  async localProviderModels(provider: "codex" | "claude") {
+    return await this.fetchJson(
+      this.workspaceUrl(`provider-models/${provider}`),
+      localProviderModelsSchema,
+    );
   }
   async loadAgentConfigs(): Promise<AgentConfigResult[]> {
     const { configs } = await this.fetchJson(
