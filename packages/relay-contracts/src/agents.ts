@@ -345,7 +345,11 @@ export const localProviderModelsSchema = z.object({
   models: z
     .array(
       z.object({
-        value: z.string().min(1).max(200),
+        value: z
+          .string()
+          .min(1)
+          .max(200)
+          .regex(/^[\w.:/@[\]-]+$/u),
         label: z.string().min(1).max(200),
         description: z.string().max(500).optional(),
       }),
