@@ -36,7 +36,6 @@ struct PluginOption: Equatable, Identifiable, Sendable {
 
   static let preferred: [PluginOption] = [
     .init(id: "google-workspace", name: "Google Workspace", domain: "workspace.google.com"),
-    .init(id: "slack", name: "Slack", domain: "slack.com"),
     .init(id: "granola", name: "Granola", domain: "granola.ai"),
     .init(id: "notion", name: "Notion", domain: "notion.com"),
     .init(id: "vercel", name: "Vercel", domain: "vercel.com"),
@@ -49,9 +48,13 @@ struct PluginOption: Equatable, Identifiable, Sendable {
   ]
 }
 
-struct PluginRemoteServer: Equatable, Sendable {
-  let name: String
+/// A plugin whose MCP server takes a key in a header instead of OAuth.
+struct PluginAPIKeyRequirement: Equatable, Identifiable, Sendable {
+  let plugin: PluginOption
   let endpoint: URL
+  let header: PluginKeyHeader
+
+  var id: String { plugin.id }
 }
 
 @MainActor
@@ -63,7 +66,6 @@ final class PluginCatalogClient {
   /// step presents the same providers in the same order.
   static let priorityDomains: [String] = [
     "workspace.google.com",
-    "slack.com",
     "granola.ai",
     "notion.com",
     "vercel.com",
@@ -216,74 +218,171 @@ final class PluginCatalogClient {
     }
   }
 
-  func installedPluginIDs(workspaceID: String) async -> Set<String> {
-    await MobilePluginStore.shared.connectedPluginIDs(workspaceID: workspaceID)
-  }
-
-  func install(
-    _ plugin: PluginOption,
-    workspaceID: String,
-    presenter: PluginAuthorizationPresenter
-  ) async throws {
-    await MobilePluginStore.shared.install(
-      workspaceID: workspaceID,
-      pluginID: plugin.id,
-      trusted: true
-    )
-    let endpoints = try await MobilePluginRuntime.shared.connect(
-      plugin: plugin,
-      workspaceID: workspaceID,
-      presenter: presenter
-    )
-    await MobilePluginStore.shared.markConnected(
-      workspaceID: workspaceID,
-      pluginID: plugin.id,
-      serverEndpoints: endpoints
-    )
-  }
-
-  func remoteMCPServers(for plugin: PluginOption) async throws -> [PluginRemoteServer] {
-    if plugin.id == "google-workspace" {
-      return [
-        PluginRemoteServer(
-          name: "gmail",
-          endpoint: URL(string: "https://gmail.googleapis.com/mcp/")!
-        ),
-        PluginRemoteServer(
-          name: "drive",
-          endpoint: URL(string: "https://file.googleapis.com/mcp")!
-        ),
-      ]
-    }
-    struct Surface: Decodable {
-      struct Entry: Decodable {
-        let type: String
-        let name: String?
-        let url: URL?
-        let transports: [String]?
+  /// The remote MCP server a catalog plugin publishes and how it signs in.
+  /// Desktop's `catalogSurface`, reading the same integrations.sh document as
+  /// `parseMcpSurfaceFromDocument`.
+  func surface(for plugin: PluginOption) async throws -> PluginSurface {
+    guard let surfaceURL = URL(string: "https://integrations.sh/api/\(plugin.domain)/surface"),
+      let (data, response) = try? await URLSession.shared.data(from: surfaceURL),
+      let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+      let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { throw PluginConnectError("Could not find \(plugin.name)’s MCP server.") }
+    guard
+      let surface = (document["surfaces"] as? [[String: Any]])?.first(where: {
+        $0["type"] as? String == "mcp" && $0["url"] is String
+      }),
+      let endpoint = (surface["url"] as? String).flatMap(URL.init(string:)),
+      endpoint.scheme?.lowercased() == "https"
+    else { throw PluginConnectError("\(plugin.name) doesn’t publish a secure MCP server yet.") }
+    let auth = surface["auth"] as? [String: Any]
+    if auth?["status"] as? String == "none" { return PluginSurface(endpoint: endpoint, auth: .none) }
+    let uses = (auth?["entries"] as? [[String: Any]] ?? []).flatMap { entry in
+      let evidence = (entry["basis"] as? [String: Any])?["evidence"] as? [Any] ?? []
+      return (entry["use"] as? [[String: Any]] ?? []).map { use in
+        (
+          id: use["id"] as? String,
+          mechanics: use["mechanics"] as? [String: Any] ?? [:],
+          evidence: evidence.compactMap { $0 as? String }
+        )
       }
-      let surfaces: [Entry]
     }
+    // Servers that publish OAuth metadata sign in through it; a header-only
+    // server needs a key the person pastes.
+    let sources = uses.map { $0.mechanics["source"] as? String }
+    if sources.isEmpty || sources.contains("well-known") || !sources.contains("http") {
+      return PluginSurface(endpoint: endpoint, auth: .oauth)
+    }
+    // Alternatives for the same key are listed side by side; prefer the
+    // standard Bearer header when a server takes either.
+    let candidates = uses.compactMap { use -> PluginKeyHeader? in
+      let mechanics = use.mechanics
+      guard mechanics["source"] as? String == "http", mechanics["in"] as? String == "header"
+      else { return nil }
+      let scheme = mechanics["scheme"] as? String
+      guard scheme == nil || scheme == "Bearer",
+        let headerName = mechanics["headerName"] as? String
+          ?? (scheme == "Bearer" ? "Authorization" : nil)
+      else { return nil }
+      return PluginKeyHeader(
+        name: headerName,
+        scheme: scheme,
+        label: Self.keyLabel(use.id),
+        docsURL: use.evidence.first { $0.hasPrefix("https://") }.flatMap(URL.init(string:))
+          ?? plugin.homepageURL
+      )
+    }
+    guard let header = candidates.first(where: { $0.scheme == "Bearer" }) ?? candidates.first
+    else {
+      throw PluginConnectError(
+        "\(plugin.name) needs an API key. Add it with Add MCP server on desktop.")
+    }
+    return PluginSurface(
+      endpoint: endpoint,
+      auth: .key(PluginAPIKeyRequirement(plugin: plugin, endpoint: endpoint, header: header))
+    )
+  }
 
-    guard let surfaceURL = URL(string: "https://integrations.sh/api/\(plugin.domain)/surface")
-    else { throw MobilePluginRuntimeError.noRemoteServer(plugin.name) }
-    let (data, response) = try await URLSession.shared.data(from: surfaceURL)
-    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-      let surface = try? JSONDecoder().decode(Surface.self, from: data)
-    else { throw MobilePluginRuntimeError.noRemoteServer(plugin.name) }
-    let remote = surface.surfaces.filter {
-      $0.type == "mcp" && $0.url?.scheme?.lowercased() == "https"
+  /// The header a connection's key goes in: the catalog's when it knows the
+  /// plugin, else the header the connection already sends.
+  func keyHeader(for connection: WorkspacePluginConnection) async -> PluginKeyHeader? {
+    if let catalogID = connection.catalogId,
+      let plugin = await plugin(id: catalogID, name: connection.name, domain: connection.domain),
+      case .key(let requirement) = try? await surface(for: plugin).auth
+    {
+      return requirement.header
     }
-    let streamable = remote.filter { $0.transports?.contains("streamable-http") == true }
-    let selected = streamable.isEmpty ? remote : streamable
-    var seen = Set<URL>()
-    let servers = selected.compactMap { entry -> PluginRemoteServer? in
-      guard let endpoint = entry.url, seen.insert(endpoint).inserted else { return nil }
-      let fallback = endpoint.host?.split(separator: ".").first.map(String.init) ?? plugin.id
-      return PluginRemoteServer(name: entry.name ?? fallback, endpoint: endpoint)
+    guard let name = connection.auth?.headerNames?.first else { return nil }
+    return PluginKeyHeader(
+      name: name,
+      scheme: name.caseInsensitiveCompare("Authorization") == .orderedSame ? "Bearer" : nil,
+      label: "API key",
+      docsURL: connection.domain.flatMap { URL(string: "https://integrations.sh/\($0)/") }
+    )
+  }
+
+  /// Adds a catalog plugin to the workspace. Desktop's `addCatalogPlugin`.
+  func create(
+    _ plugin: PluginOption,
+    endpoint: URL,
+    auth: JSONValue,
+    workspaceID: String,
+    relay: any RelayServing
+  ) async throws -> WorkspacePluginConnection {
+    var input: [String: JSONValue] = [
+      "id": .string(Self.connectionID(plugin.id)),
+      "name": .string(String(plugin.name.prefix(80))),
+      "description": .string(String(plugin.description.prefix(1_000))),
+      "url": .string(endpoint.absoluteString),
+      "domain": .string(plugin.domain),
+      "catalogId": .string(plugin.id),
+      "auth": auth,
+    ]
+    if let iconURL = plugin.iconURL { input["iconUrl"] = .string(iconURL.absoluteString) }
+    return try await relay.createPluginConnection(workspaceID: workspaceID, input: input)
+  }
+
+  /// Adds a key-only plugin to the workspace, keeping it only if the server
+  /// accepts the key. The relay seals the key; members only see the header name.
+  func connect(
+    _ requirement: PluginAPIKeyRequirement,
+    key: String,
+    workspaceID: String,
+    relay: any RelayServing
+  ) async throws {
+    let plugin = requirement.plugin
+    let connection = try await create(
+      plugin,
+      endpoint: requirement.endpoint,
+      auth: .object([
+        "kind": .string("headers"),
+        "headers": .array([requirement.header.json(key: key)]),
+      ]),
+      workspaceID: workspaceID,
+      relay: relay
+    )
+    let accepted: Bool
+    do {
+      if case .connected(let checked) = try await relay.authorizePluginConnection(
+        workspaceID: workspaceID, connectionID: connection.id)
+      {
+        accepted = checked.isConnected
+      } else {
+        accepted = false
+      }
+    } catch {
+      try? await relay.deletePluginConnection(workspaceID: workspaceID, connectionID: connection.id)
+      throw error
     }
-    guard !servers.isEmpty else { throw MobilePluginRuntimeError.noRemoteServer(plugin.name) }
-    return servers
+    guard accepted else {
+      try? await relay.deletePluginConnection(workspaceID: workspaceID, connectionID: connection.id)
+      throw PluginConnectError("\(plugin.name) rejected this key.")
+    }
+  }
+
+  /// Desktop's `connectionIdFor`.
+  static func connectionID(_ slug: String) -> String {
+    let dashed = slug.lowercased()
+      .replacingOccurrences(of: "[^a-z0-9-]+", with: "-", options: .regularExpression)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return String(dashed.prefix(64)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+  }
+
+  private static let keyLabels: [(String, String)] = [
+    (#"(^| )(pat|personal (access )?token)$"#, "personal access token"),
+    (#"api ?token$"#, "API token"),
+    (#"access token$"#, "access token"),
+    (#"secret key$"#, "secret key"),
+    (#"access key$"#, "access key"),
+    (#"token$"#, "API token"),
+  ]
+
+  /// "browser_use_api_key" reads as "API key".
+  static func keyLabel(_ id: String?) -> String {
+    let words = (id ?? "").lowercased()
+      .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+      .trimmingCharacters(in: .whitespaces)
+    return keyLabels.first { words.range(of: $0.0, options: .regularExpression) != nil }?.1
+      ?? "API key"
   }
 
   /// One option per canonical provider, keeping the preferred order first,
@@ -318,84 +417,201 @@ final class PluginCatalogClient {
   }
 }
 
-struct MobilePluginInstallation: Codable, Sendable {
-  let trusted: Bool
-  let installedAt: Date
-  var endpointURL: URL?
-  var serverEndpoints: [String: URL]?
-  var connectedAt: Date?
+extension RelayServing {
+  func createPluginConnection(
+    workspaceID: String, input: [String: JSONValue]
+  ) async throws -> WorkspacePluginConnection {
+    throw RelayError.unavailable
+  }
+
+  func authorizePluginConnection(
+    workspaceID: String, connectionID: String
+  ) async throws -> PluginAuthorization {
+    throw RelayError.unavailable
+  }
+
+  func configurePluginClient(
+    workspaceID: String, connectionID: String, clientID: String, clientSecret: String?
+  ) async throws -> PluginAuthorization {
+    throw RelayError.unavailable
+  }
+
+  func replacePluginHeaders(
+    workspaceID: String, connectionID: String, headers: [PluginHeader]
+  ) async throws -> WorkspacePluginConnection {
+    throw RelayError.unavailable
+  }
+
+  func deletePluginConnection(workspaceID: String, connectionID: String) async throws {
+    throw RelayError.unavailable
+  }
+
+  func callPluginTool(
+    workspaceID: String, connectionID: String, name: String, arguments: JSONValue,
+    signingIdentity: NostrIdentity
+  ) async throws -> PluginToolCallResult {
+    throw RelayError.unavailable
+  }
+
+  func pluginOAuthCallbackURL() async -> URL? { nil }
 }
 
-actor MobilePluginStore {
-  static let shared = MobilePluginStore()
-  private let defaultsKey = "chief.mobile.plugins.v1"
-  private var values: [String: [String: MobilePluginInstallation]]
+extension URLSessionRelayClient {
+  private func pluginPath(_ workspaceID: String, _ connectionID: String, _ action: String? = nil)
+    -> String
+  {
+    let id = connectionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? connectionID
+    return "/v1/workspaces/\(workspaceID)/plugins/\(id)" + (action.map { "/\($0)" } ?? "")
+  }
 
-  init() {
-    if let data = UserDefaults.standard.data(forKey: defaultsKey),
-      let decoded = try? JSONDecoder().decode(
-        [String: [String: MobilePluginInstallation]].self,
-        from: data
-      )
-    {
-      values = decoded
-    } else {
-      values = [:]
+  func createPluginConnection(
+    workspaceID: String, input: [String: JSONValue]
+  ) async throws -> WorkspacePluginConnection {
+    try await request(
+      path: "/v1/workspaces/\(workspaceID)/plugins", method: "POST",
+      body: try JSONEncoder().encode(input))
+  }
+
+  /// Starts signing in. A plugin without OAuth lists its tools instead, which
+  /// checks its key.
+  func authorizePluginConnection(
+    workspaceID: String, connectionID: String
+  ) async throws -> PluginAuthorization {
+    try await request(
+      path: pluginPath(workspaceID, connectionID, "authorize"), method: "POST",
+      body: Data("{}".utf8))
+  }
+
+  /// Stores an OAuth app the person registered with the provider, then
+  /// starts signing in with it.
+  func configurePluginClient(
+    workspaceID: String, connectionID: String, clientID: String, clientSecret: String?
+  ) async throws -> PluginAuthorization {
+    var body = ["clientId": clientID]
+    if let clientSecret { body["clientSecret"] = clientSecret }
+    return try await request(
+      path: pluginPath(workspaceID, connectionID, "client"), method: "POST",
+      body: try JSONEncoder().encode(body))
+  }
+
+  /// Replaces a key. The relay keeps the old one if the server rejects it.
+  func replacePluginHeaders(
+    workspaceID: String, connectionID: String, headers: [PluginHeader]
+  ) async throws -> WorkspacePluginConnection {
+    struct Body: Encodable { let headers: [PluginHeader] }
+    return try await request(
+      path: pluginPath(workspaceID, connectionID, "headers"), method: "POST",
+      body: try JSONEncoder().encode(Body(headers: headers)))
+  }
+
+  func deletePluginConnection(workspaceID: String, connectionID: String) async throws {
+    let _: JSONValue = try await request(
+      path: pluginPath(workspaceID, connectionID), method: "DELETE")
+  }
+
+  /// Calls a plugin tool as the agent. The relay checks the plugin is still
+  /// assigned to it and connected; the phone never holds its credentials.
+  func callPluginTool(
+    workspaceID: String, connectionID: String, name: String, arguments: JSONValue,
+    signingIdentity: NostrIdentity
+  ) async throws -> PluginToolCallResult {
+    try await request(
+      path: pluginPath(workspaceID, connectionID, "tools/call"), method: "POST",
+      body: try JSONEncoder().encode(["name": JSONValue.string(name), "arguments": arguments]),
+      signer: signingIdentity)
+  }
+}
+
+/// A plugin's MCP server and how it signs in.
+struct PluginSurface: Sendable {
+  enum Auth: Sendable {
+    case none
+    case oauth
+    case key(PluginAPIKeyRequirement)
+  }
+
+  let endpoint: URL
+  let auth: Auth
+}
+
+/// Where a key goes. Desktop's `McpSurfaceApiKey`.
+struct PluginKeyHeader: Equatable, Sendable {
+  let name: String
+  let scheme: String?
+  /// What the provider calls the key, e.g. "API key".
+  let label: String
+  let docsURL: URL?
+
+  func header(key: String) -> PluginHeader {
+    PluginHeader(name: name, value: scheme.map { "\($0) \(key)" } ?? key)
+  }
+
+  func json(key: String) -> JSONValue {
+    let header = header(key: key)
+    return .object(["name": .string(header.name), "value": .string(header.value)])
+  }
+}
+
+struct PluginHeader: Encodable, Sendable {
+  let name: String
+  let value: String
+}
+
+/// The relay's answer to authorize (`mcpConnectionAuthorizeResultSchema`).
+enum PluginAuthorization: Decodable, Sendable {
+  case connected(WorkspacePluginConnection)
+  /// A one-time relay page that confirms, then sends the person to the provider.
+  case signIn(URL)
+  /// The provider needs an OAuth app the person registers by hand.
+  case clientRequired
+
+  private enum CodingKeys: String, CodingKey { case status, connection, startUrl }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(String.self, forKey: .status) {
+    case "connected":
+      self = .connected(try container.decode(WorkspacePluginConnection.self, forKey: .connection))
+    case "authorize":
+      let raw = try container.decode(String.self, forKey: .startUrl)
+      guard let url = URL(string: raw), url.scheme?.lowercased() == "https" else {
+        throw DecodingError.dataCorruptedError(
+          forKey: .startUrl, in: container, debugDescription: "Sign-in links must use https.")
+      }
+      self = .signIn(url)
+    default:
+      self = .clientRequired
     }
   }
+}
 
-  func installation(workspaceID: String, pluginID: String) -> MobilePluginInstallation? {
-    values[workspaceID]?[pluginID]
-  }
+/// `mcpToolCallResultSchema`.
+struct PluginToolCallResult: Decodable, Sendable {
+  let isError: Bool
+  let content: JSONValue
+  let truncated: Bool
+}
 
-  func install(workspaceID: String, pluginID: String, trusted: Bool) {
-    let existing = values[workspaceID]?[pluginID]
-    values[workspaceID, default: [:]][pluginID] = MobilePluginInstallation(
-      trusted: trusted,
-      installedAt: existing?.installedAt ?? .now,
-      endpointURL: existing?.endpointURL,
-      serverEndpoints: existing?.serverEndpoints,
-      connectedAt: existing?.connectedAt
-    )
-    persist()
-  }
+struct PluginConnectError: LocalizedError {
+  let message: String
+  init(_ message: String) { self.message = message }
+  var errorDescription: String? { message }
+}
 
-  func markConnected(
-    workspaceID: String,
-    pluginID: String,
-    serverEndpoints: [String: URL]
-  ) {
-    guard var installation = values[workspaceID]?[pluginID] else { return }
-    installation.endpointURL = serverEndpoints.values.first
-    installation.serverEndpoints = serverEndpoints
-    installation.connectedAt = .now
-    values[workspaceID]?[pluginID] = installation
-    persist()
-  }
-
-  func uninstall(workspaceID: String, pluginID: String) {
-    values[workspaceID]?[pluginID] = nil
-    persist()
-  }
-
-  func connectedPluginIDs(workspaceID: String) -> Set<String> {
-    Set(values[workspaceID]?.filter { $0.value.connectedAt != nil }.map(\.key) ?? [])
-  }
-
-  func installations(workspaceID: String) -> [String: MobilePluginInstallation] {
-    values[workspaceID] ?? [:]
-  }
-
-  private func persist() {
-    guard let data = try? JSONEncoder().encode(values) else { return }
-    UserDefaults.standard.set(data, forKey: defaultsKey)
-  }
+/// The workspace's plugin connections keyed by catalog plugin, for the agent
+/// tools below. Plugins are workspace connections held by the relay.
+private func workspacePluginConnections(
+  _ context: ToolContext
+) async -> [String: WorkspacePluginConnection] {
+  let connections =
+    (try? await context.relay.pluginConnections(workspaceID: context.workspaceID)) ?? []
+  return Dictionary(connections.map { ($0.pluginKey, $0) }, uniquingKeysWith: { first, _ in first })
 }
 
 struct PluginsListTool: RelayTool {
   static let name = "plugins_list"
   static let description =
-    "Search the portable plugin catalog available to this on-device celld agent."
+    "Search the plugin catalog and see which plugins this workspace has connected."
   static let parameters: [RelayToolParameter] = [
     .init(
       name: "refresh",
@@ -409,15 +625,9 @@ struct PluginsListTool: RelayTool {
     let options = await PluginCatalogClient.shared.catalog(
       forceRefresh: (arguments["refresh"] as? Bool) == true
     )
-    var plugins: [[String: Any]] = []
-    for option in options {
-      let installation = await MobilePluginStore.shared.installation(
-        workspaceID: context.workspaceID,
-        pluginID: option.id
-      )
-      plugins.append(pluginResult(option, installation: installation))
-    }
-    return toolResultJSON(["plugins": plugins, "runtime": "celld-ios"])
+    let connections = await workspacePluginConnections(context)
+    let plugins = options.map { pluginResult($0, connection: connections[$0.id]) }
+    return toolResultJSON(["plugins": plugins])
   }
 }
 
@@ -448,30 +658,24 @@ struct PluginsRecommendTool: RelayTool {
     guard selected.count == Set(pluginIDs).count else {
       throw ToolError.invalidArgument("unknown pluginIds")
     }
-    var components: [MessageComponent] = []
-    for option in selected {
-      let installation = await MobilePluginStore.shared.installation(
-        workspaceID: context.workspaceID,
-        pluginID: option.id
-      )
+    let connections = await workspacePluginConnections(context)
+    let components = selected.map { option in
       var payload = recommendationPayload(
         option,
         context: context,
         conversationID: conversationID,
         threadRootID: threadRootID,
-        installation: installation
+        connection: connections[option.id]
       )
       if let rationale = arguments.optionalString("rationale") {
         payload["rationale"] = rationale
       }
-      components.append(
-        MessageComponent(
-          id: deterministicPluginComponentID(
-            "\(context.workspaceID):\(context.agentID):\(idempotencyKey):\(option.id)"
-          ),
-          kind: "plugin.recommendation",
-          payload: payload
-        )
+      return MessageComponent(
+        id: deterministicPluginComponentID(
+          "\(context.workspaceID):\(context.agentID):\(idempotencyKey):\(option.id)"
+        ),
+        kind: "plugin.recommendation",
+        payload: payload
       )
     }
     let message = try await context.relay.sendAsAgent(
@@ -487,10 +691,11 @@ struct PluginsRecommendTool: RelayTool {
   }
 }
 
+/// Plugins are added by a person: the card's Add signs in on their device.
 struct PluginsInstallTool: RelayTool {
   static let name = "plugins_install"
   static let description =
-    "Install a portable catalog plugin into this celld host after explicit user approval."
+    "Check whether a catalog plugin is added to this workspace after explicit user approval."
   static let parameters: [RelayToolParameter] = [
     .init(name: "pluginId", kind: .string, description: "Catalog plugin id."),
     .init(name: "trusted", kind: .boolean, description: "Whether the user approved the plugin."),
@@ -498,29 +703,19 @@ struct PluginsInstallTool: RelayTool {
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
     let pluginID = try arguments.requiredString("pluginId")
-    let trusted = (arguments["trusted"] as? Bool) == true
-    guard trusted else { throw ToolError.permissionDenied("plugin installation approval") }
+    guard (arguments["trusted"] as? Bool) == true else {
+      throw ToolError.permissionDenied("plugin installation approval")
+    }
     let catalog = await PluginCatalogClient.shared.catalog()
     guard let option = catalog.first(where: { $0.id == pluginID }) else {
       throw ToolError.invalidArgument("pluginId")
     }
-    await MobilePluginStore.shared.install(
-      workspaceID: context.workspaceID,
-      pluginID: pluginID,
-      trusted: true
-    )
+    let connection = await workspacePluginConnections(context)[pluginID]
     return toolResultJSON([
-      "plugin": pluginResult(
-        option,
-        installation: MobilePluginInstallation(
-          trusted: true,
-          installedAt: .now,
-          endpointURL: nil,
-          serverEndpoints: nil,
-          connectedAt: nil
-        )
-      ),
-      "instruction": "The plugin is installed. Call plugins_authorize to connect its provider.",
+      "plugin": pluginResult(option, connection: connection),
+      "instruction": connection?.isConnected == true
+        ? "The plugin is connected to this workspace."
+        : "Call plugins_recommend so the user can press Add on the plugin card and sign in.",
     ])
   }
 }
@@ -528,9 +723,9 @@ struct PluginsInstallTool: RelayTool {
 struct PluginsAuthorizeTool: RelayTool {
   static let name = "plugins_authorize"
   static let description =
-    "Check authorization readiness for an installed portable plugin."
+    "Check whether a workspace plugin is connected."
   static let parameters: [RelayToolParameter] = [
-    .init(name: "pluginId", kind: .string, description: "Installed plugin id."),
+    .init(name: "pluginId", kind: .string, description: "Catalog plugin id."),
     .init(
       name: "conversationId", kind: .string, description: "Conversation for authorization status."),
     .init(
@@ -540,46 +735,47 @@ struct PluginsAuthorizeTool: RelayTool {
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
     let pluginID = try arguments.requiredString("pluginId")
-    guard
-      let installation = await MobilePluginStore.shared.installation(
-        workspaceID: context.workspaceID,
-        pluginID: pluginID
-      )
-    else { throw ToolError.invalidArgument("pluginId is not installed") }
+    let connection = await workspacePluginConnections(context)[pluginID]
     return toolResultJSON([
       "pluginId": pluginID,
-      "status": installation.connectedAt == nil ? "authorization_required" : "connected",
-      "instruction": installation.connectedAt == nil
-        ? "Ask the user to press Add on the plugin card to complete provider sign in."
-        : "The provider is connected and its MCP tools are available to this celld agent.",
+      "status": pluginStatus(connection),
+      "instruction": connection?.isConnected == true
+        ? "The plugin is connected. Its tools are available once it is assigned to you."
+        : "Ask the user to press Add on the plugin card to sign in.",
     ])
   }
 }
 
 struct PluginsUninstallTool: RelayTool {
   static let name = "plugins_uninstall"
-  static let description = "Remove an installed plugin from this on-device celld host."
+  static let description = "Explain how to remove a workspace plugin."
   static let parameters: [RelayToolParameter] = [
-    .init(name: "pluginId", kind: .string, description: "Installed plugin id.")
+    .init(name: "pluginId", kind: .string, description: "Catalog plugin id.")
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
     let pluginID = try arguments.requiredString("pluginId")
-    await MobilePluginRuntime.shared.disconnect(
-      workspaceID: context.workspaceID,
-      pluginID: pluginID
-    )
-    await MobilePluginStore.shared.uninstall(
-      workspaceID: context.workspaceID,
-      pluginID: pluginID
-    )
-    return toolResultJSON(["pluginId": pluginID, "status": "uninstalled"])
+    return toolResultJSON([
+      "pluginId": pluginID,
+      "status": pluginStatus(await workspacePluginConnections(context)[pluginID]),
+      "instruction": "A workspace admin removes plugins from the Plugins page.",
+    ])
+  }
+}
+
+/// Desktop's `connectionStatus`.
+private func pluginStatus(_ connection: WorkspacePluginConnection?) -> String {
+  switch connection?.status {
+  case nil: "available"
+  case "connected": "connected"
+  case "error": "failed"
+  default: "authorization_required"
   }
 }
 
 private func pluginResult(
   _ option: PluginOption,
-  installation: MobilePluginInstallation?
+  connection: WorkspacePluginConnection?
 ) -> [String: Any] {
   var result: [String: Any] = [
     "id": option.id,
@@ -587,10 +783,8 @@ private func pluginResult(
     "description": option.description,
     "category": option.category,
     "domain": option.domain,
-    "status": installation == nil
-      ? "available" : (installation?.connectedAt == nil ? "authorization_required" : "connected"),
-    "enabled": installation != nil,
-    "trusted": installation?.trusted ?? false,
+    "status": pluginStatus(connection),
+    "enabled": connection != nil,
   ]
   if let iconURL = option.iconURL { result["iconUrl"] = iconURL.absoluteString }
   return result
@@ -601,7 +795,7 @@ private func recommendationPayload(
   context: ToolContext,
   conversationID: String,
   threadRootID: String?,
-  installation: MobilePluginInstallation?
+  connection: WorkspacePluginConnection?
 ) -> [String: String] {
   var payload = [
     "workspaceId": context.workspaceID,
@@ -612,10 +806,9 @@ private func recommendationPayload(
     "description": option.description,
     "category": option.category,
     "sourceType": "discovery",
-    "status": installation == nil
-      ? "available" : (installation?.connectedAt == nil ? "authorization_required" : "connected"),
-    "enabled": installation == nil ? "false" : "true",
-    "trusted": installation?.trusted == true ? "true" : "false",
+    "status": pluginStatus(connection),
+    "enabled": connection == nil ? "false" : "true",
+    "trusted": connection == nil ? "false" : "true",
     "domain": option.domain,
   ]
   if let threadRootID { payload["threadRootId"] = threadRootID }

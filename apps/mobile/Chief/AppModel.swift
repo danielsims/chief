@@ -119,6 +119,9 @@ final class AppModel {
   private(set) var visibleConversationID: String?
   private(set) var visibleThreadRootID: String?
   private(set) var onboardingInProgress = false
+  /// Domains picked on the Apps step, offered for connecting once the new
+  /// workspace exists. Empty once that step is done or skipped.
+  var appsToConnect: [String] = []
   private var cellRuntimeBooted = false
   /// Genuine in-flight cell work, grouped by conversation. Mission Control
   /// presents the union so the user can watch delegated specialists progress.
@@ -1576,6 +1579,7 @@ final class AppModel {
           inferenceCredential: relayCredential
         )
         if relayCredential != nil { inferenceCredential = "" }
+        appsToConnect = onboarding.selectedApps.sorted()
         workspace = pending
         upsertWorkspaceSummary(for: pending, isActive: true)
         // This file is only a launch cache. The relay is authoritative, so a
@@ -1702,7 +1706,7 @@ final class AppModel {
       return true
     case .httpStatus(let status):
       return status >= 500
-    case .unauthorized, .unsupportedRelay:
+    case .unauthorized, .unsupportedRelay, .plugin:
       return false
     }
   }
