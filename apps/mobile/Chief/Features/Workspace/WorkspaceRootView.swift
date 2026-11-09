@@ -248,19 +248,25 @@ private struct WorkspaceAvatar: View {
 struct PageDetailBar<Trailing: View>: View {
   @Environment(\.dismiss) private var dismiss
   let title: String
+  /// Shown before the title, such as a DM's avatar.
+  let titleLeading: AnyView?
   let trailing: Trailing
 
-  init(title: String, @ViewBuilder trailing: () -> Trailing) {
+  init(title: String, titleLeading: AnyView? = nil, @ViewBuilder trailing: () -> Trailing) {
     self.title = title
+    self.titleLeading = titleLeading
     self.trailing = trailing()
   }
 
   var body: some View {
     ZStack {
-      Text(title)
-        .font(.system(size: 16, weight: .semibold))
-        .lineLimit(1)
-        .padding(.horizontal, 56)
+      HStack(spacing: 8) {
+        if let titleLeading { titleLeading }
+        Text(title)
+          .font(.system(size: 16, weight: .semibold))
+          .lineLimit(1)
+      }
+      .padding(.horizontal, 56)
       HStack {
         Button {
           Haptics.light()
@@ -389,119 +395,6 @@ struct HomeView: View {
 
 }
 
-struct PluginsView: View {
-  @Environment(AppModel.self) private var model
-  @State private var plugins = PluginCatalogClient.shared.cached ?? PluginOption.preferred
-  @State private var search = ""
-  @State private var loading = false
-  @State private var installedPluginIDs: Set<String> = []
-  @State private var busyPluginID: String?
-  @State private var authorization = PluginAuthorizationPresenter()
-  @State private var connectionError: String?
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Plugins")
-        .font(.system(size: 26, weight: .regular, design: .rounded))
-        .tracking(-0.6)
-        .frame(height: 34)
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.top, 16)
-      ChiefSearchField(prompt: "Search plugins", text: $search)
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if loading && plugins.isEmpty {
-            ChiefSpinner()
-              .tint(ChiefTheme.accent)
-              .frame(maxWidth: .infinity)
-              .padding(.top, 36)
-          } else if filteredPlugins.isEmpty {
-            ContentUnavailableView.search(text: search)
-              .foregroundStyle(ChiefTheme.secondary)
-          } else {
-            ForEach(filteredPlugins) { plugin in
-              PluginCatalogRow(
-                plugin: plugin,
-                installed: installedPluginIDs.contains(plugin.id),
-                busy: busyPluginID == plugin.id,
-                onSelect: { install(plugin) }
-              )
-            }
-          }
-        }
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.bottom, WorkspaceChrome.bottomClearance)
-      }
-    }
-    .background(ChiefTheme.background)
-    .task {
-      loading = true
-      async let catalog = PluginCatalogClient.shared.preferredPlugins()
-      async let installed = PluginCatalogClient.shared.installedPluginIDs(
-        workspaceID: model.workspace?.id ?? ""
-      )
-      plugins = await catalog
-      installedPluginIDs = await installed
-      loading = false
-    }
-    .sheet(
-      isPresented: Binding(
-        get: { authorization.authorizationURL != nil },
-        set: { if !$0 { authorization.cancel() } }
-      )
-    ) {
-      if let url = authorization.authorizationURL {
-        PluginBrowserView(url: url)
-          .ignoresSafeArea()
-      }
-    }
-    .alert(
-      "Couldn’t connect plugin",
-      isPresented: Binding(
-        get: { connectionError != nil },
-        set: { if !$0 { connectionError = nil } }
-      )
-    ) {
-      Button("OK", role: .cancel) { connectionError = nil }
-    } message: {
-      Text(connectionError ?? "Try again.")
-    }
-  }
-
-  private var filteredPlugins: [PluginOption] {
-    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return plugins }
-    return plugins.filter {
-      $0.name.localizedCaseInsensitiveContains(query)
-        || $0.domain.localizedCaseInsensitiveContains(query)
-    }
-  }
-
-  private func install(_ plugin: PluginOption) {
-    guard let workspaceID = model.workspace?.id, busyPluginID == nil else { return }
-    Haptics.medium()
-    busyPluginID = plugin.id
-    Task {
-      do {
-        try await PluginCatalogClient.shared.install(
-          plugin,
-          workspaceID: workspaceID,
-          presenter: authorization
-        )
-        installedPluginIDs.insert(plugin.id)
-        busyPluginID = nil
-        Haptics.success()
-      } catch MobilePluginRuntimeError.browserDismissed {
-        busyPluginID = nil
-      } catch {
-        busyPluginID = nil
-        connectionError = error.localizedDescription
-        Haptics.error()
-      }
-    }
-  }
-}
-
 /// The search field at the top of the Plugins and Repositories pages.
 struct ChiefSearchField: View {
   let prompt: String
@@ -521,63 +414,6 @@ struct ChiefSearchField: View {
     .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
     .padding(.horizontal, ChiefTheme.pagePadding)
   }
-}
-
-private struct PluginCatalogRow: View {
-  let plugin: PluginOption
-  let installed: Bool
-  let busy: Bool
-  let onSelect: () -> Void
-
-  var body: some View {
-    Button(action: onSelect) {
-      HStack(spacing: 12) {
-        BrandLogoView(domain: plugin.domain, iconURL: plugin.iconURL, size: 40)
-
-        VStack(alignment: .leading, spacing: 3) {
-          Text(plugin.name)
-            .font(.system(size: 15, weight: .medium))
-            .lineLimit(1)
-          Text(plugin.description)
-            .font(.system(size: 12))
-            .foregroundStyle(ChiefTheme.secondary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: 8)
-        ZStack {
-          Text(installed ? "Added" : "Add")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(installed ? ChiefTheme.secondary : .primary)
-            .opacity(busy ? 0 : 1)
-          if busy {
-            ChiefSpinner()
-              .controlSize(.small)
-              .tint(ChiefTheme.accent)
-          }
-        }
-        .padding(.horizontal, 12)
-        .frame(minWidth: 58, minHeight: 29, maxHeight: 29)
-        .background(ChiefTheme.elevated, in: Capsule())
-      }
-      .frame(minHeight: 62)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .disabled(busy)
-    .accessibilityLabel("\(installed ? "Open" : "Add") \(plugin.name)")
-  }
-}
-
-struct PluginBrowserView: UIViewControllerRepresentable {
-  let url: URL
-
-  func makeUIViewController(context: Context) -> SFSafariViewController {
-    let controller = SFSafariViewController(url: url)
-    controller.dismissButtonStyle = .done
-    return controller
-  }
-
-  func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 private struct RelayUnavailableBanner: View {

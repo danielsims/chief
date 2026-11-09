@@ -275,7 +275,9 @@ struct DMsGroup: View {
       }
     } label: {
       HStack(spacing: 9) {
-        AgentMark(name: name, id: id, size: 24, working: model.isAgentWorking(agentID: id))
+        let working = model.isAgentWorking(agentID: id)
+        AgentMark(name: name, id: id, size: 24, working: working)
+          .presenceDot(working ? nil : model.agentPresence(id), avatarSize: 24)
         Text(name)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ChiefTheme.secondary)
@@ -347,15 +349,21 @@ private struct ConversationRow: View {
             size: 24,
             rounded: true
           )
+          .presenceDot(model.isUserOnline(userID) ? .online : .offline, avatarSize: 24)
         } else if conversation.kind == .direct {
+          let working = model.isAgentWorking(
+            workspaceID: model.workspace?.id,
+            conversationID: conversation.id
+          )
           AgentMark(
             name: conversation.name,
             id: conversation.directAgentID,
             size: 24,
-            working: model.isAgentWorking(
-              workspaceID: model.workspace?.id,
-              conversationID: conversation.id
-            )
+            working: working
+          )
+          .presenceDot(
+            working ? nil : model.agentPresence(conversation.directAgentID),
+            avatarSize: 24
           )
         } else {
           Image(systemName: conversation.isPrivate ? "lock" : "number")
@@ -454,12 +462,17 @@ struct ChannelMembersSheet: View {
             HStack(spacing: 12) {
               if member.kind == "agent" {
                 AgentMark(name: member.name ?? member.principalId, size: 32)
+                  .presenceDot(model.agentPresence(member.principalId), avatarSize: 32)
               } else {
                 Circle().fill(ChiefTheme.elevated).frame(width: 32, height: 32)
                   .overlay {
                     Text((member.name ?? "You").prefix(1)).font(
                       .system(size: 13, weight: .semibold))
                   }
+                  .presenceDot(
+                    model.isUserOnline(member.principalId) ? .online : .offline,
+                    avatarSize: 32
+                  )
               }
               VStack(alignment: .leading, spacing: 2) {
                 Text(member.name ?? member.principalId).font(.system(size: 15, weight: .medium))
