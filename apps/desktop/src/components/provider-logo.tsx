@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { z } from "zod";
 
 import { cn } from "@chief/ui/lib/utils";
 
 import { integrationLogoUrl } from "../lib/integrations";
+import { readLocalCache, writeLocalCache } from "../lib/local-cache";
 import { GoogleLogo } from "./google-logo";
 
 interface Backing {
@@ -11,7 +13,20 @@ interface Backing {
   light: boolean;
 }
 
-const backingCache = new Map<string, Backing>();
+const backingSchema = z.object({ scale: z.number(), light: z.boolean() });
+const backingStorageKey = "chief:logo-backing";
+// Measured once per domain and kept, so a logo never jumps after it loads.
+const backingCache = new Map<string, Backing>(
+  Object.entries(
+    readLocalCache(backingStorageKey, z.record(z.string(), backingSchema)) ??
+      {},
+  ),
+);
+
+function rememberBacking(domain: string, backing: Backing) {
+  backingCache.set(domain, backing);
+  writeLocalCache(backingStorageKey, Object.fromEntries(backingCache));
+}
 
 /**
  * Some logos are a disc or a framed square inside a transparent canvas, such
@@ -139,8 +154,8 @@ function ProviderLogoImage({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  const [backing, setBacking] = useState<Backing>(
-    () => backingCache.get(domain) ?? { scale: 1, light: false },
+  const [backing, setBacking] = useState<Backing | undefined>(() =>
+    backingCache.get(domain),
   );
   const isGoogle =
     domain === "google.com" ||
@@ -153,7 +168,7 @@ function ProviderLogoImage({
     <span
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white",
-        !isGoogle && !backing.light && "bg-transparent",
+        !isGoogle && !backing?.light && "bg-transparent",
         failed && "bg-muted",
         className,
       )}
@@ -167,9 +182,13 @@ function ProviderLogoImage({
           src={integrationLogoUrl(domain)}
           alt=""
           crossOrigin="anonymous"
-          className="h-full w-full object-contain"
+          className={cn(
+            "h-full w-full object-contain",
+            // Shown once measured, at its final size.
+            !backing && "opacity-0",
+          )}
           style={
-            backing.scale > 1
+            backing && backing.scale > 1
               ? { transform: `scale(${backing.scale})` }
               : undefined
           }
@@ -184,7 +203,7 @@ function ProviderLogoImage({
             } catch {
               next = { scale: 1, light: true };
             }
-            backingCache.set(domain, next);
+            rememberBacking(domain, next);
             setBacking(next);
           }}
           onError={() => setFailed(true)}
