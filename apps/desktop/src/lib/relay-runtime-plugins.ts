@@ -322,14 +322,29 @@ async function catalogSurface(plugin: AgentPluginSummary) {
     throw new Error(
       `${plugin.name} needs an API key. Add it with Add MCP server.`,
     );
+  // A pasted key is the real credential, so it only goes to the plugin's own
+  // domain, never to wherever a catalog entry happens to point.
+  const host = new URL(surface.url).hostname;
+  if (surface.auth === "headers" && !hostBelongsTo(host, plugin.source.domain))
+    throw new Error(
+      `${plugin.name}'s server is at ${host}, not ${plugin.source.domain}. Add it with Add MCP server if you trust it.`,
+    );
   return { ...surface, domain: plugin.source.domain };
+}
+
+function hostBelongsTo(host: string, domain: string) {
+  const owner = domain.toLowerCase().replace(/^www\./u, "");
+  const name = host.toLowerCase();
+  return name === owner || name.endsWith(`.${owner}`);
 }
 
 function apiKeyAction(
   plugin: AgentPluginSummary,
   apiKey: McpSurfaceApiKey,
 ): Extract<PluginAuthorizationAction, { kind: "plugin_api_key" }> {
-  const docsUrl = apiKey.docsUrl ?? plugin.homepage;
+  const docsUrl = [apiKey.docsUrl, plugin.homepage].find((url) =>
+    url?.startsWith("https://"),
+  );
   return {
     kind: "plugin_api_key",
     pluginId: plugin.id,
