@@ -20,7 +20,10 @@ const tabsSchema = z
   .max(24);
 
 const changed = "chief:channel-tabs";
-const tabsKey = (channelId: string) => `chief.channel-tabs:${channelId}`;
+// Channel ids such as "general" repeat across workspaces, so tabs are kept
+// per workspace as well as per channel.
+const tabsKey = (workspaceId: string | null, channelId: string) =>
+  `chief.channel-tabs:${workspaceId ?? ""}:${channelId}`;
 const collapsedKey = "chief.channel-tabs-collapsed";
 
 function read(key: string) {
@@ -67,8 +70,12 @@ const same = (left: ChannelTab, right: ChannelTab) =>
  * The artifacts open in a channel's tab bar. A tab stays until it's closed,
  * whichever view is showing, and remembers itself per channel.
  */
-export function useChannelTabs(channelId: string, active?: ChannelTab) {
-  const key = tabsKey(channelId);
+export function useChannelTabs(
+  workspaceId: string | null,
+  channelId: string,
+  active?: ChannelTab,
+) {
+  const key = tabsKey(workspaceId, channelId);
   const raw = useSyncExternalStore(subscribe, () => read(key));
   const collapsed =
     useSyncExternalStore(subscribe, () => read(collapsedKey)) === "1";

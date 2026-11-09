@@ -85,7 +85,7 @@ struct ConversationView: View {
       model.markChannelRead(conversationID: conversationID)
     }
     .task(id: conversationID) {
-      openTabs = ChannelTabStore.tabs(conversationID)
+      openTabs = ChannelTabStore.tabs(conversationID, workspaceID: model.workspace?.id)
       if showsTabs { await loadArtifacts() }
     }
     .onChange(of: draft) { _, value in
@@ -280,13 +280,13 @@ struct ConversationView: View {
     } else {
       openTabs.append(tab)
     }
-    ChannelTabStore.save(openTabs, for: conversationID)
+    ChannelTabStore.save(openTabs, for: conversationID, workspaceID: model.workspace?.id)
     view = .tab(tab)
   }
 
   private func close(_ tab: ChannelTab) {
     openTabs.removeAll { artifacts.canonical($0) == tab }
-    ChannelTabStore.save(openTabs, for: conversationID)
+    ChannelTabStore.save(openTabs, for: conversationID, workspaceID: model.workspace?.id)
     if view == .tab(tab) { view = .artifacts }
   }
 

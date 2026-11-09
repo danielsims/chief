@@ -78,6 +78,7 @@ export function ChannelViewTabs({
       ? canonicalChannelTab(requested, files, databases)
       : undefined;
   const { tabs, collapsed, setCollapsed, close } = useChannelTabs(
+    cloudOrganizationId,
     channelId,
     active,
   );
