@@ -468,7 +468,15 @@ export function SidebarDirectMessages({
         kind: "agent" as const,
         key: `agent:${agentId}`,
         agentId,
-        live: lastMessageAtByAgent.get(agentId) ?? 0,
+        // A team moves up with its latest message, a subagent's included.
+        live: Math.max(
+          ...[
+            agentId,
+            ...(
+              agents.find((agent) => agent.id === agentId)?.subagents ?? []
+            ).map((child) => child.id),
+          ].map((id) => lastMessageAtByAgent.get(id) ?? 0),
+        ),
       })),
     ],
     cached.lastMessageAt,

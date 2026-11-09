@@ -158,26 +158,29 @@ struct DMsGroup: View {
       case .agent(let agent): "agent:\(agent.id)"
       }
     }
-
-    var lastMessageAt: String {
-      if case .conversation(let conversation) = self { return conversation.lastMessageAt ?? "" }
-      return ""
-    }
   }
 
-  /// Agents and people together, most recent message first. DMs without
+  /// Agents and people together, most recent message first. An agent's team
+  /// moves up with its latest message, a subagent's included. DMs without
   /// messages keep their roster order below.
   private var recentFirstEntries: [DirectEntry] {
-    let entries: [DirectEntry] =
-      (model.workspace?.agents ?? []).map { agent in
-        directConversation(for: agent).map(DirectEntry.conversation) ?? .agent(agent)
-      } + unmatchedDirectConversations.map(DirectEntry.conversation)
+    let teams: [(DirectEntry, String)] = (model.workspace?.agents ?? []).map { agent in
+      let entry = directConversation(for: agent).map(DirectEntry.conversation) ?? .agent(agent)
+      let ids = Set([agent.id] + agent.subagents.map(\.id))
+      let latest = directConversations
+        .filter { ids.contains($0.directAgentID ?? "") }
+        .compactMap(\.lastMessageAt)
+        .max() ?? ""
+      return (entry, latest)
+    }
+    let entries = teams + unmatchedDirectConversations.map {
+      (DirectEntry.conversation($0), $0.lastMessageAt ?? "")
+    }
     return entries.enumerated()
       .sorted { lhs, rhs in
-        lhs.element.lastMessageAt == rhs.element.lastMessageAt
-          ? lhs.offset < rhs.offset : lhs.element.lastMessageAt > rhs.element.lastMessageAt
+        lhs.element.1 == rhs.element.1 ? lhs.offset < rhs.offset : lhs.element.1 > rhs.element.1
       }
-      .map(\.element)
+      .map(\.element.0)
   }
 
   private var directConversations: [ConversationSummary] {
