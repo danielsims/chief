@@ -13,11 +13,14 @@ const actionClassName = "relative min-w-[84px] rounded-full px-4";
 export function PluginAction({
   plugin,
   busy,
+  canManage,
   onInstall,
   onAuthorize,
 }: {
   plugin: AgentPluginSummary;
   busy: boolean;
+  /** Owners and admins install plugins; members use installed ones. */
+  canManage: boolean;
   onInstall: () => void;
   onAuthorize: () => void;
 }) {
@@ -37,6 +40,18 @@ export function PluginAction({
       </span>
     );
   }
+  if (!canManage)
+    return (
+      <span
+        className={cn(
+          buttonVariants({ variant: "secondary", size: "sm" }),
+          actionClassName,
+          "text-muted-foreground pointer-events-none",
+        )}
+      >
+        Ask an admin
+      </span>
+    );
   const label = plugin.status === "reconnect" ? "Reconnect" : "Install";
   return (
     <Button

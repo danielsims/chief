@@ -16,6 +16,7 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { PluginAgentAccessState } from "./plugin-agent-access";
+import { canManagePlugins } from "../../lib/auth/organization-role";
 import {
   PLUGIN_CONNECTED_EVENT,
   pluginConnectedSchema,
@@ -23,6 +24,7 @@ import {
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { toolInputs } from "../../lib/relay-runtime-plugins";
 import { useRelaySession } from "../../lib/relay-session";
+import { useWorkspaceRole } from "../../lib/workspace-role";
 import { ProviderLogo } from "../provider-logo";
 import { PluginAgentAccess, usePluginAgentAccess } from "./plugin-agent-access";
 
@@ -435,6 +437,7 @@ export function PluginDetailDialog({
 }) {
   // Restarts the walkthrough when this plugin finishes connecting.
   const [run, setRun] = useState(0);
+  const canManage = canManagePlugins(useWorkspaceRole());
   const pluginId = plugin?.id;
   useEffect(() => {
     if (!pluginId) return;
@@ -497,45 +500,52 @@ export function PluginDetailDialog({
                 : `${plugin.name} shows its tools once it's connected.`
             }
             actions={
-              <>
-                {auth === "headers" ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-md"
-                    disabled={busy}
-                    onClick={() => onReplaceKey(plugin)}
-                  >
-                    Replace key
-                  </Button>
-                ) : auth === "oauth" && connected ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-md"
-                    disabled={busy}
-                    onClick={() => onConnect(plugin)}
-                  >
-                    Reconnect
-                  </Button>
-                ) : null}
-                {added ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground rounded-md"
-                    disabled={busy}
-                    onClick={() => onRemove(plugin)}
-                  >
-                    {connected || plugin.status === "installed"
-                      ? "Disconnect"
-                      : "Remove"}
-                  </Button>
-                ) : null}
-              </>
+              canManage ? (
+                <>
+                  {auth === "headers" ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-md"
+                      disabled={busy}
+                      onClick={() => onReplaceKey(plugin)}
+                    >
+                      Replace key
+                    </Button>
+                  ) : auth === "oauth" && connected ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-md"
+                      disabled={busy}
+                      onClick={() => onConnect(plugin)}
+                    >
+                      Reconnect
+                    </Button>
+                  ) : null}
+                  {added ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground rounded-md"
+                      disabled={busy}
+                      onClick={() => onRemove(plugin)}
+                    >
+                      {connected || plugin.status === "installed"
+                        ? "Disconnect"
+                        : "Remove"}
+                    </Button>
+                  ) : null}
+                </>
+              ) : undefined
             }
             primary={
-              connected || plugin.status === "installed" ? undefined : (
+              connected ||
+              plugin.status === "installed" ? undefined : !canManage ? (
+                <Button size="sm" className="rounded-md" disabled>
+                  Ask an admin
+                </Button>
+              ) : (
                 // Keeps its size while working, so the footer doesn't move.
                 <Button
                   size="sm"
