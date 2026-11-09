@@ -65,7 +65,6 @@ import {
   sha256,
   workspaceSignInTag,
 } from "./oauth-support";
-import { rememberServerTools } from "./tool-catalog";
 
 const maximumConnections = 100;
 const signInLifetimeMs = 5 * 60_000;
@@ -136,12 +135,6 @@ export class McpConnectionService {
         "plugin_not_found",
         "This plugin is not connected.",
       );
-    if (
-      connection.status === "connected" &&
-      connection.toolsFetchedAt !== this.read(connection.id).toolsFetchedAt
-    )
-      // Lets the catalog show these tools before anyone else connects it.
-      void rememberServerTools(this.env, connection.domain, connection.tools);
     return this.insert(connection);
   }
 
@@ -358,12 +351,16 @@ export class McpConnectionService {
   async remove(principal: Principal, id: string) {
     requireWorkspaceAdministrator(this.channels, principal);
     const connection = this.read(id);
-    const credential = await this.credentials
-      .read(connection.id, connection.url)
-      .catch(() => undefined);
-    mcpConnectionsDeleteConnection(this.storage, connection.id);
-    this.credentials.delete(connection.id);
-    unlinkConnection(this.storage, connection.id);
+    // Shares the key-replacement lock, so a new key never outlives its plugin.
+    const credential = await oneAtATime(this.lockKey(id), async () => {
+      const stored = await this.credentials
+        .read(connection.id, connection.url)
+        .catch(() => undefined);
+      mcpConnectionsDeleteConnection(this.storage, connection.id);
+      this.credentials.delete(connection.id);
+      unlinkConnection(this.storage, connection.id);
+      return stored;
+    });
     if (credential?.kind === "oauth")
       await revokeSession(
         credential.session,
