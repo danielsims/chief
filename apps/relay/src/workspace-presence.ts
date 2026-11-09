@@ -107,10 +107,13 @@ export class WorkspacePresence {
         component.kind === "error" &&
         component.payload.code !== "agent_host_offline",
     );
+    // New work after a failure means the agent recovered.
     const started = message.components.some(
       (component) =>
-        component.kind === "agent.activity" &&
-        component.payload.status === "working",
+        component.kind === "tool" ||
+        component.kind === "thinking" ||
+        (component.kind === "agent.activity" &&
+          component.payload.status === "working"),
     );
     if (!failed && !started) return;
     const key = `${agentErrorPrefix}${message.author.id}`;
