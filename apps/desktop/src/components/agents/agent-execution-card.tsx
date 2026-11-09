@@ -294,15 +294,17 @@ export function AgentExecutionCard({
       ) : null}
       {changed ? (
         <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!ready || saving}
-            onClick={() => apply(true)}
-          >
-            <Users size={13} />
-            Apply to team
-          </Button>
+          {agent.subagents?.length ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!ready || saving}
+              onClick={() => apply(true)}
+            >
+              <Users size={13} />
+              Apply to subagents
+            </Button>
+          ) : null}
           <Button
             size="sm"
             disabled={!ready || saving}
