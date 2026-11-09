@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
   createWriteStream,
   existsSync,
-  readdirSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
@@ -136,46 +135,38 @@ function newer(left: number[], right: number[]) {
   return false;
 }
 
+/** OpenAI's Apple developer team, which signs the Codex inside ChatGPT.app. */
+const OPENAI_TEAM_ID = "2DC432GLL2";
+const CHATGPT_CODEX =
+  "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+
 /**
- * The newest Codex this computer already has: the one inside the ChatGPT app,
- * npm or nvm installs, Homebrew, and the usual bin folders. Chief uses the
- * person's own Codex rather than shipping one, so its models match theirs.
+ * The Codex inside the ChatGPT app, so its models match the person's own.
+ * Only a binary signed by OpenAI is trusted: folders like ~/.local/bin are
+ * writable by anything running as the user, including an agent.
  */
 async function installedCodex() {
-  const executable = process.platform === "win32" ? "codex.exe" : "codex";
-  const home = homedir();
-  const nvm = join(home, ".nvm", "versions", "node");
-  const directories = [
-    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin",
-    join(home, ".local", "bin"),
-    join(home, ".codex", "bin"),
-    join(home, ".volta", "bin"),
-    join(home, ".bun", "bin"),
-    join(home, ".npm-global", "bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    ...(existsSync(nvm)
-      ? readdirSync(nvm).map((version) => join(nvm, version, "bin"))
-      : []),
-  ];
-  const candidates = [
-    ...new Set(
-      directories
-        .filter(Boolean)
-        .map((directory) => join(directory, executable)),
-    ),
-  ].filter((path) => existsSync(path));
+  if (process.platform !== "darwin" || !existsSync(CHATGPT_CODEX))
+    return undefined;
+  const signed = await run(
+    "/usr/bin/codesign",
+    [
+      "--verify",
+      "--strict",
+      `-R=anchor apple generic and certificate leaf[subject.OU] = "${OPENAI_TEAM_ID}"`,
+      CHATGPT_CODEX,
+    ],
+    { timeout: 10_000 },
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!signed) return undefined;
+  const version = await run(CHATGPT_CODEX, ["--version"], { timeout: 10_000 })
+    .then(({ stdout }) => codexVersion(stdout))
+    .catch(() => undefined);
+  // Older releases don't speak the adapter's protocol.
   const minimum = codexVersion(CODEX_VERSION) ?? [0, 0, 0];
-  let best: { path: string; version: number[] } | undefined;
-  for (const path of candidates) {
-    const version = await run(path, ["--version"], { timeout: 10_000 })
-      .then(({ stdout }) => codexVersion(stdout))
-      .catch(() => undefined);
-    // Older releases don't speak the adapter's protocol.
-    if (!version || newer(minimum, version)) continue;
-    if (!best || newer(version, best.version)) best = { path, version };
-  }
-  return best?.path;
+  return version && !newer(minimum, version) ? CHATGPT_CODEX : undefined;
 }
 
 async function resolveCodexBinary() {
