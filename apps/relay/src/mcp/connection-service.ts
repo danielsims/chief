@@ -57,12 +57,14 @@ import {
   revokeSession,
 } from "./oauth-policy";
 import {
+  chiefOAuthClient,
   MCP_OAUTH_START_PATH,
   mcpClientMetadata,
   mcpRegistrationMetadata,
   randomToken,
   sameDigest,
   sha256,
+  withoutChiefClient,
   workspaceSignInTag,
 } from "./oauth-support";
 
@@ -157,6 +159,7 @@ export class McpConnectionService {
   ) {
     const metadata = mcpClientMetadata(this.env);
     const startingRefreshToken = session.tokens?.refresh_token;
+    session.clientInformation ??= chiefOAuthClient(this.env, connection.url);
     return new McpOAuthProvider(session, {
       redirectUrl: metadata.redirect_uris[0] ?? "",
       clientMetadata: mcpRegistrationMetadata(this.env),
@@ -177,7 +180,7 @@ export class McpConnectionService {
         if (interactive) {
           await this.credentials.write(connection.id, connection.url, {
             kind: "oauth",
-            session: value,
+            session: withoutChiefClient(this.env, value),
           });
           return;
         }

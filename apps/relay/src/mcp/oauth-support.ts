@@ -1,3 +1,5 @@
+import type { StoredOAuthSession } from "@chief/agent-runtime/mcp-oauth";
+
 import { relayOrigin } from "../hosted-project-checkout";
 import { HttpError } from "../http";
 import { mcpConnectionsFindOAuthRequest } from "../queries/mcp-connections/find-oauth-request";
@@ -101,4 +103,25 @@ export async function pendingMcpSignIn(
       "This sign-in link has expired or was already used. Start again from Chief.",
     );
   return request;
+}
+
+/**
+ * The OAuth app Chief registered itself for a server that has no dynamic
+ * registration. It is attached for each sign-in and never stored with a
+ * workspace's tokens, so the secret can be rotated in one place.
+ */
+export function chiefOAuthClient(env: Env, serverUrl: string) {
+  const id = env.CHIEF_GITHUB_OAUTH_CLIENT_ID;
+  const secret = env.CHIEF_GITHUB_OAUTH_CLIENT_SECRET;
+  if (new URL(serverUrl).hostname !== "api.githubcopilot.com" || !id || !secret)
+    return undefined;
+  return { client_id: id, client_secret: secret };
+}
+
+/** A session as stored: Chief's own client is attached at sign-in, not kept. */
+export function withoutChiefClient(env: Env, session: StoredOAuthSession) {
+  const chief = chiefOAuthClient(env, session.serverUrl);
+  return chief && session.clientInformation?.client_id === chief.client_id
+    ? { ...session, clientInformation: undefined }
+    : session;
 }
