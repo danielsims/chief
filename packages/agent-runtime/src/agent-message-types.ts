@@ -235,6 +235,8 @@ export interface ChiefMessageMetadata {
   author?: { id: string; name: string; image?: string };
   /** The top-level channel message this reply belongs to. */
   threadRootId?: string;
+  /** Why an agent's run stopped, from its error activity row. */
+  runError?: { title: string; message: string };
   /** Opens a session: agents answer this message in its own thread, so the
    * thread carries the session's whole context. */
   sessionStart?: boolean;

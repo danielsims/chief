@@ -8,6 +8,8 @@ export interface ConversationActivityMessage {
   /** The thread this message belongs to, when it is a thread reply. */
   threadRootId?: string;
   blocks: ContentBlock[];
+  /** Set on an agent's error row: why its run stopped. */
+  error?: { title: string; message: string };
 }
 
 export interface ConversationActivityTurn {
@@ -21,6 +23,8 @@ export interface ConversationActivityTurn {
   blocks: ContentBlock[];
   /** When each tool call last changed, keyed by tool use id. */
   toolTimes: Map<string, number>;
+  /** Why the run stopped, when it failed. */
+  error?: { title: string; message: string };
 }
 
 function activityBlocks(blocks: readonly ContentBlock[]) {
@@ -99,7 +103,7 @@ export function conversationActivityTurns(
       continue;
     }
     const blocks = activityBlocks(message.blocks);
-    if (!blocks.length) continue;
+    if (!blocks.length && !message.error) continue;
     const thread = threadFor(message.threadRootId ?? "");
     const result = blocks.find((block) => block.type === "tool_result");
     const agentId =
@@ -133,6 +137,7 @@ export function conversationActivityTurns(
     }
     turn.updatedAt = message.createdAt ?? turn.updatedAt;
     turn.blocks.push(...blocks);
+    if (message.error) turn.error = message.error;
     if (message.createdAt === undefined) continue;
     for (const block of blocks) {
       if (block.type === "tool_use")
