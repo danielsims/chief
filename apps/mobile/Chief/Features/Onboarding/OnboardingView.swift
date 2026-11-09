@@ -639,6 +639,112 @@ private struct AppsStep: View {
   }
 }
 
+/// Shown once the new workspace exists: connect the apps picked on the Apps
+/// step, each through the workspace's relay plugins.
+struct ConnectAppsView: View {
+  @Environment(AppModel.self) private var model
+  @State private var flow: PluginConnectFlow?
+
+  var body: some View {
+    ZStack {
+      ChiefTheme.background.ignoresSafeArea()
+      VStack(spacing: 0) {
+        OnboardingAccountIndicator()
+        OnboardingStepLayout(
+          title: "Connect your apps",
+          detail: "Your agents use them through this workspace."
+        ) {
+          ForEach(apps) { app in
+            ConnectAppRow(
+              app: app,
+              state: flow?.state(for: app.id) ?? .idle
+            ) {
+              Haptics.medium()
+              flow?.connect(app)
+            }
+          }
+        }
+        .frame(maxHeight: .infinity)
+
+        Button {
+          Haptics.heavy()
+          model.appsToConnect = []
+        } label: {
+          Text(anyConnected ? "Continue" : "Skip")
+        }
+        .buttonStyle(PrimaryButtonStyle())
+        .disabled(apps.contains { flow?.state(for: $0.id) == .connecting })
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+      }
+    }
+    .task(id: model.workspace?.id) {
+      guard let workspaceID = model.workspace?.id else { return }
+      let flow = PluginConnectFlow(workspaceID: workspaceID, relay: model.relay)
+      self.flow = flow
+      try? await flow.load()
+    }
+    .modifier(OptionalPluginConnectSheets(flow: flow))
+  }
+
+  private var apps: [PluginOption] {
+    let catalog = PluginCatalogClient.shared.cached ?? PluginOption.preferred
+    return model.appsToConnect.compactMap { domain in catalog.first { $0.domain == domain } }
+      .sorted { left, right in
+        (catalog.firstIndex(of: left) ?? 0) < (catalog.firstIndex(of: right) ?? 0)
+      }
+  }
+
+  private var anyConnected: Bool { apps.contains { flow?.state(for: $0.id) == .connected } }
+}
+
+private struct ConnectAppRow: View {
+  let app: PluginOption
+  let state: PluginConnectState
+  let connect: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      BrandLogoView(domain: app.domain, iconURL: app.iconURL, size: 40)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(app.name).font(.system(size: 15, weight: .medium)).lineLimit(1)
+        Text(status)
+          .font(.system(size: 12))
+          .foregroundStyle(isFailed ? Color.red : ChiefTheme.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer(minLength: 8)
+      if state == .connected {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 20))
+          .foregroundStyle(ChiefTheme.accent)
+      } else {
+        Button(action: connect) {
+          PluginPill(title: isFailed ? "Retry" : "Connect", busy: state == .connecting)
+        }
+        .buttonStyle(.plain)
+        .disabled(state == .connecting)
+        .accessibilityLabel("Connect \(app.name)")
+      }
+    }
+    .frame(minHeight: 62)
+  }
+
+  private var isFailed: Bool {
+    if case .failed = state { true } else { false }
+  }
+
+  private var status: String {
+    switch state {
+    case .idle: "Not connected"
+    case .connecting: "Connecting…"
+    case .connected: "Connected"
+    case .failed(let reason): reason
+    }
+  }
+}
+
 private struct OnboardingStepLayout<Content: View>: View {
   let title: String
   let detail: String
