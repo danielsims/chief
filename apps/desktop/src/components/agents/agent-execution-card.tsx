@@ -22,6 +22,7 @@ import { selectDeployment } from "../../lib/agent-execution";
 import { PROVIDER_META } from "../../lib/providers";
 import { useProviderModels } from "../../lib/runtime";
 import { nativeProvidersForDeployment } from "./agent-connection-model";
+import { eveDraftScope } from "./agent-eve-deployment-draft";
 import {
   AgentEveDeploymentPanel,
   hasEveDeploymentDraft,
@@ -61,7 +62,7 @@ export function AgentExecutionCard({
 }) {
   const [draft, setDraft] = useState<NativeExecutionDraft | null>(null);
   const [deployingToEve, setDeployingToEve] = useState(() =>
-    hasEveDeploymentDraft(agent.id),
+    hasEveDeploymentDraft(eveDraftScope(relayClient?.workspaceId, agent.id)),
   );
   const agentName = agent.name;
   const nativeDeployment: NativeDeployment | null =
