@@ -22,6 +22,7 @@ import type {
   MessageComponent,
   RegisterAgentKeyResult,
   WorkspaceId,
+  WorkspacePresenceEvent,
 } from "@chief/relay-contracts";
 import {
   agentConfigListSchema,
@@ -623,6 +624,7 @@ export class RelayClient extends RelayVercelProvisioning {
     after?: number;
     onEvent: (event: ConversationEvent) => void;
     onTyping?: (event: RelayTypingEvent) => void;
+    onPresence?: (event: WorkspacePresenceEvent) => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
     const workspaceId = this.requireWorkspaceId();
@@ -643,6 +645,7 @@ export class RelayClient extends RelayVercelProvisioning {
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
       onTyping: input.onTyping,
+      onPresence: input.onPresence,
       onError: input.onError,
     });
   }

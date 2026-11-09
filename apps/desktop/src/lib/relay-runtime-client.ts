@@ -73,6 +73,7 @@ import {
 export class RelayRuntimeClient implements RuntimeTransport {
   private listeners = new Set<RuntimeMessageListener>();
   private workspaceSubscription: WorkspaceSubscription | null = null;
+  private presence: Extract<ServerMessage, { type: "presence" }> | null = null;
   private pendingWorkspaceSubscription: Promise<WorkspaceSubscription> | null =
     null;
   private subscribedConversationIds = new Set<string>();
@@ -258,6 +259,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
         return;
       case "startUserDirect":
         await this.startUserDirect(message);
+        return;
+      case "getPresence":
+        if (this.presence) this.emit(this.presence);
         return;
       case "typing":
         this.workspaceSubscription?.sendTyping(
@@ -567,6 +571,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
           userId: event.userId,
           active: event.active,
         }),
+      onPresence: ({ type: _, ...presence }) => {
+        this.presence = {
+          type: "presence",
+          workspaceId: this.snapshot.id,
+          ...presence,
+        };
+        this.emit(this.presence);
+      },
       onError: (error) => this.recordError(parseRelayError(error)),
     });
     this.pendingWorkspaceSubscription = subscriptionPromise;

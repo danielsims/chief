@@ -51,10 +51,12 @@ import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
+import { replayLiveEvents } from "./workspace-live-replay";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { consumeMachineTicket } from "./workspace-machine-keys";
 import { machineOperation } from "./workspace-machine-operations";
+import { WorkspacePresence } from "./workspace-presence";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
@@ -63,7 +65,6 @@ import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
   consumeSocketAllowance,
-  MAX_REPLAY_EVENTS_PER_CONNECTION,
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
@@ -174,6 +175,7 @@ export class WorkspaceObject extends DurableObject<Env> {
     const routeData = this.routeData.bind(this);
     const publishLiveEvent = this.publishLiveEvent.bind(this);
     const createLiveSocketTicket = this.createLiveSocketTicket.bind(this);
+    const presence = this.presence;
     return Effect.gen(function* () {
       if (operation?.startsWith("webhooks-"))
         return yield* attempt("workspace.webhooks", () =>
@@ -233,6 +235,11 @@ export class WorkspaceObject extends DurableObject<Env> {
         request,
       );
       if (machine) return yield* attempt(machine.span, machine.run);
+      if (operation === "agent-host-presence") {
+        return yield* attempt("workspace.presence.agent_host", () =>
+          presence.receiveHostReport(request),
+        );
+      }
       if (operation === "live-socket-ticket") {
         return yield* attempt("workspace.live.ticket", () =>
           createLiveSocketTicket(request),
@@ -256,7 +263,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       }
 
       if (workspaceAccessRouter.matches(operation)) {
-        return yield* attempt("workspace.access", () =>
+        const response = yield* attempt("workspace.access", () =>
           workspaceAccessRouter.route(
             ctx.storage,
             env,
@@ -266,6 +273,8 @@ export class WorkspaceObject extends DurableObject<Env> {
               pairedMachines(ctx, agentId, ownerId).length > 0,
           ),
         );
+        presence.afterAccess(operation, response);
+        return response;
       }
 
       const invitations = new WorkspaceInvitationService(ctx.storage, env);
@@ -487,7 +496,12 @@ export class WorkspaceObject extends DurableObject<Env> {
     const live = new WorkspaceLiveStore(this.ctx.storage);
     const event = live.publish(source);
     this.broadcastLiveEvent(event);
+    this.ctx.waitUntil(this.presence.agentActivity(source.payload.message));
     return json({ sequence: event.sequence });
+  }
+
+  private get presence() {
+    return new WorkspacePresence(this.ctx, this.env);
   }
 
   private async createLiveSocketTicket(request: Request) {
@@ -574,6 +588,18 @@ export class WorkspaceObject extends DurableObject<Env> {
     );
   }
 
+  webSocketClose(socket: WebSocket) {
+    return metered("WorkspaceObject", "websocket.close", () =>
+      this.presence.closed(socket),
+    );
+  }
+
+  webSocketError(socket: WebSocket) {
+    return metered("WorkspaceObject", "websocket.error", () =>
+      this.presence.closed(socket),
+    );
+  }
+
   private receiveSocketMessage(
     socket: WebSocket,
     message: string | ArrayBuffer,
@@ -643,7 +669,9 @@ export class WorkspaceObject extends DurableObject<Env> {
         subscribed: true,
         typing: input.typing === true,
       });
-      this.replayLiveEvents(
+      this.ctx.waitUntil(this.presence.subscribed(socket, attachment));
+      replayLiveEvents(
+        this.ctx.storage,
         socket,
         attachment.subscribed
           ? Math.max(Number(input.after), attachment.cursor ?? 0)
@@ -652,43 +680,6 @@ export class WorkspaceObject extends DurableObject<Env> {
       );
     } catch {
       socket.close(1008, "Invalid workspace subscription");
-    }
-  }
-
-  private replayLiveEvents(
-    socket: WebSocket,
-    after: number,
-    conversationIds: readonly string[],
-  ) {
-    const live = new WorkspaceLiveStore(this.ctx.storage);
-    let cursor = after;
-    let lastDeliveredCursor = after;
-    let delivered = 0;
-    let hasMore = false;
-    do {
-      const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
-      const page = live.list(cursor, Math.min(200, remaining), conversationIds);
-      const reader = workspaceSocketAttachment(socket).principal;
-      for (const event of page.events) {
-        socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
-        cursor = event.sequence;
-        lastDeliveredCursor = event.sequence;
-        delivered += 1;
-      }
-      hasMore = page.nextSequence !== null;
-      cursor = page.nextSequence ?? 0;
-    } while (cursor > 0 && delivered < MAX_REPLAY_EVENTS_PER_CONNECTION);
-    const attachment = workspaceSocketAttachment(socket);
-    socket.serializeAttachment({
-      ...attachment,
-      cursor: Math.max(
-        attachment.cursor ?? 0,
-        lastDeliveredCursor,
-        live.currentSequence(),
-      ),
-    });
-    if (hasMore) {
-      socket.close(1013, "Catch-up continues on reconnect");
     }
   }
 

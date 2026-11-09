@@ -118,6 +118,11 @@ export type ChannelClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      /** Asks for the last `presence` the workspace socket heard. */
+      type: "getPresence";
+      workspaceId: string;
+    }
+  | {
       /** Tells the other people in a channel that this user is typing. */
       type: "typing";
       workspaceId: string;
@@ -178,6 +183,15 @@ export type ChannelClientMessage =
     };
 
 export type ChannelServerMessage =
+  | {
+      /** Who is connected: people with Chief open, and device agents whose device isn't. */
+      type: "presence";
+      workspaceId: string;
+      userIds: string[];
+      offlineAgentIds: string[];
+      /** Agents whose last run failed, until they start another. */
+      erroredAgentIds: string[];
+    }
   | {
       /** Another person is typing in a channel. Expires on the client. */
       type: "userTyping";
