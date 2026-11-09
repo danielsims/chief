@@ -11,16 +11,23 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
-import { cn } from "@chief/ui/lib/utils";
 
 import { useRelaySession } from "../../lib/relay-session";
 
 type AuthKind = "oauth" | "headers" | "none";
 
-const authOptions: { value: AuthKind; label: string }[] = [
-  { value: "oauth", label: "Sign in" },
-  { value: "headers", label: "API key" },
-  { value: "none", label: "None" },
+const authOptions: { value: AuthKind; label: string; detail: string }[] = [
+  {
+    value: "oauth",
+    label: "Sign in",
+    detail: "Opens the server's own sign-in page.",
+  },
+  {
+    value: "headers",
+    label: "API key",
+    detail: "Sends a key or token with every request.",
+  },
+  { value: "none", label: "No authentication", detail: "The server is open." },
 ];
 
 function slug(value: string) {
@@ -119,7 +126,7 @@ export function PluginAddServerDialog({
           <DialogTitle className="text-[17px] leading-6 font-semibold tracking-[-0.02em]">
             Add MCP server
           </DialogTitle>
-          <DialogDescription className="text-xs leading-5">
+          <DialogDescription className="text-[13px] leading-5">
             Connect any remote MCP server your agents should use.
           </DialogDescription>
         </DialogHeader>
@@ -131,49 +138,60 @@ export function PluginAddServerDialog({
           }}
         >
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium">Name</span>
+            <span className="text-[13px] font-medium">Name</span>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Acme CRM"
-              className="h-9 text-sm"
+              className="h-9 text-[13px]"
               autoFocus
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium">Server URL</span>
+            <span className="text-[13px] font-medium">Server URL</span>
             <Input
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://mcp.example.com/mcp"
               inputMode="url"
-              className="h-9 font-mono text-[13px]"
+              className="h-9 font-sans text-[13px]"
             />
             {url && !httpsUrl(url) ? (
-              <span className="text-destructive block text-[11px]">
+              <span className="text-destructive block text-[13px]">
                 Use an https:// address.
               </span>
             ) : null}
           </label>
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium">Authentication</span>
-            <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+          <fieldset className="space-y-1.5">
+            <legend className="mb-1.5 text-[13px] font-medium">
+              Authentication
+            </legend>
+            <div className="border-border/60 divide-border/60 divide-y overflow-hidden rounded-lg border">
               {authOptions.map((option) => (
-                <button
+                <label
                   key={option.value}
-                  type="button"
-                  onClick={() => setAuth(option.value)}
-                  className={cn(
-                    "text-muted-foreground hover:text-foreground flex-1 rounded-md px-3 py-1.5 text-[11px] font-medium transition-[background-color,box-shadow,color]",
-                    auth === option.value &&
-                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
-                  )}
+                  className="hover:bg-accent/40 flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors"
                 >
-                  {option.label}
-                </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium">
+                      {option.label}
+                    </span>
+                    <span className="text-muted-foreground block text-[13px]">
+                      {option.detail}
+                    </span>
+                  </span>
+                  <input
+                    type="radio"
+                    name="plugin-auth"
+                    value={option.value}
+                    checked={auth === option.value}
+                    onChange={() => setAuth(option.value)}
+                    className="accent-foreground size-4 shrink-0"
+                  />
+                </label>
               ))}
             </div>
-          </div>
+          </fieldset>
           {auth === "headers" ? (
             <div className="space-y-2">
               {headers.map((header, index) => (
@@ -191,7 +209,7 @@ export function PluginAddServerDialog({
                     }
                     placeholder="Header"
                     aria-label="Header name"
-                    className="h-9 w-36 shrink-0 font-mono text-[12px]"
+                    className="h-9 w-36 shrink-0 font-sans text-[13px]"
                   />
                   <Input
                     type="password"
@@ -211,7 +229,7 @@ export function PluginAddServerDialog({
                         : "Value"
                     }
                     aria-label="Header value"
-                    className="h-9 min-w-0 flex-1 font-mono text-[12px]"
+                    className="h-9 min-w-0 flex-1 font-sans text-[13px]"
                   />
                   {headers.length > 1 ? (
                     <Button
@@ -240,12 +258,12 @@ export function PluginAddServerDialog({
                       { name: "", value: "" },
                     ])
                   }
-                  className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[11px] font-medium transition-colors"
+                  className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[13px] font-medium transition-colors"
                 >
-                  <Plus size={12} /> Add header
+                  <Plus size={14} /> Add header
                 </button>
               ) : null}
-              <p className="text-muted-foreground text-[11px] leading-4">
+              <p className="text-muted-foreground text-[13px] leading-5">
                 Stored encrypted in your workspace. Agents never see it.
               </p>
             </div>
@@ -258,14 +276,14 @@ export function PluginAddServerDialog({
           <Button
             variant="ghost"
             size="sm"
-            className="rounded-md text-xs"
+            className="rounded-md"
             onClick={close}
           >
             Cancel
           </Button>
           <Button
             size="sm"
-            className="rounded-md text-xs"
+            className="rounded-md"
             disabled={!ready || busy || !client}
             onClick={() => void submit()}
           >

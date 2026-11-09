@@ -1,6 +1,5 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component, lazy, Suspense, useMemo, useState } from "react";
-import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -14,7 +13,7 @@ import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
 
-import type { ProviderMark } from "./components/agent-avatar";
+import { agentAppearance } from "./components/agent-appearance";
 import { AgentAppearanceContext } from "./components/agent-avatar";
 import { MentionPeopleProvider } from "./components/chat/mention-people-context";
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
@@ -22,6 +21,8 @@ import { ChiefNavigationProvider } from "./components/chief-navigation-provider"
 import { EntryState, WorkspaceEntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
+import { PluginDialogHost } from "./components/plugins/plugin-dialog-host";
+import { PluginInstallAccessStep } from "./components/plugins/plugin-install-access-step";
 import { RelayConnectionDialog } from "./components/relay-connection-control";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
@@ -52,6 +53,7 @@ import { ProfileSettings } from "./pages/settings/profile";
 import { WebhooksSettings } from "./pages/settings/webhooks";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
+import { WorkspaceAppsPage } from "./pages/workspace-apps";
 import { WorkspaceFilePage } from "./pages/workspace-file";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
@@ -89,49 +91,22 @@ const MachinesPage = lazy(() =>
   })),
 );
 
-const openCodeMark: ProviderMark = {
-  Mark: OpenCode,
-  tileClassName: "bg-white text-black",
-};
-
-/** Logos for the providers that run agents on this device, each on its own
- * brand colour, by provider. */
-const LOCAL_PROVIDER_MARKS: Partial<Record<string, ProviderMark>> = {
-  claude: { Mark: Claude, tileClassName: "bg-[#D97757] text-white" },
-  codex: { Mark: OpenAI, tileClassName: "bg-white text-black" },
-  opencode: openCodeMark,
-  openCodeGo: openCodeMark,
-};
-
 /** Supplies every agent's avatar from the live roster, with provider logos for
  * on-device agents that have none. It follows the runtime's roster, which
  * changes as soon as an agent is created or reconfigured. */
 function AgentAppearanceProvider({ children }: { children: ReactNode }) {
   const { agents } = useRuntime();
+  const { snapshot } = useRelaySession();
   const value = useMemo(() => {
-    const profiles = agents.flatMap((agent) => [
-      agent,
-      ...(agent.subagents ?? []),
-    ]);
-    return {
-      providerMarks: new Map(
-        profiles.flatMap((agent) => {
-          const mark = agent.provider
-            ? LOCAL_PROVIDER_MARKS[agent.provider]
-            : undefined;
-          return mark ? [[agent.id, mark] as const] : [];
-        }),
-      ),
-      agentIds: new Map(
-        profiles.map((agent) => [agent.name.toLowerCase(), agent.id] as const),
-      ),
-      avatars: new Map(
-        profiles.flatMap((agent) =>
-          agent.avatar ? [[agent.id, agent.avatar] as const] : [],
-        ),
-      ),
-    };
-  }, [agents]);
+    const profiles = [
+      ...(snapshot?.agents ?? []).flatMap((agent) => [
+        agent,
+        ...agent.subagents,
+      ]),
+      ...agents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]),
+    ];
+    return agentAppearance(profiles);
+  }, [agents, snapshot?.agents]);
   return (
     <AgentAppearanceContext.Provider value={value}>
       {children}
@@ -332,6 +307,7 @@ function AuthenticatedRouter() {
       createRoutesFromElements(
         <Route element={<NavigationProviders />}>
           <Route path="workspaces/new" element={<CreateWorkspacePage />} />
+          <Route path="workspaces/apps" element={<WorkspaceAppsPage />} />
           <Route path="onboarding" element={<OnboardingPage />} />
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />
@@ -485,6 +461,8 @@ function AuthenticatedApp() {
       <AgentConfigProvider>
         <AgentAppearanceProvider>
           <AuthenticatedRouter />
+          <PluginInstallAccessStep />
+          <PluginDialogHost />
         </AgentAppearanceProvider>
       </AgentConfigProvider>
     </RuntimeProvider>

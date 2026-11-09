@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   jsonObjectSchema,
+  localProviderModelsSchema,
+  localProviderSchema,
   relayErrorSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -22,11 +24,12 @@ import {
   sameDigest,
   workspaceSignInTag,
 } from "./mcp/oauth-support";
+import { catalogServerTools } from "./mcp/tool-catalog";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const pluginsRoute =
-  /^\/v1\/workspaces\/([^/]+)\/plugins(?:\/([^/]+)(?:\/(authorize|client|refresh|tools\/call))?)?$/u;
+  /^\/v1\/workspaces\/([^/]+)\/plugins(?:\/([^/]+)(?:\/(authorize|client|headers|refresh|access|tools\/call))?)?$/u;
 const bindingCookie = "__Host-chief-plugin-sign-in";
 const pluginCallBodySchema = z.object({
   name: z.string().min(1).max(128),
@@ -45,11 +48,20 @@ function operationFor(
         ? "mcp-create"
         : undefined;
   if (!action) return method === "DELETE" ? "mcp-delete" : undefined;
+  if (action === "access" && method === "GET") return "mcp-access-get";
   if (method !== "POST") return undefined;
   return action === "tools/call" ? "mcp-call" : `mcp-${action}`;
 }
 
 const automationToolsRoute = /^\/v1\/workspaces\/([^/]+)\/automation-tools$/u;
+const catalogToolsRoute = /^\/v1\/workspaces\/([^/]+)\/plugin-tools$/u;
+const providerModelsRoute =
+  /^\/v1\/workspaces\/([^/]+)\/provider-models\/(codex|claude)$/u;
+const catalogDomainSchema = z
+  .string()
+  .min(3)
+  .max(253)
+  .regex(/^[a-z0-9.-]+$/iu);
 
 /** Signed-in requests from Chief and from agents, forwarded to the workspace. */
 export function routeWorkspaceMcp(
@@ -84,6 +96,84 @@ export function routeWorkspaceMcp(
           }),
         ),
       });
+    }
+    const providerModels = providerModelsRoute.exec(
+      new URL(request.url).pathname,
+    );
+    if (
+      providerModels &&
+      (request.method === "GET" || request.method === "PUT")
+    ) {
+      const workspaceId = yield* sync("relay.provider_models.scope", () =>
+        workspaceIdSchema.parse(decodeURIComponent(providerModels[1] ?? "")),
+      );
+      const provider = localProviderSchema.parse(providerModels[2]);
+      const authenticated = yield* attempt("relay.authenticate", () =>
+        authenticateRelayRequest(request, env),
+      );
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      // A computer publishes what its local ChatGPT or Claude Code can run,
+      // so a phone can offer the same models when it configures an agent.
+      const key = `provider-models/${workspaceId}/${provider}.json`;
+      if (request.method === "PUT") {
+        if (principal.kind !== "user")
+          return relayError(
+            403,
+            "provider_models_denied",
+            "Only a person's computer can publish its models.",
+            requestId,
+          );
+        const input = yield* attempt("relay.provider_models.body", async () =>
+          localProviderModelsSchema.parse(await authenticated.request.json()),
+        );
+        const stored = { models: input.models, publishedAt: Date.now() };
+        yield* attempt("relay.provider_models.store", () =>
+          env.ARTIFACTS.put(key, JSON.stringify(stored), {
+            httpMetadata: { contentType: "application/json" },
+          }),
+        );
+        return Response.json(stored);
+      }
+      const object = yield* attempt("relay.provider_models.read", () =>
+        env.ARTIFACTS.get(key),
+      );
+      const stored = object
+        ? localProviderModelsSchema.safeParse(
+            yield* attempt("relay.provider_models.parse", () => object.json()),
+          )
+        : undefined;
+      return Response.json(stored?.success ? stored.data : { models: [] });
+    }
+    const catalogTools = catalogToolsRoute.exec(new URL(request.url).pathname);
+    if (catalogTools && request.method === "GET") {
+      const workspaceId = yield* sync("relay.plugin_tools.scope", () =>
+        workspaceIdSchema.parse(decodeURIComponent(catalogTools[1] ?? "")),
+      );
+      const domain = yield* sync("relay.plugin_tools.domain", () =>
+        catalogDomainSchema.parse(
+          new URL(request.url).searchParams.get("domain"),
+        ),
+      );
+      const authenticated = yield* attempt("relay.authenticate", () =>
+        authenticateRelayRequest(request, env),
+      );
+      yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      const tools = yield* attempt("relay.plugin_tools.list", () =>
+        catalogServerTools(env, domain, new URL(relayOrigin(env)).hostname),
+      );
+      return Response.json({ tools });
     }
     const matched = pluginsRoute.exec(new URL(request.url).pathname);
     if (!matched) return undefined;
@@ -159,11 +249,16 @@ function resultPage(
   detail: string,
   status = 200,
   logoDomain?: string,
+  openApp = false,
 ) {
   return htmlPage(
     connectionDocument(
       title,
-      `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>`,
+      `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>${
+        openApp
+          ? `<a class="button" href="chief-desktop://open">Open Chief</a>`
+          : ""
+      }`,
       status < 400,
       serviceMark(logoDomain),
     ),
@@ -284,7 +379,7 @@ export async function routeMcpBrowser(
       return htmlPage(
         connectionDocument(
           `Connect ${start.pluginName}`,
-          `<h1>Connect ${escapeHtml(start.pluginName)}?</h1>
+          `<h1>Connect ${escapeHtml(start.pluginName)}</h1>
 <p>You're giving the <strong>${escapeHtml(start.workspaceName)}</strong> workspace access to ${escapeHtml(start.domain)}. You'll sign in at ${escapeHtml(start.signInHost)}. Continue only if you started this from Chief just now.</p>
 <form method="post" action="${MCP_OAUTH_START_PATH}">
 <input type="hidden" name="w" value="${escapeHtml(query.w)}" />
@@ -319,7 +414,9 @@ export async function routeMcpBrowser(
         query.w,
         requestId,
         "mcp-oauth-confirm",
-        { startToken: query.t },
+        {
+          startToken: query.t,
+        },
         z.object({ authorizationUrl: z.string().url(), binding: z.string() }),
       );
       return new Response(null, {
@@ -363,15 +460,22 @@ export async function routeMcpBrowser(
           domain: z.string().optional(),
         }),
       );
+      // The phone's sign-in sheet closes itself; a desktop browser stays open.
+      const desktop = !/iPhone|iPad|Android/u.test(
+        request.headers.get("user-agent") ?? "",
+      );
       const response = resultPage(
         connection.status === "connected"
           ? `${connection.name} is connected`
           : `${connection.name} needs attention`,
         connection.status === "connected"
-          ? "You can close this window and return to Chief."
+          ? desktop
+            ? "Choose which agents can use it in Chief."
+            : "You can close this window and return to Chief."
           : "It signed in, but Chief couldn't load its tools. Check it in Chief.",
         200,
         connection.domain ?? new URL(connection.url).hostname,
+        desktop,
       );
       response.headers.append(
         "set-cookie",

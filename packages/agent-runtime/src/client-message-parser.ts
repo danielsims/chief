@@ -316,6 +316,7 @@ const clientMessageWireSchema = z.union([
         clientSecret: z.string().min(1).optional(),
       })
       .optional(),
+    apiKey: z.string().min(1).max(8_000).optional(),
   }),
   workspaceMessage("disconnectGoogleAnalytics", { requestId: z.string() }),
   workspaceMessage("saveSlackChannel", {

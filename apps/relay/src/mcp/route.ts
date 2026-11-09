@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 import {
+  mcpConnectionAccessUpdateSchema,
   mcpConnectionClientSchema,
   mcpConnectionCreateSchema,
+  mcpConnectionHeadersSchema,
   mcpToolCallSchema,
 } from "@chief/relay-contracts";
 
@@ -11,6 +13,7 @@ import { readTrustedContext } from "../internal-context";
 import { requireWorkspaceAdministrator } from "../workspace-administration";
 import { WorkspaceChannelStore } from "../workspace-channel-store";
 import { McpConnectionService } from "./connection-service";
+import { PluginAgentAccessService } from "./plugin-agent-access";
 
 export const mcpOAuthCallbackInputSchema = z.object({
   nonce: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
@@ -63,6 +66,22 @@ export async function routeMcpConnections(
   const channels = new WorkspaceChannelStore(storage, env);
   channels.requireWorkspace(context.workspaceId);
   if (!automation) channels.requirePrincipalMember(context.principal);
+  if (operation === "mcp-access-get" || operation === "mcp-access") {
+    service.read(id);
+    const access = new PluginAgentAccessService(
+      storage,
+      env,
+      context.workspaceId,
+    );
+    if (operation === "mcp-access-get")
+      return json(access.list(context.principal, id));
+    const input = mcpConnectionAccessUpdateSchema.parse(
+      await parseJson(request),
+    );
+    return json(
+      access.update(context.principal, id, input.agentIds, input.enabled),
+    );
+  }
   if (operation === "mcp-call")
     return json(
       await service.callTool(
@@ -79,14 +98,21 @@ export async function routeMcpConnections(
     } catch {
       admin = false;
     }
+    // An agent learns which plugins it was given, and nothing else of its
+    // owner-managed configuration.
+    const assigned =
+      context.principal.kind === "agent"
+        ? channels.agentConfiguration(context.principal.agentId).integrations
+        : undefined;
     return json({
-      connections: service
-        .list()
-        .map((connection) =>
-          admin
-            ? connection
-            : { ...connection, url: new URL(connection.url).origin },
-        ),
+      connections: service.list().map((connection) => ({
+        ...(admin
+          ? connection
+          : { ...connection, url: new URL(connection.url).origin }),
+        ...(assigned
+          ? { assignedToYou: assigned.includes(connection.id) }
+          : undefined),
+      })),
     });
   }
   if (operation === "mcp-create")
@@ -107,6 +133,14 @@ export async function routeMcpConnections(
         context.principal,
         id,
         mcpConnectionClientSchema.parse(await parseJson(request)),
+      ),
+    );
+  if (operation === "mcp-headers")
+    return json(
+      await service.replaceHeaders(
+        context.principal,
+        id,
+        mcpConnectionHeadersSchema.parse(await parseJson(request)).headers,
       ),
     );
   if (operation === "mcp-refresh") {

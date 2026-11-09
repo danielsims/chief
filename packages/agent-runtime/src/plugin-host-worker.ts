@@ -5,7 +5,9 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
+import type { ProviderModelOption } from "./types.js";
 import { listClaudeCodeModels } from "./claude-code-models.js";
+import { listModels } from "./models.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import {
   parseLocalProjectQuery,
@@ -30,6 +32,7 @@ type PluginHostResponse =
   | { status: "ready" }
   | { snapshot: PluginCatalogSnapshot }
   | { models: Awaited<ReturnType<typeof listClaudeCodeModels>> }
+  | { models: ProviderModelOption[] }
   | {
       action: Awaited<ReturnType<PluginRuntime["authorize"]>>;
       snapshot: PluginCatalogSnapshot;
@@ -96,6 +99,14 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
       }
       if (url.pathname === "/models/claude") {
         sendJson(response, 200, { models: await listClaudeCodeModels() });
+        return;
+      }
+      if (url.pathname === "/models/codex") {
+        // Auto is the picker's own first option.
+        const models = await listModels("codex");
+        sendJson(response, 200, {
+          models: models.filter((model) => model.value !== ""),
+        });
         return;
       }
       const input = await readJson(request);

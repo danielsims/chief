@@ -1,10 +1,15 @@
-import { Check, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
+import { Button, buttonVariants } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 
-const actionClassName = "rounded-full px-4";
+const actionClassName = "relative min-w-[84px] rounded-full px-4";
 
+/**
+ * One pill for every plugin: Install until it works, then its state. A plugin
+ * that was added but never signed in still just needs installing.
+ */
 export function PluginAction({
   plugin,
   busy,
@@ -16,95 +21,42 @@ export function PluginAction({
   onInstall: () => void;
   onAuthorize: () => void;
 }) {
-  if (busy) {
+  if (plugin.status === "connected" || plugin.status === "installed") {
     return (
-      <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
-        <LoaderCircle className="animate-spin" size={13} /> Installing…
+      <span
+        className={cn(
+          buttonVariants({ variant: "secondary", size: "sm" }),
+          actionClassName,
+          "pointer-events-none",
+          plugin.status === "connected"
+            ? "text-emerald-500"
+            : "text-muted-foreground",
+        )}
+      >
+        {plugin.status === "connected" ? "Connected" : "Installed"}
       </span>
     );
   }
-  if (plugin.status === "connected") {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-emerald-500">
-        <Check size={13} /> Connected
-      </span>
-    );
-  }
-  if (plugin.status === "waiting") {
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={actionClassName}
-        onClick={onAuthorize}
-      >
-        Reopen
-      </Button>
-    );
-  }
-  if (plugin.status === "failed") {
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={actionClassName}
-        onClick={onAuthorize}
-      >
-        <CircleAlert size={13} /> Retry
-      </Button>
-    );
-  }
-  if (plugin.status === "reconnect") {
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={actionClassName}
-        onClick={onAuthorize}
-      >
-        <RotateCw size={13} /> Reconnect
-      </Button>
-    );
-  }
-  if (plugin.status === "authorization_required") {
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={actionClassName}
-        onClick={onAuthorize}
-      >
-        Authorize
-      </Button>
-    );
-  }
-  if (plugin.status === "installed") {
-    return (
-      <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
-        <Check size={13} /> Added
-      </span>
-    );
-  }
-  if (plugin.status === "error") {
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        className={actionClassName}
-        onClick={onInstall}
-      >
-        Retry
-      </Button>
-    );
-  }
+  const label = plugin.status === "reconnect" ? "Reconnect" : "Install";
   return (
     <Button
       variant="secondary"
       size="sm"
       className={actionClassName}
-      onClick={onInstall}
+      disabled={busy}
+      onClick={
+        plugin.status === "available" || plugin.status === "error"
+          ? onInstall
+          : onAuthorize
+      }
     >
-      Add
+      <span className={cn(busy && "invisible")}>{label}</span>
+      {busy ? (
+        <LoaderCircle
+          className="absolute inset-0 m-auto animate-spin"
+          size={14}
+        />
+      ) : null}
     </Button>
   );
 }
