@@ -2629,11 +2629,18 @@ final class AppModel {
   func startDirectMessage(with recipient: DirectMessageRecipient) async -> String? {
     guard let workspaceID = workspace?.id else { return nil }
     do {
-      let conversation = try await relay.startDirectMessage(
+      var conversation = try await relay.startDirectMessage(
         workspaceID: workspaceID,
         participantKind: recipient.kind,
         participantID: recipient.principalID
       )
+      // Only the workspace snapshot names who a DM is with. Without this the
+      // DM loses its place under its agent until the next refresh.
+      if recipient.isAgent {
+        conversation.directAgentID = conversation.directAgentID ?? recipient.principalID
+      } else if recipient.kind == "user" {
+        conversation.directUserID = conversation.directUserID ?? recipient.principalID
+      }
       upsertConversation(conversation)
       if let workspace { syncWorkspaceLiveStreams(for: workspace) }
       return conversation.id
