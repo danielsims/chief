@@ -27,21 +27,22 @@ struct InboxView: View {
       .padding(.horizontal, ChiefTheme.pagePadding)
       .padding(.top, 16)
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if visible.isEmpty {
-            ContentUnavailableView(
-              "You’re caught up", systemImage: "tray",
-              description: Text("New replies, mentions, and work needing your attention will show up here.")
-            )
-            .foregroundStyle(ChiefTheme.secondary)
-          } else {
+        if visible.isEmpty {
+          ContentUnavailableView(
+            "You’re caught up", systemImage: "tray",
+            description: Text("New replies, mentions, and work needing your attention will show up here.")
+          )
+          .foregroundStyle(ChiefTheme.secondary)
+          .containerRelativeFrame(.vertical)
+        } else {
+          LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(visible) { item in
               InboxRow(item: item)
             }
           }
+          .padding(.horizontal, ChiefTheme.pagePadding)
+          .padding(.bottom, ChiefTheme.pagePadding)
         }
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.bottom, ChiefTheme.pagePadding)
       }
     }
     .background(ChiefTheme.background)
