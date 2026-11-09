@@ -36,6 +36,8 @@ function parseConfig(): AgentConfig {
 
 export const relayCellToolNames = toolDefinitions.map((tool) => tool.name);
 
+const pluginRefreshMs = 30_000;
+
 /** Plugin tools are listed per turn; the relay enforces them on each call. */
 export function isRelayPluginToolName(name: string) {
   const bare = name.replace(/^mcp__chief_relay__|^mcp\.chief_relay\./u, "");
@@ -45,16 +47,19 @@ export function isRelayPluginToolName(name: string) {
 function buildRelayCellMcpServer() {
   const config = parseConfig();
   const permitted = new Set<string>(config.toolPermissions);
-  let plugins: Awaited<ReturnType<typeof relayPluginTools>> | undefined;
+  let plugins:
+    | {
+        loadedAt: number;
+        value: Awaited<ReturnType<typeof relayPluginTools>>;
+      }
+    | undefined;
   const loadPlugins = async () => {
-    // Plugins are extra: an agent with none assigned, or a failed lookup,
-    // still gets every Chief tool.
-    if (config.integrations.length === 0)
-      return (plugins ??= {
-        definitions: [],
-        bindings: new Map<string, RelayPluginBinding>(),
-      });
-    plugins ??= await Promise.resolve()
+    // Access changes while an agent runs, so assignments are read live and
+    // reused only briefly. Plugins are extra: a failed lookup still leaves
+    // every Chief tool.
+    if (plugins && Date.now() - plugins.loadedAt < pluginRefreshMs)
+      return plugins.value;
+    const value = await Promise.resolve()
       .then(() => relayPluginTools(relayCellContext(), config.integrations))
       .catch((error: unknown) => {
         cellToolDiagnostic("failed", {
@@ -66,7 +71,8 @@ function buildRelayCellMcpServer() {
           bindings: new Map<string, RelayPluginBinding>(),
         };
       });
-    return plugins;
+    plugins = { loadedAt: Date.now(), value };
+    return value;
   };
   const visibleTools = relayCellTools.filter((tool) =>
     permitted.has(tool.permission),

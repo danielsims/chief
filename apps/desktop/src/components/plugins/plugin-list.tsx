@@ -80,10 +80,18 @@ function groupPlugins(
   includeFeatured: boolean,
 ): PluginGroup[] {
   const groups = new Map<string, AgentPluginSummary[]>();
-  const featured = includeFeatured ? featuredPluginOptions(plugins) : [];
+  // The browsing view leads with what's already installed, then the rest.
+  const installed = includeFeatured
+    ? plugins.filter((plugin) => plugin.status !== "available")
+    : [];
+  if (installed.length > 0) groups.set("Installed", installed);
+  const browsable = includeFeatured
+    ? plugins.filter((plugin) => plugin.status === "available")
+    : plugins;
+  const featured = includeFeatured ? featuredPluginOptions(browsable) : [];
   const featuredProviders = new Set(featured.map(pluginProviderKey));
   if (featured.length > 0) groups.set("Featured", featured);
-  for (const plugin of plugins) {
+  for (const plugin of browsable) {
     if (featuredProviders.has(pluginProviderKey(plugin))) continue;
     const label = pluginCategoryLabel(plugin);
     groups.set(label, [...(groups.get(label) ?? []), plugin]);

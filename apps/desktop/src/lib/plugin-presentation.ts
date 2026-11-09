@@ -1,6 +1,7 @@
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 
 export const PLUGIN_CATEGORY_ORDER = [
+  "Installed",
   "Featured",
   "Marketing",
   "Sales",
@@ -17,7 +18,6 @@ export const PLUGIN_CATEGORY_ORDER = [
 
 const featuredDomainPriority = [
   "workspace.google.com",
-  "slack.com",
   "notion.com",
   "granola.ai",
   "vercel.com",
@@ -242,7 +242,6 @@ const inferredCategories: { label: string; pattern: RegExp }[] = [
 
 const onboardingDomainPriority = [
   "workspace.google.com",
-  "slack.com",
   "granola.ai",
   "notion.com",
   "notion.so",

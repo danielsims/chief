@@ -1,6 +1,6 @@
 import type { AgentPluginSummary } from "@chief/plugin-api";
 import type { RelayClient } from "@chief/relay-client";
-import type { JsonObject } from "@chief/relay-contracts";
+import type { JsonObject, McpConnection } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   parseJsonString,
@@ -8,8 +8,91 @@ import {
 
 import { PluginRuntime } from "./plugins/runtime.js";
 import { deterministicUuid } from "./relay-cell-ids.js";
+import { searchPlugins } from "./tools/toolkits/plugins/context.js";
+import { listPluginsDefinition } from "./tools/toolkits/plugins/list-plugins.js";
 
+/** The catalog, for finding plugins nobody has installed yet. */
 const plugins = new PluginRuntime(() => undefined);
+
+type WorkspacePlugin = AgentPluginSummary & {
+  /** Set once the workspace has connected it in the relay. */
+  connectionId?: string;
+  toolCount?: number;
+  /** Whether this agent may use it; connected alone isn't enough. */
+  agentAccess?: boolean;
+};
+
+function connectionStatus(connection: McpConnection) {
+  return connection.status === "connected"
+    ? ("connected" as const)
+    : connection.status === "needs_auth"
+      ? ("authorization_required" as const)
+      : ("error" as const);
+}
+
+function catalogDomain(plugin: AgentPluginSummary) {
+  return plugin.source.type === "discovery" || plugin.source.type === "setup"
+    ? plugin.source.domain
+    : plugin.domains?.[0];
+}
+
+/**
+ * The workspace's plugins as the relay holds them, over the catalog. The
+ * relay's connections are the only record of what is installed, connected and
+ * assigned; the catalog only adds plugins nobody has installed yet.
+ */
+async function workspacePlugins(
+  context: { client: RelayClient; workspaceId: string; agentId: string },
+  refresh = false,
+) {
+  const [snapshot, connections] = await Promise.all([
+    plugins.snapshot(context.workspaceId, refresh),
+    context.client.plugins.list(),
+  ]);
+  const workspaceEntry = (connection: McpConnection) => ({
+    status: connectionStatus(connection),
+    connectionId: connection.id,
+    toolCount: connection.tools.length,
+    agentAccess: connection.assignedToYou === true,
+  });
+  const matched = new Set<string>();
+  const catalog: WorkspacePlugin[] = snapshot.plugins.map((plugin) => {
+    const domain = catalogDomain(plugin)?.toLowerCase();
+    const connection = connections.find(
+      (item) =>
+        item.catalogId === plugin.id ||
+        (domain !== undefined && item.domain?.toLowerCase() === domain),
+    );
+    if (!connection) return { ...plugin, status: "available" };
+    matched.add(connection.id);
+    return { ...plugin, ...workspaceEntry(connection) };
+  });
+  const custom: WorkspacePlugin[] = connections
+    .filter((connection) => !matched.has(connection.id))
+    .map((connection) => ({
+      id: connection.catalogId ?? connection.id,
+      name: connection.name,
+      description: connection.description,
+      category: "Other",
+      source: {
+        type: "setup",
+        domain: connection.domain ?? new URL(connection.url).hostname,
+      },
+      enabled: true,
+      trusted: true,
+      ...workspaceEntry(connection),
+    }));
+  const installed = [...custom, ...catalog].filter(
+    (plugin) => plugin.connectionId,
+  );
+  return {
+    ...snapshot,
+    plugins: [
+      ...installed,
+      ...catalog.filter((plugin) => !plugin.connectionId),
+    ],
+  };
+}
 
 function requiredString(input: JsonObject, key: string) {
   const value = input[key];
@@ -69,7 +152,16 @@ export async function callPluginTool(
 ) {
   const { client, workspaceId, agentId } = context;
   if (name === "plugins_list") {
-    return await plugins.snapshot(workspaceId, input.refresh === true);
+    const query = listPluginsDefinition.querySchema.parse({
+      query: parseJsonString(input.query) ?? "",
+      limit: input.limit ?? undefined,
+      refresh: input.refresh === true ? "true" : undefined,
+    });
+    return searchPlugins(
+      await workspacePlugins(context, query.refresh),
+      query.query,
+      query.limit,
+    );
   }
   if (name === "plugins_recommend") {
     const conversationId = requiredString(input, "channelId");
@@ -87,7 +179,7 @@ export async function callPluginTool(
         ].slice(0, 8)
       : [];
     if (requested.length === 0) throw new Error("pluginIds is required.");
-    const snapshot = await plugins.snapshot(workspaceId);
+    const snapshot = await workspacePlugins(context);
     const selected = requested.flatMap((pluginId) => {
       const plugin = snapshot.plugins.find((item) => item.id === pluginId);
       return plugin ? [plugin] : [];
@@ -131,6 +223,20 @@ export async function callPluginTool(
     });
     return await client.appendMessage(conversationId, command);
   }
+  if (name === "plugins_install" || name === "plugins_authorize") {
+    // Installed in the workspace already: report it rather than starting a
+    // separate on-device install the workspace can't see.
+    const pluginId = requiredString(input, "pluginId");
+    const existing = (await workspacePlugins(context)).plugins.find(
+      (plugin) => plugin.id === pluginId && plugin.connectionId,
+    );
+    if (existing?.status === "connected")
+      return {
+        pluginId,
+        status: "connected",
+        agentAccess: existing.agentAccess,
+      };
+  }
   if (name === "plugins_install") {
     return await plugins.install(
       workspaceId,
@@ -163,7 +269,9 @@ export async function callPluginTool(
       body:
         authorization.kind === "plugin_oauth_client"
           ? `Configure an OAuth client for ${authorization.pluginName} to continue.`
-          : `Authorize ${authorization.pluginName} to continue.`,
+          : authorization.kind === "plugin_api_key"
+            ? `Add your ${authorization.pluginName} ${authorization.label} to continue.`
+            : `Authorize ${authorization.pluginName} to continue.`,
       mentions: [],
       components: [
         {

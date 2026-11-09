@@ -119,7 +119,8 @@ export async function requestDesktopPluginHost(
     | "/plugins/install"
     | "/plugins/authorize"
     | "/plugins/uninstall"
-    | "/models/claude",
+    | "/models/claude"
+    | "/models/codex",
   body: PluginHostRequest,
 ): Promise<JsonObject> {
   const connection = await hostConnection();

@@ -77,7 +77,7 @@ export function PluginOAuthClientDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[86vh] max-w-[480px] gap-0 overflow-y-auto rounded-2xl p-0">
+      <DialogContent className="border-border/80 max-h-[86vh] w-[calc(100%-32px)] max-w-[460px] gap-0 overflow-y-auto rounded-2xl p-0">
         <DialogHeader className="border-b px-6 py-5 pr-14">
           <div className="flex items-center gap-3">
             <ProviderLogo
@@ -86,8 +86,10 @@ export function PluginOAuthClientDialog({
               className="size-10 rounded-xl"
             />
             <div className="min-w-0">
-              <DialogTitle>Connect {action.pluginName}</DialogTitle>
-              <DialogDescription className="mt-1 leading-5">
+              <DialogTitle className="text-[17px] font-semibold tracking-tight">
+                Set up {action.pluginName}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-[13px] leading-5">
                 {guide.summary}
               </DialogDescription>
             </div>
@@ -166,7 +168,7 @@ export function PluginOAuthClientDialog({
                       value={action.callbackUrl}
                       readOnly
                       aria-label="Callback URL"
-                      className="font-mono text-sm"
+                      className="h-10 font-sans text-[13px]"
                     />
                     <Button
                       type="button"
@@ -235,7 +237,7 @@ export function PluginOAuthClientDialog({
               ) : (
                 <Check size={14} />
               )}
-              {step === "credentials" ? "Save and continue" : null}
+              {step === "credentials" ? "Continue to sign-in" : null}
             </Button>
           </DialogFooter>
         </form>
@@ -273,7 +275,11 @@ function CredentialField({
         spellCheck={false}
         aria-describedby={descriptionId}
         aria-invalid={Boolean(error)}
-        className={error ? "border-destructive" : undefined}
+        className={
+          error
+            ? "border-destructive h-10 font-sans text-sm"
+            : "h-10 font-sans text-sm"
+        }
       />
       <span
         id={descriptionId}

@@ -1,6 +1,8 @@
 import type { JsonObject, McpConnectionCreate } from "@chief/relay-contracts";
 import {
   automationToolCatalogSchema,
+  mcpCatalogToolsSchema,
+  mcpConnectionAccessSchema,
   mcpConnectionAuthorizeResultSchema,
   mcpConnectionListSchema,
   mcpConnectionSchema,
@@ -104,6 +106,40 @@ export class RelayPluginsClient extends RelayClientBase {
     );
   }
 
+  /** Swaps a key-only plugin's headers; the relay keeps the old ones if the server rejects the new. */
+  replaceHeaders(id: string, headers: { name: string; value: string }[]) {
+    return this.fetchJson(
+      this.pluginUrl(id, "headers"),
+      mcpConnectionSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ headers }),
+      },
+    );
+  }
+
+  access(id: string) {
+    return this.fetchJson(
+      this.pluginUrl(id, "access"),
+      mcpConnectionAccessSchema,
+    );
+  }
+
+  setAccess(id: string, agentIds: string[], enabled: boolean) {
+    return this.fetchJson(
+      this.pluginUrl(id, "access"),
+      mcpConnectionAccessSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentIds, enabled }),
+      },
+    );
+  }
+
   refresh(id: string) {
     return this.fetchJson(
       this.pluginUrl(id, "refresh"),
@@ -132,6 +168,16 @@ export class RelayPluginsClient extends RelayClientBase {
   }
 
   /** Chief's own tools that automations can use as steps. */
+  /** A catalog plugin's tools before it is connected; empty when unknown. */
+  async catalogTools(domain: string) {
+    return (
+      await this.fetchJson(
+        `${this.workspaceUrl("plugin-tools")}?domain=${encodeURIComponent(domain)}`,
+        mcpCatalogToolsSchema,
+      )
+    ).tools;
+  }
+
   async automationTools() {
     return (
       await explainMissingRoute(

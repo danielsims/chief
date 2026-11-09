@@ -7,6 +7,7 @@ import type {
   ServerMessage,
 } from "@chief/agent-runtime/types";
 
+import { announcePluginConnected } from "./plugin-connected";
 import { useRuntime, useWorkspaceCapability } from "./runtime";
 
 export interface PluginState {
@@ -22,6 +23,13 @@ export interface PluginOAuthClientInput {
   clientId: string;
   clientSecret?: string;
 }
+
+export interface PluginApiKeyInput {
+  apiKey: string;
+}
+
+export type PluginAuthorizationInput =
+  PluginOAuthClientInput | PluginApiKeyInput;
 
 const cache = new Map<string, PluginState>();
 
@@ -137,6 +145,24 @@ export function usePlugins() {
     if (status === "connected" && capability && !state && !error) refresh();
   }, [capability, error, refresh, state, status]);
 
+  // A browser sign-in finishes on the relay without telling the desktop, so
+  // look again when the person comes back to Chief while one is open.
+  const signingIn = Boolean(
+    state?.plugins.some((plugin) => plugin.status === "waiting"),
+  );
+  useEffect(() => {
+    if (!signingIn) return;
+    const recheck = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [refresh, signingIn]);
+
   // Local tools can still be installing on first launch, so failed loads recover on their own.
   useEffect(() => {
     if (!error || state || status !== "connected") return;
@@ -149,8 +175,9 @@ export function usePlugins() {
       pluginId: string,
       predicate: (plugin: AgentPluginSummary) => boolean,
       timeoutMs = 45_000,
+      requestId?: string,
     ) =>
-      new Promise<AgentPluginSummary>((resolve, reject) => {
+      new Promise<AgentPluginSummary | undefined>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           unsubscribe();
           reject(
@@ -158,11 +185,30 @@ export function usePlugins() {
           );
         }, timeoutMs);
         const unsubscribe = client.subscribe((message) => {
+          // A plugin that signs in with a key isn't added until it has one,
+          // so asking for the key finishes the request as it stands.
+          if (
+            requestId &&
+            message.type === "pluginAuthorization" &&
+            message.requestId === requestId
+          ) {
+            window.clearTimeout(timer);
+            unsubscribe();
+            resolve(
+              cloudOrganizationId
+                ? cache
+                    .get(cloudOrganizationId)
+                    ?.plugins.find((plugin) => plugin.id === pluginId)
+                : undefined,
+            );
+            return;
+          }
           if (
             message.type === "error" ||
             (message.type === "plugins" &&
               message.workspaceId === cloudOrganizationId)
           ) {
+            if (requestId && message.requestId !== requestId) return;
             if (message.type === "error") {
               window.clearTimeout(timer);
               unsubscribe();
@@ -185,20 +231,26 @@ export function usePlugins() {
     async (pluginId: string, trusted = true) => {
       if (!cloudOrganizationId || !capability) return;
       setBusyPluginId(pluginId);
+      const id = requestId();
       try {
         const completed = waitForPlugin(
           pluginId,
           (plugin) => plugin.status !== "available",
+          45_000,
+          id,
         );
         client.send({
           type: "installPlugin",
           workspaceId: cloudOrganizationId,
           pluginId,
           trusted,
-          requestId: requestId(),
+          requestId: id,
           executorCapability: capability,
         });
-        return await completed;
+        const installed = await completed;
+        if (installed?.status === "connected")
+          announcePluginConnected(cloudOrganizationId, pluginId);
+        return installed;
       } finally {
         setBusyPluginId(null);
       }
@@ -207,7 +259,7 @@ export function usePlugins() {
   );
 
   const authorizationAction = useCallback(
-    (pluginId: string, oauthClient?: PluginOAuthClientInput) =>
+    (pluginId: string, input?: PluginAuthorizationInput) =>
       new Promise<PluginAuthorizationAction | undefined>((resolve, reject) => {
         if (!cloudOrganizationId || !capability) {
           reject(new Error("Workspace authorization is not ready."));
@@ -229,6 +281,7 @@ export function usePlugins() {
             resolve(message.action);
           } else if (
             message.type === "plugins" &&
+            message.requestId === id &&
             message.workspaceId === cloudOrganizationId &&
             message.plugins.some(
               (plugin) =>
@@ -249,7 +302,9 @@ export function usePlugins() {
           workspaceId: cloudOrganizationId,
           pluginId,
           requestId: id,
-          oauthClient,
+          ...(input && "apiKey" in input
+            ? { apiKey: input.apiKey }
+            : { oauthClient: input }),
           executorCapability: capability,
         });
       }),
@@ -257,18 +312,22 @@ export function usePlugins() {
   );
 
   const authorize = useCallback(
-    async (pluginId: string, oauthClient?: PluginOAuthClientInput) => {
+    async (pluginId: string, input?: PluginAuthorizationInput) => {
       setBusyPluginId(pluginId);
       try {
         let lastAction: PluginAuthorizationAction | undefined;
         for (let serverIndex = 0; serverIndex < 8; serverIndex += 1) {
           const action = await authorizationAction(
             pluginId,
-            serverIndex === 0 ? oauthClient : undefined,
+            serverIndex === 0 ? input : undefined,
           );
-          if (!action) return lastAction;
+          if (!action) {
+            if (cloudOrganizationId)
+              announcePluginConnected(cloudOrganizationId, pluginId);
+            return lastAction;
+          }
           lastAction = action;
-          if (action.kind === "plugin_oauth_client") return action;
+          if (action.kind !== "plugin_authorization") return action;
           await openUrl(action.authorizationUrl);
           const completed = waitForPlugin(
             pluginId,
@@ -282,10 +341,14 @@ export function usePlugins() {
           const refreshTimer = window.setInterval(() => refresh(), 2_000);
           try {
             const plugin = await completed;
-            if (plugin.status === "connected") return lastAction;
-            if (plugin.status !== "authorization_required") {
+            if (plugin?.status === "connected") {
+              if (cloudOrganizationId)
+                announcePluginConnected(cloudOrganizationId, pluginId);
+              return lastAction;
+            }
+            if (plugin?.status !== "authorization_required") {
               throw new Error(
-                plugin.diagnostics?.at(-1) ??
+                plugin?.diagnostics?.at(-1) ??
                   "Chief could not finish the provider connection.",
               );
             }
@@ -298,7 +361,7 @@ export function usePlugins() {
         setBusyPluginId(null);
       }
     },
-    [authorizationAction, refresh, waitForPlugin],
+    [authorizationAction, cloudOrganizationId, refresh, waitForPlugin],
   );
 
   const uninstall = useCallback(
@@ -306,15 +369,18 @@ export function usePlugins() {
       if (!cloudOrganizationId || !capability) return;
       setBusyPluginId(pluginId);
       try {
+        const id = requestId();
         const completed = waitForPlugin(
           pluginId,
           (plugin) => plugin.status === "available",
+          45_000,
+          id,
         );
         client.send({
           type: "uninstallPlugin",
           workspaceId: cloudOrganizationId,
           pluginId,
-          requestId: requestId(),
+          requestId: id,
           executorCapability: capability,
         });
         await completed;

@@ -167,6 +167,14 @@ export const pluginAuthorizationPayloadSchema = z.union([
       status: z.literal("client_configuration_required"),
     })
     .strict(),
+  pluginAuthorizationPayloadBaseSchema
+    .extend({
+      kind: z.literal("plugin_api_key"),
+      label: z.string().trim().min(1).max(80),
+      docsUrl: externalUrlSchema.optional(),
+      status: z.literal("api_key_required"),
+    })
+    .strict(),
 ]);
 
 export const scheduledRunMessagePayloadSchema = z
