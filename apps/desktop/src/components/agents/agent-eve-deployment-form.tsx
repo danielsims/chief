@@ -18,7 +18,10 @@ import {
   VercelConnection,
   VercelDestinationFields,
 } from "../vercel-connection";
-import { clearEveDeploymentDraft } from "./agent-eve-deployment-draft";
+import {
+  clearEveDeploymentDraft,
+  eveDraftScope,
+} from "./agent-eve-deployment-draft";
 import { destinationCatalogCache } from "./agent-eve-deployment-run";
 import {
   EveProvisioningDialog,
@@ -185,7 +188,9 @@ export function EveDestinationForm({
           presentation="plain"
           expanded={presentation === "onboarding"}
           onCancel={() => {
-            clearEveDeploymentDraft(agent.id);
+            clearEveDeploymentDraft(
+              eveDraftScope(client?.workspaceId, agent.id),
+            );
             onCancel();
           }}
           onConnect={async (token) => {
@@ -254,7 +259,9 @@ export function EveDestinationForm({
               size="sm"
               disabled={saving}
               onClick={() => {
-                clearEveDeploymentDraft(agent.id);
+                clearEveDeploymentDraft(
+                  eveDraftScope(client?.workspaceId, agent.id),
+                );
                 onCancel();
               }}
             >
