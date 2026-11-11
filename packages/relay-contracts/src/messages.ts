@@ -3,12 +3,10 @@ import { z } from "zod";
 import { artifactReferencePayloadSchema } from "./artifacts";
 import { messageAttachmentPayloadSchema } from "./attachments";
 import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
-import { guestProfileSchema } from "./guest-profile";
 import {
   agentIdSchema,
   channelMentionIdSchema,
   conversationIdSchema,
-  guestIdSchema,
   hexPubkeySchema,
   isoDateTimeSchema,
   messageIdSchema,
@@ -22,12 +20,6 @@ export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: userIdSchema }),
   z.object({ kind: z.literal("agent"), id: agentIdSchema }),
   z.object({ kind: z.literal("system"), id: z.literal("relay") }),
-  /** An outside agent admitted to one external channel through its link. */
-  z.object({
-    kind: z.literal("guest"),
-    id: guestIdSchema,
-    ...guestProfileSchema.shape,
-  }),
 ]);
 
 export const pluginStatusSchema = z.enum([
@@ -97,8 +89,7 @@ export const questionPayloadSchema = z
   })
   .strict();
 
-/** A guest agent joined through the channel's share link. Only the relay
- * attaches this; guests cannot send components. */
+/** A member joined the channel. Only the relay attaches this. */
 export const channelMemberJoinedPayloadSchema = z
   .object({
     type: z.literal("member-joined"),

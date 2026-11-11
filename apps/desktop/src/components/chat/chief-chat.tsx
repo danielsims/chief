@@ -22,7 +22,6 @@ import {
   MessageBlocksContent,
 } from "./chief-chat-message-components";
 import { continuedMessageIds } from "./conversation-timeline-entries";
-import { ChannelGuestMentions } from "./mention-people-context";
 import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionAnswersProvider } from "./question-answers-context";
 import { RecurringWorkComposer } from "./recurring-work-composer";
@@ -220,7 +219,7 @@ export function ChiefChat({
     [timelineEntries, currentUser?.id],
   );
   return (
-    <ChannelGuestMentions guests={core.channelGuests}>
+    <>
       <QuestionAnswersProvider messages={messages} send={core.send}>
         <div className="relative flex h-full min-w-0 min-[901px]:gap-2">
           <div
@@ -321,17 +320,10 @@ export function ChiefChat({
                               <UserMessage
                                 continued={continuedIds.has(message.id)}
                                 author={authorFor(message)}
-                                {...(message.metadata?.guest
-                                  ? { guest: message.metadata.guest }
-                                  : undefined)}
                                 attachments={imageParts(message)}
                                 channelReferences={channelReferences}
                                 onOpenChannel={onOpenChannel}
-                                {...(message.metadata?.guest
-                                  ? undefined
-                                  : {
-                                      onOpenProfile: openAuthorProfile(message),
-                                    })}
+                                onOpenProfile={openAuthorProfile(message)}
                                 onOpenMention={openAgentMention}
                                 timestamp={message.metadata?.createdAt}
                                 {...controlsForMessage(message)}
@@ -483,6 +475,6 @@ export function ChiefChat({
           />
         </div>
       </QuestionAnswersProvider>
-    </ChannelGuestMentions>
+    </>
   );
 }

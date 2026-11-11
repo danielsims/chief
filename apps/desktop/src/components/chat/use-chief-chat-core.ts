@@ -10,7 +10,6 @@ import type { ChiefChatProps } from "./chief-chat-types";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
-import { guestLabel, guestSummaryAppearance } from "../../lib/guest-appearance";
 import { withoutMarkerLines } from "../../lib/integration-setup";
 import {
   messageBlocks,
@@ -21,7 +20,6 @@ import {
 } from "../../lib/runtime";
 import { workspaceAgentName } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
-import { useChannelGuests } from "./channel-guests";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
@@ -195,16 +193,6 @@ export function useChiefChatCore({
   const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  // Reload the channel's guests whenever another one joins, so a new agent
-  // can be mentioned without reopening the channel.
-  const guestJoins = chat.messages.filter(
-    (message) => message.metadata?.channelAction?.type === "member-joined",
-  ).length;
-  const { guests: channelGuests } = useChannelGuests(
-    destinationChannelId ?? "",
-    Boolean(channel && destinationChannelId),
-    guestJoins,
-  );
   const mentionCandidates = useMemo(() => {
     const roster = runtimeAgents.flatMap((agent) => [
       agent,
@@ -231,28 +219,10 @@ export function useChiefChatCore({
         member: true,
         user: { image: workspaceUsers.get(person.id)?.image },
       }));
-    // Agents members invited into this channel. The relay wakes them from the
-    // @handle in the text; they never route to workspace agents.
-    const guests = channelGuests.map((guest) => {
-      const appearance = guestSummaryAppearance(guest);
-      return {
-        id: `guest:${guest.id}`,
-        name: guest.name,
-        role: guestLabel(appearance),
-        member: true,
-        handle: guest.handle,
-        guest: appearance,
-      };
-    });
-    return orderMentionCandidatesByMembership([
-      ...people,
-      ...guests,
-      ...agents,
-    ]);
+    return orderMentionCandidatesByMembership([...people, ...agents]);
   }, [
     addedAgentIds,
     channel?.agentIds,
-    channelGuests,
     directAgent?.id,
     user,
     runtimeAgents,
@@ -366,7 +336,6 @@ export function useChiefChatCore({
     knownAgentIds,
     markThreadRead,
     mentionCandidates,
-    channelGuests,
     activityTurns,
     activityAgentId: visibleActiveRootTurn?.agentId ?? directAgent?.id,
     runtimeStatus,

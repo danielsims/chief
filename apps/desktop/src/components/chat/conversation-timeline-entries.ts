@@ -96,7 +96,6 @@ function personKey(message: ChiefUIMessage, currentUserId: string | undefined) {
   if (message.role !== "user") return null;
   const metadata = message.metadata;
   if (metadata?.channelAction || metadata?.scheduledRun) return null;
-  if (metadata?.guest) return `guest:${metadata.guest.name}`;
   const authorId = metadata?.author?.id;
   return !authorId || authorId === currentUserId ? "self" : `user:${authorId}`;
 }

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Bot,
   Check,
   Copy,
   Hash,
@@ -35,9 +34,9 @@ import { openChannelDetails } from "../channel-details-events";
 import { WithPresence } from "../presence-dot";
 import { UserAvatar } from "../user-avatar";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
-import { ChannelGuestRows, useChannelLinks } from "./channel-guests";
 import { ChannelViewTabs } from "./channel-view-tabs";
 import { useWorkspaceUsers } from "./mention-people-context";
+import { useChannelLink } from "./use-channel-link";
 
 interface ConversationHeaderChannel {
   id: string;
@@ -75,7 +74,7 @@ export function ConversationHeader({
   user,
 }: ConversationHeaderProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
-  const channelLinks = useChannelLinks(channel.id);
+  const channelLinks = useChannelLink(channel.id);
   const workspaceUsers = useWorkspaceUsers();
   const { userOnline } = useWorkspacePresence();
   const directMember = channel.directUserId
@@ -255,25 +254,6 @@ export function ConversationHeader({
                       ? "Copy conversation link"
                       : "Copy channel link"}
               </button>
-              {!directIdentity ? (
-                <button
-                  type="button"
-                  title="A single-use link for your own agent. It expires in 24 hours."
-                  onClick={() => void channelLinks.copyInvite()}
-                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-                >
-                  {channelLinks.inviteState === "copied" ? (
-                    <Check size={14} />
-                  ) : (
-                    <Bot size={14} />
-                  )}
-                  {channelLinks.inviteState === "copied"
-                    ? "Invite copied"
-                    : channelLinks.inviteState === "failed"
-                      ? "Couldn’t create invite"
-                      : "Invite your agent"}
-                </button>
-              ) : null}
             </PopoverContent>
           </Popover>
         </div>
@@ -375,9 +355,6 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
-          {channel.visibility !== "private" ? (
-            <ChannelGuestRows channelId={channel.id} open={open} />
-          ) : null}
           {channelAgents.map((agent) => {
             return (
               <button
