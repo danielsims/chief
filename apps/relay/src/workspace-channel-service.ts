@@ -19,7 +19,6 @@ import type {
   ChannelRow,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
-import { revokeChannelAgents } from "./channel-guest-lifecycle";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordProductEvents } from "./product-events";
@@ -396,7 +395,6 @@ export class WorkspaceChannelService {
         updatedAt: now,
         conversationId: conversationId,
       });
-      if (archived) revokeChannelAgents(this.store.storage, conversationId);
       this.store.rewriteSnapshot((conversations) => {
         const entry = conversations.find(
           (conversation) => conversation.id === conversationId,
@@ -426,7 +424,6 @@ export class WorkspaceChannelService {
     }
     const storage = this.store.storage;
     storage.transactionSync(() => {
-      revokeChannelAgents(storage, conversationId);
       channelMembersDeleteRemove(storage, conversationId);
       channelMembershipEventsDeleteRemove(storage, conversationId);
       channelMembershipBatchesDeleteRemove(storage, conversationId);
@@ -452,7 +449,7 @@ export class WorkspaceChannelService {
     const conversationId = command.payload.conversationId;
     const channel = this.store.requireChannel(conversationId);
     const { kind, id } = principalKindId(context.principal);
-    if (kind === "service" || kind === "guest") {
+    if (kind === "service") {
       throw new HttpError(
         403,
         "principal_required",

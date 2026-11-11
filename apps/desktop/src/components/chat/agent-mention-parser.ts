@@ -1,5 +1,3 @@
-import type { GuestAppearance } from "@chief/agent-runtime/types";
-
 import type { StaticWorkspaceAgentId } from "../../lib/workspace-channels";
 import {
   isWorkspaceAgentId,
@@ -27,10 +25,8 @@ export interface AgentMentionRemoval {
 export interface MentionAlias {
   id: string;
   name: string;
-  /** Shown on the chip when the typed name differs, e.g. a guest's handle. */
+  /** Shown on the chip when the typed name differs, e.g. a handle. */
   label?: string;
-  /** Present for outside guest agents. */
-  guest?: GuestAppearance;
 }
 
 const AGENT_IDS_BY_NAME = new Map(

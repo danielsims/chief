@@ -12,13 +12,6 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
-import { fenceGuestEvent } from "./channel-guest-fence";
-import {
-  guestListenerTags,
-  isGuestListener,
-  registerGuestListeners,
-} from "./channel-guest-listeners";
-import { ChannelGuestService } from "./channel-guest-service";
 import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
@@ -85,9 +78,8 @@ export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     meterSql(state.storage);
-    registerGuestListeners(state);
     // Keep-alive pings are answered without waking the object, so idle
-    // connections (members' and guest listeners') cost nothing.
+    // member connections cost nothing.
     state.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong"),
     );
@@ -243,11 +235,6 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "live-socket-ticket") {
         return yield* attempt("workspace.live.ticket", () =>
           createLiveSocketTicket(request),
-        );
-      }
-      if (operation?.startsWith("guest-")) {
-        return yield* attempt("workspace.channel_guests", () =>
-          new ChannelGuestService(ctx.storage, env).route(request, operation),
         );
       }
       if (operation === "agent-message-dispatch") {
@@ -545,14 +532,6 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     const principal = principalSchema.parse(JSON.parse(principalJson));
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    if (principal.kind === "guest") {
-      // A listener only ever hears its own guest's wake-ups. It never
-      // subscribes to the workspace feed below.
-      channels.requireChannelVisible(principal.conversationId, principal);
-      const pair = new WebSocketPair();
-      this.ctx.acceptWebSocket(pair[1], guestListenerTags(principal.guestId));
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
     channels.requirePrincipalMember(principal);
     // A member's desktop lending its connection to this workspace's agents.
     if (new URL(request.url).searchParams.get("role") === webMachineTag) {
@@ -604,10 +583,6 @@ export class WorkspaceObject extends DurableObject<Env> {
     socket: WebSocket,
     message: string | ArrayBuffer,
   ) {
-    if (isGuestListener(this.ctx, socket)) {
-      socket.close(1008, "Listeners only receive wake-ups");
-      return;
-    }
     if (isWebMachine(this.ctx, socket)) {
       if (isJsonString(message)) receiveWebMachineMessage(socket, message);
       else socket.close(1008, "Invalid machine message");
@@ -686,12 +661,10 @@ export class WorkspaceObject extends DurableObject<Env> {
   private broadcastLiveEvent(event: ConversationEvent) {
     const conversationId = event.payload.message.conversationId;
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
-      // Guest listeners and lending machines never see the workspace feed.
-      if (isGuestListener(this.ctx, socket) || isWebMachine(this.ctx, socket))
-        continue;
+      // Lending machines never see the workspace feed.
+      if (isWebMachine(this.ctx, socket)) continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;
@@ -708,11 +681,7 @@ export class WorkspaceObject extends DurableObject<Env> {
           socket.close(1008, "Conversation access revoked");
           continue;
         }
-        socket.send(
-          attachment.principal.kind === "user"
-            ? serialized
-            : JSON.stringify(fenceGuestEvent(attachment.principal, event)),
-        );
+        socket.send(serialized);
       } catch {
         socket.close(1011, "Delivery failed");
       }

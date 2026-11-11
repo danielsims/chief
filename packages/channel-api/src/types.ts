@@ -39,12 +39,7 @@ export interface ChannelActorIdentity {
   name: string;
 }
 
-export const channelMemberRoles = [
-  "owner",
-  "admin",
-  "member",
-  "guest",
-] as const;
+export const channelMemberRoles = ["owner", "admin", "member"] as const;
 export type ChannelMemberRole = (typeof channelMemberRoles)[number];
 
 export interface ChannelMemberIdentity extends ChannelActorIdentity {

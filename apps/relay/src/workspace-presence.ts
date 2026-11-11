@@ -5,7 +5,6 @@ import type {
 import { agentHostPresenceSchema } from "@chief/relay-contracts";
 
 import type { WorkspaceSocketAttachment } from "./workspace-socket-state";
-import { isGuestListener } from "./channel-guest-listeners";
 import { HttpError, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -48,8 +47,7 @@ export class WorkspacePresence {
 
   /** A socket closed. Announce it if that was the person's last one. */
   async closed(socket: WebSocket) {
-    if (isGuestListener(this.ctx, socket) || isWebMachine(this.ctx, socket))
-      return;
+    if (isWebMachine(this.ctx, socket)) return;
     let attachment: WorkspaceSocketAttachment;
     try {
       attachment = workspaceSocketAttachment(socket);
@@ -169,19 +167,14 @@ export class WorkspacePresence {
     }
   }
 
-  /** Subscribed sockets of people, never guests, agents or lending machines. */
+  /** Subscribed sockets of people, never agents or lending machines. */
   private peopleSockets(except?: WebSocket) {
     const sockets: {
       socket: WebSocket;
       attachment: WorkspaceSocketAttachment;
     }[] = [];
     for (const socket of this.ctx.getWebSockets()) {
-      if (
-        socket === except ||
-        isGuestListener(this.ctx, socket) ||
-        isWebMachine(this.ctx, socket)
-      )
-        continue;
+      if (socket === except || isWebMachine(this.ctx, socket)) continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (attachment.subscribed && attachment.principal.kind === "user")

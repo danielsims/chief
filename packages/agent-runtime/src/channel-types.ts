@@ -6,10 +6,7 @@ import type {
   ChannelWorkstream,
 } from "@chief/channel-api";
 
-import type {
-  ChiefMessageMetadata,
-  GuestAppearance,
-} from "./agent-message-types.js";
+import type { ChiefMessageMetadata } from "./agent-message-types.js";
 import type { ExecutorCapability } from "./types.js";
 
 export interface WorkspaceChannel {
@@ -38,13 +35,10 @@ export interface WorkspaceChannel {
 }
 
 export interface ChannelActor {
-  /** `guest` is an outside agent admitted to one external channel. */
-  type: "user" | "agent" | "guest";
+  type: "user" | "agent";
   id: string;
   name: string;
   image?: string;
-  /** Present for guests only. */
-  guest?: GuestAppearance;
 }
 
 interface ChannelEventBase {

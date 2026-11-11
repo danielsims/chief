@@ -139,16 +139,6 @@ export function useChiefChatPresentation({
     const specialist = activeSpecialistByThread.get(message.id);
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
-        if (reply.metadata?.guest) {
-          return [
-            {
-              id: `guest:${reply.metadata.guest.id}`,
-              kind: "guest",
-              name: reply.metadata.guest.name,
-              guest: reply.metadata.guest,
-            },
-          ];
-        }
         if (reply.role === "user") {
           const author = authorFor(reply);
           return [

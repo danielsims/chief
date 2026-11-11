@@ -1,4 +1,3 @@
-import { fenceGuestEvent } from "./channel-guest-fence";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import {
   MAX_REPLAY_EVENTS_PER_CONNECTION,
@@ -20,9 +19,8 @@ export function replayLiveEvents(
   do {
     const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
     const page = live.list(cursor, Math.min(200, remaining), conversationIds);
-    const reader = workspaceSocketAttachment(socket).principal;
     for (const event of page.events) {
-      socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
+      socket.send(JSON.stringify(event));
       cursor = event.sequence;
       lastDeliveredCursor = event.sequence;
       delivered += 1;
