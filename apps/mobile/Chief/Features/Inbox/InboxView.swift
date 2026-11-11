@@ -114,8 +114,6 @@ private struct InboxRow: View {
       AgentMark(name: name, id: id, size: 34)
     case .user(let id, let name):
       UserAvatar(user: model.person(userID: id, fallbackName: name), size: 34, rounded: true)
-    case .guest(let guest):
-      GuestAvatar(guest: guest, size: 34)
     case .system:
       AgentMark(name: "Chief", size: 34)
     }
@@ -125,7 +123,6 @@ private struct InboxRow: View {
     switch item.message.author {
     case .agent(_, let name): name
     case .user(let id, let name): model.person(userID: id, fallbackName: name).name
-    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }
