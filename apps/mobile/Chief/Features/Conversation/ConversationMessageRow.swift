@@ -84,7 +84,6 @@ struct ConversationMessageRow: View {
         case .agent(_, let name): AgentMark(name: name, size: 34)
         case .user(let id, let name):
           UserAvatar(user: model.person(userID: id, fallbackName: name), size: 34, rounded: true)
-        case .guest(let guest): GuestAvatar(guest: guest, size: 34)
         case .system: AgentMark(name: "Chief", size: 34)
         }
       }
@@ -99,12 +98,6 @@ struct ConversationMessageRow: View {
     HStack(spacing: 7) {
       Text(authorName)
         .font(.system(size: 14, weight: .semibold))
-      if case .guest(let guest) = message.author {
-        Text(guest.label)
-          .font(.system(size: 11))
-          .foregroundStyle(ChiefTheme.tertiary)
-          .lineLimit(1)
-      }
       Text(message.createdAt, style: .time)
         .font(.system(size: 12))
         .foregroundStyle(ChiefTheme.tertiary)
@@ -225,7 +218,6 @@ struct ConversationMessageRow: View {
       case .agent(let id, let name): participant = .agent(id: id, name: name)
       case .user(let id, let name):
         participant = .user(id: id, name: model.person(userID: id, fallbackName: name).name)
-      case .guest(let guest): participant = .user(id: "guest:\(guest.id)", name: guest.name)
       case .system: participant = .agent(id: "chief", name: "Chief")
       }
       return seen.insert(participant.id).inserted ? participant : nil
@@ -277,7 +269,6 @@ struct ConversationMessageRow: View {
     switch message.author {
     case .agent(_, let name): name.isEmpty ? "Agent" : name
     case .user: model.authorName(message.author)
-    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }
@@ -293,9 +284,6 @@ struct ConversationMessageRow: View {
       openProfile = .agent(id)
     case .user(let id, _):
       openProfile = .person(userID: id, name: model.authorName(message.author))
-    case .guest:
-      // Outside agents have no workspace profile to open.
-      return
     case .system:
       openProfile = .agent("chief")
     }
@@ -359,75 +347,5 @@ private enum MessageSheet: String, Identifiable {
   case emojiPicker
 
   var id: String { rawValue }
-}
-
-/// An outside agent's own picture, its Grok Bot colour, its provider's logo,
-/// or its initial, in that order.
-struct GuestAvatar: View {
-  let guest: GuestAuthor
-  let size: CGFloat
-
-  var body: some View {
-    Group {
-      if let url = guest.imageURL {
-        AsyncImage(url: url) { image in
-          image.resizable().scaledToFill()
-        } placeholder: {
-          fallback
-        }
-      } else {
-        fallback
-      }
-    }
-    .frame(width: size, height: size)
-    .clipShape(RoundedRectangle(cornerRadius: size * 0.28))
-  }
-
-  @ViewBuilder
-  private var fallback: some View {
-    if let color = guest.markColor {
-      RoundedRectangle(cornerRadius: size * 0.36)
-        .fill(Self.markColors[color] ?? ChiefTheme.elevated)
-        .overlay {
-          HStack(spacing: size * 0.16) {
-            Capsule().fill(.white).frame(width: size * 0.11, height: size * 0.15)
-            Capsule().fill(.white).frame(width: size * 0.11, height: size * 0.15)
-          }
-        }
-    } else if let logo = guest.providerLogoURL {
-      AsyncImage(url: logo) { image in
-        image.resizable().scaledToFit().padding(size * 0.14)
-      } placeholder: {
-        initial
-      }
-      .background(ChiefTheme.elevated)
-    } else {
-      initial
-    }
-  }
-
-  private var initial: some View {
-    RoundedRectangle(cornerRadius: size * 0.28)
-      .fill(ChiefTheme.elevated)
-      .overlay {
-        Text(guest.name.prefix(1).uppercased())
-          .font(.system(size: size * 0.38, weight: .semibold))
-          .foregroundStyle(ChiefTheme.secondary)
-      }
-  }
-
-  private static let markColors: [String: Color] = [
-    "black": Color(red: 0.14, green: 0.14, blue: 0.15),
-    "brown": Color(red: 0.55, green: 0.37, blue: 0.24),
-    "red": Color(red: 0.91, green: 0.28, blue: 0.25),
-    "orange": Color(red: 0.94, green: 0.54, blue: 0.14),
-    "yellow": Color(red: 0.94, green: 0.71, blue: 0.16),
-    "green": Color(red: 0.20, green: 0.76, blue: 0.50),
-    "cyan": Color(red: 0.13, green: 0.72, blue: 0.78),
-    "blue": Color(red: 0.23, green: 0.51, blue: 0.96),
-    "violet": Color(red: 0.55, green: 0.36, blue: 0.96),
-    "magenta": Color(red: 0.85, green: 0.27, blue: 0.77),
-    "gray": Color(red: 0.61, green: 0.64, blue: 0.69),
-  ]
 }
 

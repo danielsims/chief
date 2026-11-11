@@ -429,7 +429,7 @@ extension ConversationMessage.Author {
     switch self {
     case .agent(let id, _): id
     case .system: "chief"
-    case .user, .guest: nil
+    case .user: nil
     }
   }
 }
