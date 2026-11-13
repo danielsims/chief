@@ -4,7 +4,7 @@
   "version": "0.1.4",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:vite": "vite",
     "build": "tsc && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
     "build:app": "tauri build --config src-tauri/tauri.local.conf.json",
