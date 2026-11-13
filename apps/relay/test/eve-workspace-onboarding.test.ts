@@ -7,6 +7,8 @@ import {
 
 import { withTrustedContext } from "../src/internal-context";
 import {
+  channelEnvelope,
+  channelRpc,
   dispatchTestMessage,
   ownerId,
   setupChannelTest,
@@ -34,10 +36,22 @@ describe("Eve workspace onboarding", () => {
     );
     await verifyExternalAgent(ctx, "chief");
     expect(deliveredBodies).toEqual([]);
+    const direct = await channelRpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      channelEnvelope({
+        participant: { kind: "agent", principalId: "chief" },
+      }),
+    );
+    expect(direct.status).toBe(201);
+    const { conversation } = (await direct.json()) as {
+      conversation: { id: string };
+    };
     const dispatched = await dispatchTestMessage(ctx, ctx.principal, {
       id: crypto.randomUUID(),
       workspaceId: ctx.workspaceId,
-      conversationId: "chief",
+      conversationId: conversation.id,
       author: { kind: "user" as const, id: ownerId },
       body: "Hey there",
       mentions: [],

@@ -58,7 +58,7 @@ async function fixture() {
           ctx.principal,
           "channels-members-add",
           channelEnvelope({
-            conversationId: "mission-control",
+            conversationId: "general",
             kind: "agent",
             principalId: id,
           }),
@@ -70,7 +70,7 @@ async function fixture() {
     id: "expand-team",
     agentId: "chief",
     collaborators: [],
-    conversationId: "mission-control",
+    conversationId: "general",
     title: "Create a campaign",
     instructions: "Save a useful campaign artifact",
     triggerMode: "webhook",

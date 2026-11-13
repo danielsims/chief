@@ -12,7 +12,6 @@ import {
 import { withTrustedContext } from "../src/internal-context";
 import { createManagedWorkspace } from "../src/workspace-authority";
 import { hexKey } from "./helpers";
-import { performChiefDelegation } from "./managed-workspace-test-helpers";
 
 type Relay = Parameters<typeof createManagedWorkspace>[0];
 
@@ -30,12 +29,8 @@ function relay(): Relay {
   };
 }
 
-// Reproduces the hosted (cloud) Chief onboarding path: the run is performed by
-// the hosted cell, whose principal pubkey falls back to `"0".repeat(64)` when
-// the job carries no agentPubkey. That principal then calls complete-onboarding,
-// which checks the key against the registered chief key.
-describe("hosted Chief onboarding completion", () => {
-  it("allows the hosted identity to finalize onboarding even without a matching registered key", async () => {
+describe("hosted workspace setup authorization", () => {
+  it("requires the owner to finish setup instead of the hosted Chief identity", async () => {
     const r = relay();
     const identity = {
       kind: "user" as const,
@@ -66,27 +61,6 @@ describe("hosted Chief onboarding completion", () => {
     };
     const workspace = r.WORKSPACES.get(r.WORKSPACES.idFromName(snapshot.id));
 
-    const chief: {
-      kind: "agent";
-      agentId: ReturnType<typeof agentIdSchema.parse>;
-      pubkey: string;
-      workspaceId: WorkspaceId;
-      role: "owner" | "admin" | "member";
-    } = {
-      kind: "agent",
-      agentId: agentIdSchema.parse("chief"),
-      pubkey: hexKey("hosted-owner-chief"),
-      workspaceId: snapshot.id,
-      role: "owner",
-    };
-    const delegation = await performChiefDelegation({
-      relay: r,
-      workspace,
-      workspaceId: snapshot.id,
-      chief,
-    });
-
-    // The hosted cell (no agentPubkey) presents the "0"*64 fallback pubkey.
     const hostedPrincipal = {
       kind: "agent" as const,
       agentId: agentIdSchema.parse("chief"),
@@ -100,28 +74,40 @@ describe("hosted Chief onboarding completion", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-chief-internal-operation": "complete-onboarding",
+            "x-chief-internal-operation": "finish-setup",
           },
-          body: JSON.stringify({
-            openingMessage: delegation.openingMessage,
-            publishedMessage: {
-              conversationId: "mission-control",
-              body: delegation.openingMessage,
-              components: [],
-            },
-          }),
+          body: "{}",
         }),
         {
           principal: hostedPrincipal,
           requestId: crypto.randomUUID(),
           workspaceId: snapshot.id,
-          conversationId: "mission-control",
         },
       ),
     );
 
-    // The hosted identity must be able to finalize onboarding (this is the path
-    // a cloud workspace actually uses). The current key check rejects it.
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
+    const finished = await workspace.fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "finish-setup",
+          },
+          body: "{}",
+        }),
+        {
+          principal: { ...identity, workspaceId: snapshot.id, role: "owner" },
+          requestId: crypto.randomUUID(),
+          workspaceId: snapshot.id,
+        },
+      ),
+    );
+    expect(finished.status, await finished.clone().text()).toBe(200);
+    expect(await finished.json()).toMatchObject({
+      setupComplete: true,
+      onboardingComplete: true,
+    });
   });
 });

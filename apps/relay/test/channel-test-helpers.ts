@@ -272,7 +272,7 @@ export async function appendConversationMessage(
 }
 
 export async function appendRootMessage(ctx: ChannelTestContext) {
-  return appendConversationMessage(ctx, "mission-control", "Thread root");
+  return appendConversationMessage(ctx, "general", "Thread root");
 }
 
 export function channelEnvelope(payload: JsonObject) {

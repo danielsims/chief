@@ -258,7 +258,7 @@ describe("channel authorization", () => {
           agent,
           "authorize-conversation",
           undefined,
-          "conversationId=mission-control",
+          "conversationId=general",
           "messages.read",
         )
       ).status,
@@ -270,7 +270,7 @@ describe("channel authorization", () => {
           agent,
           "authorize-conversation",
           undefined,
-          "conversationId=mission-control",
+          "conversationId=general",
           "messages.send",
         )
       ).status,
