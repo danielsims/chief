@@ -75,13 +75,9 @@ function connectors(plugins: readonly AgentPluginSummary[] | undefined) {
 function PluginRow({
   plugin,
   children,
-  onClick,
-  selected,
 }: {
   plugin: AgentPluginSummary;
   children?: ReactNode;
-  onClick?: () => void;
-  selected?: boolean;
 }) {
   const body = (
     <>
@@ -100,36 +96,51 @@ function PluginRow({
       </span>
     </>
   );
-  if (onClick)
-    return (
-      <button
-        type="button"
-        aria-pressed={selected}
-        onClick={onClick}
-        className={cn(
-          "hover:bg-accent/40 focus-visible:ring-ring/40 flex w-full min-w-0 cursor-pointer items-center gap-3.5 rounded-xl px-2 py-2.5 text-left transition-colors outline-none focus-visible:ring-2",
-          selected && "bg-accent/60 hover:bg-accent/60",
-        )}
-      >
-        {body}
-        <span
-          className={cn(
-            "grid size-5 shrink-0 place-items-center rounded-full border transition-colors",
-            selected
-              ? "border-foreground bg-foreground text-background"
-              : "border-border",
-          )}
-          aria-hidden="true"
-        >
-          {selected ? <Check size={12} strokeWidth={3} /> : null}
-        </span>
-      </button>
-    );
   return (
     <div className="flex min-w-0 items-center gap-3.5 px-2 py-2.5">
       {body}
       <div className="shrink-0">{children}</div>
     </div>
+  );
+}
+
+/** A logo and name to pick, two to a row like the Plugins page. */
+function AppChoice({
+  plugin,
+  selected,
+  onClick,
+}: {
+  plugin: AgentPluginSummary;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={cn(
+        "bg-background hover:border-foreground/40 focus-visible:ring-ring/40 flex h-14 min-w-0 cursor-pointer items-center gap-3 rounded-xl border px-3 text-left transition-colors outline-none focus-visible:ring-2",
+        selected && "border-foreground bg-accent/50 hover:border-foreground",
+      )}
+    >
+      <ProviderLogo
+        domain={pluginDomain(plugin)}
+        label={plugin.name}
+        className="size-8 shrink-0 rounded-[10px]"
+      />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {plugin.name}
+      </span>
+      {selected ? (
+        <span
+          className="bg-foreground text-background grid size-4.5 shrink-0 place-items-center rounded-full"
+          aria-hidden="true"
+        >
+          <Check size={11} strokeWidth={3} />
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -218,15 +229,17 @@ export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       ) : !source ? (
         <Loading label="Loading apps" height={APP_LIST_HEIGHT} />
       ) : (
-        <div className="ob-app-list flex flex-col gap-1.5" aria-label="Apps">
-          {shown.map((plugin) => (
-            <PluginRow
-              key={plugin.id}
-              plugin={plugin}
-              selected={selected.has(pluginDomain(plugin))}
-              onClick={() => toggle(pluginDomain(plugin))}
-            />
-          ))}
+        <div className="ob-app-list" aria-label="Apps">
+          <div className="grid grid-cols-2 gap-2">
+            {shown.map((plugin) => (
+              <AppChoice
+                key={plugin.id}
+                plugin={plugin}
+                selected={selected.has(pluginDomain(plugin))}
+                onClick={() => toggle(pluginDomain(plugin))}
+              />
+            ))}
+          </div>
           {shown.length === 0 ? (
             <p className="ob-empty">No apps match that search.</p>
           ) : null}
