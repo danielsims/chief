@@ -472,5 +472,56 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       .find((channel) => channel.id === "marketing")
       ?.userIds.includes("workspace-owner"),
   );
+  // The roster can know a channel before the initial workspace snapshot does.
+  // Its messages must reach unread counts and notifications without opening it.
+  const liveMessages: ServerMessage[] = [];
+  client.subscribe((message) => {
+    if (message.type === "channelEvent") liveMessages.push(message);
+  });
+  const reply = conversationEventSchema.parse({
+    eventId: crypto.randomUUID(),
+    sequence: 2,
+    protocolVersion: 1,
+    workspaceId: snapshot.id,
+    streamId: "conversation:marketing",
+    type: "conversation.message.appended",
+    actor: {
+      kind: "agent",
+      agentId: "chief",
+      pubkey: "a".repeat(64),
+      workspaceId: snapshot.id,
+      role: "member",
+    },
+    occurredAt: "2026-08-22T00:02:00.000Z",
+    payload: {
+      message: {
+        id: crypto.randomUUID(),
+        workspaceId: snapshot.id,
+        conversationId: "marketing",
+        body: "Your update is ready.",
+        author: { kind: "agent", id: "chief" },
+        createdAt: "2026-08-22T00:02:00.000Z",
+        sequence: 2,
+        mentions: [],
+        components: [],
+        reactions: [],
+        edited: false,
+        deleted: false,
+      },
+    },
+  });
+  onEvent(reply);
+  assert.equal(liveMessages.length, 1);
+  assert.equal(liveMessages[0]?.type, "channelEvent");
+  assert.equal(liveMessages[0].event.content, "Your update is ready.");
+  onEvent(
+    conversationEventSchema.parse({
+      ...reply,
+      payload: {
+        message: { ...reply.payload.message, conversationId: "unsubscribed" },
+      },
+    }),
+  );
+  assert.equal(liveMessages.length, 1);
   client.destroy();
 });

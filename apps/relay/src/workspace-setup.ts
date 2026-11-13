@@ -134,7 +134,7 @@ export async function completeWorkspaceSetup(
     agentId: "chief",
     body: opener,
     seed: "setup:chief",
-    occurredAt: snapshot.createdAt,
+    occurredAt: now,
   });
   await startWelcomeKickoff(env, context, snapshot, welcome, tasks);
   const completed = workspaceSnapshotSchema.parse({

@@ -191,7 +191,7 @@ export async function startWelcomeKickoff(
       agentId: "chief",
       body: task.ask,
       seed: `kickoff:${task.agentId}`,
-      occurredAt: snapshot.createdAt,
+      occurredAt: new Date().toISOString(),
       mentions: [task.agentId],
     });
     const jobId = await deterministicUuid(
