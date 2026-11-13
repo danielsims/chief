@@ -1,3 +1,5 @@
+import { createContext } from "react";
+
 import type {
   AgentDefinition,
   AgentPreference,
@@ -44,3 +46,10 @@ export interface RuntimeContextValue {
   takeBrowserControl: (browserRunId: string) => void;
   closeBrowser: (browserRunId: string) => void;
 }
+
+/**
+ * Lives here, apart from the provider, so the context keeps its identity when
+ * hot reload re-runs the provider module. A fresh context would leave mounted
+ * consumers reading a provider that no longer matches.
+ */
+export const RuntimeContext = createContext<RuntimeContextValue | null>(null);
