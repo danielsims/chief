@@ -96,6 +96,7 @@ export class WorkspaceAgentAccessService {
       role: input.role,
       description: input.description,
       instructions: input.instructions,
+      connectionKind: input.connectionKind,
       status: "idle",
       runtime: { kind: "native-cell" },
     });

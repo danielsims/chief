@@ -65,6 +65,9 @@ export function AgentExecutionCard({
     hasEveDeploymentDraft(eveDraftScope(relayClient?.workspaceId, agent.id)),
   );
   const agentName = agent.name;
+  // An invited agent runs on this device as the provider it joined as; only
+  // its model is a choice.
+  const locked = agent.connectionKind === "owned";
   const nativeDeployment: NativeDeployment | null =
     execution.deployment.kind === "vercel-eve" ? null : execution.deployment;
   const configured =
@@ -134,7 +137,7 @@ export function AgentExecutionCard({
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={deployingToEve ? "vercel-eve" : selectedDeployment.kind}
-            disabled={!ready}
+            disabled={!ready || locked}
             onValueChange={(value) => {
               if (value === "vercel-eve") {
                 setDraft(null);
@@ -209,7 +212,7 @@ export function AgentExecutionCard({
           {!deployingToEve ? (
             <Select
               value={selectedProvider ?? undefined}
-              disabled={!ready}
+              disabled={!ready || locked}
               onValueChange={(value) => {
                 if (!isProvider(value)) return;
                 setDraft({

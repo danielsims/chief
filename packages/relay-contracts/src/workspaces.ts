@@ -432,6 +432,8 @@ export const createNativeAgentCommandSchema = z
     role: z.string().trim().min(1).max(120),
     description: z.string().trim().min(1).max(1_000),
     instructions: z.string().trim().min(1).max(40_000),
+    /** Joined by invite: it keeps the provider it joined as. */
+    connectionKind: z.literal("owned").optional(),
   })
   .strict();
 

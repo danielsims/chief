@@ -327,6 +327,8 @@ export interface AgentProfile {
   avatar?: AgentAvatar;
   /** The inference provider a Chief-run agent uses. */
   provider?: string;
+  /** Joined by invite, so its provider stays the one it joined as. */
+  connectionKind?: "owned";
 }
 
 export interface AgentDefinition extends AgentProfile {
