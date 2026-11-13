@@ -265,25 +265,6 @@ export type AgentToolPermission =
 
 export type AgentApprovalMode = "auto" | "ask";
 
-export const workspaceOperatingModes = [
-  "mission-control",
-  "channels",
-  "calm",
-] as const;
-
-export type WorkspaceOperatingMode = (typeof workspaceOperatingModes)[number];
-
-/**
- * A lightweight preference that shapes how agents compose Chief's existing
- * channels, threads, schedules and notifications. It is guidance, not a new
- * permission or workflow protocol.
- */
-export interface WorkspaceWaysOfWorking {
-  mode: WorkspaceOperatingMode;
-  missionControlChannelId: string;
-  updatedAt: number;
-}
-
 export type AgentCapabilityId =
   | "analytics-chart"
   | "trend-memory"

@@ -169,8 +169,8 @@ export function CompletionControl({
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            Your workspace is ready. Chief will meet you in mission control and
-            bring Setup in when needed.
+            Your workspace is ready. Chief will meet you in your Welcome
+            channel.
           </p>
           <Button
             type="button"

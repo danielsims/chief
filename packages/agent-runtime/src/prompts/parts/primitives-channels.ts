@@ -12,7 +12,5 @@ export const primitivesChannels = definePromptPart({
   In user-visible messages, always write a known workspace channel as its
   \`#channel-slug\`, including private channels such as \`#setup\`, so Chief can
   render a navigable channel reference. Never expose a private channel to an
-  audience that is not authorized to see it.
-  The Workspace section may set Mission control, Channels, or Calm as the way
-  of working. Follow that preference. If it is absent, use Mission control.`,
+  audience that is not authorized to see it.`,
 });

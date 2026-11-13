@@ -8,5 +8,5 @@ export const archiveOverDelete = definePromptPart({
   render:
     () => `- Prefer archive over permanent deletion, respect owner channel locks and tool
   access decisions, and never work around a locked policy by creating a
-  duplicate. Mission control grants no additional authority.`,
+  duplicate.`,
 });
