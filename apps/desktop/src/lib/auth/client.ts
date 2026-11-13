@@ -162,6 +162,9 @@ async function handleDeepLink(
       return;
     }
 
+    // Pages outside Chief link here only to bring Chief back to the front.
+    if (parsedUrl.hostname === "open") return;
+
     const navigationTarget = parseChiefDeepLink(url);
     if (navigationTarget) {
       dispatchChiefNavigation(navigationTarget);

@@ -27,18 +27,25 @@ enum ChannelView: Hashable {
 enum ChannelTabStore {
   private static let limit = 24
 
-  static func tabs(_ channelID: String) -> [ChannelTab] {
-    guard let data = UserDefaults.standard.data(forKey: key(channelID)) else { return [] }
+  static func tabs(_ channelID: String, workspaceID: String?) -> [ChannelTab] {
+    guard let data = UserDefaults.standard.data(forKey: key(channelID, workspaceID)) else {
+      return []
+    }
     return (try? JSONDecoder().decode([ChannelTab].self, from: data)) ?? []
   }
 
-  static func save(_ tabs: [ChannelTab], for channelID: String) {
-    guard !tabs.isEmpty else { return UserDefaults.standard.removeObject(forKey: key(channelID)) }
+  static func save(_ tabs: [ChannelTab], for channelID: String, workspaceID: String?) {
+    let key = key(channelID, workspaceID)
+    guard !tabs.isEmpty else { return UserDefaults.standard.removeObject(forKey: key) }
     let data = try? JSONEncoder().encode(Array(tabs.suffix(limit)))
-    UserDefaults.standard.set(data, forKey: key(channelID))
+    UserDefaults.standard.set(data, forKey: key)
   }
 
-  private static func key(_ channelID: String) -> String { "chief.channel-tabs:\(channelID)" }
+  /// Channel ids such as "general" repeat across workspaces, so tabs are kept
+  /// per workspace as well as per channel.
+  private static func key(_ channelID: String, _ workspaceID: String?) -> String {
+    "chief.channel-tabs:\(workspaceID ?? ""):\(channelID)"
+  }
 }
 
 /// The channel's views as small text tabs under its header, the active one

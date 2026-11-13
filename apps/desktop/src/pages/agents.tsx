@@ -89,8 +89,9 @@ export function AgentsPage() {
     driver: DriverType,
     model?: string,
   ) => {
+    if (!selectedAgent) return;
     for (const preference of executionPreferencesForTeam(
-      agents,
+      selectedAgent,
       overrides,
       deploymentTarget,
       driver,

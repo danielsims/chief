@@ -72,6 +72,20 @@ on this hostname.
 https://your-chief-host.example/api/auth/callback/apple
 ```
 
+## GitHub plugin
+
+Optional. Register a GitHub OAuth app (GitHub → Settings → Developer settings
+→ OAuth Apps) with this callback URL, leaving wildcard matching and device
+flow off:
+
+```text
+https://your-chief-host.example/mcp/oauth/callback
+```
+
+Set `CHIEF_GITHUB_OAUTH_CLIENT_ID` in `.env` and write the client secret to
+`secrets/github_oauth_client_secret`. Without it, an admin registers their
+own app the first time they install GitHub.
+
 ## Public TLS
 
 For a directly reachable server, set `CHIEF_SITE_ADDRESS` to the hostname and

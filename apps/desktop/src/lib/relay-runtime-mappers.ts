@@ -189,6 +189,7 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
         : undefined),
       ...(channelAction ? { channelAction } : undefined),
       ...(scheduledRun ? { scheduledRun } : undefined),
+      ...runErrorMetadata(message),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -300,6 +301,21 @@ export function directAgentId(
     (candidate) => candidate.id === conversationId,
   );
   return conversation?.directAgentId;
+}
+
+function runErrorMetadata(message: ConversationMessage) {
+  const error = message.components.find(
+    (component) => component.kind === "error",
+  );
+  if (!error || !isJsonString(error.payload.message)) return undefined;
+  return {
+    runError: {
+      title: isJsonString(error.payload.title)
+        ? error.payload.title
+        : "Run stopped",
+      message: error.payload.message,
+    },
+  };
 }
 
 function messageComponentParts(

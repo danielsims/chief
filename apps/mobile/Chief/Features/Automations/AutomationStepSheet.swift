@@ -279,10 +279,8 @@ struct AutomationStepSheet: View {
           AutomationJSONBlock(text: input.prettyPrinted)
         }
         if let text = node.output?.agentText ?? (node.output == nil ? evidence : nil) {
-          Text(text)
-            .font(.system(size: 14))
+          MarkdownMessageBody(source: text, channelNames: [])
             .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
         } else if let output = node.output {
           AutomationJSONBlock(text: output.prettyPrinted + (node.truncated == true ? "\n…" : ""))
         }

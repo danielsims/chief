@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /*
  * Chief design tokens.
@@ -105,6 +106,7 @@
 
   --font-sans: "Geist Variable", system-ui, sans-serif;
   --font-mono: "Geist Variable", monospace;
+  --font-code: "Geist Mono Variable", ui-monospace, monospace;
 
   --radius: 0.625rem;
   --animate-marquee: marquee 36s linear infinite;

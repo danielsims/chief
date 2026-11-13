@@ -1,13 +1,6 @@
 import { spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -20,6 +13,7 @@ import {
 } from "@chief/relay-contracts";
 
 import type { DriverType, ProviderModelOption } from "./types.js";
+import { ensureCodexBinary } from "./drivers/codex-install.js";
 
 const moduleDirectory = import.meta.dirname;
 
@@ -223,140 +217,157 @@ function commandModels(
 
 function codexModels(): Promise<ProviderModelOption[]> {
   if (codexModelsInFlight) return codexModelsInFlight;
-  const discovery = new Promise<ProviderModelOption[]>((resolve, reject) => {
-    const codexHome = mkdtempSync(join(tmpdir(), "chief-codex-models-"));
-    const child = spawn(binary("codex"), ["app-server"], {
-      cwd: homedir(),
-      env: { ...process.env, CODEX_HOME: codexHome },
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: true,
-    });
-    let buffer = "";
-    let nextId = 0;
-    let settled = false;
-    let stderr = "";
-    const pending = new Map<
-      number,
-      {
-        resolve: (value: JsonValue | undefined) => void;
-        reject: (error: Error) => void;
-      }
-    >();
-    const stop = () => {
-      child.stdin.end();
-      if (!child.pid) return;
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {
-        child.kill("SIGTERM");
-      }
-    };
-    const finish = (
-      outcome: { models: ProviderModelOption[] } | { error: Error },
-    ) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      for (const request of pending.values()) {
-        request.reject(
-          "error" in outcome
-            ? outcome.error
-            : new Error("Model discovery stopped."),
-        );
-      }
-      pending.clear();
-      stop();
-      if ("error" in outcome) reject(outcome.error);
-      else resolve(outcome.models);
-    };
-    const timeout = setTimeout(
-      () => finish({ error: new Error("Model discovery timed out.") }),
-      15_000,
-    );
-    timeout.unref();
-    child.on("error", (error) => finish({ error }));
-    child.on("exit", (code) => {
-      rmSync(codexHome, { recursive: true, force: true });
-      if (!settled) {
-        finish({
-          error: new Error(
-            stderr.trim() || `Codex model discovery exited ${code}.`,
-          ),
+  // The same Codex agents run on, so the list is exactly what they can use.
+  const discovery = ensureCodexBinary().then(
+    (codexBinary) =>
+      new Promise<ProviderModelOption[]>((resolve, reject) => {
+        // The person's own Codex profile, so the list is what their ChatGPT
+        // account can use. Listing models doesn't change anything in it.
+        const child = spawn(codexBinary, ["app-server"], {
+          cwd: homedir(),
+          env: process.env,
+          stdio: ["pipe", "pipe", "pipe"],
+          detached: true,
         });
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr = `${stderr}${String(chunk)}`.slice(-2_000);
-    });
-    child.stdout.on("data", (chunk) => {
-      buffer += String(chunk);
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        try {
-          const parsed: unknown = JSON.parse(line);
-          const message = parseJsonObject(parsed);
-          if (!message) continue;
-          const id = isJsonNumber(message.id) ? message.id : undefined;
-          if (id === undefined) continue;
-          const request = pending.get(id);
-          if (!request) continue;
-          pending.delete(id);
-          const rpcError = parseJsonObject(message.error);
-          if (rpcError) {
-            request.reject(
-              new Error(
-                isJsonString(rpcError.message) ? rpcError.message : "RPC error",
-              ),
-            );
-          } else {
-            request.resolve(message.result);
+        let buffer = "";
+        let nextId = 0;
+        let settled = false;
+        let stderr = "";
+        const pending = new Map<
+          number,
+          {
+            resolve: (value: JsonValue | undefined) => void;
+            reject: (error: Error) => void;
           }
-        } catch {
-          // Ignore diagnostics written to stdout.
-        }
-      }
-    });
-    const request = (method: string, params: JsonObject = {}) =>
-      new Promise<JsonValue | undefined>((done, fail) => {
-        const id = ++nextId;
-        pending.set(id, { resolve: done, reject: fail });
-        child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
-      });
-    void (async () => {
-      try {
-        await request("initialize", {
-          clientInfo: { name: "chief", version: "0.1.0" },
-          capabilities: null,
-        });
-        child.stdin.write(
-          `${JSON.stringify({ method: "initialized", params: {} })}\n`,
+        >();
+        const stop = () => {
+          child.stdin.end();
+          if (!child.pid) return;
+          try {
+            process.kill(-child.pid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
+          }
+        };
+        const finish = (
+          outcome: { models: ProviderModelOption[] } | { error: Error },
+        ) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          for (const request of pending.values()) {
+            request.reject(
+              "error" in outcome
+                ? outcome.error
+                : new Error("Model discovery stopped."),
+            );
+          }
+          pending.clear();
+          stop();
+          if ("error" in outcome) reject(outcome.error);
+          else resolve(outcome.models);
+        };
+        const timeout = setTimeout(
+          () => finish({ error: new Error("Model discovery timed out.") }),
+          15_000,
         );
-        const result = parseJsonObject(await request("model/list", {}));
-        const data = result ? parseJsonObject(result.data) : undefined;
-        const candidates = [result, data, result?.models, data?.models];
-        const values = candidates
-          .flatMap((candidate) => (Array.isArray(candidate) ? candidate : []))
-          .flatMap((record) => {
-            if (isJsonString(record)) return [record];
-            if (!record || !isJsonObject(record)) return [];
-            const value =
-              record.model ?? record.id ?? record.name ?? record.slug;
-            return isJsonString(value) ? [value] : [];
+        timeout.unref();
+        child.on("error", (error) => finish({ error }));
+        child.on("exit", (code) => {
+          if (!settled) {
+            finish({
+              error: new Error(
+                stderr.trim() || `Codex model discovery exited ${code}.`,
+              ),
+            });
+          }
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr = `${stderr}${String(chunk)}`.slice(-2_000);
+        });
+        child.stdout.on("data", (chunk) => {
+          buffer += String(chunk);
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            try {
+              const parsed: unknown = JSON.parse(line);
+              const message = parseJsonObject(parsed);
+              if (!message) continue;
+              const id = isJsonNumber(message.id) ? message.id : undefined;
+              if (id === undefined) continue;
+              const request = pending.get(id);
+              if (!request) continue;
+              pending.delete(id);
+              const rpcError = parseJsonObject(message.error);
+              if (rpcError) {
+                request.reject(
+                  new Error(
+                    isJsonString(rpcError.message)
+                      ? rpcError.message
+                      : "RPC error",
+                  ),
+                );
+              } else {
+                request.resolve(message.result);
+              }
+            } catch {
+              // Ignore diagnostics written to stdout.
+            }
+          }
+        });
+        const request = (method: string, params: JsonObject = {}) =>
+          new Promise<JsonValue | undefined>((done, fail) => {
+            const id = ++nextId;
+            pending.set(id, { resolve: done, reject: fail });
+            child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
           });
-        finish({
-          models: [...new Set(values)].map((value) => ({
-            value,
-            label: label(value),
-          })),
-        });
-      } catch (error) {
-        finish({
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
-      }
-    })();
-  });
+        void (async () => {
+          try {
+            await request("initialize", {
+              clientInfo: { name: "chief", version: "0.1.0" },
+              capabilities: null,
+            });
+            child.stdin.write(
+              `${JSON.stringify({ method: "initialized", params: {} })}\n`,
+            );
+            const result = parseJsonObject(await request("model/list", {}));
+            // Codex answers `{ data: [{ id, displayName, description, hidden }] }`.
+            const records = [result?.data, result?.models].flatMap(
+              (candidate) => (Array.isArray(candidate) ? candidate : []),
+            );
+            const models = records.flatMap((record): ProviderModelOption[] => {
+              if (isJsonString(record))
+                return [{ value: record, label: label(record) }];
+              if (!record || !isJsonObject(record) || record.hidden === true)
+                return [];
+              const value = record.model ?? record.id ?? record.slug;
+              if (!isJsonString(value)) return [];
+              const option: ProviderModelOption = {
+                value,
+                label: isJsonString(record.displayName)
+                  ? record.displayName
+                  : label(value),
+              };
+              if (isJsonString(record.description))
+                option.description = record.description;
+              return [option];
+            });
+            finish({
+              models: models.filter(
+                (model, index) =>
+                  models.findIndex((other) => other.value === model.value) ===
+                  index,
+              ),
+            });
+          } catch (error) {
+            finish({
+              error: error instanceof Error ? error : new Error(String(error)),
+            });
+          }
+        })();
+      }),
+  );
   codexModelsInFlight = discovery.finally(() => {
     codexModelsInFlight = undefined;
   });

@@ -1,11 +1,105 @@
 import { useState } from "react";
+import { z } from "zod";
 
 import { cn } from "@chief/ui/lib/utils";
 
 import { integrationLogoUrl } from "../lib/integrations";
+import { readLocalCache, writeLocalCache } from "../lib/local-cache";
 import { GoogleLogo } from "./google-logo";
 
-const lightBackingCache = new Map<string, boolean>();
+interface Backing {
+  /** How far to enlarge a round or framed logo so it fills its tile. */
+  scale: number;
+  light: boolean;
+}
+
+const backingSchema = z.object({ scale: z.number(), light: z.boolean() });
+const backingStorageKey = "chief:logo-backing";
+// Measured once per domain and kept, so a logo never jumps after it loads.
+const backingCache = new Map<string, Backing>(
+  Object.entries(
+    readLocalCache(backingStorageKey, z.record(z.string(), backingSchema)) ??
+      {},
+  ),
+);
+
+function rememberBacking(domain: string, backing: Backing) {
+  backingCache.set(domain, backing);
+  writeLocalCache(backingStorageKey, Object.fromEntries(backingCache));
+}
+
+/**
+ * Some logos are a disc or a framed square inside a transparent canvas, such
+ * as a coloured circle or a tile with its own thin outline. Measured from the
+ * pixels alone, this is how much to enlarge one so its shape covers the
+ * rounded tile and any outline falls outside it. Bare marks stay at 1.
+ */
+function coverScale(image: HTMLImageElement) {
+  const size = 64;
+  const middle = size / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return 1;
+  context.drawImage(image, 0, 0, size, size);
+  const pixels = context.getImageData(0, 0, size, size).data;
+  const at = (x: number, y: number) => {
+    const index = (y * size + x) * 4;
+    return [0, 1, 2, 3].map((offset) => pixels[index + offset] ?? 0);
+  };
+  const alpha = (x: number, y: number) => at(x, y)[3] ?? 0;
+  const last = size - 1;
+  if (
+    [alpha(0, 0), alpha(last, 0), alpha(0, last), alpha(last, last)].some(
+      (value) => value >= 32,
+    )
+  )
+    return 1;
+  const inset = (x: number, y: number, stepX: number, stepY: number) => {
+    let step = 0;
+    while (step < middle && alpha(x + stepX * step, y + stepY * step) < 128)
+      step += 1;
+    return step;
+  };
+  const sides: [number, number, number, number][] = [
+    [middle, 0, 0, 1],
+    [middle, last, 0, -1],
+    [0, middle, 1, 0],
+    [last, middle, -1, 0],
+  ];
+  const edges = sides.map(([x, y, stepX, stepY]) => inset(x, y, stepX, stepY));
+  // A bare mark doesn't reach the edges, so it isn't a shape to fill.
+  if (Math.max(...edges) > 3) return 1;
+  const frames = sides.map(([x, y, stepX, stepY], side) => {
+    const start = edges[side] ?? 0;
+    const rim = at(x + stepX * start, y + stepY * start);
+    let width = 0;
+    while (
+      width < 8 &&
+      at(x + stepX * (start + width), y + stepY * (start + width))
+        .slice(0, 3)
+        .every((value, channel) => Math.abs(value - (rim[channel] ?? 0)) <= 48)
+    )
+      width += 1;
+    return width <= 5 ? width : 0;
+  });
+  const corners = [
+    inset(0, 0, 1, 1),
+    inset(last, 0, -1, 1),
+    inset(0, last, 1, -1),
+    inset(last, last, -1, -1),
+  ];
+  const edge = Math.max(...edges);
+  let scale = Math.max(
+    // The tile's own rounding hides a little of each corner.
+    (middle - 0.05 * size) / (middle - Math.max(...corners)),
+    middle / (middle - edge),
+  );
+  if (Math.min(...frames) > 0)
+    scale = Math.max(scale, middle / (middle - edge - Math.max(...frames) - 1));
+  return Math.min(scale, 1.5);
+}
 
 function needsLightBacking(image: HTMLImageElement) {
   const canvas = document.createElement("canvas");
@@ -60,8 +154,8 @@ function ProviderLogoImage({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  const [lightBacking, setLightBacking] = useState(
-    () => lightBackingCache.get(domain) ?? false,
+  const [backing, setBacking] = useState<Backing | undefined>(() =>
+    backingCache.get(domain),
   );
   const isGoogle =
     domain === "google.com" ||
@@ -74,7 +168,7 @@ function ProviderLogoImage({
     <span
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white",
-        !isGoogle && !lightBacking && "bg-transparent",
+        !isGoogle && !backing?.light && "bg-transparent",
         failed && "bg-muted",
         className,
       )}
@@ -88,16 +182,29 @@ function ProviderLogoImage({
           src={integrationLogoUrl(domain)}
           alt=""
           crossOrigin="anonymous"
-          className="h-full w-full object-contain"
+          className={cn(
+            "h-full w-full object-contain",
+            // Shown once measured, at its final size.
+            !backing && "opacity-0",
+          )}
+          style={
+            backing && backing.scale > 1
+              ? { transform: `scale(${backing.scale})` }
+              : undefined
+          }
           onLoad={(event) => {
+            let next: Backing;
             try {
-              const next = needsLightBacking(event.currentTarget);
-              lightBackingCache.set(domain, next);
-              setLightBacking(next);
+              const scale = coverScale(event.currentTarget);
+              next = {
+                scale,
+                light: scale === 1 && needsLightBacking(event.currentTarget),
+              };
             } catch {
-              lightBackingCache.set(domain, true);
-              setLightBacking(true);
+              next = { scale: 1, light: true };
             }
+            rememberBacking(domain, next);
+            setBacking(next);
           }}
           onError={() => setFailed(true)}
         />

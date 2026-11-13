@@ -338,3 +338,23 @@ export type AgentCellSnapshot = z.infer<typeof agentCellSnapshotSchema>;
 
 export type AgentJob = z.infer<typeof agentJobSchema>;
 export type AgentLease = z.infer<typeof agentLeaseSchema>;
+
+/** Models a computer's local providers offer, published so phones can list them. */
+export const localProviderSchema = z.enum(["codex", "claude"]);
+export const localProviderModelsSchema = z.object({
+  models: z
+    .array(
+      z.object({
+        value: z
+          .string()
+          .min(1)
+          .max(200)
+          .regex(/^[\w.:/@[\]-]+$/u),
+        label: z.string().min(1).max(200),
+        description: z.string().max(500).optional(),
+      }),
+    )
+    .max(200),
+  publishedAt: z.number().optional(),
+});
+export type LocalProviderModels = z.infer<typeof localProviderModelsSchema>;

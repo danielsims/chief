@@ -92,20 +92,36 @@ struct AutomationRunState: Codable, Equatable, Sendable {
   let nodes: [String: AutomationNodeState]
 }
 
-/// A workspace plugin (`mcpConnectionSchema`), as much as automations show.
+/// A workspace plugin (`mcpConnectionSchema`). Its credentials stay in the relay.
 struct WorkspacePluginConnection: Decodable, Identifiable, Sendable {
   struct Tool: Decodable, Sendable {
     let name: String
     var title: String?
     var description: String?
+    var inputSchema: JSONValue?
     let readOnly: Bool
+  }
+
+  /// How it signs in: "none", "oauth" or "headers".
+  struct Auth: Decodable, Sendable {
+    let kind: String
+    var headerNames: [String]?
   }
 
   let id: String
   let name: String
+  var url: String?
   var domain: String?
+  var catalogId: String?
+  var auth: Auth?
+  /// "needs_auth", "connected" or "error".
   let status: String
+  var error: String?
   var tools: [Tool]?
+
+  /// The catalog plugin it was added from, else its own id. Desktop's `connectionKey`.
+  var pluginKey: String { catalogId ?? id }
+  var isConnected: Bool { status == "connected" }
 
   /// Desktop's `ProviderLogo` source: the canonical logo for the domain.
   var logoURL: URL? { domain.flatMap { URL(string: "https://integrations.sh/logo/\($0)") } }

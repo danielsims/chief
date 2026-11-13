@@ -46,6 +46,15 @@ const provisioningSchema = z
 
 export type EveProvisioningDraft = z.infer<typeof provisioningSchema>;
 
+/**
+ * Drafts are per workspace as well as per agent: built-in agents such as
+ * "chief" share an id in every workspace.
+ */
+export const eveDraftScope = (
+  workspaceId: string | null | undefined,
+  agentId: string,
+) => `${workspaceId ?? ""}:${agentId}`;
+
 const draftKey = (agentId: string) => `chief:eve-deployment:${agentId}`;
 const provisioningKey = (agentId: string) =>
   `chief:eve-provisioning:${agentId}`;

@@ -351,12 +351,12 @@ actor ChiefAgentHost: ChiefAgentHosting {
     var definitions = RelayToolRegistry.openAIDefinitions(
       allowing: grant.toolNames
     )
-    if grant.permits(toolName: PluginsListTool.name) {
-      let pluginTools = await MobilePluginRuntime.shared.toolDefinitions(workspaceID: workspaceID)
-      definitions.append(
-        contentsOf: pluginTools.map { $0.openCodeDefinition() }
-      )
-    }
+    let pluginTools = await RelayPluginTools.load(
+      workspaceID: workspaceID,
+      assigned: config.integrations,
+      relay: relay
+    )
+    definitions.append(contentsOf: pluginTools.definitions)
     let context = ToolContext(
       relay: relay,
       identity: identity,
@@ -445,6 +445,7 @@ actor ChiefAgentHost: ChiefAgentHosting {
             call,
             convoy: &convoy,
             context: context,
+            pluginTools: pluginTools.router,
             checkpoint: checkpoint,
             completedToolNames: completedToolNames,
             releasePrerequisites: requiredTools.intersection([
@@ -504,6 +505,7 @@ actor ChiefAgentHost: ChiefAgentHosting {
     _ call: OpenCodeResponse.Choice.Message.ToolCall,
     convoy: inout [OpenCodeRequest.Message],
     context: ToolContext,
+    pluginTools: RelayPluginTools.Router,
     checkpoint: AgentTurnCheckpoint,
     completedToolNames: Set<String>,
     releasePrerequisites: Set<String>,
@@ -572,13 +574,13 @@ actor ChiefAgentHost: ChiefAgentHosting {
         )
       }
       let output: String
-      if context.grant.permits(toolName: PluginsListTool.name),
-        let pluginOutput = try await MobilePluginRuntime.shared.execute(
-          name: call.function.name,
-          argumentsJSON: call.function.arguments,
-          workspaceID: context.workspaceID
-        )
-      {
+      if let pluginOutput = try await pluginTools.execute(
+        name: call.function.name,
+        argumentsJSON: call.function.arguments,
+        workspaceID: context.workspaceID,
+        relay: context.relay,
+        identity: context.identity
+      ) {
         output = pluginOutput
       } else {
         output = try await RelayToolRegistry.execute(

@@ -29,6 +29,7 @@ export * from "./automations";
 export * from "./databases";
 
 export * from "./artifacts";
+export * from "./presence";
 export * from "./typing";
 export * from "./pages";
 export * from "./web-machine";

@@ -8,8 +8,10 @@ const sidebarDirectMessagesCacheSchema = z.object({
   people: z.array(
     z.object({
       channelId: z.string(),
+      userId: z.string().optional(),
       name: z.string(),
       image: z.string().optional(),
+      lastMessageAt: z.number().optional(),
     }),
   ),
   /** Latest message time (ms) per entry key: `agent:<id>` or `channel:<id>`. */

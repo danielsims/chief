@@ -119,10 +119,14 @@ export function useChiefChatPresentation({
         : undefined)
     );
   };
-  const controlsForMessage = (message: ChiefUIMessage) => {
+  /** In its own thread panel a message is the root, so it shows no replies line. */
+  const controlsForMessage = (
+    message: ChiefUIMessage,
+    options?: { threadRoot?: boolean },
+  ) => {
     if (!destinationChannelId) return { footer: null };
     const replySummary = summarizeThreadReplies(
-      threadReplies.get(message.id) ?? [],
+      options?.threadRoot ? [] : (threadReplies.get(message.id) ?? []),
     );
     const text = messageBlocks(message)
       .flatMap((part) => (part.type === "text" ? [part.text] : []))

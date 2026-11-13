@@ -112,7 +112,6 @@ export const monitoringOptions = [
 export const fallbackEverydayIntegrations = (
   [
     ["workspace.google.com", "Google Workspace"],
-    ["slack.com", "Slack"],
     ["granola.ai", "Granola"],
     ["notion.com", "Notion"],
     ["github.com", "GitHub"],

@@ -23,6 +23,7 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ChannelView } from "./channel-view-tabs";
 import type { ConversationProfileSelection } from "./conversation-profile";
+import { useWorkspacePresence } from "../../lib/use-workspace-presence";
 import {
   isWorkspaceAgentId,
   workspaceAgentIdentity,
@@ -30,6 +31,7 @@ import {
 import { AgentAvatar } from "../agent-avatar";
 import { AvatarImage } from "../avatar-image";
 import { openChannelDetails } from "../channel-details-events";
+import { WithPresence } from "../presence-dot";
 import { UserAvatar } from "../user-avatar";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
 import { ChannelViewTabs } from "./channel-view-tabs";
@@ -74,6 +76,7 @@ export function ConversationHeader({
   const [actionsOpen, setActionsOpen] = useState(false);
   const channelLinks = useChannelLink(channel.id);
   const workspaceUsers = useWorkspaceUsers();
+  const { userOnline } = useWorkspacePresence();
   const directMember = channel.directUserId
     ? workspaceUsers.get(channel.directUserId)
     : undefined;
@@ -115,11 +118,17 @@ export function ConversationHeader({
               }
               className="focus-visible:ring-ring/30 rounded-[28%] transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
             >
-              <UserAvatar
-                name={directUser.name}
-                image={directUser.image}
-                className="size-6 text-[10px]"
-              />
+              <WithPresence
+                presence={
+                  userOnline(channel.directUserId) ? "online" : "offline"
+                }
+              >
+                <UserAvatar
+                  name={directUser.name}
+                  image={directUser.image}
+                  className="size-6 text-[10px]"
+                />
+              </WithPresence>
             </button>
           ) : channel.visibility === "private" ? (
             <Lock size={17} className="text-muted-foreground shrink-0" />
@@ -277,6 +286,7 @@ function ChannelMembersMenu({
       : [],
   );
   const [open, setOpen] = useState(false);
+  const { agentPresence } = useWorkspacePresence();
   const selectProfile = (selection: ConversationProfileSelection) => {
     setOpen(false);
     onOpenProfile(selection);
@@ -358,7 +368,12 @@ function ChannelMembersMenu({
                 }
                 className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
               >
-                <AgentAvatar label={agent.name} className="size-7" />
+                <WithPresence
+                  presence={agentPresence(agent.id)}
+                  dotClassName="ring-popover"
+                >
+                  <AgentAvatar label={agent.name} className="size-7" />
+                </WithPresence>
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-medium">
                     {agent.name}

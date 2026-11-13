@@ -27,21 +27,22 @@ struct InboxView: View {
       .padding(.horizontal, ChiefTheme.pagePadding)
       .padding(.top, 16)
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if visible.isEmpty {
-            ContentUnavailableView(
-              "You’re caught up", systemImage: "tray",
-              description: Text("New replies, mentions, and work needing your attention will show up here.")
-            )
-            .foregroundStyle(ChiefTheme.secondary)
-          } else {
+        if visible.isEmpty {
+          ContentUnavailableView(
+            "You’re caught up", systemImage: "tray",
+            description: Text("New replies, mentions, and work needing your attention will show up here.")
+          )
+          .foregroundStyle(ChiefTheme.secondary)
+          .containerRelativeFrame(.vertical)
+        } else {
+          LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(visible) { item in
               InboxRow(item: item)
             }
           }
+          .padding(.horizontal, ChiefTheme.pagePadding)
+          .padding(.bottom, ChiefTheme.pagePadding)
         }
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.bottom, ChiefTheme.pagePadding)
       }
     }
     .background(ChiefTheme.background)
@@ -113,8 +114,6 @@ private struct InboxRow: View {
       AgentMark(name: name, id: id, size: 34)
     case .user(let id, let name):
       UserAvatar(user: model.person(userID: id, fallbackName: name), size: 34, rounded: true)
-    case .guest(let guest):
-      GuestAvatar(guest: guest, size: 34)
     case .system:
       AgentMark(name: "Chief", size: 34)
     }
@@ -124,7 +123,6 @@ private struct InboxRow: View {
     switch item.message.author {
     case .agent(_, let name): name
     case .user(let id, let name): model.person(userID: id, fallbackName: name).name
-    case .guest(let guest): guest.name
     case .system: "Chief"
     }
   }

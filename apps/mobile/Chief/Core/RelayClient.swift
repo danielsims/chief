@@ -221,6 +221,28 @@ protocol RelayServing: Sendable {
   func schedules(workspaceID: String) async throws -> [WorkspaceSchedule]
   func schedules(workspaceID: String, from: Double, to: Double) async throws -> [WorkspaceSchedule]
   func pluginConnections(workspaceID: String) async throws -> [WorkspacePluginConnection]
+  func createPluginConnection(
+    workspaceID: String, input: [String: JSONValue]
+  ) async throws -> WorkspacePluginConnection
+  func authorizePluginConnection(
+    workspaceID: String, connectionID: String
+  ) async throws -> PluginAuthorization
+  func configurePluginClient(
+    workspaceID: String, connectionID: String, clientID: String, clientSecret: String?
+  ) async throws -> PluginAuthorization
+  func replacePluginHeaders(
+    workspaceID: String, connectionID: String, headers: [PluginHeader]
+  ) async throws -> WorkspacePluginConnection
+  func deletePluginConnection(workspaceID: String, connectionID: String) async throws
+  func callPluginTool(
+    workspaceID: String, connectionID: String, name: String, arguments: JSONValue,
+    signingIdentity: NostrIdentity
+  ) async throws -> PluginToolCallResult
+  func pluginAgentAccess(workspaceID: String, connectionID: String) async throws -> PluginAgentAccess
+  func pluginCatalogTools(workspaceID: String, domain: String) async throws -> [WorkspacePluginConnection.Tool]
+  func localProviderModels(workspaceID: String, provider: String) async throws -> [ProviderModel]
+  func setPluginAgentAccess(workspaceID: String, connectionID: String, agentIDs: [String], enabled: Bool) async throws -> PluginAgentAccess
+  func pluginOAuthCallbackURL() async -> URL?
   func automationTools(workspaceID: String) async throws -> [AutomationChiefTool]
   func scheduleAction(workspaceID: String, scheduleID: String, action: String, commandID: String) async throws -> WorkspaceSchedule
   func scheduleRunAction(workspaceID: String, scheduleID: String, runID: String, action: String, commandID: String) async throws -> WorkspaceScheduleRun
@@ -1768,10 +1790,15 @@ actor URLSessionRelayClient: RelayServing {
       relayLog.error("\(method) \(path) -> \(http.statusCode): \(detail.prefix(300))")
       print("[Chief] relay \(method) \(path) -> \(http.statusCode): \(detail.prefix(300))")
       if http.statusCode == 401 { throw RelayError.unauthorized }
-      if let envelope = try? decoder.decode(RelayFailureEnvelope.self, from: data),
-        envelope.error.code == "relay_capacity_exhausted"
-      {
+      let envelope = try? decoder.decode(RelayFailureEnvelope.self, from: data)
+      if envelope?.error.code == "relay_capacity_exhausted" {
         throw RelayError.capacity
+      }
+      // Plugin failures carry a message written for people, e.g. a rejected key.
+      if let failure = envelope?.error, failure.code.hasPrefix("plugin_"),
+        let message = failure.message, !message.isEmpty
+      {
+        throw RelayError.plugin(message)
       }
       throw RelayError.httpStatus(http.statusCode)
     }
@@ -1779,6 +1806,12 @@ actor URLSessionRelayClient: RelayServing {
     print("[Chief] relay \(method) \(path) -> \(http.statusCode)")
     if http.statusCode == 204 { throw RelayError.httpStatus(204) }
     return data
+  }
+
+  /// Where providers send people back after signing in; shown when an OAuth
+  /// app must be registered by hand. Desktop's `oauthCallbackUrl`.
+  func pluginOAuthCallbackURL() async -> URL? {
+    URL(string: "/mcp/oauth/callback", relativeTo: configuration.relayURL)?.absoluteURL
   }
 
   private func requireConfiguredRelay(_ relayURL: URL) throws {
@@ -1806,6 +1839,7 @@ enum RelayError: LocalizedError, Equatable {
   case capacity
   case httpStatus(Int)
   case unsupportedRelay
+  case plugin(String)
 
   var errorDescription: String? {
     switch self {
@@ -1823,12 +1857,17 @@ enum RelayError: LocalizedError, Equatable {
       "The relay could not finish workspace setup. Retry in a moment."
     case .httpStatus:
       "The relay rejected workspace setup. Review the setup details and retry."
+    case .plugin(let message):
+      message
     }
   }
 }
 
 private struct RelayFailureEnvelope: Decodable {
-  struct Failure: Decodable { let code: String }
+  struct Failure: Decodable {
+    let code: String
+    var message: String?
+  }
   let error: Failure
 }
 
