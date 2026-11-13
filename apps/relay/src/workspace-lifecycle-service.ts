@@ -30,7 +30,6 @@ import { canMessageAgent } from "./workspace-agent-messaging";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   decodeWorkspaceSnapshot,
-  defaultWorkspaceAgents,
   reconcileWorkspaceAgents,
   workspaceAgentProfiles,
 } from "./workspace-defaults";
@@ -45,6 +44,7 @@ import {
   workspaceInference,
 } from "./workspace-lifecycle-support";
 import { WorkspaceLiveStore } from "./workspace-live-store";
+import { onboardingRoster } from "./workspace-onboarding-roster";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface AgentKeyRow extends Record<string, SqlStorageValue> {
@@ -146,7 +146,19 @@ export class WorkspaceLifecycleService {
       this.storage,
       this.env.RELAY_SECRET_KEY,
     );
-    const inference = workspaceInference(provision.workspace.inferenceProvider);
+    const inference =
+      input.runtime === "desktop"
+        ? {
+            provider:
+              input.localProvider === "claude"
+                ? ("claude" as const)
+                : input.localProvider === "codex"
+                  ? ("codex" as const)
+                  : ("opencode" as const),
+            model: "auto",
+            secretRef: "opencode",
+          }
+        : workspaceInference(provision.workspace.inferenceProvider);
     const credential =
       inference.provider === "vercel-ai-gateway"
         ? provision.secrets.vercelAiGateway
@@ -163,6 +175,10 @@ export class WorkspaceLifecycleService {
       id: context.workspaceId,
       name: input.name,
       website: input.website,
+      slug: input.slug,
+      purpose: input.purpose,
+      companyName: input.companyName,
+      setupComplete: input.deferOnboarding ? false : undefined,
       selectedApps: input.selectedApps,
       runtime: input.agentRuntime === "relay-cell" ? input.runtime : null,
       imageURL: null,
@@ -172,7 +188,7 @@ export class WorkspaceLifecycleService {
         initialConversation("general", "general", "channel"),
         initialConversation("chief", "Chief", "direct"),
       ],
-      agents: defaultWorkspaceAgents,
+      agents: onboardingRoster(input),
       projects: [],
       createdAt,
     });
@@ -201,7 +217,8 @@ export class WorkspaceLifecycleService {
       for (const agent of workspaceAgentProfiles(snapshot)) {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
-          enabled: input.agentRuntime === "relay-cell",
+          enabled:
+            input.agentRuntime === "relay-cell" && !input.deferOnboarding,
           deploymentTarget: input.runtime,
           inference: preparedSecret
             ? {
@@ -430,7 +447,15 @@ export class WorkspaceLifecycleService {
     context: ReturnType<typeof readTrustedContext>,
     openingMessage: string,
   ) {
-    const requiredAgents = ["brand", "prospector", "engineer"];
+    const stored = this.channels.requireWorkspace(context.workspaceId);
+    const snapshot = stored.snapshot_json
+      ? decodeWorkspaceSnapshot(stored.snapshot_json)
+      : null;
+    const selected =
+      snapshot?.agents.find((agent) => agent.id === "chief")?.subagents ?? [];
+    const requiredAgents = snapshot?.purpose
+      ? selected.map((agent) => agent.id)
+      : ["brand", "prospector", "engineer"];
     const rows = channelMembersFindValidateOnboardingDelegation<{
       principal_id: string;
     }>(this.storage);
@@ -473,9 +498,9 @@ export class WorkspaceLifecycleService {
       );
     if (
       !bodies.includes(openingMessage) ||
-      !hasKickoff("Marketer") ||
-      !hasKickoff("Prospector") ||
-      !hasKickoff("Engineer")
+      !requiredAgents.every((id) =>
+        hasKickoff(selected.find((agent) => agent.id === id)?.name ?? id),
+      )
     ) {
       throw delegationIncomplete(
         "Chief must publish the opener and every specialist kickoff before completing onboarding.",

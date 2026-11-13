@@ -3,17 +3,24 @@ import test from "node:test";
 
 import {
   activeWorkspaceCreateKey,
+  exitWorkspaceSetup,
   hasActiveWorkspaceCreateSession,
   isExplicitWorkspaceEntry,
+  pendingCreateRelayKey,
+  pendingWorkspaceEntryIntentKey,
+  resumeWorkspaceSetup,
   shouldRestoreWorkspaceCreate,
   shouldResumeWorkspaceCreate,
   shouldStayOnWorkspaceCreate,
+  workspaceEntryIntent,
+  workspaceSetupWasExited,
 } from "../src/lib/workspace-entry.js";
 
 void test("treats add and both invitation routes as intentional workspace entry", () => {
   assert.equal(isExplicitWorkspaceEntry(""), false);
   assert.equal(isExplicitWorkspaceEntry("?intent=add"), true);
   assert.equal(isExplicitWorkspaceEntry("?intent=create"), true);
+  assert.equal(isExplicitWorkspaceEntry("?intent=join"), true);
   assert.equal(
     isExplicitWorkspaceEntry("?invite=chief-desktop%3A%2F%2Fjoin"),
     true,
@@ -25,6 +32,97 @@ void test("treats add and both invitation routes as intentional workspace entry"
     true,
   );
   assert.equal(isExplicitWorkspaceEntry("?intent=onboarding"), false);
+});
+
+void test("workspace entry starts directly in setup unless an invitation was requested", () => {
+  assert.equal(workspaceEntryIntent(""), "create");
+  assert.equal(workspaceEntryIntent("?intent=add"), "create");
+  assert.equal(workspaceEntryIntent("?intent=create"), "create");
+  assert.equal(workspaceEntryIntent("?intent=join"), "join");
+  assert.equal(workspaceEntryIntent("?invite=invitation"), "join");
+  assert.equal(workspaceEntryIntent("?organizationInvite=invitation"), "join");
+});
+
+void test("exiting stops forced setup redirects, preserves the draft and stays scoped to the account and workspace", () => {
+  const values = new Map<string, string>([
+    [pendingCreateRelayKey, "http://localhost:8080"],
+    [pendingWorkspaceEntryIntentKey, "create"],
+    [activeWorkspaceCreateKey("draft"), "active"],
+    ["chief.workspace-setup.v1:draft", "saved draft"],
+  ]);
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    key: (index) => [...values.keys()][index] ?? null,
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    clear: () => values.clear(),
+  };
+  exitWorkspaceSetup(storage, "http://localhost:8080", "owner", "unfinished");
+  assert.equal(
+    shouldResumeWorkspaceCreate(
+      storage.getItem(pendingCreateRelayKey),
+      "http://localhost:8080",
+    ),
+    false,
+  );
+  assert.equal(hasActiveWorkspaceCreateSession(storage), false);
+  assert.equal(
+    storage.getItem("chief.workspace-setup.v1:draft"),
+    "saved draft",
+  );
+  assert.equal(
+    workspaceSetupWasExited(
+      storage,
+      "http://localhost:8080",
+      "owner",
+      "unfinished",
+    ),
+    true,
+  );
+  assert.equal(
+    workspaceSetupWasExited(
+      storage,
+      "https://relay.heychief.sh",
+      "owner",
+      "unfinished",
+    ),
+    false,
+  );
+  assert.equal(
+    workspaceSetupWasExited(
+      storage,
+      "http://localhost:8080",
+      "other",
+      "unfinished",
+    ),
+    false,
+  );
+  assert.equal(
+    workspaceSetupWasExited(storage, "http://localhost:8080", "owner", "other"),
+    false,
+  );
+  resumeWorkspaceSetup(storage, "http://localhost:8080", "owner");
+  assert.equal(
+    workspaceSetupWasExited(
+      storage,
+      "http://localhost:8080",
+      "owner",
+      "unfinished",
+    ),
+    false,
+  );
+  exitWorkspaceSetup(storage, "http://localhost:8080", "owner", null);
+  assert.equal(
+    workspaceSetupWasExited(storage, "http://localhost:8080", "owner", null),
+    true,
+  );
 });
 
 void test("resumes workspace creation only on the relay that was selected", () => {

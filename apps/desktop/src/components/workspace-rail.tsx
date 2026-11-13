@@ -54,8 +54,11 @@ export function WorkspaceRail() {
   );
   const switchWorkspace = useCallback(
     async (organization: AuthOrganization, location: ConnectedWorkspace) => {
-      if (isActiveWorkspace(location, cloudOrganizationId) || switchingTo)
+      if (switchingTo) return;
+      if (isActiveWorkspace(location, cloudOrganizationId)) {
+        void navigate("/", { replace: true });
         return;
+      }
       setSwitchingTo(organization.id);
       void navigate("/", { replace: true });
       try {

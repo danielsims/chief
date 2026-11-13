@@ -78,6 +78,9 @@ export async function createManagedWorkspace(
       name: command.name,
       website: command.website,
       workspaceId: entry.workspaceId,
+      slug: command.slug,
+      purpose: command.purpose,
+      companyName: command.companyName,
     });
     response = await workspaceStub(env, entry.workspaceId).fetch(
       withTrustedIdentity(
@@ -111,7 +114,7 @@ export async function createManagedWorkspace(
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  if (command.agentRuntime === "relay-cell") {
+  if (command.agentRuntime === "relay-cell" && !command.deferOnboarding) {
     const onboarding = enqueueOnboarding(
       env,
       identity,

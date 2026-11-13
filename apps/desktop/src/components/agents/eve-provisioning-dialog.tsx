@@ -282,7 +282,7 @@ function VercelBuildLog({
           role="log"
           aria-live="polite"
           aria-label="Vercel build log"
-          className={`overscroll-contain bg-zinc-950 px-3 py-2 font-mono text-[11px] leading-5 text-zinc-300 ${VERCEL_BUILD_LOG_BODY_CLASS}`}
+          className={`overscroll-contain bg-zinc-950 px-4 py-3 font-mono text-xs leading-6 text-zinc-300 ${VERCEL_BUILD_LOG_BODY_CLASS}`}
         >
           {logs.length === 0 ? (
             <p className="text-zinc-500">Waiting for Vercel build output…</p>

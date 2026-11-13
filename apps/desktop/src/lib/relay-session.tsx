@@ -504,7 +504,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       if (!state.client) throw new Error("The relay is not connected.");
       if (!accountId) throw new Error("Sign in before creating a workspace.");
       const apiKeyValue = apiKey.trim();
-      if (command.agentRuntime === "relay-cell" && !apiKeyValue) {
+      if (
+        command.agentRuntime === "relay-cell" &&
+        command.runtime === "cloud" &&
+        !apiKeyValue
+      ) {
         throw new Error(
           command.inferenceProvider === "vercelAiGateway"
             ? "Enter a Vercel AI Gateway API key before creating a workspace."
@@ -513,7 +517,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       }
       const snapshot = await state.client.createWorkspace(command, apiKeyValue);
       const workspace = state.client.forWorkspace(snapshot.id);
-      if (command.agentRuntime === "relay-cell") {
+      if (command.agentRuntime === "relay-cell" && !command.deferOnboarding) {
         await ensureDesktopCells(snapshot, workspace);
       }
 

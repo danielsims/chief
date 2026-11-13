@@ -145,10 +145,46 @@
   animation: entry-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Splash surface: the sky settles in, then the content rises once. */
+@keyframes splash-sky-in {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.splash-sky {
+  animation: splash-sky-in 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.splash-rise {
+  animation: splash-rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) 80ms both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .entry-progress {
     animation: none;
     transform: translateX(100%);
+  }
+
+  .splash-sky,
+  .splash-rise {
+    animation: none;
   }
 }
 
