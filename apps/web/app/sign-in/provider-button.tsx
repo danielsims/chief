@@ -28,7 +28,7 @@ export function SocialProviderButton({
         pressed === undefined ? undefined : pressed ? "true" : "false"
       }
       className={cn(
-        "h-11 w-full",
+        "h-[39px] w-full rounded-lg text-sm font-medium",
         apple
           ? "bg-black text-white hover:bg-neutral-900 hover:text-white hover:brightness-100"
           : "bg-white text-[#1f1f1f] hover:bg-neutral-100 hover:text-[#1f1f1f] hover:brightness-100",
