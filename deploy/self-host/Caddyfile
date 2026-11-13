@@ -17,8 +17,22 @@
 		X-Frame-Options "DENY"
 	}
 
+	# The dev loop mounts only its current CLI here. Without that mount this
+	# matcher does not match, so normal self-host installs use the relay.
+	@development_files {
+		path /install/machine /dev/chief-machine
+		file {
+			root /srv/chief-dev
+			try_files {path}
+		}
+	}
+	handle @development_files {
+		root * /srv/chief-dev
+		file_server
+	}
+
 	@relay {
-		path /api/auth /api/auth/* /.well-known/* /git/* /github/* /health /openapi.json /v1/*
+		path /api/auth /api/auth/* /.well-known/* /git/* /github/* /mcp /mcp/* /health /openapi.json /v1/* /connect /install/*
 	}
 	handle @relay {
 		reverse_proxy relay:8787
