@@ -523,6 +523,7 @@ export default function App() {
             new URLSearchParams(window.location.search).get("completed") === "1"
           }
           brand={<ChiefMark className="size-8" />}
+          returnHref="chief-desktop://open"
         />
       </div>
     );
