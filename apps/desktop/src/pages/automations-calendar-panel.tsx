@@ -56,7 +56,7 @@ export function AutomationsCalendarPanel({ onClose }: { onClose: () => void }) {
   );
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
-  const [view, setView] = useState<CalendarView>("month");
+  const [view, setView] = useState<CalendarView>("day");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
   const [scrollRequest, setScrollRequest] = useState({
     month: currentMonth,
