@@ -217,7 +217,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
     private session: StoredOAuthSession,
     private readonly options: McpOAuthProviderOptions,
   ) {
-    this.clientMetadataUrl = options.clientMetadataUrl;
+    // The SDK only accepts an HTTPS document; a local relay registers instead.
+    this.clientMetadataUrl = options.clientMetadataUrl?.startsWith("https://")
+      ? options.clientMetadataUrl
+      : undefined;
   }
 
   get redirectUrl() {

@@ -8,6 +8,7 @@ import {
   forgetMissingConnectedRelays,
   forgetRelayConnection,
   knownRelayConnections,
+  knownWorkspacesForRelayIdentities,
   rememberRelayConnection,
   rememberRelayWorkspaces,
   resolveRelayConnection,
@@ -41,6 +42,53 @@ class MemoryStorage implements Storage {
     this.values.set(key, value);
   }
 }
+
+void test("profile relay sections cannot include another relay's workspaces", () => {
+  const previous = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: new MemoryStorage(),
+  });
+  try {
+    const cloud = {
+      relayUrl: "https://relay.heychief.sh",
+      user: { id: "same-account" },
+    };
+    const local = {
+      relayUrl: "http://localhost:8080",
+      user: { id: "same-account" },
+    };
+    const summary = {
+      id: workspaceIdSchema.parse("same-workspace-id"),
+      name: "Cloud workspace",
+      website: "",
+      imageURL: null,
+      isActive: true,
+      onboardingComplete: true,
+    };
+    rememberRelayWorkspaces(cloud.relayUrl, cloud.user.id, [summary]);
+    rememberRelayWorkspaces(local.relayUrl, local.user.id, [
+      { ...summary, name: "Chief Observability" },
+    ]);
+    assert.deepEqual(
+      knownWorkspacesForRelayIdentities([cloud]).map(
+        (workspace) => workspace.summary.name,
+      ),
+      ["Cloud workspace"],
+    );
+    assert.deepEqual(
+      knownWorkspacesForRelayIdentities([local]).map(
+        (workspace) => workspace.summary.name,
+      ),
+      ["Chief Observability"],
+    );
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: previous,
+    });
+  }
+});
 
 void test("discovers the account issuer for a self-hosted relay", async () => {
   const connection = await validateRelayConnection(

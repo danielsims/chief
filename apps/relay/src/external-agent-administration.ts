@@ -34,7 +34,6 @@ import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-veri
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
-import { prepareEveWorkspaceOnboarding } from "./workspace-eve-onboarding";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
 
 interface RuntimeRow extends Record<string, SqlStorageValue> {
@@ -185,15 +184,6 @@ export class ExternalAgentAdministration {
         }),
       );
     });
-    if (agentId === "chief") {
-      await prepareEveWorkspaceOnboarding({
-        env: this.env,
-        storage: this.storage,
-        channels: this.channels,
-        workspaceId: context.workspaceId,
-        snapshot,
-      });
-    }
     return json(
       externalAgentConnectionVerificationResultSchema.parse({
         status: "connected",

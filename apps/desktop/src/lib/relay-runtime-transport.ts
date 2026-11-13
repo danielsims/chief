@@ -11,28 +11,32 @@ export function relayRuntimeTransport(
   client: RelayClient | null,
   snapshot: WorkspaceSnapshot | null,
   error: string | null,
+  loadSnapshot?: () => Promise<WorkspaceSnapshot>,
 ): RuntimeTransport {
   return client && snapshot
-    ? new RelayRuntimeClient(client, snapshot)
+    ? new RelayRuntimeClient(client, snapshot, loadSnapshot)
     : new PendingRelayRuntimeClient(error);
 }
 
-export function useRelayRuntimeTransport({
-  client,
-  snapshot,
-  error,
-}: {
-  client: RelayClient | null;
-  snapshot: WorkspaceSnapshot | null;
-  error: string | null;
-}) {
+export function useRelayRuntimeTransport(
+  {
+    client,
+    snapshot,
+    error,
+  }: {
+    client: RelayClient | null;
+    snapshot: WorkspaceSnapshot | null;
+    error: string | null;
+  },
+  loadSnapshot?: () => Promise<WorkspaceSnapshot>,
+) {
   const workspaceId = snapshot?.id ?? null;
   const pendingError = client && snapshot ? null : error;
   const [state, setState] = useState(() => ({
     client,
     workspaceId,
     pendingError,
-    transport: relayRuntimeTransport(client, snapshot, error),
+    transport: relayRuntimeTransport(client, snapshot, error, loadSnapshot),
   }));
   if (
     state.client !== client ||
@@ -43,7 +47,7 @@ export function useRelayRuntimeTransport({
       client,
       workspaceId,
       pendingError,
-      transport: relayRuntimeTransport(client, snapshot, error),
+      transport: relayRuntimeTransport(client, snapshot, error, loadSnapshot),
     });
   }
   useEffect(() => {

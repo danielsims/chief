@@ -67,6 +67,28 @@ export function prepareCodexEnvironment(
  * stream for messages, thinking, tools, permissions, and resumable sessions.
  */
 export class CodexDriver extends AcpDriver {
+  override async start(options: StartOptions): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await super.start(options);
+        return;
+      } catch (error) {
+        await super.stop();
+        // Simultaneous first launches can race SQLite's initial migrations in
+        // a shared chat home. Retry before exposing a failed run to the person.
+        if (
+          attempt >= 2 ||
+          !(error instanceof Error) ||
+          !/failed to initialize (?:sqlite )?state runtime/iu.test(
+            error.message,
+          )
+        )
+          throw error;
+        await this.waitBeforeRetry(250 * (attempt + 1));
+      }
+    }
+  }
+
   constructor() {
     const args: string[] = [];
     let command = process.execPath;

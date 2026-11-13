@@ -23,7 +23,7 @@ COPY apps/web/package.json ./apps/web/package.json
 
 RUN --mount=type=cache,id=chief-web-pnpm,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store \
-  && pnpm install --frozen-lockfile --filter @chief/web... --filter @chief/agent-runtime...
+  && pnpm install --frozen-lockfile --filter @chief/web... --child-concurrency=1 --network-concurrency=4
 
 COPY tooling/oxlint ./tooling/oxlint
 COPY tooling/prettier ./tooling/prettier
@@ -61,7 +61,7 @@ COPY --from=build --chown=chief:chief /source/apps/web/public ./apps/web/public
 USER chief
 EXPOSE 3000
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=6 \
+HEALTHCHECK --interval=10s --timeout=10s --start-period=20s --retries=6 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3000/sign-in').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]

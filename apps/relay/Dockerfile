@@ -9,7 +9,7 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
 RUN corepack enable
-WORKDIR /source
+WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY .gitignore ./
@@ -50,7 +50,7 @@ COPY packages/relay-client ./packages/relay-client
 COPY packages/relay-contracts ./packages/relay-contracts
 COPY apps/relay ./apps/relay
 
-FROM node:24.22.1-bookworm-slim AS runtime
+FROM dependencies AS runtime
 
 LABEL org.opencontainers.image.title="Chief relay"
 LABEL org.opencontainers.image.description="Self-hosted Chief relay, authentication server, and durable workspace runtime"
@@ -62,7 +62,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 chief \
   && mkdir --parents /app /var/lib/chief /run/chief \
-  && chown --recursive chief:chief /app /var/lib/chief /run/chief
+  && chown --recursive chief:chief /var/lib/chief /run/chief
 
 ENV CI=true
 ENV DEBIAN_FRONTEND=noninteractive
@@ -72,12 +72,11 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /app
-# Keep the large installed dependency tree cached across source-only experiments.
-# Workspace package symlinks stay intact; only these small source overlays change.
-COPY --from=dependencies --chown=chief:chief /source ./
-COPY --from=source --chown=chief:chief /source/tooling ./tooling
-COPY --from=source --chown=chief:chief /source/packages ./packages
-COPY --from=source --chown=chief:chief /source/apps/relay ./apps/relay
+# Inherit installed dependencies instead of copying the entire tree into a
+# second layer. Only the small source overlays need ownership changes.
+COPY --from=source --chown=chief:chief /app/tooling ./tooling
+COPY --from=source --chown=chief:chief /app/packages ./packages
+COPY --from=source --chown=chief:chief /app/apps/relay ./apps/relay
 COPY --chown=chief:chief apps/relay/docker/entrypoint.sh /usr/local/bin/relay
 
 USER chief

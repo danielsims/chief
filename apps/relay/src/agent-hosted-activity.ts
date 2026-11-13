@@ -17,7 +17,11 @@ import type {
 } from "@chief/relay-contracts";
 import { isRecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import { agentToolName } from "@chief/agent-runtime/local-tools";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  jobConversationId,
+} from "@chief/relay-contracts";
 
 import { publishAgentActivity } from "./agent-activity";
 import { runEffect } from "./effect";
@@ -43,9 +47,7 @@ export function hostedActivityObserver(
   job: AgentJob,
   principal: AgentPrincipal,
 ): DurableTurnObserver {
-  const conversationId = isJsonString(job.payload.conversationId)
-    ? job.payload.conversationId
-    : "mission-control";
+  const conversationId = jobConversationId(job);
   const threadRootId = isJsonString(job.payload.threadRootId)
     ? job.payload.threadRootId
     : undefined;
@@ -173,9 +175,7 @@ export async function publishHostedBrowserActivity(
   result: JsonValue,
 ) {
   if (!publishesBrowserSession(toolName, result)) return;
-  const conversationId = isJsonString(job.payload.conversationId)
-    ? job.payload.conversationId
-    : "mission-control";
+  const conversationId = jobConversationId(job);
   const threadRootId = isJsonString(job.payload.threadRootId)
     ? job.payload.threadRootId
     : undefined;

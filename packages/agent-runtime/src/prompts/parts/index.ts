@@ -27,8 +27,6 @@ import { integrationPrepare } from "./integration-prepare.js";
 import { linksNavigation } from "./links-navigation.js";
 import { membershipHumans } from "./membership-humans.js";
 import { messagesSparing } from "./messages-sparing.js";
-import { missionControl } from "./mission-control.js";
-import { modeChannels } from "./mode-channels.js";
 import { oauthClaim } from "./oauth-claim.js";
 import { pluginsDiscover } from "./plugins-discover.js";
 import { primitivesChannels } from "./primitives-channels.js";
@@ -46,9 +44,7 @@ export const promptParts: readonly PromptPart[] = [
   primitivesChannels,
   reactionsAgent,
   linksNavigation,
-  missionControl,
   subjectChannel,
-  modeChannels,
   archiveOverDelete,
   toolsQuiet,
   groundTruth,

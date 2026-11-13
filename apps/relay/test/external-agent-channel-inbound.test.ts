@@ -133,7 +133,7 @@ describe("external agent channel inbound", () => {
     await dispatchTestMessage(ctx, ctx.principal, {
       id: triggerId,
       workspaceId: ctx.workspaceId,
-      conversationId: "mission-control",
+      conversationId: "general",
       threadRootId: rootId,
       author: { kind: "user", id: ownerId },
       body: "@Eve Threaded continue here.",
@@ -171,7 +171,7 @@ describe("external agent channel inbound", () => {
     const messages = await testConversationMessages(
       ctx,
       ctx.principal,
-      "mission-control",
+      "general",
     );
     expect(
       messages.filter((message) => message.body === inbound.body),
@@ -204,7 +204,7 @@ describe("external agent channel inbound", () => {
     await dispatchTestMessage(ctx, ctx.principal, {
       id: root,
       workspaceId: ctx.workspaceId,
-      conversationId: "mission-control",
+      conversationId: "general",
       author: { kind: "user", id: ownerId },
       body: "@Eve Streaming inspect this.",
       mentions: [agentIdSchema.parse("eve-streaming")],
@@ -262,7 +262,7 @@ describe("external agent channel inbound", () => {
     const messages = await testConversationMessages(
       ctx,
       ctx.principal,
-      "mission-control",
+      "general",
     );
     const activityMessages = messages.filter(
       (message) => message.author.id === "eve-streaming" && !message.body,

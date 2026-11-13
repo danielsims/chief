@@ -7,8 +7,13 @@ import {
 } from "./identifiers";
 
 export const projectRemoteUrlSchema = z
-  .url()
+  .string()
   .max(2_048)
+  .refine(
+    (value) => !/[\r\n\0]/u.test(value),
+    "Use a single-line repository URL.",
+  )
+  .pipe(z.url())
   .refine((value) => {
     const url = new URL(value);
     // Plain HTTP is only for a relay running on this machine.

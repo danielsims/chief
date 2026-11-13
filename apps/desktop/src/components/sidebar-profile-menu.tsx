@@ -40,7 +40,12 @@ import {
 } from "../lib/relay-connection";
 import { useRelaySession } from "../lib/relay-session";
 import { userStatusLabel, useUserStatus } from "../lib/user-status";
-import { pendingCreateRelayKey } from "../lib/workspace-entry";
+import {
+  clearWorkspaceEntrySession,
+  pendingCreateRelayKey,
+  pendingWorkspaceEntryIntentKey,
+} from "../lib/workspace-entry";
+import { forgetActiveWorkspaceSetup } from "../pages/onboarding/model";
 import { AvatarImage } from "./avatar-image";
 import { ChiefMark } from "./chief-mark";
 import { OrgLogo } from "./org-logo";
@@ -51,7 +56,9 @@ import {
   WorkspaceActionsPopover,
 } from "./workspace-action-menu";
 
-export function SidebarProfileMenu() {
+export function SidebarProfileMenu({
+  side = "top",
+}: { side?: "top" | "bottom" } = {}) {
   const { cloudOrganizationId, connectRelay, signOut, user } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -91,7 +98,13 @@ export function SidebarProfileMenu() {
     organization: AuthOrganization,
     location: ConnectedWorkspace,
   ) => {
-    if (isActiveWorkspace(location, activeWorkspaceId) || switchingTo) return;
+    if (switchingTo) return;
+    clearWorkspaceEntrySession(sessionStorage);
+    if (isActiveWorkspace(location, activeWorkspaceId)) {
+      setProfileMenuOpen(false);
+      void navigate("/", { replace: true });
+      return;
+    }
     setSwitchingTo(organization.id);
     void navigate("/", { replace: true });
     try {
@@ -139,7 +152,7 @@ export function SidebarProfileMenu() {
           </button>
         </div>
         <DropdownMenuContent
-          side="top"
+          side={side}
           align="start"
           sideOffset={8}
           className="w-[310px] p-1.5"
@@ -192,10 +205,14 @@ export function SidebarProfileMenu() {
                 setWorkspaceMenuId={setWorkspaceMenuId}
                 onSwitchWorkspace={switchWorkspace}
                 onClose={() => setProfileMenuOpen(false)}
-                onAddWorkspace={async () => {
+                onAddWorkspace={async (intent) => {
                   window.sessionStorage.setItem(
                     pendingCreateRelayKey,
                     identity.relayUrl,
+                  );
+                  window.sessionStorage.setItem(
+                    pendingWorkspaceEntryIntentKey,
+                    intent,
                   );
                   if (identity.relayUrl !== new URL(RELAY_URL).origin) {
                     const connection = resolveRelayConnection(
@@ -208,7 +225,8 @@ export function SidebarProfileMenu() {
                     return;
                   }
                   setProfileMenuOpen(false);
-                  void navigate("/workspaces/new?intent=add");
+                  forgetActiveWorkspaceSetup();
+                  void navigate(`/workspaces/new?intent=${intent}`);
                 }}
                 onSignOut={() => {
                   setProfileMenuOpen(false);
@@ -280,7 +298,7 @@ function RelaySection({
     location: ConnectedWorkspace,
   ) => Promise<void>;
   onClose: () => void;
-  onAddWorkspace: () => Promise<void>;
+  onAddWorkspace: (intent: "create" | "join") => Promise<void>;
   onSignOut: () => void;
 }) {
   const navigate = useNavigate();
@@ -368,11 +386,18 @@ function RelaySection({
           );
         })}
         <DropdownMenuItem
-          onSelect={() => void onAddWorkspace()}
+          onSelect={() => void onAddWorkspace("create")}
           className="h-9"
         >
           <Plus className="text-muted-foreground size-4" />
-          Add a workspace
+          Create a workspace
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => void onAddWorkspace("join")}
+          className="h-9"
+        >
+          <Plus className="text-muted-foreground size-4" />
+          Join a workspace
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

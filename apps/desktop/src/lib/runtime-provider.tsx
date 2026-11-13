@@ -52,10 +52,18 @@ const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
-export function RuntimeCoreProvider({ children }: { children: ReactNode }) {
+export function RuntimeCoreProvider({
+  children,
+  loadSnapshot,
+}: {
+  children: ReactNode;
+  loadSnapshot?: () => Promise<
+    import("@chief/relay-contracts").WorkspaceSnapshot
+  >;
+}) {
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const relaySession = useRelaySession();
-  const client = useRelayRuntimeTransport(relaySession);
+  const client = useRelayRuntimeTransport(relaySession, loadSnapshot);
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [roster, setRoster] = useState<{

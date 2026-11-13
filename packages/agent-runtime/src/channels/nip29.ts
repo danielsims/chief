@@ -10,18 +10,7 @@ import type {
 } from "../channel-types.js";
 
 export const CHANNEL_CHAT_PREFIX = "channel:";
-export const MISSION_CONTROL_CHANNEL_ID =
-  "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
-
 const DEFAULT_CHANNELS = [
-  {
-    id: MISSION_CONTROL_CHANNEL_ID,
-    slug: "mission-control",
-    name: "mission-control",
-    description: "Priorities, decisions, and progress across active work",
-    agentIds: ["chief"],
-    agentPermissions: ["manage_members", "update_metadata"],
-  },
   {
     id: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
     slug: "engineering",

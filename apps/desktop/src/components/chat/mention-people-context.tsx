@@ -8,6 +8,7 @@ import { useAuth } from "../../lib/auth/auth-context";
 import { relayAvatarUrl } from "../../lib/relay-avatar";
 import { useRelaySession } from "../../lib/relay-session";
 import { useRuntime } from "../../lib/runtime";
+import { useOwnedAgents } from "./owned-agents-value";
 
 const MentionPeopleContext = createContext<readonly MentionAlias[]>([]);
 const MentionAliasesContext = createContext<readonly MentionAlias[]>([]);
@@ -27,6 +28,7 @@ export interface WorkspaceUser {
 export function MentionPeopleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { agents } = useRuntime();
+  const ownedAgents = useOwnedAgents();
   const { client, snapshot } = useRelaySession();
   const [result, setResult] = useState<{
     client: typeof client;
@@ -100,12 +102,15 @@ export function MentionPeopleProvider({ children }: { children: ReactNode }) {
   const aliases = useMemo(
     () => [
       ...people,
+      ...ownedAgents.flatMap((agent) =>
+        agent.handle ? [{ id: agent.id, name: agent.handle }] : [],
+      ),
       ...agents.flatMap((agent) => [
         { id: agent.id, name: agent.name },
         ...(agent.subagents ?? []).map(({ id, name }) => ({ id, name })),
       ]),
     ],
-    [people, agents],
+    [people, agents, ownedAgents],
   );
 
   return (

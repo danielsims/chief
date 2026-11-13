@@ -56,6 +56,25 @@ export function requireConsistentIssuer(session: StoredOAuthSession) {
     if (siteOf(new URL(endpoint).hostname) !== site) throw inconsistent();
 }
 
+/** RFC 9207: the callback must name the issuer advertised before sign-in. */
+export function requireAuthorizationResponseIssuer(
+  session: StoredOAuthSession,
+  issuer: string | null,
+) {
+  if (
+    (issuer !== null ||
+      optionalMetadata(session)
+        .authorization_response_iss_parameter_supported === true) &&
+    issuer !== session.discovery?.authorizationServerMetadata?.issuer
+  )
+    throw new HttpError(
+      400,
+      "plugin_sign_in_issuer",
+      "The sign-in came back from an unexpected provider.",
+    );
+  requireConsistentIssuer(session);
+}
+
 /**
  * One token operation at a time per plugin. Providers that rotate refresh
  * tokens reject the second of two concurrent refreshes and may revoke them

@@ -23,6 +23,7 @@ import {
   eveDraftScope,
 } from "./agent-eve-deployment-draft";
 import { destinationCatalogCache } from "./agent-eve-deployment-run";
+import { EveOnboardingBuild } from "./eve-onboarding-build";
 import {
   EveProvisioningDialog,
   EveProvisioningStatus,
@@ -166,8 +167,42 @@ export function EveDestinationForm({
   onProvisioningOpen: (open: boolean) => void;
   onTeam: (value: string) => void;
 }) {
+  // Onboarding swaps the settings for the build itself once it starts.
+  if (
+    presentation === "onboarding" &&
+    (provisioningOpen || saving || deploymentResult)
+  )
+    return (
+      <EveOnboardingBuild
+        phase={phase}
+        progress={progress}
+        result={deploymentResult}
+        error={saving ? null : error}
+        saving={saving}
+        onContinue={() => {
+          void onDeployed?.().catch((caught: unknown) =>
+            onError(
+              caught instanceof Error
+                ? caught.message
+                : "Chief couldn’t confirm the deployment.",
+            ),
+          );
+        }}
+        onRetry={onDeploy}
+        onBack={() => {
+          onError(null);
+          onProvisioningOpen(false);
+        }}
+      />
+    );
   return (
     <div className={"space-y-5"}>
+      {presentation === "onboarding" ? (
+        <div className="ob-heading">
+          <h1>Deploy Chief to Vercel Eve</h1>
+          <p>Chief and its teammates will run in your own Vercel account.</p>
+        </div>
+      ) : null}
       {presentation === "detail" ? (
         <div>
           <h3 className="text-sm font-medium">Deploy to Vercel Eve</h3>
@@ -270,6 +305,7 @@ export function EveDestinationForm({
           ) : null}
           <Button
             size={presentation === "detail" ? "sm" : "default"}
+            className={presentation === "onboarding" ? "w-full" : undefined}
             disabled={!client || connection !== "connected" || saving}
             onClick={() => {
               if (destinationOnly) {
@@ -295,7 +331,7 @@ export function EveDestinationForm({
               : saving
                 ? "Deploying…"
                 : presentation === "onboarding"
-                  ? "Create workspace"
+                  ? "Confirm deployment"
                   : "Deploy to Vercel Eve"}
           </Button>
         </div>
@@ -303,7 +339,7 @@ export function EveDestinationForm({
       <EveProvisioningDialog
         agentName={agent.name}
         workspaceName={resolvedWorkspaceName}
-        open={provisioningOpen}
+        open={provisioningOpen && presentation === "detail"}
         phase={phase}
         progress={progress}
         result={deploymentResult}

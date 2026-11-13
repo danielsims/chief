@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 
-import { Button, buttonVariants } from "@chief/ui/components/button";
-import { SuccessCheck } from "@chief/ui/components/success-check";
-import { cn } from "@chief/ui/lib/utils";
+import {
+  HandoffCard,
+  HandoffHeading,
+  HandoffNote,
+  handoffPrimaryClassName,
+  handoffSecondaryClassName,
+  HandoffWorkspace,
+} from "@chief/ui/components/handoff-card";
 
 import { authClient } from "../../../lib/auth-client";
 import { invitationDeepLink } from "../../../lib/invitation-links";
+import { ChiefBrand } from "../../chief-brand";
 
 export interface InvitationAccount {
   name: string;
@@ -101,127 +106,68 @@ export function InvitationAccept({
     // The server already validated the relay; keep the raw value as a fallback.
   }
 
-  return (
-    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="px-6 pt-6">
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
-        />
-      </header>
-
-      <div className="flex flex-1 items-center justify-center px-8 pb-20">
-        <div className="mx-auto flex w-full max-w-sm flex-col items-center text-center">
-          {accepted ? (
-            <>
-              <SuccessCheck className="mb-6 size-16" />
-              <h1 className="text-3xl leading-tight font-normal">You’re in.</h1>
-              <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-                Chief is opening now. You can close this tab.
-              </p>
-              <a
-                href={deepLink}
-                className={cn(buttonVariants(), "mt-8 h-11 w-full")}
-              >
-                Open Chief
-              </a>
-            </>
-          ) : (
-            <>
-              <Picture
-                className="h-16 w-16 rounded-full text-2xl"
-                image={account.image}
-                name={account.name}
-              />
-              <h1 className="mt-6 text-3xl leading-tight font-normal">
-                {workspaceName
-                  ? `Join ${workspaceName}?`
-                  : "Join this workspace?"}
-              </h1>
-              <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-                You’re signed in as{" "}
-                <span className="text-foreground font-medium">
-                  {account.email}
-                </span>
-                .
-              </p>
-              {expectedEmail && !wrongAccount ? (
-                <p className="text-muted-foreground mt-2 text-xs">
-                  Invitation for {expectedEmail} · {host}
-                </p>
-              ) : null}
-              {wrongAccount ? (
-                <p className="text-destructive mt-4 text-sm leading-5">
-                  This invitation was sent to{" "}
-                  <span className="font-medium">{expectedEmail}</span>, but
-                  you’re signed in as {account.email}. Sign in with the invited
-                  address.
-                </p>
-              ) : null}
-              <Button
-                className="mt-8 h-11 w-full"
-                disabled={working || wrongAccount}
-                onClick={() => void accept()}
-              >
-                {working ? "Joining…" : "Join workspace"}
-              </Button>
-              <Button
-                className="text-muted-foreground hover:text-foreground mt-2 h-11 w-full"
-                disabled={signingOut}
-                onClick={() => void switchAccount()}
-                variant="ghost"
-              >
-                {signingOut ? "Signing out…" : "Use a different account"}
-              </Button>
-              {error ? (
-                <p className="text-destructive mt-4 text-sm leading-5">
-                  {error}
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function Picture({
-  className,
-  image,
-  name,
-}: {
-  className: string;
-  image: string | null;
-  name: string;
-}) {
-  const [failed, setFailed] = useState(false);
-  if (image && !failed) {
-    return (
-      <Image
-        alt=""
-        className={cn("object-cover", className)}
-        height={64}
-        onError={() => setFailed(true)}
-        referrerPolicy="no-referrer"
-        src={image}
-        unoptimized
-        width={64}
-      />
-    );
-  }
-  return (
+  const name = workspaceName ?? "This workspace";
+  const tile = (
     <span
       aria-hidden
-      className={cn(
-        "bg-muted text-foreground flex shrink-0 items-center justify-center",
-        className,
-      )}
+      className="bg-muted text-foreground flex size-10 shrink-0 items-center justify-center rounded-[11px] text-base font-medium"
     >
       {name.trim().charAt(0).toUpperCase()}
     </span>
+  );
+  return (
+    <HandoffCard brand={<ChiefBrand />}>
+      {accepted ? (
+        <>
+          <HandoffHeading done title="You’re in">
+            Chief is opening now. You can close this tab.
+          </HandoffHeading>
+          <HandoffWorkspace icon={tile} name={name} detail={host} />
+          <a href={deepLink} className={handoffPrimaryClassName}>
+            Open Chief
+          </a>
+        </>
+      ) : (
+        <>
+          <HandoffHeading title="You’re invited">
+            Signed in as{" "}
+            <span className="text-foreground">{account.email}</span>
+          </HandoffHeading>
+          <HandoffWorkspace
+            icon={tile}
+            name={name}
+            detail={
+              expectedEmail && !wrongAccount
+                ? `Invitation for ${expectedEmail} · ${host}`
+                : host
+            }
+          />
+          {wrongAccount ? (
+            <HandoffNote tone="error">
+              This invitation was sent to{" "}
+              <span className="font-medium">{expectedEmail}</span>. Sign in with
+              that address to join.
+            </HandoffNote>
+          ) : null}
+          <button
+            type="button"
+            className={handoffPrimaryClassName}
+            disabled={working || wrongAccount}
+            onClick={() => void accept()}
+          >
+            {working ? "Joining…" : "Join workspace"}
+          </button>
+          <button
+            type="button"
+            className={handoffSecondaryClassName}
+            disabled={signingOut}
+            onClick={() => void switchAccount()}
+          >
+            {signingOut ? "Signing out…" : "Use a different account"}
+          </button>
+          {error ? <HandoffNote tone="error">{error}</HandoffNote> : null}
+        </>
+      )}
+    </HandoffCard>
   );
 }

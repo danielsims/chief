@@ -3,9 +3,6 @@
 /** Stable, `JSON`-free helpers shared by every part module. */
 export type PromptConversationKind = "channel" | "direct";
 
-/** Workspace operating mode, mirrored from runtime-domain-types. */
-export type PromptOperatingMode = "mission-control" | "channels" | "calm";
-
 export interface PromptContext {
   /** Agent identity + capabilities already composed into persona text. */
   readonly identity: string;
@@ -16,7 +13,6 @@ export interface PromptContext {
   readonly deployment: "phone" | "desktop" | "cloud";
   readonly conversationKind?: PromptConversationKind;
   readonly channel?: { readonly isPrivate?: boolean };
-  readonly operatingMode?: PromptOperatingMode;
   /** Workspace ground truth (name, website, selected apps, brand context). */
   readonly workspaceContext?: string;
   /**

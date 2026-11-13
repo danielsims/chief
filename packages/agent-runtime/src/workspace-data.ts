@@ -1,7 +1,6 @@
 import type { LocalStore } from "./local-store.js";
 import type { AgentEvent, SessionRecord } from "./types.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
-import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 export const INITIAL_REVIEW_SINGLETON_AGENTS = new Set([
   "brand",
@@ -17,7 +16,7 @@ export function isInitialReviewConversation(id: string, title: string) {
   );
 }
 
-/** Detects onboarding after mission control has already existed as a normal chat. */
+/** Detects onboarding in a conversation that already existed as a normal chat. */
 export function hasInitialReviewKickoff(events: readonly AgentEvent[]) {
   return events.some(
     (event) =>
@@ -99,7 +98,6 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
     campaigns,
     activity: visibleActivity,
     actionItems,
-    waysOfWorking: readWorkspaceWaysOfWorking(workspaceId),
     recurringWork: recurringWork.map((work) => {
       try {
         const skipped = new Set(work.skipDates ?? []);

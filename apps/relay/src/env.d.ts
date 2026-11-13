@@ -23,6 +23,9 @@ interface Env {
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_APP_CLIENT_SECRET?: string;
+  /** Optional first-party OAuth app for GitHub's hosted MCP server. */
+  CHIEF_GITHUB_OAUTH_CLIENT_ID?: string;
+  CHIEF_GITHUB_OAUTH_CLIENT_SECRET?: string;
   /** Publicly reachable OTLP/HTTP base URL when full telemetry is enabled. */
   RELAY_OTLP_ENDPOINT?: string;
   /** Optional Authorization header sent to the OTLP endpoint. */

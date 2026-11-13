@@ -31,6 +31,8 @@ Both development and packaged builds default to Chief's hosted services:
 For local development, set all three values to your relay and authentication UI
 URLs. Starting local services alone does not change these defaults. A relay
 selected and saved in the app takes precedence over these defaults.
+These overrides select the default connection; Chief Cloud keeps its own
+identity in the relay switcher, separate from localhost and self-hosted relays.
 
 `VITE_WORKSPACE_APP_PATH` is optional. It points local deployment work at a
 different Eve workspace.
@@ -66,6 +68,15 @@ installs into a versioned application-data cache. It never runs an unverified
 download. Local and offline builds pin no runtime: offline packages bundle it,
 and development uses the workspace runtime. Only targets listed in the
 packaging script (currently Apple Silicon) support on-demand installation.
+
+## Local desktop loop
+
+Run `pnpm dev` from the repository root with Docker Desktop running. This starts
+our existing self-host stack at `http://localhost:8080`, applies local migrations
+and launches the normal desktop app with hot reload. There is no separate app
+flavor or development DMG. Local accounts and workspaces survive restarts.
+If the desktop has another relay selected, use **Connect a self-hosted relay**
+and enter that URL. `pnpm desktop:dev` starts the same loop.
 
 ## Build
 

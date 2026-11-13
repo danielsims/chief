@@ -16,7 +16,25 @@ export interface PluginAccessAgent {
   disabledReason?: string;
 }
 
-const accessCache = new Map<string, McpConnectionAccess>();
+const accessCache = new WeakMap<
+  RelayClient,
+  Map<string, McpConnectionAccess>
+>();
+function cachedAccess(client: RelayClient | null, id: string) {
+  return client ? accessCache.get(client)?.get(id) : undefined;
+}
+function rememberAccess(
+  client: RelayClient,
+  id: string,
+  value: McpConnectionAccess,
+) {
+  let values = accessCache.get(client);
+  if (!values) {
+    values = new Map();
+    accessCache.set(client, values);
+  }
+  values.set(id, value);
+}
 
 /** Uses the narrowly scoped API so members can manage their own agents. */
 export function usePluginAgentAccess(connectionId: string) {
@@ -31,7 +49,7 @@ export function usePluginAgentAccess(connectionId: string) {
     result?.client === client && result.connectionId === connectionId
       ? result
       : null;
-  const data = current?.data ?? accessCache.get(connectionId) ?? null;
+  const data = current?.data ?? cachedAccess(client, connectionId) ?? null;
   const error = current?.error ?? "";
   const pending = useRef(0);
   useEffect(() => {
@@ -40,7 +58,7 @@ export function usePluginAgentAccess(connectionId: string) {
       void client.plugins
         .access(connectionId)
         .then((data) => {
-          accessCache.set(connectionId, data);
+          rememberAccess(client, connectionId, data);
           if (active) setResult({ client, connectionId, data, error: "" });
         })
         .catch((cause: unknown) => {
@@ -82,7 +100,7 @@ export function usePluginAgentAccess(connectionId: string) {
       return { ...base, assignedAgentIds: [...assigned] };
     };
     const show = (next: McpConnectionAccess) => {
-      accessCache.set(id, next);
+      rememberAccess(client, id, next);
       setResult({ client, connectionId: id, data: next, error: "" });
     };
     // The check moves at once; the relay's answer replaces it when the last
@@ -95,7 +113,7 @@ export function usePluginAgentAccess(connectionId: string) {
       if (pending.current === 0) show(next);
     } catch (cause) {
       pending.current -= 1;
-      const latest = accessCache.get(id);
+      const latest = cachedAccess(client, id);
       if (latest) show(assign(latest, !on));
       throw cause;
     }
@@ -271,7 +289,11 @@ export async function preloadPluginAgentAccess(
   client: RelayClient,
   connectionId: string,
 ) {
-  accessCache.set(connectionId, await client.plugins.access(connectionId));
+  rememberAccess(
+    client,
+    connectionId,
+    await client.plugins.access(connectionId),
+  );
 }
 
 export type PluginAgentAccessState = ReturnType<typeof usePluginAgentAccess>;

@@ -1,6 +1,11 @@
-import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+
+import {
+  HandoffCard,
+  HandoffHeading,
+  handoffPrimaryClassName,
+} from "@chief/ui/components/handoff-card";
 
 import {
   isChannelId,
@@ -11,6 +16,7 @@ import {
   publicRelayOrigin,
   readInvitationContext,
 } from "../../../lib/invitation-server";
+import { ChiefBrand } from "../../chief-brand";
 import { InvitationAccept } from "./invitation-accept";
 
 export const dynamic = "force-dynamic";
@@ -87,34 +93,15 @@ function InvitationUnavailable({
   relayReachable?: boolean;
 }) {
   return (
-    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="px-6 pt-6">
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
-        />
-      </header>
-      <div className="flex flex-1 items-center justify-center px-8 pb-20">
-        <div className="mx-auto flex w-full max-w-sm flex-col text-center">
-          <h1 className="text-3xl leading-tight font-normal">
-            This invitation isn’t available.
-          </h1>
-          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-            {relayReachable
-              ? "It may have expired, been cancelled, or belong to a different Chief relay. Ask the person who invited you for a new link."
-              : "Chief couldn’t reach this workspace’s relay. Try again in a moment."}
-          </p>
-          <Link
-            className="text-muted-foreground hover:text-foreground mt-8 text-sm"
-            href="/"
-          >
-            Back to Chief
-          </Link>
-        </div>
-      </div>
-    </main>
+    <HandoffCard brand={<ChiefBrand />}>
+      <HandoffHeading title="Invitation unavailable">
+        {relayReachable
+          ? "It may have expired, been cancelled, or belong to a different Chief relay. Ask the person who invited you for a new link."
+          : "Chief couldn’t reach this workspace’s relay. Try again in a moment."}
+      </HandoffHeading>
+      <Link className={handoffPrimaryClassName} href="/">
+        Back to Chief
+      </Link>
+    </HandoffCard>
   );
 }

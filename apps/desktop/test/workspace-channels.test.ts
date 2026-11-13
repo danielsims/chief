@@ -2,16 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  actionConversation,
   channelChatId,
-  channelIdFromChatId,
   directMessageAgentIdFromChatId,
   directMessageChatId,
   directMessageIdsForAgents,
   directMessageIdsForChats,
   placePinnedChannel,
   placeSidebarPinnedItem,
-  resolvedChannelChatId,
   WORKSPACE_CHANNELS,
   WORKSPACE_DIRECT_MESSAGES,
   workspaceChannel,
@@ -24,32 +21,6 @@ void test("gives every product channel its own stable runtime session", () => {
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_CHANNELS.length);
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
-});
-
-void test("keeps mission control as the stable onboarding channel", () => {
-  const channel = WORKSPACE_CHANNELS.find(
-    (candidate) => candidate.id === "mission-control",
-  );
-  assert.ok(channel);
-  assert.deepEqual(channel.agentIds, ["chief"]);
-  assert.equal(
-    channelChatId(channel.id, "workspace-a"),
-    "channel:workspace-a:ce83fa02-5d8d-4fc1-9e31-f670676b0741",
-  );
-  assert.equal(
-    channelIdFromChatId(channelChatId(channel.id, "workspace-a")),
-    channel.relayId,
-  );
-  assert.notEqual(
-    channelChatId(channel.id, "workspace-a"),
-    channelChatId(channel.id, "workspace-b"),
-  );
-  assert.equal(
-    resolvedChannelChatId(channel.id, "workspace-b", [
-      { id: channelChatId(channel.id) },
-    ]),
-    channelChatId(channel.id),
-  );
 });
 
 void test("resolves a built-in channel before the runtime channel list loads", () => {
@@ -95,40 +66,8 @@ void test("gives every agent a workspace-scoped lazy direct destination", () => 
     "chief",
   );
   assert.equal(
-    directMessageAgentIdFromChatId(
-      channelChatId("mission-control", "workspace-a"),
-    ),
+    directMessageAgentIdFromChatId(channelChatId("general", "workspace-a")),
     null,
-  );
-});
-
-void test("routes overview actions to the channel that owns the work", () => {
-  assert.deepEqual(
-    actionConversation({ title: "Connect GitHub", agentId: "setup" }),
-    { kind: "channel", id: "mission-control" },
-  );
-  assert.deepEqual(
-    actionConversation({
-      title: "Connect GitHub",
-      agentId: "setup",
-      missionControlChannelId: "leadership",
-    }),
-    { kind: "channel", id: "leadership" },
-  );
-  assert.deepEqual(
-    actionConversation({ title: "Review acquisition performance report" }),
-    { kind: "channel", id: "analytics" },
-  );
-  assert.deepEqual(actionConversation({ title: "Review launch creative" }), {
-    kind: "channel",
-    id: "advertising",
-  });
-  assert.deepEqual(
-    actionConversation({
-      title: "Fix the onboarding crash",
-      agentId: "engineer",
-    }),
-    { kind: "channel", id: "engineering" },
   );
 });
 

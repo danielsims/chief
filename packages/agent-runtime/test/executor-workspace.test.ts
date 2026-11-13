@@ -11,7 +11,6 @@ import {
   googleAnalyticsSpecOverrides,
   prepareGoogleAnalyticsSpec,
 } from "../src/tools/control-plane.js";
-import { redactExecutorHandoffCredentials } from "../src/tools/redaction.js";
 import { executorToolServer } from "../src/tools/spec.js";
 
 void test("Executor keychain storage is isolated per Chief workspace", () => {
@@ -54,15 +53,6 @@ void test("Executor HTTP transports preserve the requested approval mode", (cont
   assert.equal(
     executorToolServer(workspace, "model").url,
     "http://127.0.0.1:4123/mcp?elicitation_mode=model",
-  );
-});
-
-void test("Executor handoff credentials are redacted from browser snapshots", () => {
-  assert.equal(
-    redactExecutorHandoffCredentials(
-      "http://127.0.0.1:4123/resume/run?_token=secret&next=1",
-    ),
-    "http://127.0.0.1:4123/resume/run?_token=[redacted]&next=1",
   );
 });
 

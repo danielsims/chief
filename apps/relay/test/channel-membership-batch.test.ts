@@ -30,7 +30,7 @@ describe("channel membership batches", () => {
         protocolVersion: 1,
         occurredAt: new Date().toISOString(),
         payload: {
-          conversationId: "mission-control",
+          conversationId: "general",
           members: agents.map((principalId) => ({
             kind: "agent" as const,
             principalId,
@@ -43,7 +43,7 @@ describe("channel membership batches", () => {
     const messages = await testConversationMessages(
       ctx,
       ctx.principal,
-      "mission-control",
+      "general",
     );
     const events = messages.filter((message) =>
       message.components.some(
@@ -65,7 +65,7 @@ describe("channel membership batches", () => {
 
     const snapshot = await activeTestSnapshot(ctx);
     expect(
-      snapshot.conversations.find((item) => item.id === "mission-control"),
+      snapshot.conversations.find((item) => item.id === "general"),
     ).toMatchObject({ isPrivate: false });
   });
 });

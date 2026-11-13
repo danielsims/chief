@@ -28,11 +28,12 @@ import {
 const SESSION_KEY = "chief-auth-session";
 const LEGACY_SESSION_KEY = "marketer-auth-session";
 const BROWSER_SESSION_KEY = "chief-auth-session-memory";
-const KEYCHAIN_READ_TIMEOUT_MS = 12_000;
 export const AUTH_SESSION_CHANGED_EVENT = "chief:auth-session-changed";
 
 let cachedSession: StoredSession | null = null;
 let hydrated = false;
+let hydration: Promise<StoredSession | null> | null = null;
+let sessionRevision = 0;
 let persistenceQueue = Promise.resolve();
 
 function enqueuePersistence(operation: () => Promise<void>) {
@@ -74,6 +75,7 @@ export function getStoredSession(): StoredSession | null {
 }
 
 export function setStoredSession(session: StoredSession): void {
+  sessionRevision++;
   cachedSession = session;
   const previousIdentity = relayIdentity(RELAY_URL);
   const identity = rememberRelayAccount(RELAY_URL, session.user);
@@ -142,6 +144,7 @@ export async function loadSessionForRelay(
 }
 
 export function clearStoredSession(): void {
+  sessionRevision++;
   const relayOrigin = new URL(RELAY_URL).origin;
   const activeUserId = cachedSession?.user.id ?? activeRelayUserId(relayOrigin);
   cachedSession = null;
@@ -170,6 +173,7 @@ export async function clearStoredRelaySession(relayUrl: string): Promise<void> {
   const identity = forgetRelayIdentity(relayOrigin);
   if (!identity) return;
   if (cachedSession && relayOrigin === new URL(RELAY_URL).origin) {
+    sessionRevision++;
     cachedSession = null;
     notifySessionChanged();
   }
@@ -178,18 +182,18 @@ export async function clearStoredRelaySession(relayUrl: string): Promise<void> {
 
 export async function hydrateStoredSession(): Promise<StoredSession | null> {
   if (hydrated) return cachedSession;
-  await persistenceQueue.catch(() => undefined);
+  hydration ??= readStoredSession().finally(() => {
+    hydration = null;
+  });
+  return hydration;
+}
 
-  let session: StoredSession | null = null;
-  if (isTauri()) {
-    session = await withTimeout(
-      loadSessionForRelay(RELAY_URL),
-      KEYCHAIN_READ_TIMEOUT_MS,
-      "Chief could not read your secure sign-in. Open Chief again and allow Keychain access.",
-    );
-  } else {
-    session = await loadSessionForRelay(RELAY_URL);
-  }
+async function readStoredSession(): Promise<StoredSession | null> {
+  const revision = sessionRevision;
+  await persistenceQueue.catch(() => undefined);
+  // macOS may be waiting for the user to approve a Keychain prompt. That is
+  // not a failed request: let the native operation complete or be cancelled.
+  let session = await loadSessionForRelay(RELAY_URL);
 
   // Remove credentials left by pre-Keychain builds. A valid legacy session is
   // migrated once so upgrading does not unnecessarily sign the user out.
@@ -198,7 +202,7 @@ export async function hydrateStoredSession(): Promise<StoredSession | null> {
     parseSession(localStorage.getItem(LEGACY_SESSION_KEY));
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LEGACY_SESSION_KEY);
-  session ??= legacy;
+  session = sessionRevision !== revision ? cachedSession : (session ?? legacy);
 
   hydrated = true;
   cachedSession = session;
@@ -242,24 +246,6 @@ async function clearPersistedRelaySession(identity: {
   sessionStorage.removeItem(
     browserSessionKey(identity.relayUrl, identity.user.id),
   );
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 function parseSession(raw: string | null): StoredSession | null {

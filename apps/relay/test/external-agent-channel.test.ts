@@ -225,7 +225,7 @@ describe("external agent channels", () => {
     const message = {
       id: rootId,
       workspaceId: ctx.workspaceId,
-      conversationId: "mission-control",
+      conversationId: "general",
       author: { kind: "user" as const, id: ownerId },
       body: "@Eve Reviewer please inspect this.",
       mentions: [agentIdSchema.parse("eve-reviewer")],

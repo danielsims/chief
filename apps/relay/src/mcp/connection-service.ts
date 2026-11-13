@@ -52,7 +52,7 @@ import {
 } from "./fetch-guard";
 import {
   oneAtATime,
-  optionalMetadata,
+  requireAuthorizationResponseIssuer,
   requireConsistentIssuer,
   revokeSession,
 } from "./oauth-policy";
@@ -67,6 +67,7 @@ import {
   withoutChiefClient,
   workspaceSignInTag,
 } from "./oauth-support";
+import { PluginAgentAccessService } from "./plugin-agent-access";
 
 const maximumConnections = 100;
 const signInLifetimeMs = 5 * 60_000;
@@ -126,10 +127,7 @@ export class McpConnectionService {
     return next;
   }
 
-  /**
-   * Updates a plugin only while it still exists as the same plugin, so work
-   * that finishes after a removal never brings it back.
-   */
+  /** Never resurrect a removed plugin when its pending work finishes. */
   private save(connection: McpConnection) {
     if (this.read(connection.id).createdAt !== connection.createdAt)
       throw new HttpError(
@@ -322,6 +320,7 @@ export class McpConnectionService {
       createdAt: now,
       updatedAt: now,
     });
+    this.grantToOwnAgents(principal, connection.id);
     if (input.auth.kind === "headers") {
       await this.credentials.write(connection.id, connection.url, {
         kind: "headers",
@@ -331,6 +330,21 @@ export class McpConnectionService {
     return input.auth.kind === "oauth"
       ? connection
       : this.refreshTools(connection);
+  }
+
+  /** A plugin you add is on for each of your own agents; untick any later. */
+  private grantToOwnAgents(principal: Principal, connectionId: string) {
+    if (principal.kind !== "user") return;
+    const access = new PluginAgentAccessService(
+      this.storage,
+      this.env,
+      this.workspaceId,
+    );
+    const yours = access
+      .list(principal, connectionId)
+      .agents.filter((agent) => agent.canEdit)
+      .map((agent) => agent.id);
+    if (yours.length > 0) access.update(principal, connectionId, yours, true);
   }
 
   /** Swaps a plugin's key once the new one lists tools, so a typo never breaks it. */
@@ -614,22 +628,8 @@ export class McpConnectionService {
           "plugin_sign_in_superseded",
           "A newer sign-in replaced this one. Start again from Chief.",
         );
-      // RFC 9207 mix-up defence: when an issuer is named it must be ours.
-      if (
-        (input.issuer !== null ||
-          optionalMetadata(credential.session)
-            .authorization_response_iss_parameter_supported === true) &&
-        input.issuer !==
-          credential.session.discovery?.authorizationServerMetadata?.issuer
-      )
-        throw new HttpError(
-          400,
-          "plugin_sign_in_issuer",
-          "The sign-in came back from an unexpected provider.",
-        );
-      requireConsistentIssuer(credential.session);
-      // What was stored before: a failed exchange must leave it, and any
-      // working tokens, exactly as they were.
+      requireAuthorizationResponseIssuer(credential.session, input.issuer);
+      // A failed exchange must preserve the previous session and working tokens.
       const before = structuredClone(credential.session);
       delete before.codeVerifier;
       const provider = this.oauthProvider(connection, credential.session, true);

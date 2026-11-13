@@ -28,7 +28,6 @@ import {
   usesOrganizationTenancy,
 } from "./organization-tenancy";
 import { recordProductEvents } from "./product-events";
-import { enqueueOnboarding } from "./workspace-onboarding-enqueue";
 import { readWorkspaceSettings } from "./workspace-settings";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
@@ -52,7 +51,6 @@ export async function createManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
   provision: ProvisionWorkspaceCommand,
-  context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
@@ -78,6 +76,9 @@ export async function createManagedWorkspace(
       name: command.name,
       website: command.website,
       workspaceId: entry.workspaceId,
+      slug: command.slug,
+      purpose: command.purpose,
+      companyName: command.companyName,
     });
     response = await workspaceStub(env, entry.workspaceId).fetch(
       withTrustedIdentity(
@@ -111,26 +112,6 @@ export async function createManagedWorkspace(
     workspaceId: entry.workspaceId,
     role: "owner",
   });
-  if (command.agentRuntime === "relay-cell") {
-    const onboarding = enqueueOnboarding(
-      env,
-      identity,
-      { ...entry, command },
-      false,
-    );
-    if (context) {
-      context.waitUntil(
-        onboarding.catch((error: unknown) => {
-          console.error(
-            "[Workspace] Initial onboarding enqueue failed:",
-            error,
-          );
-        }),
-      );
-    } else {
-      await onboarding;
-    }
-  }
   return response;
 }
 
@@ -170,7 +151,6 @@ async function rollbackProvisioning(
 export async function activeManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
-  context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
@@ -212,26 +192,6 @@ export async function activeManagedWorkspace(
   }
   snapshot.runtime =
     entry.command?.agentRuntime === "relay-cell" ? entry.command.runtime : null;
-  if (
-    snapshot.onboardingComplete === false &&
-    entry.command?.agentRuntime === "relay-cell"
-  ) {
-    const repair = enqueueOnboarding(
-      env,
-      identity,
-      { ...entry, command: entry.command },
-      true,
-    );
-    if (context) {
-      context.waitUntil(
-        repair.catch((error: unknown) => {
-          console.error("[Workspace] Onboarding repair failed:", error);
-        }),
-      );
-    } else {
-      await repair;
-    }
-  }
   // The body changed, so do not reuse the Durable Object response headers.
   // In particular, a stale Content-Length leaves native HTTP clients waiting
   // for bytes that will never arrive.

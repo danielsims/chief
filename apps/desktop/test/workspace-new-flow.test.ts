@@ -33,11 +33,13 @@ void test("keeps Eve onboarding on the create form until the workspace is create
   );
 });
 
-void test("Add Workspace starts on the chooser instead of the name form", () => {
+void test("Create Workspace starts directly in setup without a chooser", () => {
   assert.equal(
     initialWorkspacePageMode(false, workspaceDraft(eveDraft), true, true),
-    "home",
+    "create",
   );
+  assert.equal(initialWorkspacePageMode(false, null, false), "create");
+  assert.equal(initialWorkspacePageMode(true, null, false), "join");
 });
 
 void test("resumes Eve deploy only after the workspace already exists", () => {

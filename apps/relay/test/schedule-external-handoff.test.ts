@@ -44,7 +44,7 @@ it("a completion receipt wakes the collaborator without duplicating the lead's p
     ctx.principal,
     "channels-members-add",
     channelEnvelope({
-      conversationId: "mission-control",
+      conversationId: "general",
       kind: "agent",
       principalId: "eve-lead",
     }),
@@ -70,7 +70,7 @@ it("a completion receipt wakes the collaborator without duplicating the lead's p
     id: "handoff",
     agentId: "eve-lead",
     collaborators: ["chief"],
-    conversationId: "mission-control",
+    conversationId: "general",
     title: "Create a campaign",
     instructions: "Create a campaign",
     triggerMode: "webhook",
@@ -194,7 +194,7 @@ it("a completion receipt wakes the collaborator without duplicating the lead's p
   const messages = await testConversationMessages(
     ctx,
     ctx.principal,
-    "mission-control",
+    "general",
   );
   const announcements = messages.filter((message) =>
     message.components.some((component) => component.kind === "schedule.run"),
@@ -224,7 +224,7 @@ it("routes the scheduled Marketer step through Chief’s Eve deployment with a c
     ctx.principal,
     "channels-members-add",
     channelEnvelope({
-      conversationId: "mission-control",
+      conversationId: "general",
       kind: "agent",
       principalId: "chief",
     }),
@@ -234,7 +234,7 @@ it("routes the scheduled Marketer step through Chief’s Eve deployment with a c
     ctx.principal,
     "channels-members-add",
     channelEnvelope({
-      conversationId: "mission-control",
+      conversationId: "general",
       kind: "agent",
       principalId: "brand",
     }),
@@ -243,7 +243,7 @@ it("routes the scheduled Marketer step through Chief’s Eve deployment with a c
     id: "handoff",
     agentId: "chief",
     collaborators: ["brand"],
-    conversationId: "mission-control",
+    conversationId: "general",
     title: "Create a campaign",
     instructions: "Create a campaign",
     triggerMode: "webhook",
@@ -412,7 +412,7 @@ it("routes the scheduled Marketer step through Chief’s Eve deployment with a c
   const messages = await testConversationMessages(
     ctx,
     ctx.principal,
-    "mission-control",
+    "general",
   );
   const marketerReply = messages.find(
     (message) => message.body === "Here is the finished campaign.",

@@ -117,27 +117,3 @@ function workspaceSnapshotProjectProviders(raw: JsonObject) {
   });
   return providerIds.length > 0 ? { projects, providerIds } : undefined;
 }
-
-export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
-  snapshot: WorkspaceSnapshot;
-  changed: boolean;
-} {
-  const missionControlWasPrivate = snapshot.conversations.some(
-    (conversation) =>
-      conversation.id === "mission-control" && conversation.isPrivate,
-  );
-  if (!missionControlWasPrivate) {
-    return { snapshot, changed: false };
-  }
-  return {
-    snapshot: {
-      ...snapshot,
-      conversations: snapshot.conversations.map((conversation) =>
-        conversation.id === "mission-control"
-          ? { ...conversation, isPrivate: false }
-          : conversation,
-      ),
-    },
-    changed: true,
-  };
-}

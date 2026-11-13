@@ -3,22 +3,15 @@ import {
   agentConfigSchema,
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
-  messagePageSchema,
   provisionWorkspaceCommandSchema,
-  workspaceOnboardingResultSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedIdentity } from "./internal-context";
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson, relayError } from "./http";
-import { readTrustedContext, withTrustedContext } from "./internal-context";
-import { releaseInternalResponse } from "./internal-response";
 import { agentConfigsInsertCreateManaged } from "./queries/agent-configs/insert-create-managed";
 import { agentKeysFindDeletionPlan } from "./queries/agent-keys/find-deletion-plan";
-import { agentKeysFindRegisterAgentKey } from "./queries/agent-keys/find-register-agent-key";
-import { channelMembersFindValidateOnboardingDelegation } from "./queries/channel-members/find-validate-onboarding-delegation";
-import { channelMembersInsertRegisterAgentKey } from "./queries/channel-members/insert-register-agent-key";
 import { channelsFindDeletionPlan } from "./queries/channels/find-deletion-plan";
 import { membersInsertClaimRow } from "./queries/members/insert-claim-row";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
@@ -30,8 +23,6 @@ import { canMessageAgent } from "./workspace-agent-messaging";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   decodeWorkspaceSnapshot,
-  defaultWorkspaceAgents,
-  reconcileWorkspaceAgents,
   workspaceAgentProfiles,
 } from "./workspace-defaults";
 import {
@@ -39,19 +30,13 @@ import {
   reconcileExternalAgentSnapshot,
 } from "./workspace-external-agent-snapshot";
 import {
-  delegationIncomplete,
   initialConversation,
   matchesBootstrapToken,
   workspaceInference,
 } from "./workspace-lifecycle-support";
 import { WorkspaceLiveStore } from "./workspace-live-store";
+import { onboardingRoster } from "./workspace-onboarding-roster";
 import { WorkspaceSecretStore } from "./workspace-secret-store";
-
-interface AgentKeyRow extends Record<string, SqlStorageValue> {
-  agent_id: string;
-  pubkey: string;
-  created_at: string;
-}
 
 export class WorkspaceLifecycleService {
   private readonly channels: WorkspaceChannelStore;
@@ -146,7 +131,19 @@ export class WorkspaceLifecycleService {
       this.storage,
       this.env.RELAY_SECRET_KEY,
     );
-    const inference = workspaceInference(provision.workspace.inferenceProvider);
+    const inference =
+      input.runtime === "desktop"
+        ? {
+            provider:
+              input.localProvider === "claude"
+                ? ("claude" as const)
+                : input.localProvider === "codex"
+                  ? ("codex" as const)
+                  : ("opencode" as const),
+            model: "auto",
+            secretRef: "opencode",
+          }
+        : workspaceInference(provision.workspace.inferenceProvider);
     const credential =
       inference.provider === "vercel-ai-gateway"
         ? provision.secrets.vercelAiGateway
@@ -163,16 +160,16 @@ export class WorkspaceLifecycleService {
       id: context.workspaceId,
       name: input.name,
       website: input.website,
+      slug: input.slug,
+      purpose: input.purpose,
+      companyName: input.companyName,
+      setupComplete: false,
       selectedApps: input.selectedApps,
       runtime: input.agentRuntime === "relay-cell" ? input.runtime : null,
       imageURL: null,
       onboardingComplete: false,
-      conversations: [
-        initialConversation("mission-control", "mission-control", "channel"),
-        initialConversation("general", "general", "channel"),
-        initialConversation("chief", "Chief", "direct"),
-      ],
-      agents: defaultWorkspaceAgents,
+      conversations: [initialConversation("general", "general", "channel")],
+      agents: onboardingRoster(input),
       projects: [],
       createdAt,
     });
@@ -201,7 +198,8 @@ export class WorkspaceLifecycleService {
       for (const agent of workspaceAgentProfiles(snapshot)) {
         const config = agentConfigSchema.parse({
           ...defaultAgentConfigFor(agent.id),
-          enabled: input.agentRuntime === "relay-cell",
+          // Setup enables the team once the owner's Chief is ready.
+          enabled: false,
           deploymentTarget: input.runtime,
           inference: preparedSecret
             ? {
@@ -235,32 +233,22 @@ export class WorkspaceLifecycleService {
         "This workspace does not expose a managed snapshot.",
       );
     }
-    const external = reconcileExternalAgentSnapshot(
+    const { snapshot } = reconcileExternalAgentSnapshot(
       decodeWorkspaceSnapshot(workspace.snapshot_json),
       externalAgentSnapshotRows(this.storage),
     );
-    const reconciled = reconcileWorkspaceAgents(external.snapshot);
-    const nextSnapshot = JSON.stringify(reconciled.snapshot);
-    if (
-      external.changed ||
-      reconciled.changed ||
-      nextSnapshot !== workspace.snapshot_json
-    ) {
+    const nextSnapshot = JSON.stringify(snapshot);
+    if (nextSnapshot !== workspace.snapshot_json)
       workspaceUpdateVerifyConnection(this.storage, nextSnapshot);
-    }
     const lastMessageTimes = new WorkspaceLiveStore(
       this.storage,
     ).lastMessageTimes();
-    const conversations = reconciled.snapshot.conversations.map(
-      (conversation) => {
-        const lastMessageAt = lastMessageTimes.get(conversation.id);
-        return lastMessageAt
-          ? { ...conversation, lastMessageAt }
-          : conversation;
-      },
-    );
+    const conversations = snapshot.conversations.map((conversation) => {
+      const lastMessageAt = lastMessageTimes.get(conversation.id);
+      return lastMessageAt ? { ...conversation, lastMessageAt } : conversation;
+    });
     if (context.identity.kind !== "user")
-      return json({ ...reconciled.snapshot, conversations });
+      return json({ ...snapshot, conversations });
     const principal: UserPrincipal = {
       role: "member",
       kind: "user",
@@ -270,7 +258,7 @@ export class WorkspaceLifecycleService {
     };
     const names = this.channels.principalNames();
     return json({
-      ...reconciled.snapshot,
+      ...snapshot,
       // Each person sees only the DMs they are in. A person-to-person DM is
       // named after the other participant, for this viewer.
       conversations: conversations.flatMap((conversation) => {
@@ -302,7 +290,7 @@ export class WorkspaceLifecycleService {
           },
         ];
       }),
-      agents: reconciled.snapshot.agents.map((agent) => ({
+      agents: snapshot.agents.map((agent) => ({
         ...agent,
         ...this.agentProvider(agent),
         canRunOnDevice:
@@ -342,146 +330,6 @@ export class WorkspaceLifecycleService {
     this.requireOwner(context);
     await this.storage.deleteAll();
     return json({ workspaceId: context.workspaceId, deleted: true });
-  }
-
-  async completeOnboarding(request: Request) {
-    const context = readTrustedContext(request);
-    const workspace = this.channels.requireWorkspace(context.workspaceId);
-    if (
-      context.principal.kind !== "agent" ||
-      context.principal.agentId !== "chief"
-    ) {
-      throw new HttpError(
-        403,
-        "chief_required",
-        "Only the registered Chief agent can complete onboarding.",
-      );
-    }
-    this.channels.requirePrincipalMember(context.principal);
-    const key = firstRow<AgentKeyRow>(
-      agentKeysFindRegisterAgentKey(this.storage, context.principal.agentId),
-    );
-    // The relay's own hosted cell executes Chief inside a trusted Durable Object
-    // boundary and presents the all-zero relay pubkey. It does not hold a
-    // device-registered key, so it must be allowed to finalize onboarding even
-    // when no key is registered. Phone/desktop cells carry a real key and must
-    // still match it.
-    const isHostedCell = context.principal.pubkey === "0".repeat(64);
-    if (!isHostedCell && key?.pubkey !== context.principal.pubkey) {
-      throw new HttpError(
-        403,
-        "agent_key_mismatch",
-        "Chief's registered key does not match the completing identity.",
-      );
-    }
-    if (!workspace.snapshot_json) {
-      throw new HttpError(
-        409,
-        "workspace_snapshot_unavailable",
-        "This workspace does not expose a managed snapshot.",
-      );
-    }
-    const result = workspaceOnboardingResultSchema.parse(
-      await parseJson(request),
-    );
-    const messages = await this.validateOnboardingDelegation(
-      context,
-      result.openingMessage,
-    );
-    const previous = reconcileWorkspaceAgents(
-      decodeWorkspaceSnapshot(workspace.snapshot_json),
-    ).snapshot;
-    const existing = previous.conversations.find(
-      (conversation) => conversation.id === "mission-control",
-    );
-    const missionControl = {
-      ...(existing ??
-        initialConversation("mission-control", "mission-control", "channel")),
-      isPrivate: false,
-      lastMessage: messages.at(-1)?.body ?? result.openingMessage,
-    };
-    const snapshot = workspaceSnapshotSchema.parse({
-      ...previous,
-      onboardingComplete: true,
-      conversations: [
-        missionControl,
-        ...previous.conversations.filter(
-          (conversation) => conversation.id !== "mission-control",
-        ),
-      ],
-      agents: previous.agents.map((agent) =>
-        agent.id === "chief" ? { ...agent, status: "idle" as const } : agent,
-      ),
-    });
-    const now = new Date().toISOString();
-    this.storage.transactionSync(() => {
-      workspaceUpdateVerifyConnection(this.storage, JSON.stringify(snapshot));
-      this.channels.seedSnapshotChannels(
-        snapshot,
-        workspace.created_by_user_id,
-        now,
-      );
-      channelMembersInsertRegisterAgentKey(this.storage, now);
-    });
-    return json(snapshot);
-  }
-
-  private async validateOnboardingDelegation(
-    context: ReturnType<typeof readTrustedContext>,
-    openingMessage: string,
-  ) {
-    const requiredAgents = ["brand", "prospector", "engineer"];
-    const rows = channelMembersFindValidateOnboardingDelegation<{
-      principal_id: string;
-    }>(this.storage);
-    const members = new Set(rows.map((row) => String(row.principal_id)));
-    if (!requiredAgents.every((agentId) => members.has(agentId))) {
-      throw delegationIncomplete(
-        "Chief must invite every kickoff agent to Mission Control before completing onboarding.",
-      );
-    }
-    const conversation = this.env.CONVERSATIONS.get(
-      this.env.CONVERSATIONS.idFromName(
-        `${context.workspaceId}:mission-control`,
-      ),
-    );
-    const response = await conversation.fetch(
-      withTrustedContext(
-        new Request("https://conversation.internal/messages?limit=200"),
-        { ...context, conversationId: "mission-control" },
-      ),
-    );
-    if (!response.ok) {
-      await releaseInternalResponse(response);
-      throw new HttpError(
-        502,
-        "onboarding_messages_unavailable",
-        "Mission Control could not be verified.",
-      );
-    }
-    const page = messagePageSchema.parse(await response.json());
-    const messages = page.messages.filter(
-      (message) =>
-        message.author.kind === "agent" &&
-        message.author.id === "chief" &&
-        !message.threadRootId,
-    );
-    const bodies = messages.map((message) => message.body);
-    const hasKickoff = (mention: string) =>
-      bodies.some((body) =>
-        body.toLocaleLowerCase().includes(`@${mention.toLocaleLowerCase()}`),
-      );
-    if (
-      !bodies.includes(openingMessage) ||
-      !hasKickoff("Marketer") ||
-      !hasKickoff("Prospector") ||
-      !hasKickoff("Engineer")
-    ) {
-      throw delegationIncomplete(
-        "Chief must publish the opener and every specialist kickoff before completing onboarding.",
-      );
-    }
-    return messages;
   }
 
   private requireIdentityMember(

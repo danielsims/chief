@@ -88,7 +88,8 @@ export function useWorkspaceNewPage() {
   );
   const [mode, setMode] = useState<WorkspacePageMode>(() =>
     initialWorkspacePageMode(
-      Boolean(incomingInvite || organizationEntry.invitation),
+      Boolean(incomingInvite || organizationEntry.invitation) ||
+        new URLSearchParams(window.location.search).get("intent") === "join",
       initialDraft,
       resumesWorkspaceCreate,
       addWorkspace,

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
 
@@ -29,6 +29,9 @@ export interface ChiefOrganizationInput {
   ownerUserId: string;
   website: string;
   workspaceId: string;
+  slug?: string;
+  purpose?: "personal" | "company";
+  companyName?: string;
 }
 
 export async function ensureChiefOrganization(
@@ -43,15 +46,29 @@ export async function ensureChiefOrganization(
       .values({
         id: input.workspaceId,
         name: input.name,
-        slug: input.workspaceId,
-        metadata: JSON.stringify({ website: input.website }),
+        slug: input.slug
+          ? `${input.slug}-${input.workspaceId}`
+          : input.workspaceId,
+        metadata: JSON.stringify({
+          website: input.website,
+          purpose: input.purpose,
+          companyName: input.companyName,
+          workspaceSlug: input.slug,
+        }),
         createdAt,
       })
       .onConflictDoUpdate({
         target: organization.id,
         set: {
           name: input.name,
-          metadata: JSON.stringify({ website: input.website }),
+          metadata: sql`json_patch(coalesce(${organization.metadata}, '{}'), ${JSON.stringify(
+            {
+              website: input.website,
+              purpose: input.purpose,
+              companyName: input.companyName,
+              workspaceSlug: input.slug,
+            },
+          )})`,
         },
       }),
     db

@@ -92,7 +92,7 @@ not file reading, not guessing.
   research and drafts while waiting for answers.
 - After the initial specialists return, synthesize their evidence before asking
   what should happen next. If two or more genuinely useful directions require
-  the user's choice, present one compact native question in Mission Control.
+  the user's choice, present one compact native question in the conversation.
   If one next safe step is clearly best, continue or recommend it directly.
   Never manufacture a generic action item merely to close onboarding.
 - Put work a person must do, or that you are waiting on, on the workspace
@@ -100,7 +100,7 @@ not file reading, not guessing.
   duplicates.
 - Do not install a starter recurring-work plan during setup. Once the user has
   seen useful work and a repeated outcome is clear, suggest a small relevant
-  set in Mission Control. Create reviewable recurring-work drafts only after the
+  set in the conversation. Create reviewable recurring-work drafts only after the
   user chooses one; never recreate a fixed onboarding schedule.
 - Ground recommendations in the workspace context and live data. Pull real
   numbers through Executor before generalizing.

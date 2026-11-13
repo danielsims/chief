@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { ChevronDown, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, LoaderCircle } from "lucide-react";
 
 import type {
   AgentPluginSummary,
@@ -157,6 +157,10 @@ function ToolsPane({ tools }: { tools: WalkthroughTool[] }) {
   const [openTool, setOpenTool] = useState<string | null>(null);
   return (
     <>
+      <PaneHeading
+        title="Tools"
+        detail="Every tool this plugin gives an agent that you allow to use it."
+      />
       <div className="border-foreground/10 mb-1 flex items-center gap-4 border-b pb-3">
         {groups.map((group) => (
           <button
@@ -194,7 +198,32 @@ function ToolsPane({ tools }: { tools: WalkthroughTool[] }) {
   );
 }
 
-type Step = "tools" | "agents";
+type Step = "connected" | "tools" | "agents";
+
+function PaneHeading({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="mb-4">
+      <h3 className="text-[15px] leading-6 font-medium">{title}</h3>
+      <p className="text-muted-foreground mt-0.5 text-[13px] leading-5">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function ConnectedPane({ name }: { name: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+      <span className="mb-4 grid size-11 place-items-center rounded-full bg-emerald-500/15 text-emerald-500">
+        <Check size={20} strokeWidth={2.5} />
+      </span>
+      <h3 className="text-[17px] leading-6 font-medium">{name} is connected</h3>
+      <p className="text-muted-foreground mt-1.5 max-w-xs text-[13px] leading-5">
+        Next, see what it can do and choose which of your agents can use it.
+      </p>
+    </div>
+  );
+}
 
 function AgentsPane({
   name,
@@ -209,11 +238,14 @@ function AgentsPane({
     access.agents.length > 0 && access.assigned(connectionId).size === 0;
   return (
     <>
-      <p className="text-muted-foreground mb-3 text-[13px]">
-        {none
-          ? `No agent can use ${name} yet. Assign one below.`
-          : `Agents that can use ${name}.`}
-      </p>
+      <PaneHeading
+        title="Agent Access"
+        detail={
+          none
+            ? `No agent can use ${name} yet. Agents only use plugins you allow.`
+            : `Checked agents can use ${name}. Change this anytime in Plugins.`
+        }
+      />
       <PluginAgentAccess
         connectionId={connectionId}
         access={access}
@@ -239,6 +271,7 @@ export function PluginWalkthrough({
   primary,
   placeholder,
   error,
+  justConnected = false,
   onDone,
 }: {
   name: string;
@@ -255,17 +288,39 @@ export function PluginWalkthrough({
   /** Shown on the right when there are no tools or agents yet. */
   placeholder?: string;
   error?: string;
+  /** Walks from a success message through tools to agent access. */
+  justConnected?: boolean;
   onDone: () => void;
 }) {
-  const [step, setStep] = useState<Step>("tools");
+  const [step, setStep] = useState<Step>(justConnected ? "connected" : "tools");
   const access = usePluginAgentAccess(connectionId ?? "");
   const [expanded, setExpanded] = useState(false);
-  const steps: Step[] = [
+  const pages: Step[] = [
     ...(tools.length ? (["tools"] as const) : []),
     ...(connectionId ? (["agents"] as const) : []),
   ];
+  const steps: Step[] = [
+    ...(justConnected && connectionId ? (["connected"] as const) : []),
+    ...pages,
+  ];
   const current = steps.includes(step) ? step : steps[0];
-  const next = current ? steps[steps.indexOf(current) + 1] : undefined;
+  const index = current ? steps.indexOf(current) : -1;
+  const next = steps[index + 1];
+  const previous = index > 0 ? steps[index - 1] : undefined;
+  // A new connection starts with every agent you manage allowed, shown on
+  // the review step before you finish, where any can be unchecked.
+  const granted = useRef(false);
+  useEffect(() => {
+    if (!justConnected || !connectionId || current !== "agents") return;
+    if (granted.current || !access.editable) return;
+    granted.current = true;
+    const assigned = access.assigned(connectionId);
+    const missing = access.agents
+      .filter((agent) => !agent.disabledReason && !assigned.has(agent.id))
+      .map((agent) => agent.id);
+    if (missing.length)
+      void access.setAccess(missing, connectionId, true).catch(() => undefined);
+  }, [access, connectionId, current, justConnected]);
   return (
     <div className="grid h-[min(600px,85vh)] grid-cols-[264px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]">
       <aside className="border-foreground/10 flex min-h-0 flex-col overflow-y-auto border-r p-6">
@@ -310,9 +365,9 @@ export function PluginWalkthrough({
             {host}
           </p>
         ) : null}
-        {steps.length ? (
+        {pages.length ? (
           <nav className="-mx-2 mt-6 space-y-0.5">
-            {steps.map((item) => (
+            {pages.map((item) => (
               <button
                 key={item}
                 type="button"
@@ -325,7 +380,7 @@ export function PluginWalkthrough({
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {item === "tools" ? "Tools" : "Agents"}
+                {item === "tools" ? "Tools" : "Agent Access"}
                 <span className="text-muted-foreground ml-auto text-[13px] tabular-nums">
                   {item === "tools" ? tools.length : null}
                 </span>
@@ -336,7 +391,9 @@ export function PluginWalkthrough({
       </aside>
 
       <div className="min-h-0 overflow-y-auto px-6 pt-6 pb-4">
-        {current === "agents" && connectionId ? (
+        {current === "connected" ? (
+          <ConnectedPane name={name} />
+        ) : current === "agents" && connectionId ? (
           <AgentsPane name={name} connectionId={connectionId} access={access} />
         ) : current === "tools" ? (
           <ToolsPane tools={tools} />
@@ -351,7 +408,17 @@ export function PluginWalkthrough({
       </div>
 
       <footer className="border-foreground/10 col-span-2 flex h-14 items-center gap-2 border-t px-4">
-        {actions}
+        {previous ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-md"
+            onClick={() => setStep(previous)}
+          >
+            Back
+          </Button>
+        ) : null}
+        {justConnected ? null : actions}
         <span className="ml-auto" />
         {primary ??
           (next ? (
@@ -484,6 +551,7 @@ export function PluginDetailDialog({
                 : catalog.tools
             }
             connectionId={connected ? plugin.connection?.id : undefined}
+            justConnected={run > 0 && connected}
             error={error}
             onDone={onClose}
             placeholder={

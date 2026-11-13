@@ -1,68 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  eveWorkspaceKickoffResultSchema,
   externalAgentRegistrationResultSchema,
   registerExternalAgentCommandSchema,
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
-import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "../src/workspace-onboarding-job";
 import {
-  activeTestSnapshot,
+  channelEnvelope,
+  channelRpc,
   dispatchTestMessage,
   ownerId,
   setupChannelTest,
-  testConversationMessages,
 } from "./channel-test-helpers";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Eve workspace onboarding", () => {
-  it("defers hosted kickoff until the workspace is entered", async () => {
-    const ctx = await setupChannelTest({ agentRuntime: "vercel-eve" });
-    await registerExternalAgent(ctx, {
-      agentId: "chief",
-      replaceNative: true,
-    });
-    const deliveredBodies: unknown[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async (input, init) => {
-        deliveredBodies.push(await new Request(input, init).json());
-        return Response.json({
-          status: "accepted",
-          sessionId: `eve-session-${deliveredBodies.length}`,
-        });
-      }),
-    );
-
-    await verifyExternalAgent(ctx, "chief");
-    expect((await activeTestSnapshot(ctx)).onboardingComplete).toBe(false);
-    expect(
-      (
-        await testConversationMessages(ctx, ctx.principal, "mission-control")
-      ).map((message) => message.body),
-    ).not.toContain(WORKSPACE_ONBOARDING_OPENING_MESSAGE);
-
-    const started = await startEveOnboarding(ctx);
-    expect(started).toEqual({ started: true });
-    const messages = await testConversationMessages(
-      ctx,
-      ctx.principal,
-      "mission-control",
-    );
-    expect(messages.map((message) => message.body)).toContain(
-      WORKSPACE_ONBOARDING_OPENING_MESSAGE,
-    );
-    expect(messages.some((message) => message.body.includes("@Marketer"))).toBe(
-      true,
-    );
-    expect(deliveredBodies).toEqual([]);
-    expect((await activeTestSnapshot(ctx)).onboardingComplete).toBe(true);
-    expect(await startEveOnboarding(ctx)).toEqual({ started: false });
-  });
-
   it("wakes a connected Eve Chief from a DM even when hosted cells are disabled", async () => {
     const ctx = await setupChannelTest({ agentRuntime: "vercel-eve" });
     await registerExternalAgent(ctx, {
@@ -82,10 +36,22 @@ describe("Eve workspace onboarding", () => {
     );
     await verifyExternalAgent(ctx, "chief");
     expect(deliveredBodies).toEqual([]);
+    const direct = await channelRpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      channelEnvelope({
+        participant: { kind: "agent", principalId: "chief" },
+      }),
+    );
+    expect(direct.status).toBe(201);
+    const { conversation } = (await direct.json()) as {
+      conversation: { id: string };
+    };
     const dispatched = await dispatchTestMessage(ctx, ctx.principal, {
       id: crypto.randomUUID(),
       workspaceId: ctx.workspaceId,
-      conversationId: "chief",
+      conversationId: conversation.id,
       author: { kind: "user" as const, id: ownerId },
       body: "Hey there",
       mentions: [],
@@ -176,30 +142,4 @@ async function verifyExternalAgent(ctx: TestContext, agentId: string) {
     ),
   );
   expect(response.status).toBe(200);
-}
-
-async function startEveOnboarding(ctx: TestContext) {
-  const response = await ctx.env.WORKSPACES.get(
-    ctx.env.WORKSPACES.idFromName(ctx.workspaceId),
-  ).fetch(
-    withTrustedContext(
-      new Request(
-        `https://relay.test/v1/workspaces/${ctx.workspaceId}/onboarding/start`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-chief-internal-operation": "start-eve-onboarding",
-          },
-        },
-      ),
-      {
-        principal: ctx.principal,
-        requestId: crypto.randomUUID(),
-        workspaceId: ctx.workspaceId,
-      },
-    ),
-  );
-  expect(response.status).toBe(200);
-  return eveWorkspaceKickoffResultSchema.parse(await response.json());
 }

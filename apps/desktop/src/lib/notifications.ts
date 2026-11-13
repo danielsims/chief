@@ -291,11 +291,10 @@ export async function notifySystem(
       if (isTauri()) await ensureActionListener();
       if (isTauri()) {
         try {
-          nativeSoundDelivered =
-            claimedSound !== null &&
-            (Boolean(options?.urgent) ||
-              document.visibilityState !== "visible" ||
-              !document.hasFocus());
+          // The message observer already suppresses the conversation being read.
+          // Use the OS sound for every remaining native banner, including when
+          // Chief is focused on a different channel.
+          nativeSoundDelivered = claimedSound !== null;
           await invoke("show_native_notification", {
             title,
             body,

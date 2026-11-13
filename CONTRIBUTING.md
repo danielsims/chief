@@ -12,25 +12,26 @@ Thanks for taking the time to improve Chief.
 ## Run Chief locally
 
 Install the prerequisites and dependencies described in the
-[README](./README.md), then start the services in separate terminals:
+[README](./README.md), start Docker Desktop, then run:
 
 ```bash
-pnpm relay:dev
 pnpm dev
-pnpm desktop
 ```
 
-Desktop and mobile clients default to Chief's hosted relay and sign-in service
-unless you select another relay or configure URL overrides. The web app also
-defaults to the hosted relay. Starting local services does not automatically
-point clients at them.
+This uses the existing self-hosted Docker stack and the normal Tauri desktop
+app. Local migrations run automatically and local accounts/workspaces are
+retained. The default gateway and sign-in UI are `http://localhost:8080`.
+If the app previously selected another relay, choose **Connect a self-hosted
+relay** in Chief and enter that URL. No production deployment is involved.
 
-For local desktop development, copy `apps/desktop/.env.example` to
-`apps/desktop/.env.local` and set `VITE_CHIEF_RELAY_URL`, `VITE_AUTH_BASE_URL`,
-and `VITE_AUTH_UI_URL` for your relay and authentication UI. Copy
-`apps/web/.env.example` to `apps/web/.env.local` and set `CHIEF_RELAY_URL` to
-your relay. See the [desktop configuration guide](./apps/desktop/README.md#configuration)
-and [self-hosting guide](./deploy/self-host/README.md) for setup details.
+Ctrl+C stops the desktop. `pnpm self-host:down` stops the Docker services
+without deleting their data. The existing `pnpm desktop:dev` alias starts the
+same loop. For individual service work, use the package's own dev command or
+`pnpm relay:dev`.
+
+See the [desktop configuration guide](./apps/desktop/README.md#configuration)
+and [self-hosting guide](./deploy/self-host/README.md) for other relay URLs and
+manual service management.
 
 ## Make a change
 

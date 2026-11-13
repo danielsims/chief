@@ -9,7 +9,11 @@ import {
   DurableTurnRunner,
   measureDurableTurnState,
 } from "@chief/agent-runtime/durable-turn";
-import { agentJobSchema, isJsonString } from "@chief/relay-contracts";
+import {
+  agentJobSchema,
+  isJsonString,
+  jobConversationId,
+} from "@chief/relay-contracts";
 
 import type {
   AgentExecutionEnvironment,
@@ -71,7 +75,6 @@ import {
 import { ensureHostedProjectCheckout } from "./hosted-project-checkout";
 import { executePluginTool } from "./mcp/agent-plugin-tools";
 import { jobsFindCurrentAgentWorkflowId } from "./queries/jobs/find-current-agent-workflow-id";
-import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export class AgentRuntime {
   private readonly turns: DurableTurnRunner;
@@ -195,15 +198,6 @@ export class AgentRuntime {
       const lease = yield* attempt("agent.job.lease.decode", () =>
         parseHostedLease(response),
       );
-      if (lease.job.kind === "workspace.onboarding") {
-        yield* completeAgentJob(queue, lease.leaseToken, principal, {
-          status: "completed",
-          result: {
-            openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE,
-          },
-        });
-        return yield* scheduleNextAlarm();
-      }
       const admission = Effect.gen(function* () {
         const prepared = yield* attempt("agent.turn.prepare", () =>
           prepareHostedAgentTurn(env, lease.job, principal, hosting, storage),
@@ -569,9 +563,7 @@ function publishRunError(
   return attempt("agent.activity.error", () =>
     publishAgentErrorActivity(env, {
       principal,
-      conversationId: isJsonString(job.payload.conversationId)
-        ? job.payload.conversationId
-        : "mission-control",
+      conversationId: jobConversationId(job),
       ...(isJsonString(job.payload.threadRootId)
         ? { threadRootId: job.payload.threadRootId }
         : undefined),

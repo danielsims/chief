@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@chief/ui/components/button";
+import { HandoffCard, HandoffHeading } from "@chief/ui/components/handoff-card";
 import { Input } from "@chief/ui/components/input";
 
 import type { AuthenticationMethod } from "../../lib/relay-authentication";
 import type { SignInAccount, SignInContext } from "../../lib/sign-in-context";
 import { authClient } from "../../lib/auth-client";
 import { parseAuthenticationMethods } from "../../lib/relay-authentication";
+import { ChiefBrand } from "../chief-brand";
 import { AccountChooser } from "./account-chooser";
 import { SocialProviderButton } from "./provider-button";
 
@@ -234,142 +235,123 @@ export function SignInContent({ initial }: { initial: SignInContext }) {
     authenticationMethods?.includes("email-password") === true && !hasSocial;
 
   return (
-    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="px-6 pt-6">
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
+    <HandoffCard brand={<ChiefBrand />}>
+      <HandoffHeading
+        title={
+          isAddingAccount
+            ? "Add another account"
+            : emailMode === "sign-up"
+              ? "Create your account"
+              : "Welcome to Chief"
+        }
+      >
+        {isAddingAccount
+          ? "Your current accounts will stay signed in."
+          : emailMode === "sign-up"
+            ? "Get started with your own Chief workspace."
+            : isDesktopFlow
+              ? "Sign in to continue in the app."
+              : "Sign in to your account to continue."}
+      </HandoffHeading>
+      {showEmail ? (
+        <form
+          className="mt-7 flex flex-col gap-3"
+          onSubmit={(event) => void handleEmailAuthentication(event)}
+        >
+          {emailMode === "sign-up" ? (
+            <Input
+              aria-label="Name"
+              autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Name"
+              required
+            />
+          ) : null}
+          <Input
+            aria-label="Email"
+            autoComplete="email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email"
+            required
+          />
+          <Input
+            aria-label="Password"
+            autoComplete={
+              emailMode === "sign-up" ? "new-password" : "current-password"
+            }
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            minLength={8}
+            required
+          />
+          <Button
+            className="h-[39px] w-full rounded-lg"
+            disabled={isLoading || loadingProvider !== null}
+            type="submit"
+          >
+            {loadingProvider === "email-password"
+              ? "Connecting…"
+              : emailMode === "sign-up"
+                ? "Create account"
+                : "Sign in with email"}
+          </Button>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground text-center text-xs"
+            disabled={loadingProvider !== null}
+            onClick={() => {
+              setEmailMode((current) =>
+                current === "sign-in" ? "sign-up" : "sign-in",
+              );
+              setError(null);
+            }}
+          >
+            {emailMode === "sign-up"
+              ? "Already have an account? Sign in"
+              : "New to Chief? Create an account"}
+          </button>
+        </form>
+      ) : null}
+      {authenticationMethods?.includes("apple") ? (
+        <SocialProviderButton
+          className={showEmail ? "mt-3" : "mt-7"}
+          disabled={isLoading || loadingProvider !== null}
+          loading={loadingProvider === "apple"}
+          onClick={() => void startSocialSignIn("apple")}
+          provider="apple"
         />
-      </header>
-
-      <div className="flex flex-1 items-center justify-center px-8 pb-20">
-        <div className="mx-auto flex w-full max-w-sm flex-col text-center">
-          <h1 className="text-3xl leading-tight font-normal">
-            {isAddingAccount
-              ? "Add another account"
-              : isDesktopFlow
-                ? "Connect the desktop app"
-                : "Sign in to Chief"}
-          </h1>
-          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-            {isAddingAccount
-              ? "Your current accounts will stay signed in."
-              : isDesktopFlow
-                ? "You'll be sent back to the app after signing in."
-                : "Sign in to continue to your workspace."}
-          </p>
-          {showEmail ? (
-            <form
-              className="mt-8 flex flex-col gap-3 text-left"
-              onSubmit={(event) => void handleEmailAuthentication(event)}
-            >
-              {emailMode === "sign-up" ? (
-                <Input
-                  aria-label="Name"
-                  autoComplete="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Name"
-                  required
-                />
-              ) : null}
-              <Input
-                aria-label="Email"
-                autoComplete="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="Email"
-                required
-              />
-              <Input
-                aria-label="Password"
-                autoComplete={
-                  emailMode === "sign-up" ? "new-password" : "current-password"
-                }
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Password"
-                minLength={8}
-                required
-              />
-              <Button
-                className="h-11 w-full"
-                disabled={isLoading || loadingProvider !== null}
-                type="submit"
-              >
-                {loadingProvider === "email-password"
-                  ? "Connecting…"
-                  : emailMode === "sign-up"
-                    ? "Create local account"
-                    : "Sign in with email"}
-              </Button>
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground text-center text-xs"
-                disabled={loadingProvider !== null}
-                onClick={() => {
-                  setEmailMode((current) =>
-                    current === "sign-in" ? "sign-up" : "sign-in",
-                  );
-                  setError(null);
-                }}
-              >
-                {emailMode === "sign-up"
-                  ? "Already have a local account? Sign in"
-                  : "First time on this relay? Create an account"}
-              </button>
-            </form>
-          ) : null}
-          {authenticationMethods?.includes("apple") ? (
-            <SocialProviderButton
-              className={showEmail ? "mt-3" : "mt-8"}
-              disabled={isLoading || loadingProvider !== null}
-              loading={loadingProvider === "apple"}
-              onClick={() => void startSocialSignIn("apple")}
-              provider="apple"
-            />
-          ) : null}
-          {authenticationMethods?.includes("google") ? (
-            <SocialProviderButton
-              className={
-                showEmail || authenticationMethods.includes("apple")
-                  ? "mt-3"
-                  : "mt-8"
-              }
-              disabled={isLoading || loadingProvider !== null}
-              loading={loadingProvider === "google"}
-              onClick={() => void startSocialSignIn("google")}
-              provider="google"
-            />
-          ) : null}
-          {error ? (
-            <p className="text-destructive mt-4 text-sm leading-5">{error}</p>
-          ) : null}
-          <p className="text-muted-foreground mt-8 text-xs leading-5">
-            <Link className="hover:text-foreground" href="/privacy">
-              Privacy
-            </Link>
-            {" · "}
-            <Link className="hover:text-foreground" href="/terms">
-              Terms
-            </Link>
-            {isNativeOAuthFlow ? null : (
-              <>
-                {" · "}
-                <Link className="hover:text-foreground" href="/host">
-                  Host your own relay
-                </Link>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-    </main>
+      ) : null}
+      {authenticationMethods?.includes("google") ? (
+        <SocialProviderButton
+          className={
+            showEmail || authenticationMethods.includes("apple")
+              ? "mt-3"
+              : "mt-7"
+          }
+          disabled={isLoading || loadingProvider !== null}
+          loading={loadingProvider === "google"}
+          onClick={() => void startSocialSignIn("google")}
+          provider="google"
+        />
+      ) : null}
+      {error ? (
+        <p className="text-destructive mt-4 text-sm leading-5">{error}</p>
+      ) : null}
+      <p className="text-muted-foreground mt-7 text-center text-xs leading-5">
+        <Link className="hover:text-foreground" href="/privacy">
+          Privacy
+        </Link>
+        {" · "}
+        <Link className="hover:text-foreground" href="/terms">
+          Terms
+        </Link>
+      </p>
+    </HandoffCard>
   );
 }
 

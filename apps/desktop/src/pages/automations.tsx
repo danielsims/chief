@@ -79,10 +79,15 @@ export function AutomationsPage() {
             "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
           )}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-8">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col overflow-y-auto px-6",
+              schedules?.length === 0 ? "py-8" : "pt-2 pb-8",
+            )}
+          >
             {error ? <p className="text-destructive text-sm">{error}</p> : null}
             {schedules?.length === 0 ? (
-              <div className="flex h-[60%] flex-col items-center justify-center text-center">
+              <div className="flex flex-1 flex-col items-center justify-center text-center">
                 <p className="text-[15px] font-medium tracking-[-0.01em]">
                   No automations yet
                 </p>

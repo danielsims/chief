@@ -4,9 +4,11 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 
 import type { WorkspaceNewPageModel } from "./workspace-new-state";
+import {
+  useExitWorkspaceSetup,
+  WorkspaceSetupChrome,
+} from "../components/workspace-setup-chrome";
 import { USING_CUSTOM_RELAY } from "../lib/config";
-import { UserIndicator } from "./onboarding-presentation";
-import { leaveWorkspaceCreate } from "./workspace-apps";
 import { eveDestinationIsReady } from "./workspace-create-draft";
 import { CreateForm, JoinForm } from "./workspace-new-components";
 import { WorkspaceEveStage } from "./workspace-new-eve-stage";
@@ -117,6 +119,7 @@ export function WorkspaceAction({
 }
 
 export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
+  const exit = useExitWorkspaceSetup();
   const reducedMotion = useReducedMotion();
   const transitionKey =
     page.mode === "create"
@@ -127,8 +130,8 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="bg-background text-foreground flex h-screen overflow-hidden">
-        <UserIndicator user={page.user} onSignOut={page.onSignOut} />
+      <div className="bg-background text-foreground relative flex h-screen overflow-hidden">
+        <WorkspaceSetupChrome onExit={exit} />
         <div className="bg-background flex min-w-0 flex-1 flex-col">
           {page.mode === "create" || page.mode === "eve" ? (
             <WorkspaceProgress
@@ -144,7 +147,7 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
               total={4}
             />
           ) : null}
-          <header data-tauri-drag-region className="h-[72px] shrink-0" />
+          <header data-tauri-drag-region className="h-24 shrink-0" />
           <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-10">
             <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center py-12">
               <AnimatePresence
@@ -207,7 +210,7 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
                   ) : page.mode === "join" ? (
                     <button
                       type="button"
-                      onClick={page.returnToWorkspaceHome}
+                      onClick={exit}
                       disabled={page.isWorking}
                       className="text-muted-foreground hover:text-foreground mb-8 flex w-fit items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
                     >
@@ -365,10 +368,7 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
                           }
                           forgetPendingVercelToken(page.createDraftKey);
                           window.localStorage.removeItem(page.createDraftKey);
-                          leaveWorkspaceCreate(
-                            page.navigate,
-                            Array.from(page.selectedApps),
-                          );
+                          void page.navigate("/", { replace: true });
                         } finally {
                           window.sessionStorage.removeItem(
                             page.activeCreateKey,

@@ -1,0 +1,27 @@
+# Reuse the self-host stack and its installed Linux dependencies. Source-only
+# edits reload in Wrangler without rebuilding multi-gigabyte images.
+x-relay-source: &relay-source
+  - ../../apps/relay/src:/app/apps/relay/src:ro
+  - ../../apps/relay/package.json:/app/apps/relay/package.json:ro
+  - ../../packages/auth/src:/app/packages/auth/src:ro
+  - ../../packages/auth/package.json:/app/packages/auth/package.json:ro
+  - ../../packages/auth/migrations:/app/packages/auth/migrations:ro
+  - ../../packages/relay-contracts/src:/app/packages/relay-contracts/src:ro
+  - ../../packages/relay-contracts/package.json:/app/packages/relay-contracts/package.json:ro
+  - ../../packages/agent-runtime/src:/app/packages/agent-runtime/src:ro
+  - ../../packages/agent-runtime/package.json:/app/packages/agent-runtime/package.json:ro
+  - ../../packages/channel-api/src:/app/packages/channel-api/src:ro
+  - ../../packages/channel-api/package.json:/app/packages/channel-api/package.json:ro
+  - ../../packages/plugin-api/src:/app/packages/plugin-api/src:ro
+  - ../../packages/plugin-api/package.json:/app/packages/plugin-api/package.json:ro
+  - ../../packages/relay-client/src:/app/packages/relay-client/src:ro
+  - ../../packages/relay-client/package.json:/app/packages/relay-client/package.json:ro
+
+services:
+  relay:
+    volumes: *relay-source
+  relay-migrate:
+    volumes: *relay-source
+  gateway:
+    volumes:
+      - ../../.cache/chief-dev:/srv/chief-dev:ro

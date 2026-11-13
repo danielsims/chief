@@ -13,7 +13,12 @@ import { preloadPluginAgentAccess } from "./plugin-agent-access";
 import { PluginWalkthrough } from "./plugin-detail-dialog";
 
 /** Shared by catalog, onboarding, custom servers, and chat; stays over the current screen. */
-export function PluginInstallAccessStep() {
+export function PluginInstallAccessStep({
+  claim = false,
+}: {
+  /** A screen's own walkthrough takes the event, so the app-wide one stays closed. */
+  claim?: boolean;
+} = {}) {
   const { client, snapshot } = useRelaySession();
   const [completed, setCompleted] = useState<{
     client: typeof client;
@@ -36,16 +41,11 @@ export function PluginInstallAccessStep() {
         !client
       )
         return;
-      void client.plugins
-        .list()
-        .then(async (connections) => {
-          const found = connections.find(
-            (item) =>
-              (item.catalogId ?? item.id) === input.data.pluginId &&
-              item.status === "connected",
-          );
+      if (claim) event.preventDefault();
+      void connectedPlugin(client, input.data.pluginId)
+        .then(async (found) => {
           // A plugin dialog that was already open took over the walkthrough.
-          if (!found || event.defaultPrevented) return;
+          if (!found || (!claim && event.defaultPrevented)) return;
           // Opens with the list in place rather than filling in afterwards.
           await preloadPluginAgentAccess(client, found.id).catch(
             () => undefined,
@@ -69,7 +69,7 @@ export function PluginInstallAccessStep() {
       active = false;
       window.removeEventListener(PLUGIN_CONNECTED_EVENT, connected);
     };
-  }, [client, snapshot?.id]);
+  }, [claim, client, snapshot?.id]);
   return (
     <Dialog
       open={Boolean(connection)}
@@ -88,10 +88,31 @@ export function PluginInstallAccessStep() {
             host={new URL(connection.url).hostname}
             tools={connection.tools}
             connectionId={connection.id}
+            justConnected
             onDone={() => setCompleted(null)}
           />
         ) : null}
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * The sign-in finishes on this computer a moment before the relay lists the
+ * plugin as connected, so wait briefly rather than miss the walkthrough.
+ */
+async function connectedPlugin(
+  client: NonNullable<ReturnType<typeof useRelaySession>["client"]>,
+  pluginId: string,
+) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const found = (await client.plugins.list()).find(
+      (item) =>
+        (item.id === pluginId || item.catalogId === pluginId) &&
+        item.status === "connected",
+    );
+    if (found) return found;
+    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+  }
+  return null;
 }

@@ -234,6 +234,32 @@ export const createWorkspaceCommandSchema = z
     name: z.string().trim().min(1).max(120),
     website: z.string().trim().max(2_048).default(""),
     runtime: z.enum(["phone", "desktop", "cloud"]),
+    slug: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+      .optional(),
+    purpose: z.enum(["personal", "company"]).optional(),
+    companyName: z.string().trim().max(120).optional(),
+    selectedAgentIds: z
+      .array(
+        z.enum([
+          "researcher",
+          "planner",
+          "writer",
+          "brand",
+          "content",
+          "analyst",
+          "prospector",
+          "ads",
+          "engineer",
+          "setup",
+        ]),
+      )
+      .max(10)
+      .optional(),
+    localProvider: z.enum(["codex", "claude", "opencode"]).optional(),
     agentRuntime: z.enum(["relay-cell", "vercel-eve"]),
     inferenceProvider: z.enum([
       "openCodeGo",
@@ -376,6 +402,8 @@ export const workspaceAgentRuntimeSchema = z.discriminatedUnion("kind", [
 
 export const agentProfileSchema = z
   .object({
+    connectionKind: z.literal("owned").optional(),
+    handle: z.string().optional(),
     ownerUserId: z.string().optional(),
     canMessage: z.boolean().optional(),
     canRunOnDevice: z.boolean().optional(),
@@ -415,6 +443,10 @@ export const workspaceSnapshotSchema = z
   .object({
     id: workspaceIdSchema,
     name: z.string().min(1).max(120),
+    slug: z.string().optional(),
+    purpose: z.enum(["personal", "company"]).optional(),
+    companyName: z.string().optional(),
+    setupComplete: z.boolean().optional(),
     website: z.string().trim().max(2_048).default(""),
     selectedApps: z
       .array(z.string().trim().min(1).max(128))

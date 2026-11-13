@@ -7,7 +7,6 @@ import test from "node:test";
 import { LocalStore } from "../src/local-store.js";
 import { handleLocalTool, localToolsOpenApi } from "../src/local-tools.js";
 import { SessionManager } from "../src/manager.js";
-import { defaultWorkspaceWaysOfWorking } from "../src/workspace-ways-of-working.js";
 
 function operation(
   specification: ReturnType<typeof localToolsOpenApi>,
@@ -35,7 +34,6 @@ manager.workspaceData = () =>
     campaigns: [],
     activity: [],
     actionItems: [],
-    waysOfWorking: defaultWorkspaceWaysOfWorking,
     recurringWork: [],
   });
 

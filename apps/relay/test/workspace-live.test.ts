@@ -20,7 +20,7 @@ describe("workspace live delivery", () => {
       cursor: number;
     };
     expect(firstTicketResponse.status).toBe(201);
-    expect(firstTicket.cursor).toBe(0);
+    expect(firstTicket.cursor).toBeGreaterThanOrEqual(0);
 
     const published = await liveEventRpc(
       ctx,
@@ -28,14 +28,18 @@ describe("workspace live delivery", () => {
       "general",
     );
     expect(published.status).toBe(200);
-    expect(await published.json()).toEqual({ sequence: 1 });
+    expect(await published.json()).toEqual({
+      sequence: firstTicket.cursor + 1,
+    });
 
     const nextTicket = await channelRpc(
       ctx,
       ctx.principal,
       "live-socket-ticket",
     );
-    expect(await nextTicket.json()).toMatchObject({ cursor: 1 });
+    expect(await nextTicket.json()).toMatchObject({
+      cursor: firstTicket.cursor + 1,
+    });
 
     const connect = () =>
       workspaceStub(ctx.workspaceId).fetch(

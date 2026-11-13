@@ -5,6 +5,7 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import type { PluginCatalogSnapshot } from "./plugins/types.js";
+import type { ProviderProbe } from "./provider-probe.js";
 import type { ProviderModelOption } from "./types.js";
 import { listClaudeCodeModels } from "./claude-code-models.js";
 import { listModels } from "./models.js";
@@ -19,6 +20,7 @@ import {
   parseLocalProjectPreparation,
   prepareLocalProject,
 } from "./projects/local-projects.js";
+import { probeProvider } from "./provider-probe.js";
 
 const port = Number(process.env.CHIEF_PLUGIN_HOST_PORT ?? 4318);
 const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
@@ -33,6 +35,7 @@ type PluginHostResponse =
   | { snapshot: PluginCatalogSnapshot }
   | { models: Awaited<ReturnType<typeof listClaudeCodeModels>> }
   | { models: ProviderModelOption[] }
+  | ProviderProbe
   | {
       action: Awaited<ReturnType<PluginRuntime["authorize"]>>;
       snapshot: PluginCatalogSnapshot;
@@ -99,6 +102,13 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
       }
       if (url.pathname === "/models/claude") {
         sendJson(response, 200, { models: await listClaudeCodeModels() });
+        return;
+      }
+      const probed = /^\/probe\/(codex|claude|opencode)$/u.exec(
+        url.pathname,
+      )?.[1];
+      if (probed === "codex" || probed === "claude" || probed === "opencode") {
+        sendJson(response, 200, await probeProvider(probed));
         return;
       }
       if (url.pathname === "/models/codex") {
