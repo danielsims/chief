@@ -7,7 +7,6 @@ import { initializeWorkspaceData } from "../../workspace-data-store";
 import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
-import { initializeChannelGuestTables } from "./initialize-channel-guest-tables";
 import { initializeMcpConnectionTables } from "./initialize-mcp-connection-tables";
 import { initializeWorkspaceGitTables } from "./initialize-workspace-git-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
@@ -213,7 +212,6 @@ export function initializeWorkspaceSchema(
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);
-  initializeChannelGuestTables(storage);
   initializeWorkspaceGitTables(storage);
 }
 

@@ -391,9 +391,6 @@ export function projectChannelTimeline(
                 createdAt: event.createdAt,
                 ...(agentId ? { agentId } : undefined),
                 ...(author ? { author } : undefined),
-                ...(event.actor.guest
-                  ? { guest: event.actor.guest }
-                  : undefined),
                 ...(threadRootId ? { threadRootId } : undefined),
                 ...(channelAction ? { channelAction } : undefined),
                 // The run card renders from the first source to arrive, so
