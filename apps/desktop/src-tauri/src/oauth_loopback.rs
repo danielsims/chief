@@ -43,8 +43,11 @@ pub fn start_oauth_loopback(app: AppHandle) -> Result<String, String> {
         .local_addr()
         .map_err(|_| "Chief could not determine its browser sign-in address.".to_string())?;
     let redirect_uri = oauth_loopback_redirect(address.port());
+    let completion_uri = oauth_completion_redirect(app.config().build.dev_url.as_ref())?;
     let handle = app.clone();
-    loopback.worker = Some(thread::spawn(move || run_loopback(handle, listener, stop)));
+    loopback.worker = Some(thread::spawn(move || {
+        run_loopback(handle, listener, stop, completion_uri)
+    }));
     Ok(redirect_uri)
 }
 
@@ -71,12 +74,25 @@ fn bind_loopback_listener() -> Result<TcpListener, String> {
     Ok(listener)
 }
 
-fn run_loopback(app: AppHandle, listener: TcpListener, stop: Arc<AtomicBool>) {
+fn oauth_completion_redirect(dev_url: Option<&url::Url>) -> Result<String, String> {
+    let origin = dev_url.ok_or("Chief's local sign-in page is unavailable.")?;
+    origin
+        .join("/auth/desktop?completed=1")
+        .map(|url| url.to_string())
+        .map_err(|_| "Chief's local sign-in page is unavailable.".to_string())
+}
+
+fn run_loopback(
+    app: AppHandle,
+    listener: TcpListener,
+    stop: Arc<AtomicBool>,
+    completion_uri: String,
+) {
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, peer)) => {
                 if peer.ip().is_loopback() {
-                    handle_connection(&app, stream);
+                    handle_connection(&app, stream, &completion_uri);
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -87,7 +103,7 @@ fn run_loopback(app: AppHandle, listener: TcpListener, stop: Arc<AtomicBool>) {
     }
 }
 
-fn handle_connection(app: &AppHandle, mut stream: TcpStream) {
+fn handle_connection(app: &AppHandle, mut stream: TcpStream, completion_uri: &str) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
     let Some(buffer) = read_http_head(&mut stream) else {
@@ -125,12 +141,10 @@ fn handle_connection(app: &AppHandle, mut stream: TcpStream) {
     };
     let callback = format!("http://{address}{target}");
     let _ = app.emit(OAUTH_LOOPBACK_EVENT, callback);
-    write_response(
-        &mut stream,
-        "200 OK",
-        "text/html; charset=utf-8",
-        "<!doctype html><title>Chief</title><p>You&rsquo;re in. Chief is signing you in now. You can close this tab.</p>",
-    );
+    // The callback's code and state go only to the native app. Send the browser
+    // to the same styled success component as web sign-in, with no credentials.
+    let _ = write!(stream, "HTTP/1.1 303 See Other\r\nLocation: {completion_uri}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    let _ = stream.flush();
 }
 
 fn read_http_head(stream: &mut TcpStream) -> Option<String> {
@@ -193,7 +207,20 @@ fn write_response(stream: &mut TcpStream, status: &str, content_type: &str, body
 
 #[cfg(test)]
 mod tests {
-    use super::{bind_loopback_listener, callback_target, oauth_loopback_redirect, request_target};
+    use super::{
+        bind_loopback_listener, callback_target, oauth_completion_redirect,
+        oauth_loopback_redirect, request_target,
+    };
+
+    #[test]
+    fn completion_uses_the_shared_page_without_forwarding_credentials() {
+        let dev_url = url::Url::parse("http://localhost:1420/").unwrap();
+        let result = oauth_completion_redirect(Some(&dev_url)).unwrap();
+        assert_eq!(result, "http://localhost:1420/auth/desktop?completed=1");
+        assert!(!result.contains("code="));
+        assert!(!result.contains("state="));
+        assert!(oauth_completion_redirect(None).is_err());
+    }
 
     #[test]
     fn reads_the_registered_desktop_callback() {

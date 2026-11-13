@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import type { StoredRelayConnection } from "../relay-connection";
@@ -43,7 +44,14 @@ export async function openRelayAuthorization(
   const state = generateState();
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const redirectUri = desktopAuthorizationRedirectUri(connection.authUiUrl);
+  const loopbackUri =
+    import.meta.env.DEV && isTauri()
+      ? await invoke<string>("start_oauth_loopback")
+      : undefined;
+  const redirectUri = desktopAuthorizationRedirectUri(
+    connection.authUiUrl,
+    loopbackUri,
+  );
   await storePkceVerifier(state, codeVerifier, {
     relayOrigin: connection.relayUrl,
     authBaseUrl: connection.authBaseUrl,

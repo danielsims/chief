@@ -129,6 +129,12 @@ async function handleDeepLink(
   try {
     void activateAppWindow();
     const parsedUrl = new URL(url);
+    // Pages such as a plugin's "connected" screen only bring Chief forward.
+    if (
+      parsedUrl.protocol === "chief-desktop:" &&
+      parsedUrl.hostname === "open"
+    )
+      return;
 
     if (
       parsedUrl.protocol === "chief-desktop:" &&
