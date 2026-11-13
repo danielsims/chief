@@ -13,6 +13,7 @@ import {
   ConnectAppsScreen,
   SetupPluginScope,
 } from "./apps-screens";
+import { ConnectingScreen } from "./connecting-screen";
 import {
   ChiefScreen,
   CompanyScreen,
@@ -38,6 +39,7 @@ const screenSteps: Record<SetupStep, number> = {
   intro: 1,
   chief: 1,
   connect: 2,
+  connecting: 2,
   eve: 2,
   apps: 3,
   plugins: 3,
@@ -68,6 +70,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
       chief: "intro",
       connect: "chief",
       eve: "connect",
+      connecting: "connect",
       apps: "connect",
       plugins: "apps",
       team: s.draft.selectedApps.length ? "plugins" : "apps",
@@ -81,6 +84,8 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
   // The first screen has nowhere to go back to; the X leaves setup.
   const canGoBack = Boolean(
     s.draft.step !== "profile" &&
+    // Connecting shows its own Back once it has finished or failed.
+    s.draft.step !== "connecting" &&
     !(s.draft.step === "workspace" && s.profile?.username),
   );
   const components = {
@@ -90,6 +95,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     intro: IntroScreen,
     chief: ChiefScreen,
     connect: ConnectScreen,
+    connecting: ConnectingScreen,
     apps: AppsScreen,
     plugins: ConnectAppsScreen,
     team: InviteTeamScreen,

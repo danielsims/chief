@@ -13,6 +13,7 @@ export const setupDraftSchema = z.object({
     "intro",
     "chief",
     "connect",
+    "connecting",
     "eve",
     "apps",
     "plugins",
