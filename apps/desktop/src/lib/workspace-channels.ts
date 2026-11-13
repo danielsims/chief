@@ -54,6 +54,9 @@ export const WORKSPACE_CHANNELS = [
 export const WORKSPACE_AGENT_IDENTITIES = {
   chief: { name: "Chief", role: "Workspace Lead", color: "#ffffff" },
   setup: { name: "Setup", role: "Private Workspace Setup", color: "#61d9a3" },
+  researcher: { name: "Researcher", role: "Research", color: "#7dc7fa" },
+  planner: { name: "Planner", role: "Planning", color: "#61dbe8" },
+  writer: { name: "Writer", role: "Writing", color: "#fcc24d" },
   analyst: {
     name: "Analyst",
     role: "Measurement and Reporting",

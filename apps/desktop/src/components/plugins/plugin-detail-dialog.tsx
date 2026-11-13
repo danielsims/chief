@@ -146,13 +146,7 @@ function CountPill({ count, active }: { count: number; active: boolean }) {
 }
 
 /** Write and Read as two headings to switch between, so neither is a scroll away. */
-function ToolsPane({
-  name,
-  tools,
-}: {
-  name: string;
-  tools: WalkthroughTool[];
-}) {
+function ToolsPane({ tools }: { tools: WalkthroughTool[] }) {
   const groups = [
     { label: "Write", tools: tools.filter((tool) => !tool.readOnly) },
     { label: "Read", tools: tools.filter((tool) => tool.readOnly) },
@@ -164,7 +158,7 @@ function ToolsPane({
   return (
     <>
       <PaneHeading
-        title={`What agents can do in ${name}`}
+        title="Tools"
         detail="Every tool this plugin gives an agent that you allow to use it."
       />
       <div className="border-foreground/10 mb-1 flex items-center gap-4 border-b pb-3">
@@ -245,7 +239,7 @@ function AgentsPane({
   return (
     <>
       <PaneHeading
-        title="Review agent access"
+        title="Agent Access"
         detail={
           none
             ? `No agent can use ${name} yet. Agents only use plugins you allow.`
@@ -386,7 +380,7 @@ export function PluginWalkthrough({
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {item === "tools" ? "Tools" : "Agents"}
+                {item === "tools" ? "Tools" : "Agent Access"}
                 <span className="text-muted-foreground ml-auto text-[13px] tabular-nums">
                   {item === "tools" ? tools.length : null}
                 </span>
@@ -402,7 +396,7 @@ export function PluginWalkthrough({
         ) : current === "agents" && connectionId ? (
           <AgentsPane name={name} connectionId={connectionId} access={access} />
         ) : current === "tools" ? (
-          <ToolsPane name={name} tools={tools} />
+          <ToolsPane tools={tools} />
         ) : placeholder ? (
           <p className="text-muted-foreground flex h-full items-center justify-center text-center text-[13px]">
             {placeholder}
