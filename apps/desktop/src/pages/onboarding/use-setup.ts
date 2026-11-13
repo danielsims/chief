@@ -85,6 +85,7 @@ export function useWorkspaceSetup() {
     expiresAt: string;
   } | null>(null);
   const [requests, setRequests] = useState<OwnedAgentRequest[]>([]);
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const accept = useAcceptAgentRequest();
   // Agents this device runs join as on-device agents, not connections.
   const { agents: runtimeAgents } = useRuntime();
@@ -322,8 +323,19 @@ export function useWorkspaceSetup() {
     run(async () => {
       const request = requests.find((entry) => entry.id === id);
       if (!client || !request) return;
-      if (approve) await accept(client, request, name);
-      else await client.decideOwnedAgent(id, false);
+      // Leaves the list at once, so it never shows beside the agent it became.
+      setAnswered((current) => new Set(current).add(id));
+      try {
+        if (approve) await accept(client, request, name);
+        else await client.decideOwnedAgent(id, false);
+      } catch (error) {
+        setAnswered((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        throw error;
+      }
       await refreshAgents();
     });
   const enter = () =>
@@ -378,7 +390,7 @@ export function useWorkspaceSetup() {
     apiKey,
     username,
     invite,
-    requests,
+    requests: requests.filter((request) => !answered.has(request.id)),
     joined,
     agents,
     patch,
