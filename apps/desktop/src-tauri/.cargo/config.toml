@@ -1,0 +1,3 @@
+# Signs and names the debug build on macOS; see scripts/dev-run.sh.
+[target.'cfg(target_os = "macos")']
+runner = "scripts/dev-run.sh"
