@@ -188,11 +188,11 @@ export function PlacesIllustration() {
       <figcaption className="ob-places-captions">
         <p>
           <strong>On your device</strong>
-          <span>Uses ChatGPT or Claude already on this computer.</span>
+          <span>Runs on your local agents, like ChatGPT or Claude.</span>
         </p>
         <p>
           <strong>In the cloud</strong>
-          <span>Keeps working while you’re away.</span>
+          <span>Runs online and keeps working while you’re away.</span>
         </p>
       </figcaption>
     </figure>
