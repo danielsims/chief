@@ -25,7 +25,6 @@ import {
 } from "@chief/relay-contracts";
 
 import { channelActionFromComponent } from "./channel-actions";
-import { guestAppearance } from "./guest-appearance";
 
 function workspaceAgentById(snapshot: WorkspaceSnapshot, agentId: string) {
   return (
@@ -167,21 +166,13 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
     .find((action) => action !== undefined);
   return {
     id: message.id,
-    role:
-      message.author.kind === "user" || message.author.kind === "guest"
-        ? "user"
-        : "assistant",
+    role: message.author.kind === "user" ? "user" : "assistant",
     metadata: {
       createdAt: Date.parse(message.createdAt),
       ...(message.components.some(
         (component) => component.kind === "session.start",
       )
         ? { sessionStart: true }
-        : undefined),
-      ...(message.author.kind === "guest"
-        ? {
-            guest: guestAppearance(message.author),
-          }
         : undefined),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
@@ -196,19 +187,9 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       ...(message.mentions.length > 0
         ? { mentions: message.mentions }
         : undefined),
-      ...(channelAction
-        ? {
-            channelAction:
-              channelAction.type === "member-joined" &&
-              message.author.kind === "guest"
-                ? {
-                    ...channelAction,
-                    actorGuest: guestAppearance(message.author),
-                  }
-                : channelAction,
-          }
-        : undefined),
+      ...(channelAction ? { channelAction } : undefined),
       ...(scheduledRun ? { scheduledRun } : undefined),
+      ...runErrorMetadata(message),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -230,21 +211,11 @@ export function toChannelMessageEvent(
             workspaceAgentById(snapshot, message.author.id)?.name ??
             message.author.id,
         }
-      : message.author.kind === "guest"
-        ? {
-            type: "guest" as const,
-            id: message.author.id,
-            name: message.author.name,
-            ...(message.author.image
-              ? { image: message.author.image }
-              : undefined),
-            guest: guestAppearance(message.author),
-          }
-        : {
-            type: "user" as const,
-            id: message.author.id,
-            name: message.author.kind === "system" ? "Chief" : "You",
-          };
+      : {
+          type: "user" as const,
+          id: message.author.id,
+          name: message.author.kind === "system" ? "Chief" : "You",
+        };
   // A relay notice that someone was added is that person's action, so the event
   // carries them and the targets, matching the history projection.
   const added = message.components
@@ -269,8 +240,7 @@ export function toChannelMessageEvent(
           ]
         : []),
       ...message.mentions.map((mention) => ["p", mention]),
-      ...(message.author.kind === "guest" &&
-      message.components.some(
+      ...(message.components.some(
         (component) =>
           component.kind === "channel-action" &&
           component.payload.type === "member-joined",
@@ -331,6 +301,21 @@ export function directAgentId(
     (candidate) => candidate.id === conversationId,
   );
   return conversation?.directAgentId;
+}
+
+function runErrorMetadata(message: ConversationMessage) {
+  const error = message.components.find(
+    (component) => component.kind === "error",
+  );
+  if (!error || !isJsonString(error.payload.message)) return undefined;
+  return {
+    runError: {
+      title: isJsonString(error.payload.title)
+        ? error.payload.title
+        : "Run stopped",
+      message: error.payload.message,
+    },
+  };
 }
 
 function messageComponentParts(
@@ -399,28 +384,36 @@ function pluginRecommendationParts(
     );
     if (!parsed.success) return [];
     const value = parsed.data;
+    const base = {
+      pluginId: value.pluginId,
+      pluginName: value.pluginName,
+      description: value.description,
+      provider: value.provider,
+    };
     return [
       (value.status === "authorization_required"
         ? {
+            ...base,
             kind: "plugin_authorization",
-            pluginId: value.pluginId,
-            pluginName: value.pluginName,
-            description: value.description,
-            provider: value.provider,
             authorizationUrl: value.authorizationUrl,
             status: value.status,
           }
-        : {
-            kind: value.kind,
-            pluginId: value.pluginId,
-            pluginName: value.pluginName,
-            description: value.description,
-            provider: value.provider,
-            serverName: value.serverName,
-            callbackUrl: value.callbackUrl,
-            setupUrl: value.setupUrl,
-            status: value.status,
-          }) satisfies PluginAuthorizationAction,
+        : value.status === "api_key_required"
+          ? {
+              ...base,
+              kind: value.kind,
+              label: value.label,
+              docsUrl: value.docsUrl,
+              status: value.status,
+            }
+          : {
+              ...base,
+              kind: value.kind,
+              serverName: value.serverName,
+              callbackUrl: value.callbackUrl,
+              setupUrl: value.setupUrl,
+              status: value.status,
+            }) satisfies PluginAuthorizationAction,
     ];
   });
   const authorizationPlugins = authorizations.map(

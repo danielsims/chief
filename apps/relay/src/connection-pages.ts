@@ -39,12 +39,14 @@ main { width: 100%; max-width: 360px; text-align: center; }
 .done .link span { background: var(--foreground); border-color: var(--foreground); }
 h1 { margin: 24px 0 0; font-size: 20px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.3; }
 p { margin: 6px 0 0; color: var(--muted); }
-button {
+button, .button {
+  display: inline-flex; align-items: center; text-decoration: none;
   margin-top: 24px; height: 36px; padding: 0 14px; border: 0; border-radius: 8px;
   background: var(--primary); color: var(--primary-foreground);
   font: 500 14px/1 "Geist", system-ui, sans-serif; cursor: pointer;
 }
-button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+button:focus-visible, .button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+
 `;
 
 export function escapeHtml(value: string) {

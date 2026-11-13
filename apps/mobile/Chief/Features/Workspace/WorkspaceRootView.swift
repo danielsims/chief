@@ -1,8 +1,7 @@
-import SafariServices
 import SwiftUI
 import UIKit
 
-private enum WorkspaceChrome {
+enum WorkspaceChrome {
   static let bottomClearance: CGFloat = 24
   static let headerHeight: CGFloat = 52
 }
@@ -141,80 +140,55 @@ private struct WorkspaceSwitcherSheet: View {
 
   var body: some View {
     NavigationStack {
-      List {
+      SettingsPage {
         ForEach(model.workspaceRelayGroups()) { group in
-          Section(group.label) {
+          SettingsSection(title: group.label) {
             ForEach(group.workspaces) { summary in
               Button {
-                Haptics.medium()
-                if summary.id != model.workspace?.id {
-                  Task {
-                    if await model.switchWorkspace(workspaceID: summary.id) {
-                      Haptics.success()
-                      dismiss()
-                    } else {
-                      Haptics.error()
-                    }
-                  }
-                } else {
-                  dismiss()
-                }
+                select(summary.id)
               } label: {
-                HStack(spacing: 12) {
+                SettingsRow {
                   WorkspaceIdentityAvatar(
                     name: summary.name,
                     website: summary.website,
                     imageURL: summary.imageURL,
-                    size: 38
+                    size: 26
                   )
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text(summary.name).font(.system(size: 15, weight: .semibold))
-                    Text(group.label)
-                      .font(.system(size: 13))
-                      .foregroundStyle(ChiefTheme.secondary)
-                  }
-                  Spacer()
+                  Text(summary.name).foregroundStyle(ChiefTheme.accent).lineLimit(1)
+                  Spacer(minLength: 8)
                   if summary.id == model.workspace?.id {
-                    Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
+                    Image(systemName: "checkmark")
+                      .font(.system(size: 13, weight: .semibold))
+                      .foregroundStyle(ChiefTheme.accent)
                   }
                 }
               }
               .buttonStyle(.plain)
             }
-            Button(role: .destructive) {
-              Haptics.heavy()
+            SettingsActionRow(
+              title: "Sign out", icon: "rectangle.portrait.and.arrow.right", role: .destructive,
+              isWorking: signingOutRelay == group.relayURL
+            ) {
               signingOutRelay = group.relayURL
-            } label: {
-              Label("Sign out of \(group.label)", systemImage: "rectangle.portrait.and.arrow.right")
             }
             .disabled(signingOutRelay != nil)
           }
         }
-        Section {
-          Button {
-            Haptics.heavy()
+        SettingsSection(title: "More") {
+          SettingsActionRow(title: "Create workspace", icon: "plus") {
             dismiss()
             model.showWorkspaceSetup()
-          } label: {
-            Label("Create workspace", systemImage: "plus")
           }
-          Button {
-            Haptics.heavy()
-            joinSheet = true
-          } label: {
-            Label("Join workspace", systemImage: "link")
-          }
+          SettingsActionRow(title: "Join workspace", icon: "link") { joinSheet = true }
           NavigationLink {
             ConnectionSettingsView()
           } label: {
-            Label("Manage relays", systemImage: "network")
+            SettingsDestination(title: "Manage relays", icon: "network")
           }
+          .buttonStyle(.plain)
         }
       }
-      .scrollContentBackground(.hidden)
-      .background(ChiefSheetPalette.background)
       .navigationTitle("Workspaces")
-      .navigationBarTitleDisplayMode(.inline)
       .task { await model.refreshWorkspaces() }
       .alert(
         "Sign out of this relay?",
@@ -237,8 +211,20 @@ private struct WorkspaceSwitcherSheet: View {
         Text("Workspaces on this relay will leave this iPhone. Other relays stay signed in.")
       }
     }
-    .chiefSheet([.height(460), .large])
     .sheet(isPresented: $joinSheet) { JoinWorkspaceSheet() }
+  }
+
+  private func select(_ id: String) {
+    Haptics.medium()
+    guard id != model.workspace?.id else { return dismiss() }
+    Task {
+      if await model.switchWorkspace(workspaceID: id) {
+        Haptics.success()
+        dismiss()
+      } else {
+        Haptics.error()
+      }
+    }
   }
 }
 
@@ -262,19 +248,25 @@ private struct WorkspaceAvatar: View {
 struct PageDetailBar<Trailing: View>: View {
   @Environment(\.dismiss) private var dismiss
   let title: String
+  /// Shown before the title, such as a DM's avatar.
+  let titleLeading: AnyView?
   let trailing: Trailing
 
-  init(title: String, @ViewBuilder trailing: () -> Trailing) {
+  init(title: String, titleLeading: AnyView? = nil, @ViewBuilder trailing: () -> Trailing) {
     self.title = title
+    self.titleLeading = titleLeading
     self.trailing = trailing()
   }
 
   var body: some View {
     ZStack {
-      Text(title)
-        .font(.system(size: 16, weight: .semibold))
-        .lineLimit(1)
-        .padding(.horizontal, 56)
+      HStack(spacing: 8) {
+        if let titleLeading { titleLeading }
+        Text(title)
+          .font(.system(size: 16, weight: .semibold))
+          .lineLimit(1)
+      }
+      .padding(.horizontal, 56)
       HStack {
         Button {
           Haptics.light()
@@ -403,119 +395,6 @@ struct HomeView: View {
 
 }
 
-struct PluginsView: View {
-  @Environment(AppModel.self) private var model
-  @State private var plugins = PluginCatalogClient.shared.cached ?? PluginOption.preferred
-  @State private var search = ""
-  @State private var loading = false
-  @State private var installedPluginIDs: Set<String> = []
-  @State private var busyPluginID: String?
-  @State private var authorization = PluginAuthorizationPresenter()
-  @State private var connectionError: String?
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Plugins")
-        .font(.system(size: 26, weight: .regular, design: .rounded))
-        .tracking(-0.6)
-        .frame(height: 34)
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.top, 16)
-      ChiefSearchField(prompt: "Search plugins", text: $search)
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if loading && plugins.isEmpty {
-            ChiefSpinner()
-              .tint(ChiefTheme.accent)
-              .frame(maxWidth: .infinity)
-              .padding(.top, 36)
-          } else if filteredPlugins.isEmpty {
-            ContentUnavailableView.search(text: search)
-              .foregroundStyle(ChiefTheme.secondary)
-          } else {
-            ForEach(filteredPlugins) { plugin in
-              PluginCatalogRow(
-                plugin: plugin,
-                installed: installedPluginIDs.contains(plugin.id),
-                busy: busyPluginID == plugin.id,
-                onSelect: { install(plugin) }
-              )
-            }
-          }
-        }
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.bottom, WorkspaceChrome.bottomClearance)
-      }
-    }
-    .background(ChiefTheme.background)
-    .task {
-      loading = true
-      async let catalog = PluginCatalogClient.shared.preferredPlugins()
-      async let installed = PluginCatalogClient.shared.installedPluginIDs(
-        workspaceID: model.workspace?.id ?? ""
-      )
-      plugins = await catalog
-      installedPluginIDs = await installed
-      loading = false
-    }
-    .sheet(
-      isPresented: Binding(
-        get: { authorization.authorizationURL != nil },
-        set: { if !$0 { authorization.cancel() } }
-      )
-    ) {
-      if let url = authorization.authorizationURL {
-        PluginBrowserView(url: url)
-          .ignoresSafeArea()
-      }
-    }
-    .alert(
-      "Couldn’t connect plugin",
-      isPresented: Binding(
-        get: { connectionError != nil },
-        set: { if !$0 { connectionError = nil } }
-      )
-    ) {
-      Button("OK", role: .cancel) { connectionError = nil }
-    } message: {
-      Text(connectionError ?? "Try again.")
-    }
-  }
-
-  private var filteredPlugins: [PluginOption] {
-    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return plugins }
-    return plugins.filter {
-      $0.name.localizedCaseInsensitiveContains(query)
-        || $0.domain.localizedCaseInsensitiveContains(query)
-    }
-  }
-
-  private func install(_ plugin: PluginOption) {
-    guard let workspaceID = model.workspace?.id, busyPluginID == nil else { return }
-    Haptics.medium()
-    busyPluginID = plugin.id
-    Task {
-      do {
-        try await PluginCatalogClient.shared.install(
-          plugin,
-          workspaceID: workspaceID,
-          presenter: authorization
-        )
-        installedPluginIDs.insert(plugin.id)
-        busyPluginID = nil
-        Haptics.success()
-      } catch MobilePluginRuntimeError.browserDismissed {
-        busyPluginID = nil
-      } catch {
-        busyPluginID = nil
-        connectionError = error.localizedDescription
-        Haptics.error()
-      }
-    }
-  }
-}
-
 /// The search field at the top of the Plugins and Repositories pages.
 struct ChiefSearchField: View {
   let prompt: String
@@ -535,63 +414,6 @@ struct ChiefSearchField: View {
     .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
     .padding(.horizontal, ChiefTheme.pagePadding)
   }
-}
-
-private struct PluginCatalogRow: View {
-  let plugin: PluginOption
-  let installed: Bool
-  let busy: Bool
-  let onSelect: () -> Void
-
-  var body: some View {
-    Button(action: onSelect) {
-      HStack(spacing: 12) {
-        BrandLogoView(domain: plugin.domain, iconURL: plugin.iconURL, size: 40)
-
-        VStack(alignment: .leading, spacing: 3) {
-          Text(plugin.name)
-            .font(.system(size: 15, weight: .medium))
-            .lineLimit(1)
-          Text(plugin.description)
-            .font(.system(size: 12))
-            .foregroundStyle(ChiefTheme.secondary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: 8)
-        ZStack {
-          Text(installed ? "Added" : "Add")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(installed ? ChiefTheme.secondary : .primary)
-            .opacity(busy ? 0 : 1)
-          if busy {
-            ChiefSpinner()
-              .controlSize(.small)
-              .tint(ChiefTheme.accent)
-          }
-        }
-        .padding(.horizontal, 12)
-        .frame(minWidth: 58, minHeight: 29, maxHeight: 29)
-        .background(ChiefTheme.elevated, in: Capsule())
-      }
-      .frame(minHeight: 62)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .disabled(busy)
-    .accessibilityLabel("\(installed ? "Open" : "Add") \(plugin.name)")
-  }
-}
-
-struct PluginBrowserView: UIViewControllerRepresentable {
-  let url: URL
-
-  func makeUIViewController(context: Context) -> SFSafariViewController {
-    let controller = SFSafariViewController(url: url)
-    controller.dismissButtonStyle = .done
-    return controller
-  }
-
-  func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 private struct RelayUnavailableBanner: View {

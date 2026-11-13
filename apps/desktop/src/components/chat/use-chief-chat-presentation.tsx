@@ -119,10 +119,14 @@ export function useChiefChatPresentation({
         : undefined)
     );
   };
-  const controlsForMessage = (message: ChiefUIMessage) => {
+  /** In its own thread panel a message is the root, so it shows no replies line. */
+  const controlsForMessage = (
+    message: ChiefUIMessage,
+    options?: { threadRoot?: boolean },
+  ) => {
     if (!destinationChannelId) return { footer: null };
     const replySummary = summarizeThreadReplies(
-      threadReplies.get(message.id) ?? [],
+      options?.threadRoot ? [] : (threadReplies.get(message.id) ?? []),
     );
     const text = messageBlocks(message)
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -135,16 +139,6 @@ export function useChiefChatPresentation({
     const specialist = activeSpecialistByThread.get(message.id);
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
-        if (reply.metadata?.guest) {
-          return [
-            {
-              id: `guest:${reply.metadata.guest.id}`,
-              kind: "guest",
-              name: reply.metadata.guest.name,
-              guest: reply.metadata.guest,
-            },
-          ];
-        }
         if (reply.role === "user") {
           const author = authorFor(reply);
           return [

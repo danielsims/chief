@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 export const workspaceOnboardingApps = [
   { domain: "workspace.google.com", label: "Google" },
-  { domain: "slack.com", label: "Slack" },
   { domain: "granola.ai", label: "Granola" },
   { domain: "notion.com", label: "Notion" },
   { domain: "github.com", label: "GitHub" },

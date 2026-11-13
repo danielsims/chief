@@ -39,7 +39,7 @@ const fields: OAuthClientSetupGuide["fields"] = [
   {
     id: "clientId",
     label: "Client ID",
-    help: "The public identifier issued by the provider.",
+    help: "From your OAuth app settings.",
     placeholder: "Paste the client ID",
     required: true,
     requiredMessage: "Enter the client ID issued by the provider.",
@@ -47,7 +47,7 @@ const fields: OAuthClientSetupGuide["fields"] = [
   {
     id: "clientSecret",
     label: "Client secret",
-    help: "Leave this empty only when the provider identifies the app as a public client.",
+    help: "Optional for public clients.",
     placeholder: "Paste the client secret",
     required: false,
     requiredMessage: "Enter the client secret issued by the provider.",
@@ -61,17 +61,13 @@ export function oauthClientSetupGuide(
     logoDomain: providerLogoDomain(action),
     setupUrl: action.setupUrl,
     setupLinkLabel: action.setupUrl ? `Open ${action.pluginName}` : undefined,
-    summary: `Register an OAuth app with ${action.pluginName}, then paste the credentials it gives you.`,
-    registerDescription:
-      "Create an OAuth app in the provider’s developer settings and paste Chief’s callback URL as the redirect URL.",
-    credentialsDescription:
-      "Paste the client ID and client secret issued for this workspace.",
-    callbackLabel: "Callback URL",
-    callbackHelp:
-      "Paste this value exactly into the provider’s callback or redirect URL field.",
+    summary: `${action.pluginName} connects using an OAuth app.`,
+    registerDescription: `Create an OAuth app in ${action.pluginName}’s developer settings. Add the redirect URL below.`,
+    credentialsDescription: `Enter your client ID and client secret. Next, approve access at ${action.pluginName}.`,
+    callbackLabel: "Redirect URL",
+    callbackHelp: "Add this exact redirect URL to your app.",
     fields,
-    storageNotice:
-      "Chief encrypts these credentials in this workspace. Other workspaces cannot use them.",
+    storageNotice: "Encrypted on your workspace relay.",
   };
 }
 

@@ -13,6 +13,7 @@ import type {
   DirectParticipant,
   DirectStartResult,
   JsonObject,
+  LocalProviderModels,
   LogBatch,
   LogPage,
   Machine,
@@ -21,6 +22,7 @@ import type {
   MessageComponent,
   RegisterAgentKeyResult,
   WorkspaceId,
+  WorkspacePresenceEvent,
 } from "@chief/relay-contracts";
 import {
   agentConfigListSchema,
@@ -39,6 +41,7 @@ import {
   createNativeAgentResultSchema,
   directStartCommandSchema,
   directStartResultSchema,
+  localProviderModelsSchema,
   logPageSchema,
   logReceiptSchema,
   machineCreateSchema,
@@ -65,7 +68,6 @@ import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
 } from "./relay-workspace-subscription";
-import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
 import { RelayDatabasesClient } from "./relay-databases-client";
@@ -88,7 +90,6 @@ export type { RelayTypingEvent };
 export class RelayClient extends RelayVercelProvisioning {
   readonly databases: RelayDatabasesClient;
   readonly externalAgents: RelayExternalAgentsClient;
-  readonly channelGuests: RelayChannelGuestsClient;
   readonly channelSettings: RelayChannelSettingsClient;
   readonly github: RelayGitHubClient;
   readonly plugins: RelayPluginsClient;
@@ -112,7 +113,6 @@ export class RelayClient extends RelayVercelProvisioning {
     super(options);
     this.databases = new RelayDatabasesClient(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
-    this.channelGuests = new RelayChannelGuestsClient(options);
     this.channelSettings = new RelayChannelSettingsClient(options);
     this.github = new RelayGitHubClient(options);
     this.plugins = new RelayPluginsClient(options);
@@ -205,6 +205,28 @@ export class RelayClient extends RelayVercelProvisioning {
       `agents/${encodeURIComponent(agentId)}/config`,
     );
     return await this.fetchJson(url, agentConfigResultSchema);
+  }
+  /** What this computer's ChatGPT or Claude Code can run, for phones to list. */
+  async publishLocalProviderModels(
+    provider: "codex" | "claude",
+    models: LocalProviderModels["models"],
+  ) {
+    await this.fetchJson(
+      this.workspaceUrl(`provider-models/${provider}`),
+      localProviderModelsSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ models }),
+      },
+    );
+  }
+  async localProviderModels(provider: "codex" | "claude") {
+    return await this.fetchJson(
+      this.workspaceUrl(`provider-models/${provider}`),
+      localProviderModelsSchema,
+    );
   }
   async loadAgentConfigs(): Promise<AgentConfigResult[]> {
     const { configs } = await this.fetchJson(
@@ -599,6 +621,7 @@ export class RelayClient extends RelayVercelProvisioning {
     after?: number;
     onEvent: (event: ConversationEvent) => void;
     onTyping?: (event: RelayTypingEvent) => void;
+    onPresence?: (event: WorkspacePresenceEvent) => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
     const workspaceId = this.requireWorkspaceId();
@@ -619,6 +642,7 @@ export class RelayClient extends RelayVercelProvisioning {
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
       onTyping: input.onTyping,
+      onPresence: input.onPresence,
       onError: input.onError,
     });
   }

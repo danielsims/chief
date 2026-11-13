@@ -58,7 +58,6 @@ enum ChatTimelineBuilder {
     switch message.author {
     case .user(let id, _): "user:\(id)"
     case .agent(let id, _): "agent:\(id)"
-    case .guest(let guest): "guest:\(guest.id)"
     case .system: "system"
     }
   }

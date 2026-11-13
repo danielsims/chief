@@ -20,6 +20,11 @@ export const mcpToolSummarySchema = z.object({
   destructive: z.boolean(),
 });
 
+/** A catalog plugin's tools, known before the workspace connects it. */
+export const mcpCatalogToolsSchema = z.object({
+  tools: z.array(mcpToolSummarySchema),
+});
+
 /** Chief's own tools that automations can use as steps. */
 export const automationToolCatalogSchema = z.object({
   tools: z.array(mcpToolSummarySchema.omit({ destructive: true })),
@@ -52,6 +57,8 @@ export const mcpConnectionSchema = z.object({
   error: z.string().max(500).optional(),
   tools: z.array(mcpToolSummarySchema).max(256).default([]),
   toolsFetchedAt: z.number().optional(),
+  /** Only in an agent's own list: whether that agent may use this plugin. */
+  assignedToYou: z.boolean().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -85,6 +92,11 @@ export const mcpConnectionCreateSchema = z.object({
       headers: z.array(headerSchema).min(1).max(8),
     }),
   ]),
+});
+
+/** New header values for a plugin that signs in with a key. */
+export const mcpConnectionHeadersSchema = z.object({
+  headers: z.array(headerSchema).min(1).max(8),
 });
 
 export const mcpConnectionClientSchema = z.object({
@@ -133,3 +145,23 @@ export type McpConnectionAuthorizeResult = z.infer<
 >;
 export type McpToolCall = z.infer<typeof mcpToolCallSchema>;
 export type McpToolCallResult = z.infer<typeof mcpToolCallResultSchema>;
+
+/** Per-plugin grants; members may change only agents they own. */
+export const mcpConnectionAccessSchema = z.object({
+  agents: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      parentId: z.string().optional(),
+      deploymentTarget: z.enum(["cloud", "desktop", "phone"]),
+      canEdit: z.boolean(),
+      reason: z.string().optional(),
+    }),
+  ),
+  assignedAgentIds: z.array(z.string()),
+});
+export const mcpConnectionAccessUpdateSchema = z.object({
+  agentIds: z.array(z.string().min(1).max(128)).min(1).max(128),
+  enabled: z.boolean(),
+});
+export type McpConnectionAccess = z.infer<typeof mcpConnectionAccessSchema>;

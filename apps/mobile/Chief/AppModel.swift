@@ -83,6 +83,11 @@ final class AppModel {
   private var workspacePeopleWorkspaceID: String?
   /// Other people typing, by conversation and user id, with when they last were.
   private(set) var typingPeople: [String: [String: Date]] = [:]
+  /// The last presence the workspace socket sent; nil until it has.
+  private(set) var presence: (
+    workspaceID: String, userIDs: Set<String>, offlineAgentIDs: Set<String>,
+    erroredAgentIDs: Set<String>
+  )?
   private var lastTypingSentAt: [String: Date] = [:]
   var navigationPath: [String] = []
   var selectedConversationID: String?
@@ -119,6 +124,9 @@ final class AppModel {
   private(set) var visibleConversationID: String?
   private(set) var visibleThreadRootID: String?
   private(set) var onboardingInProgress = false
+  /// Domains picked on the Apps step, offered for connecting once the new
+  /// workspace exists. Empty once that step is done or skipped.
+  var appsToConnect: [String] = []
   private var cellRuntimeBooted = false
   /// Genuine in-flight cell work, grouped by conversation. Mission Control
   /// presents the union so the user can watch delegated specialists progress.
@@ -1576,6 +1584,7 @@ final class AppModel {
           inferenceCredential: relayCredential
         )
         if relayCredential != nil { inferenceCredential = "" }
+        appsToConnect = onboarding.selectedApps.sorted()
         workspace = pending
         upsertWorkspaceSummary(for: pending, isActive: true)
         // This file is only a launch cache. The relay is authoritative, so a
@@ -1702,7 +1711,7 @@ final class AppModel {
       return true
     case .httpStatus(let status):
       return status >= 500
-    case .unauthorized, .unsupportedRelay:
+    case .unauthorized, .unsupportedRelay, .plugin:
       return false
     }
   }
@@ -2029,6 +2038,8 @@ final class AppModel {
     switch event {
     case .typing(let conversationID, let userID, let active):
       setTyping(conversationID: conversationID, userID: userID, active: active)
+    case .presence(let userIDs, let offlineAgentIDs, let erroredAgentIDs):
+      presence = (expectedWorkspaceID, userIDs, offlineAgentIDs, erroredAgentIDs)
     case .appended(let message):
       if case .user(let authorID, _) = message.author {
         setTyping(conversationID: message.conversationID, userID: authorID, active: false)
@@ -2079,7 +2090,7 @@ final class AppModel {
     case .reacted: eventType = "reacted"
     case .edited: eventType = "edited"
     case .deleted: eventType = "deleted"
-    case .typing: return
+    case .typing, .presence: return
     }
     activityLog.info(
       "received event=\(eventType, privacy: .public) workspace=\(message.workspaceID, privacy: .public) conversation=\(message.conversationID, privacy: .public) agent=\(agentID, privacy: .public) message=\(message.id, privacy: .public) sequence=\(message.sequence) components=\(message.components.map(\.id).joined(separator: ","), privacy: .public)"
@@ -2618,11 +2629,18 @@ final class AppModel {
   func startDirectMessage(with recipient: DirectMessageRecipient) async -> String? {
     guard let workspaceID = workspace?.id else { return nil }
     do {
-      let conversation = try await relay.startDirectMessage(
+      var conversation = try await relay.startDirectMessage(
         workspaceID: workspaceID,
         participantKind: recipient.kind,
         participantID: recipient.principalID
       )
+      // Only the workspace snapshot names who a DM is with. Without this the
+      // DM loses its place under its agent until the next refresh.
+      if recipient.isAgent {
+        conversation.directAgentID = conversation.directAgentID ?? recipient.principalID
+      } else if recipient.kind == "user" {
+        conversation.directUserID = conversation.directUserID ?? recipient.principalID
+      }
       upsertConversation(conversation)
       if let workspace { syncWorkspaceLiveStreams(for: workspace) }
       return conversation.id

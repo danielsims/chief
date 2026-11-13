@@ -7,7 +7,12 @@ import type {
 } from "@chief/agent-runtime/types";
 
 import type { PluginRuntimeState } from "../../lib/runtime-plugins";
+import type { PluginApiKeyAction } from "./plugin-api-key-dialog";
+import { announcePluginConnected } from "../../lib/plugin-connected";
+import { pluginKeyReplacement } from "../../lib/relay-runtime-plugins";
+import { useRelaySession } from "../../lib/relay-session";
 import { PluginAddServerDialog } from "./plugin-add-server-dialog";
+import { PluginApiKeyDialog } from "./plugin-api-key-dialog";
 import { PluginDetailDialog } from "./plugin-detail-dialog";
 import { PluginOAuthClientDialog } from "./plugin-oauth-client-dialog";
 import { PluginTrustDialog } from "./plugin-trust-dialog";
@@ -17,28 +22,50 @@ type OAuthClientAction = Extract<
   { kind: "plugin_oauth_client" }
 >;
 
+type KeyReplacement = Awaited<ReturnType<typeof pluginKeyReplacement>>;
+
 /**
  * Adding, signing in to and removing plugins, with every dialog that takes.
  * Shared by the Plugins page and anywhere else a plugin can be connected.
+ * Failures are kept per plugin so a screen can show them inline; `inline`
+ * skips the toast for screens that always do.
  */
-export function usePluginConnectFlow(plugins: PluginRuntimeState) {
+export function usePluginConnectFlow(
+  plugins: PluginRuntimeState,
+  { inline = false }: { inline?: boolean } = {},
+) {
+  const { client, snapshot } = useRelaySession();
   const [trustCandidate, setTrustCandidate] =
     useState<AgentPluginSummary | null>(null);
   const [oauthClientAction, setOAuthClientAction] =
     useState<OAuthClientAction | null>(null);
+  const [apiKeyAction, setApiKeyAction] = useState<PluginApiKeyAction | null>(
+    null,
+  );
+  const [keyReplacement, setKeyReplacement] = useState<KeyReplacement | null>(
+    null,
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
   const [addingServer, setAddingServer] = useState(false);
   const detail = detailId
     ? (plugins.plugins?.find((plugin) => plugin.id === detailId) ?? null)
     : null;
 
-  const run = useCallback(async (action: () => Promise<void>) => {
-    try {
-      await action();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
+  const run = useCallback(
+    async (pluginId: string, action: () => Promise<void>) => {
+      setErrors(({ [pluginId]: _, ...rest }) => rest);
+      try {
+        await action();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setErrors((current) => ({ ...current, [pluginId]: message }));
+        // The detail dialog shows its plugin's failure itself.
+        if (!inline && pluginId !== detailId) toast.error(message);
+      }
+    },
+    [detailId, inline],
+  );
 
   const signIn = useCallback(
     async (
@@ -47,6 +74,7 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
     ) => {
       const action = await plugins.authorize(pluginId, input);
       if (action?.kind === "plugin_oauth_client") setOAuthClientAction(action);
+      if (action?.kind === "plugin_api_key") setApiKeyAction(action);
     },
     [plugins],
   );
@@ -54,7 +82,11 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
   const addAndSignIn = useCallback(
     async (plugin: AgentPluginSummary) => {
       const installed = await plugins.install(plugin.id, true);
-      if (installed?.status === "authorization_required")
+      // A plugin that signs in with a key is still available until it has one.
+      if (
+        installed?.status === "authorization_required" ||
+        installed?.status === "available"
+      )
         await signIn(plugin.id);
     },
     [plugins, signIn],
@@ -66,19 +98,29 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
         setTrustCandidate(plugin);
         return;
       }
-      void run(() => addAndSignIn(plugin));
+      void run(plugin.id, () => addAndSignIn(plugin));
     },
     [addAndSignIn, run],
   );
   const authorize = useCallback(
-    (plugin: AgentPluginSummary) => void run(() => signIn(plugin.id)),
+    (plugin: AgentPluginSummary) =>
+      void run(plugin.id, () => signIn(plugin.id)),
     [run, signIn],
   );
+  const replaceKey = useCallback(
+    (plugin: AgentPluginSummary) =>
+      void run(plugin.id, async () => {
+        if (!client) throw new Error("Chief is still connecting to the relay.");
+        setKeyReplacement(await pluginKeyReplacement(client, plugin));
+      }),
+    [client, run],
+  );
   const remove = useCallback(
-    (plugin: AgentPluginSummary) => {
-      setDetailId(null);
-      void run(() => plugins.uninstall(plugin.id));
-    },
+    (plugin: AgentPluginSummary) =>
+      void run(plugin.id, async () => {
+        await plugins.uninstall(plugin.id);
+        setDetailId((current) => (current === plugin.id ? null : current));
+      }),
     [plugins, run],
   );
 
@@ -87,9 +129,11 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
       <PluginDetailDialog
         plugin={detail}
         busy={Boolean(detail && plugins.busyPluginId === detail.id)}
+        error={detail ? errors[detail.id] : undefined}
         onClose={() => setDetailId(null)}
         onAdd={install}
         onConnect={authorize}
+        onReplaceKey={replaceKey}
         onRemove={remove}
       />
       <PluginAddServerDialog
@@ -99,10 +143,11 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
           setAddingServer(false);
           setDetailId(pluginId);
           if (auth !== "oauth") {
+            if (snapshot) announcePluginConnected(snapshot.id, pluginId);
             plugins.refresh(true);
             return;
           }
-          void run(() => signIn(pluginId));
+          void run(pluginId, () => signIn(pluginId));
         }}
       />
       <PluginTrustDialog
@@ -115,7 +160,7 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
           if (!trustCandidate) return;
           const plugin = trustCandidate;
           setTrustCandidate(null);
-          void run(() => addAndSignIn(plugin));
+          void run(plugin.id, () => addAndSignIn(plugin));
         }}
       />
       {oauthClientAction ? (
@@ -127,7 +172,7 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
           onSubmit={(input) => {
             const current = oauthClientAction;
             setOAuthClientAction(null);
-            return run(async () => {
+            return run(current.pluginId, async () => {
               try {
                 await signIn(current.pluginId, input);
               } catch (error) {
@@ -135,6 +180,29 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
                 throw error;
               }
             });
+          }}
+        />
+      ) : null}
+      {apiKeyAction ? (
+        <PluginApiKeyDialog
+          key={apiKeyAction.pluginId}
+          action={apiKeyAction}
+          onClose={() => setApiKeyAction(null)}
+          onSubmit={async (input) => {
+            await signIn(apiKeyAction.pluginId, input);
+          }}
+        />
+      ) : null}
+      {keyReplacement ? (
+        <PluginApiKeyDialog
+          key={`replace:${keyReplacement.action.pluginId}`}
+          action={keyReplacement.action}
+          replacing
+          onClose={() => setKeyReplacement(null)}
+          onSubmit={async ({ apiKey }) => {
+            await keyReplacement.replace(apiKey);
+            setKeyReplacement(null);
+            plugins.refresh();
           }}
         />
       ) : null}
@@ -146,6 +214,7 @@ export function usePluginConnectFlow(plugins: PluginRuntimeState) {
     addServer: () => setAddingServer(true),
     install,
     authorize,
+    errors,
     dialogs,
   };
 }

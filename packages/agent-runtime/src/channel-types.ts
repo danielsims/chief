@@ -6,10 +6,7 @@ import type {
   ChannelWorkstream,
 } from "@chief/channel-api";
 
-import type {
-  ChiefMessageMetadata,
-  GuestAppearance,
-} from "./agent-message-types.js";
+import type { ChiefMessageMetadata } from "./agent-message-types.js";
 import type { ExecutorCapability } from "./types.js";
 
 export interface WorkspaceChannel {
@@ -33,16 +30,15 @@ export interface WorkspaceChannel {
   version: number;
   createdAt: number;
   updatedAt: number;
+  /** When the relay last saw a message here (ms), before any history loads. */
+  lastMessageAt?: number;
 }
 
 export interface ChannelActor {
-  /** `guest` is an outside agent admitted to one external channel. */
-  type: "user" | "agent" | "guest";
+  type: "user" | "agent";
   id: string;
   name: string;
   image?: string;
-  /** Present for guests only. */
-  guest?: GuestAppearance;
 }
 
 interface ChannelEventBase {
@@ -116,6 +112,11 @@ export type ChannelClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      /** Asks for the last `presence` the workspace socket heard. */
+      type: "getPresence";
+      workspaceId: string;
+    }
+  | {
       /** Tells the other people in a channel that this user is typing. */
       type: "typing";
       workspaceId: string;
@@ -176,6 +177,15 @@ export type ChannelClientMessage =
     };
 
 export type ChannelServerMessage =
+  | {
+      /** Who is connected: people with Chief open, and device agents whose device isn't. */
+      type: "presence";
+      workspaceId: string;
+      userIds: string[];
+      offlineAgentIds: string[];
+      /** Agents whose last run failed, until they start another. */
+      erroredAgentIds: string[];
+    }
   | {
       /** Another person is typing in a channel. Expires on the client. */
       type: "userTyping";

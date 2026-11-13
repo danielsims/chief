@@ -21,6 +21,8 @@ x-relay-environment: &relay-environment
   APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
   APPLE_CLIENT_SECRET_FILE: /run/secrets/apple_client_secret
   APPLE_APP_BUNDLE_IDENTIFIER: ${APPLE_APP_BUNDLE_IDENTIFIER:-}
+  CHIEF_GITHUB_OAUTH_CLIENT_ID: ${CHIEF_GITHUB_OAUTH_CLIENT_ID:-}
+  CHIEF_GITHUB_OAUTH_CLIENT_SECRET_FILE: /run/secrets/github_oauth_client_secret
   CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
   CLOUDFLARE_EMAIL_API_TOKEN: ${CLOUDFLARE_EMAIL_API_TOKEN:-}
   EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
@@ -44,6 +46,7 @@ x-relay-secrets: &relay-secrets
   - relay_id
   - google_client_secret
   - apple_client_secret
+  - github_oauth_client_secret
 
 x-service-security: &service-security
   cap_drop:
@@ -266,6 +269,8 @@ secrets:
     file: ./secrets/google_client_secret
   apple_client_secret:
     file: ./secrets/apple_client_secret
+  github_oauth_client_secret:
+    file: ./secrets/github_oauth_client_secret
   cloudflare_tunnel_token:
     file: ./secrets/cloudflare_tunnel_token
   computer_auth_secret:

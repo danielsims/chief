@@ -36,12 +36,12 @@ void test("uses the same two-step OAuth client flow for every provider", () => {
   assert.equal(guide.logoDomain, "github.com");
   assert.match(guide.summary, /GitHub/);
   assert.doesNotMatch(guide.summary, /GitHub App/i);
-  assert.equal(guide.callbackLabel, "Callback URL");
+  assert.equal(guide.callbackLabel, "Redirect URL");
   assert.deepEqual(
     wizard.map((step) => step.id),
     ["register", "credentials"],
   );
-  assert.match(wizard[0]?.description ?? "", /callback URL/i);
+  assert.match(wizard[0]?.description ?? "", /redirect URL/i);
   assert.match(wizard[1]?.description ?? "", /client secret/i);
   assert.equal(
     guide.fields.find((field) => field.id === "clientSecret")?.required,

@@ -426,9 +426,7 @@ export async function routeAgentRequest(
                             ? principal.userId
                             : principal.kind === "agent"
                               ? principal.agentId
-                              : principal.kind === "guest"
-                                ? principal.guestId
-                                : principal.service,
+                              : principal.service,
                       },
                       createdAt: occurredAt,
                     },

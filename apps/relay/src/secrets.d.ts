@@ -5,6 +5,9 @@ interface Env {
   APPLE_CLIENT_ID?: string;
   APPLE_CLIENT_SECRET?: string;
   APPLE_APP_BUNDLE_IDENTIFIER?: string;
+  /** This relay's own GitHub OAuth app, for the GitHub plugin. */
+  CHIEF_GITHUB_OAUTH_CLIENT_ID?: string;
+  CHIEF_GITHUB_OAUTH_CLIENT_SECRET?: string;
   AUTH_APPLE_REDIRECT_URI?: string;
   RELAY_PUBLIC_URL?: string;
   BOOTSTRAP_TOKEN_SHA256: string;

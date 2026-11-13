@@ -2,10 +2,12 @@ import type {
   ConversationEvent,
   ConversationTypingEvent,
   RelayDiscovery,
+  WorkspacePresenceEvent,
 } from "@chief/relay-contracts";
 import {
   conversationEventSchema,
   conversationTypingEventSchema,
+  workspacePresenceEventSchema,
 } from "@chief/relay-contracts";
 
 import type { RelaySocket } from "./relay-client-options";
@@ -35,6 +37,7 @@ export async function openRelayWorkspaceSubscription(input: {
   createWebSocket: (url: string) => RelaySocket;
   onEvent: (event: ConversationEvent) => void;
   onTyping?: (event: RelayTypingEvent) => void;
+  onPresence?: (event: WorkspacePresenceEvent) => void;
   onError?: (error: Error) => void;
 }): Promise<RelayWorkspaceSubscription> {
   let cursor = input.after;
@@ -105,6 +108,11 @@ export async function openRelayWorkspaceSubscription(input: {
         const typing = conversationTypingEventSchema.safeParse(data);
         if (typing.success) {
           input.onTyping?.(typing.data);
+          return;
+        }
+        const presence = workspacePresenceEventSchema.safeParse(data);
+        if (presence.success) {
+          input.onPresence?.(presence.data);
           return;
         }
         const event = conversationEventSchema.parse(data);

@@ -260,9 +260,7 @@ export class WorkspaceChannelMembership {
         ? actor.agentId
         : actor.kind === "user"
           ? actor.userId
-          : actor.kind === "guest"
-            ? actor.guestId
-            : actor.service;
+          : actor.service;
     const actorName =
       actor.kind === "agent"
         ? (defaultWorkspaceAgentProfiles.find(

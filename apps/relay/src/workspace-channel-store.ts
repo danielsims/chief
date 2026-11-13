@@ -217,25 +217,10 @@ export class WorkspaceChannelStore {
 
   requireChannelVisible(conversationId: string, principal: Principal) {
     const channel = this.requireChannel(conversationId);
-    // An invited agent is admitted to exactly one channel, and only while
-    // the member who invited it can still see that channel.
-    if (principal.kind === "guest") {
-      if (
-        principal.conversationId === conversationId &&
-        this.agentMayAccess(channel, principal.operator?.id ?? null)
-      )
-        return channel;
-      throw new HttpError(
-        403,
-        "channel_access_denied",
-        "This agent is not admitted to the channel.",
-      );
-    }
     if (Number(channel.is_private) === 0) return channel;
     const { kind, id } = principalKindId(principal);
     if (
       kind !== "service" &&
-      kind !== "guest" &&
       this.channelMembership(conversationId, kind, id)
     ) {
       return channel;
@@ -248,7 +233,7 @@ export class WorkspaceChannelStore {
   }
 
   /**
-   * The single gate for invited agents. An agent never sees more than the
+   * The single gate for agents owned by a member. An agent never sees more than the
    * member it works for: the channel must be active, and that member must
    * still belong to the workspace and be able to see the channel. Checked on
    * every action, so losing access takes effect at once.
@@ -299,7 +284,7 @@ export class WorkspaceChannelStore {
 
   requireChannelManager(conversationId: string, principal: Principal) {
     const { kind, id } = principalKindId(principal);
-    if (kind === "service" || kind === "guest") {
+    if (kind === "service") {
       throw new HttpError(
         403,
         "channel_manage_denied",

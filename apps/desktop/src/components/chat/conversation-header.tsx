@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Bot,
   Check,
   Copy,
   Hash,
@@ -24,6 +23,7 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ChannelView } from "./channel-view-tabs";
 import type { ConversationProfileSelection } from "./conversation-profile";
+import { useWorkspacePresence } from "../../lib/use-workspace-presence";
 import {
   isWorkspaceAgentId,
   workspaceAgentIdentity,
@@ -31,11 +31,12 @@ import {
 import { AgentAvatar } from "../agent-avatar";
 import { AvatarImage } from "../avatar-image";
 import { openChannelDetails } from "../channel-details-events";
+import { WithPresence } from "../presence-dot";
 import { UserAvatar } from "../user-avatar";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
-import { ChannelGuestRows, useChannelLinks } from "./channel-guests";
 import { ChannelViewTabs } from "./channel-view-tabs";
 import { useWorkspaceUsers } from "./mention-people-context";
+import { useChannelLink } from "./use-channel-link";
 
 interface ConversationHeaderChannel {
   id: string;
@@ -73,8 +74,9 @@ export function ConversationHeader({
   user,
 }: ConversationHeaderProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
-  const channelLinks = useChannelLinks(channel.id);
+  const channelLinks = useChannelLink(channel.id);
   const workspaceUsers = useWorkspaceUsers();
+  const { userOnline } = useWorkspacePresence();
   const directMember = channel.directUserId
     ? workspaceUsers.get(channel.directUserId)
     : undefined;
@@ -116,11 +118,17 @@ export function ConversationHeader({
               }
               className="focus-visible:ring-ring/30 rounded-[28%] transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
             >
-              <UserAvatar
-                name={directUser.name}
-                image={directUser.image}
-                className="size-6 text-[10px]"
-              />
+              <WithPresence
+                presence={
+                  userOnline(channel.directUserId) ? "online" : "offline"
+                }
+              >
+                <UserAvatar
+                  name={directUser.name}
+                  image={directUser.image}
+                  className="size-6 text-[10px]"
+                />
+              </WithPresence>
             </button>
           ) : channel.visibility === "private" ? (
             <Lock size={17} className="text-muted-foreground shrink-0" />
@@ -246,25 +254,6 @@ export function ConversationHeader({
                       ? "Copy conversation link"
                       : "Copy channel link"}
               </button>
-              {!directIdentity ? (
-                <button
-                  type="button"
-                  title="A single-use link for your own agent. It expires in 24 hours."
-                  onClick={() => void channelLinks.copyInvite()}
-                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-                >
-                  {channelLinks.inviteState === "copied" ? (
-                    <Check size={14} />
-                  ) : (
-                    <Bot size={14} />
-                  )}
-                  {channelLinks.inviteState === "copied"
-                    ? "Invite copied"
-                    : channelLinks.inviteState === "failed"
-                      ? "Couldn’t create invite"
-                      : "Invite your agent"}
-                </button>
-              ) : null}
             </PopoverContent>
           </Popover>
         </div>
@@ -297,6 +286,7 @@ function ChannelMembersMenu({
       : [],
   );
   const [open, setOpen] = useState(false);
+  const { agentPresence } = useWorkspacePresence();
   const selectProfile = (selection: ConversationProfileSelection) => {
     setOpen(false);
     onOpenProfile(selection);
@@ -365,9 +355,6 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
-          {channel.visibility !== "private" ? (
-            <ChannelGuestRows channelId={channel.id} open={open} />
-          ) : null}
           {channelAgents.map((agent) => {
             return (
               <button
@@ -381,7 +368,12 @@ function ChannelMembersMenu({
                 }
                 className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"
               >
-                <AgentAvatar label={agent.name} className="size-7" />
+                <WithPresence
+                  presence={agentPresence(agent.id)}
+                  dotClassName="ring-popover"
+                >
+                  <AgentAvatar label={agent.name} className="size-7" />
+                </WithPresence>
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-medium">
                     {agent.name}

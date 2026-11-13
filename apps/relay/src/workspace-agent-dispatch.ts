@@ -14,7 +14,6 @@ import {
 
 import { publishAgentErrorActivity } from "./agent-activity";
 import { AGENT_HOST_HEADER } from "./agent-object-values";
-import { ChannelGuestDelivery } from "./channel-guest-delivery";
 import { ExternalAgentChannelService } from "./external-agent-channel";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
@@ -60,12 +59,7 @@ export async function dispatchWorkspaceMessage(
   request: Request,
 ) {
   const context = readTrustedContext(request);
-  // Guest messages never wake workspace agents. The guest service fans them
-  // out to other guests itself.
-  if (
-    context.principal.kind === "service" ||
-    context.principal.kind === "guest"
-  ) {
+  if (context.principal.kind === "service") {
     return json({ agentIds: [] });
   }
 
@@ -177,17 +171,6 @@ export async function dispatchWorkspaceMessage(
     else requireWorkspaceAdministrator(store, context.principal);
     requireAgentMessageAccess(store, step.agentId, context.principal);
     agentIds = [step.agentId];
-  }
-  if (!scheduleRunId && channel.kind === "channel") {
-    // Waking guests is best effort and must never block workspace agents.
-    await new ChannelGuestDelivery(storage, env)
-      .fanOut(message)
-      .catch((error: unknown) => {
-        console.error("relay.channel_guests.fan_out_failed", {
-          messageId: message.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
   }
   const threadRootId = scheduleRunId
     ? workflowId

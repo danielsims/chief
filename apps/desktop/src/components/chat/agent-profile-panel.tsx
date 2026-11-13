@@ -7,25 +7,14 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import { AgentAvatar } from "../agent-avatar";
+import { PRESENCE_COPY, PRESENCE_TONE, WithPresence } from "../presence-dot";
 import {
   ConversationAuxiliaryPanel,
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
 
-export type AgentPresence = "working" | "online" | "offline";
-
-const PRESENCE_COPY: Record<AgentPresence, string> = {
-  working: "Working",
-  online: "Online",
-  offline: "Offline",
-};
-
-const PRESENCE_TONE: Record<AgentPresence, string> = {
-  working: "bg-amber-400",
-  online: "bg-emerald-500",
-  offline: "bg-muted-foreground/45",
-};
+export type AgentPresence = "working" | "error" | "online" | "offline";
 
 export function AgentPresenceAvatar({
   name,
@@ -37,25 +26,17 @@ export function AgentPresenceAvatar({
   size?: "sm" | "lg";
 }) {
   return (
-    <span
-      className={cn(
-        "relative inline-flex shrink-0",
-        size === "lg" ? "size-20" : "size-8",
-      )}
+    <WithPresence
+      presence={presence}
+      className={size === "lg" ? "size-20" : "size-8"}
+      dotClassName={
+        size === "lg"
+          ? "right-0.5 bottom-0.5 size-4 ring-[3px]"
+          : "right-0 bottom-0 ring-[3px]"
+      }
     >
       <AgentAvatar label={name} className="size-full" />
-      <span
-        aria-label={PRESENCE_COPY[presence]}
-        role="img"
-        className={cn(
-          "ring-background absolute flex items-center justify-center rounded-full ring-[3px]",
-          PRESENCE_TONE[presence],
-          size === "lg"
-            ? "right-0.5 bottom-0.5 size-4"
-            : "right-0 bottom-0 size-2",
-        )}
-      />
-    </span>
+    </WithPresence>
   );
 }
 

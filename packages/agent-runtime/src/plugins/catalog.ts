@@ -226,21 +226,26 @@ export async function normalizeLegacyPackage(
   if (legacy) await normalizeLegacySkills(root);
 }
 
-async function materializeDiscoveredPackage(
-  root: string,
-  entry: RemotePluginCatalogEntry,
-  source: Extract<RemotePluginCatalogEntry["source"], { type: "discovery" }>,
-) {
+/** The MCP surface integrations.sh publishes for a discovered plugin. */
+export async function discoveredSurface(domain: string, name: string) {
   const response = await fetch(
-    `https://integrations.sh/api/${encodeURIComponent(source.domain)}/surface`,
+    `https://integrations.sh/api/${encodeURIComponent(domain)}/surface`,
     {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
     },
   );
   if (!response.ok)
-    throw new Error(`Could not resolve ${entry.name}'s discovered endpoint.`);
-  const surface = parseMcpSurfaceFromDocument(await response.json());
+    throw new Error(`Could not resolve ${name}'s discovered endpoint.`);
+  return parseMcpSurfaceFromDocument(await response.json());
+}
+
+async function materializeDiscoveredPackage(
+  root: string,
+  entry: RemotePluginCatalogEntry,
+  source: Extract<RemotePluginCatalogEntry["source"], { type: "discovery" }>,
+) {
+  const surface = await discoveredSurface(source.domain, entry.name);
   if (!surface)
     throw new Error(
       `${entry.name} does not publish a connectable MCP endpoint.`,

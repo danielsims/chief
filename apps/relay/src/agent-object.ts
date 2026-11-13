@@ -22,6 +22,7 @@ import { createAgentExecutionEnvironmentFactory } from "./agent-execution-enviro
 import { AgentJobQueue } from "./agent-job-queue";
 import { initializeAgentJobs } from "./agent-job-store";
 import {
+  closeAgentMailboxWebSocket,
   connectAgentMailboxWebSocket,
   createAgentMailboxSocketTicket,
 } from "./agent-mailbox";
@@ -94,6 +95,7 @@ export class AgentObject extends DurableObject<Env> {
 
   private receive(request: Request) {
     const ctx = this.ctx;
+    const env = this.env;
     const route = this.route.bind(this);
     const program = Effect.gen(function* () {
       if (request.headers.get("x-chief-internal-operation") === "delete-all") {
@@ -103,7 +105,7 @@ export class AgentObject extends DurableObject<Env> {
       }
       if (request.headers.get("upgrade") === "websocket") {
         return yield* attempt("agent.websocket.connect", () =>
-          connectAgentMailboxWebSocket(ctx, request),
+          connectAgentMailboxWebSocket(ctx, env, request),
         );
       }
       const context = yield* sync("agent.context", () =>
@@ -129,6 +131,18 @@ export class AgentObject extends DurableObject<Env> {
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     if (message === "ping") socket.send("pong");
+  }
+
+  webSocketClose(socket: WebSocket) {
+    return metered("AgentObject", "websocket.close", () =>
+      closeAgentMailboxWebSocket(this.ctx, this.env, socket),
+    );
+  }
+
+  webSocketError(socket: WebSocket) {
+    return metered("AgentObject", "websocket.error", () =>
+      closeAgentMailboxWebSocket(this.ctx, this.env, socket),
+    );
   }
 
   private route(

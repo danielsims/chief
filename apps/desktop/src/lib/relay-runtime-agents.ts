@@ -110,3 +110,13 @@ export async function saveRelayAgentPreference(
   );
   await ensureDesktopCells(snapshot, relay);
 }
+
+/** The agents that run in Chief cells, subagents included. */
+export function nativeAgentIds(snapshot: WorkspaceSnapshot) {
+  return snapshot.agents
+    .filter((agent) => agent.runtime.kind === "native-cell")
+    .flatMap((agent) => [
+      agent.id,
+      ...agent.subagents.map((child) => child.id),
+    ]);
+}

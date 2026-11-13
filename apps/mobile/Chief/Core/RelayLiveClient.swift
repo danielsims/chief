@@ -12,6 +12,9 @@ enum LiveEvent: Sendable {
   case deleted(ConversationMessage)
   /// Another person is (or stopped) typing. Ephemeral; never replayed.
   case typing(conversationID: String, userID: String, active: Bool)
+  /// Who is connected: people with Chief open, and device-hosted agents whose
+  /// device isn't. Each one replaces the last.
+  case presence(userIDs: Set<String>, offlineAgentIDs: Set<String>, erroredAgentIDs: Set<String>)
 }
 
 /// Live message delivery over the relay's WebSocket (`/v1/connect`). Replaces
@@ -171,6 +174,8 @@ actor RelayLiveClient {
         case .string(let text):
           if let typing = Self.decodeTyping(text) {
             onEvent(typing)
+          } else if let presence = Self.decodePresence(text) {
+            onEvent(presence)
           } else if let decoded = Self.decodeEvent(text) {
             if decoded.sequence <= workspaceCursor { continue }
             workspaceCursor = decoded.sequence
@@ -202,6 +207,21 @@ actor RelayLiveClient {
       conversationID: conversationID,
       userID: userID,
       active: object["active"] as? Bool ?? true
+    )
+  }
+
+  private static func decodePresence(_ text: String) -> LiveEvent? {
+    guard
+      let data = text.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["type"] as? String == "workspace.presence",
+      let userIDs = object["userIds"] as? [String],
+      let offlineAgentIDs = object["offlineAgentIds"] as? [String]
+    else { return nil }
+    return .presence(
+      userIDs: Set(userIDs),
+      offlineAgentIDs: Set(offlineAgentIDs),
+      erroredAgentIDs: Set(object["erroredAgentIds"] as? [String] ?? [])
     )
   }
 

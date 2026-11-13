@@ -1,10 +1,15 @@
-import { principalSchema, socketTicketSchema } from "@chief/relay-contracts";
+import {
+  parseJsonObject,
+  principalSchema,
+  socketTicketSchema,
+} from "@chief/relay-contracts";
 
 import type { readTrustedContext } from "./internal-context";
 import { requireAgentPrincipal } from "./agent-job-store";
 import { HttpError, json, relayError } from "./http";
 import { readTrustedAgentSocketTicket } from "./internal-context";
 import { consumeSocketTicket, createSocketTicket } from "./socket-ticket-store";
+import { reportAgentHost } from "./workspace-presence";
 
 export async function createAgentMailboxSocketTicket(
   storage: DurableObjectStorage,
@@ -30,6 +35,7 @@ export async function createAgentMailboxSocketTicket(
 
 export async function connectAgentMailboxWebSocket(
   state: DurableObjectState,
+  env: Env,
   request: Request,
 ) {
   const context = readTrustedAgentSocketTicket(request);
@@ -55,6 +61,22 @@ export async function connectAgentMailboxWebSocket(
   const pair = new WebSocketPair();
   const client = pair[0];
   const server = pair[1];
+  server.serializeAttachment({ principal });
   state.acceptWebSocket(server);
+  state.waitUntil(reportAgentHost(env, principal, true));
   return new Response(null, { status: 101, webSocket: client });
+}
+
+/** The host is offline once its last mailbox socket is gone. */
+export async function closeAgentMailboxWebSocket(
+  state: DurableObjectState,
+  env: Env,
+  socket: WebSocket,
+) {
+  const principal = principalSchema.safeParse(
+    parseJsonObject(socket.deserializeAttachment())?.principal,
+  );
+  if (!principal.success || principal.data.kind !== "agent") return;
+  if (state.getWebSockets().some((peer) => peer !== socket)) return;
+  await reportAgentHost(env, principal.data, false);
 }

@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import { Archive, Hash, Lock, Trash2 } from "lucide-react";
 
-import { Button } from "@chief/ui/components/button";
-
 import type { SidebarChannel } from "./channel-browser-dialog";
-import { useChannelLinks } from "./chat/channel-guests";
 
 /** Channel settings, laid out like Slack's: details first, then the
  * lifecycle actions that change who can see the channel or whether it
@@ -28,36 +25,11 @@ export function ChannelSettingsPanel({
 }) {
   const isPrivate = channel.visibility === "private";
   const archived = channel.lifecycle === "archived";
-  const links = useChannelLinks(channel.id);
 
   return (
     <div className="space-y-4">
       <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
         {nameField}
-        {archived ? null : (
-          <section className="flex items-center gap-4 px-5 py-4">
-            <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold">Your agent</h3>
-              <p className="text-muted-foreground mt-1 text-sm leading-5">
-                Invite your own agent, like Claude or Grok, to read and post
-                here. It shows as working for you.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              title="A single-use link for your own agent. It expires in 24 hours."
-              type="button"
-              variant="outline"
-              onClick={() => void links.copyInvite()}
-            >
-              {links.inviteState === "copied"
-                ? "Invite copied"
-                : links.inviteState === "failed"
-                  ? "Couldn’t create invite"
-                  : "Copy invite"}
-            </Button>
-          </section>
-        )}
       </div>
 
       {canManage ? (

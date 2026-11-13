@@ -17,6 +17,7 @@ import {
 } from "./agent-connection-model";
 import {
   clearEveDeploymentDraft,
+  eveDraftScope,
   readEveDeploymentDraft,
   readEveProvisioningDraft,
   writeEveDeploymentDraft,
@@ -72,12 +73,13 @@ export function AgentEveDeploymentPanel({
   onDeployed?: () => Promise<void>;
 }) {
   const persistedDraft = useMemo(
-    () => readEveDeploymentDraft(agent.id),
-    [agent.id],
+    () => readEveDeploymentDraft(eveDraftScope(client?.workspaceId, agent.id)),
+    [agent.id, client?.workspaceId],
   );
   const persistedProvisioning = useMemo(
-    () => readEveProvisioningDraft(agent.id),
-    [agent.id],
+    () =>
+      readEveProvisioningDraft(eveDraftScope(client?.workspaceId, agent.id)),
+    [agent.id, client?.workspaceId],
   );
   const cachedCatalog =
     initialCatalog ??
@@ -164,7 +166,7 @@ export function AgentEveDeploymentPanel({
   const deploymentInstructions = eveDeploymentInstructions(agent);
 
   useEffect(() => {
-    writeEveDeploymentDraft(agent.id, {
+    writeEveDeploymentDraft(eveDraftScope(client?.workspaceId, agent.id), {
       model,
       projectId,
       projectMode,
@@ -174,7 +176,7 @@ export function AgentEveDeploymentPanel({
   }, [agent.id, model, projectId, projectMode, projectNameOverride, teamId]);
 
   useEffect(() => {
-    writeEveProvisioningDraft(agent.id, {
+    writeEveProvisioningDraft(eveDraftScope(client?.workspaceId, agent.id), {
       open: provisioningOpen,
       phase,
       progress: progress
@@ -303,7 +305,7 @@ export function AgentEveDeploymentPanel({
         agent.id,
         selectedApps,
       );
-      clearEveDeploymentDraft(agent.id);
+      clearEveDeploymentDraft(eveDraftScope(client.workspaceId, agent.id));
       setDeploymentResult(result);
     } catch (caught) {
       setError(

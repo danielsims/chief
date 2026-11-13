@@ -46,7 +46,7 @@ export class RelayChannelSettingsClient extends RelayClientBase {
     );
   }
 
-  /** Permanent: the channel, its members, guests and history are removed. */
+  /** Permanent: the channel, its members and history are removed. */
   async delete(conversationId: string) {
     const conversation = conversationIdSchema.parse(conversationId);
     return await this.command(

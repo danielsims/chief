@@ -44,7 +44,7 @@ if [ ! -s "$secrets_dir/relay_id" ]; then
   printf 'relay_%s' "$(openssl rand -hex 16)" > "$secrets_dir/relay_id"
 fi
 
-for optional_secret in google_client_secret apple_client_secret cloudflare_tunnel_token; do
+for optional_secret in google_client_secret apple_client_secret github_oauth_client_secret cloudflare_tunnel_token; do
   if [ ! -f "$secrets_dir/$optional_secret" ]; then
     : > "$secrets_dir/$optional_secret"
   fi

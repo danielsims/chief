@@ -1,21 +1,40 @@
+import type { StoredOAuthSession } from "@chief/agent-runtime/mcp-oauth";
+
 import { relayOrigin } from "../hosted-project-checkout";
+import { HttpError } from "../http";
+import { mcpConnectionsFindOAuthRequest } from "../queries/mcp-connections/find-oauth-request";
 
 export const MCP_OAUTH_CALLBACK_PATH = "/mcp/oauth/callback";
 export const MCP_OAUTH_CLIENT_METADATA_PATH = "/mcp/oauth/client-metadata.json";
 export const MCP_OAUTH_START_PATH = "/mcp/oauth/start";
 
-/** The metadata Chief registers with, served at the client-metadata URL. */
-export function mcpClientMetadata(env: Env) {
+/**
+ * What Chief sends to dynamic client registration. No client_id or
+ * client_uri: servers assign the id, and many reject a client_uri on another
+ * origin than the one they register.
+ */
+export function mcpRegistrationMetadata(env: Env) {
   const origin = relayOrigin(env);
   return {
-    client_id: `${origin}${MCP_OAUTH_CLIENT_METADATA_PATH}`,
     client_name: "Chief",
-    client_uri: "https://heychief.sh",
     redirect_uris: [`${origin}${MCP_OAUTH_CALLBACK_PATH}`],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     // A public client: PKCE protects the code, so there is no secret to leak.
     token_endpoint_auth_method: "none",
+  };
+}
+
+/**
+ * The Client ID Metadata Document served at its own URL. Its client_uri must
+ * share the client_id's origin, so it points at the relay.
+ */
+export function mcpClientMetadata(env: Env) {
+  const origin = relayOrigin(env);
+  return {
+    client_id: `${origin}${MCP_OAUTH_CLIENT_METADATA_PATH}`,
+    client_uri: origin,
+    ...mcpRegistrationMetadata(env),
   };
 }
 
@@ -67,4 +86,42 @@ export function sameDigest(left: string, right: string) {
   for (let index = 0; index < left.length; index += 1)
     difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
   return difference === 0;
+}
+
+/** A sign-in link is single use and expires before binding to the browser. */
+export async function pendingMcpSignIn(
+  storage: DurableObjectStorage,
+  startToken: string,
+) {
+  const request = mcpConnectionsFindOAuthRequest(storage, {
+    startHash: await sha256(startToken),
+  });
+  if (!request || request.expires_at < Date.now() || request.binding_hash)
+    throw new HttpError(
+      410,
+      "plugin_sign_in_expired",
+      "This sign-in link has expired or was already used. Start again from Chief.",
+    );
+  return request;
+}
+
+/**
+ * The OAuth app Chief registered itself for a server that has no dynamic
+ * registration. It is attached for each sign-in and never stored with a
+ * workspace's tokens, so the secret can be rotated in one place.
+ */
+export function chiefOAuthClient(env: Env, serverUrl: string) {
+  const id = env.CHIEF_GITHUB_OAUTH_CLIENT_ID;
+  const secret = env.CHIEF_GITHUB_OAUTH_CLIENT_SECRET;
+  if (new URL(serverUrl).hostname !== "api.githubcopilot.com" || !id || !secret)
+    return undefined;
+  return { client_id: id, client_secret: secret };
+}
+
+/** A session as stored: Chief's own client is attached at sign-in, not kept. */
+export function withoutChiefClient(env: Env, session: StoredOAuthSession) {
+  const chief = chiefOAuthClient(env, session.serverUrl);
+  return chief && session.clientInformation?.client_id === chief.client_id
+    ? { ...session, clientInformation: undefined }
+    : session;
 }
