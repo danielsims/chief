@@ -26,7 +26,18 @@ export function useOwnedAgents(client: RelayClient | null) {
   } | null>(null);
   const current = loaded?.client === client ? loaded : null;
   const agents = current?.agents ?? [];
-  const requests = current?.requests ?? [];
+  // Answered requests leave at once, so one never shows beside its agent.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  const requests = (current?.requests ?? []).filter(
+    (request) => !answered.has(request.id),
+  );
+  const answer = (id: string, answering: boolean) =>
+    setAnswered((value) => {
+      const next = new Set(value);
+      if (answering) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     if (!client) return;
@@ -73,6 +84,7 @@ export function useOwnedAgents(client: RelayClient | null) {
     busy,
     run,
     refresh,
+    answer,
     loading: Boolean(client) && current === null,
   };
 }
@@ -205,7 +217,7 @@ export function AgentJoinRequestRow({
 
 /** Requests waiting on you, under the agents already in the workspace. */
 export function AgentJoinRequests({
-  state: { client, requests, busy, run },
+  state: { client, requests, busy, run, answer },
 }: {
   state: OwnedAgentsState;
 }) {
@@ -223,8 +235,14 @@ export function AgentJoinRequests({
             onDecide={(approve, name) =>
               void run(async () => {
                 if (!client) return;
-                if (approve) await accept(client, request, name);
-                else await client.decideOwnedAgent(request.id, false);
+                answer(request.id, true);
+                try {
+                  if (approve) await accept(client, request, name);
+                  else await client.decideOwnedAgent(request.id, false);
+                } catch (error) {
+                  answer(request.id, false);
+                  throw error;
+                }
               })
             }
           />
