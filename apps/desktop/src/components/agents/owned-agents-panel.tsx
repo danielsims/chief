@@ -26,7 +26,18 @@ export function useOwnedAgents(client: RelayClient | null) {
   } | null>(null);
   const current = loaded?.client === client ? loaded : null;
   const agents = current?.agents ?? [];
-  const requests = current?.requests ?? [];
+  // Answered requests leave at once, so one never shows beside its agent.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  const requests = (current?.requests ?? []).filter(
+    (request) => !answered.has(request.id),
+  );
+  const answer = (id: string, answering: boolean) =>
+    setAnswered((value) => {
+      const next = new Set(value);
+      if (answering) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     if (!client) return;
@@ -73,6 +84,7 @@ export function useOwnedAgents(client: RelayClient | null) {
     busy,
     run,
     refresh,
+    answer,
     loading: Boolean(client) && current === null,
   };
 }
@@ -123,9 +135,12 @@ export function AgentJoinRequestRow({
   request,
   busy,
   onDecide,
+  inlineCode = false,
 }: {
   request: OwnedAgentRequest;
   busy: boolean;
+  /** Puts the verification code beside the handle, for narrow layouts. */
+  inlineCode?: boolean;
   /** Approval carries the name chosen on the card. */
   onDecide: (approve: boolean, name: string) => void;
 }) {
@@ -165,15 +180,20 @@ export function AgentJoinRequestRow({
           )}{" "}
           requested to join
         </strong>
-        <code>{request.handle}</code>
+        <code title="Check the code matches the one your agent shows">
+          {request.handle}
+          {inlineCode ? ` · ${request.userCode}` : null}
+        </code>
       </span>
-      <span
-        className="bg-background text-foreground mr-1 shrink-0 rounded-lg px-2.5 py-1.5 font-mono text-[13px] font-medium tracking-[0.08em] shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]"
-        title="Check this matches the code your agent shows"
-        aria-label={`Verification code ${request.userCode}`}
-      >
-        {request.userCode}
-      </span>
+      {inlineCode ? null : (
+        <span
+          className="bg-background text-foreground mr-1 shrink-0 rounded-lg px-2.5 py-1.5 font-mono text-[13px] font-medium tracking-[0.08em] shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]"
+          title="Check this matches the code your agent shows"
+          aria-label={`Verification code ${request.userCode}`}
+        >
+          {request.userCode}
+        </span>
+      )}
       <Button
         variant="outline"
         size="sm"
@@ -197,7 +217,7 @@ export function AgentJoinRequestRow({
 
 /** Requests waiting on you, under the agents already in the workspace. */
 export function AgentJoinRequests({
-  state: { client, requests, busy, run },
+  state: { client, requests, busy, run, answer },
 }: {
   state: OwnedAgentsState;
 }) {
@@ -215,8 +235,14 @@ export function AgentJoinRequests({
             onDecide={(approve, name) =>
               void run(async () => {
                 if (!client) return;
-                if (approve) await accept(client, request, name);
-                else await client.decideOwnedAgent(request.id, false);
+                answer(request.id, true);
+                try {
+                  if (approve) await accept(client, request, name);
+                  else await client.decideOwnedAgent(request.id, false);
+                } catch (error) {
+                  answer(request.id, false);
+                  throw error;
+                }
               })
             }
           />

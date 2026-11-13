@@ -17,15 +17,11 @@ export function ownedAgentLabel(
   return agent.displayName ?? agentName(agent.provider, agent.name);
 }
 
-/** A Chief-run agent's namespaced name, username:agent, like an owned
- * agent's handle. */
-export function workspaceAgentHandle(username: string | null, name: string) {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-+|-+$/gu, "");
-  return username && slug ? `${username}:${slug}` : null;
+/** A Chief-run agent's namespaced name, username:agent. It comes from the
+ * agent's id, which the relay keeps unique, so agents sharing a name still
+ * get distinct handles (opencode, opencode-2). */
+export function workspaceAgentHandle(username: string | null, agentId: string) {
+  return username ? `${username}:${agentId}` : null;
 }
 
 /** An owned agent shaped like the workspace's own, so it shares their UI. */

@@ -325,7 +325,8 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
               <PluginRow plugin={plugin} onOpen={() => connect.open(plugin.id)}>
                 <PluginAction
                   plugin={plugin}
-                  busy={plugins.busyPluginId === plugin.id}
+                  // Adding skipped apps on Continue shows on the button only.
+                  busy={!saving && plugins.busyPluginId === plugin.id}
                   canManage
                   onInstall={() => connect.install(plugin)}
                   onAuthorize={() => connect.authorize(plugin)}

@@ -30,6 +30,8 @@ export const setupDraftSchema = z.object({
   website: z.string().max(2048),
   location: z.enum(["device", "cloud"]),
   localProvider: z.enum(["codex", "claude", "opencode"]),
+  /** The agent app's model; "auto" lets the app choose. */
+  localModel: z.string().max(200).default("auto"),
   service: z.enum(["vercelAiGateway", "opencode"]),
   host: z.enum(["relay-cell", "vercel-eve"]),
   selectedAgentIds: z.array(z.string()).max(10),
@@ -69,6 +71,7 @@ export const newSetupDraft = (): SetupDraft => ({
   website: "",
   location: "device",
   localProvider: "codex",
+  localModel: "auto",
   service: "vercelAiGateway",
   host: "relay-cell",
   selectedAgentIds: suggestedAgentIds("personal"),

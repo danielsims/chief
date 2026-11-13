@@ -40,7 +40,7 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <aside className="bg-background flex max-h-full w-[300px] flex-col overflow-hidden rounded-xl border border-black/[0.07] shadow-[0_12px_32px_-12px_rgba(0,0,0,0.18)] dark:border-white/[0.08]">
+    <aside className="bg-background flex max-h-full w-[300px] flex-col overflow-hidden rounded-xl border border-black/[0.07] shadow-[0_1px_2px_rgba(0,0,0,0.05),0_8px_24px_-6px_rgba(0,0,0,0.14)] dark:border-white/[0.08] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-6px_rgba(0,0,0,0.5)]">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/[0.055] pr-2 pl-3 dark:border-white/[0.06]">
         {icon ? (
           <span className="flex size-6 shrink-0 items-center justify-center">

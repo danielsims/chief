@@ -19,6 +19,7 @@ import { useAcceptAgentRequest } from "../../components/agents/owned-agents-pane
 import { useAuth } from "../../lib/auth/auth-context";
 import { RELAY_URL } from "../../lib/config";
 import { useRelaySession } from "../../lib/relay-session";
+import { useRuntime } from "../../lib/runtime";
 import {
   activeSetupKey,
   newSetupDraft,
@@ -84,7 +85,14 @@ export function useWorkspaceSetup() {
     expiresAt: string;
   } | null>(null);
   const [requests, setRequests] = useState<OwnedAgentRequest[]>([]);
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const accept = useAcceptAgentRequest();
+  // Agents this device runs join as on-device agents, not connections.
+  const { agents: runtimeAgents } = useRuntime();
+  const joined = useMemo(
+    () => runtimeAgents.filter((agent) => agent.connectionKind === "owned"),
+    [runtimeAgents],
+  );
   const [agents, setAgents] = useState<OwnedAgent[]>([]);
   const running = useRef(false);
   const client = useMemo(
@@ -208,8 +216,10 @@ export function useWorkspaceSetup() {
       clearTimeout(timer);
     };
   }, [client, draft.step, auth.user?.id]);
+  // The setup prompt is ready to copy on arrival, on either agent step.
   useEffect(() => {
-    if (!client || draft.step !== "invite" || invite) return;
+    if (!client || !["invite", "approve"].includes(draft.step) || invite)
+      return;
     let stopped = false;
     const timer = setTimeout(() => {
       void client
@@ -258,7 +268,12 @@ export function useWorkspaceSetup() {
       // Chief already exists: a different agent app just changes what
       // Chief and its teammates run on.
       if (draft.location === "device" && client && snapshot)
-        await applyLocalProvider(client, snapshot, draft.localProvider);
+        await applyLocalProvider(
+          client,
+          snapshot,
+          draft.localProvider,
+          draft.localModel,
+        );
       return draft.workspaceId;
     }
     const command = createWorkspaceCommandSchema.parse({
@@ -273,7 +288,7 @@ export function useWorkspaceSetup() {
       inferenceProvider:
         draft.location === "device" ? "onDevice" : draft.service,
       localProvider: draft.localProvider,
-      inferenceModel: "auto",
+      inferenceModel: draft.location === "device" ? draft.localModel : "auto",
       selectedAgentIds: draft.selectedAgentIds,
       selectedApps: draft.selectedApps,
     });
@@ -313,8 +328,19 @@ export function useWorkspaceSetup() {
     run(async () => {
       const request = requests.find((entry) => entry.id === id);
       if (!client || !request) return;
-      if (approve) await accept(client, request, name);
-      else await client.decideOwnedAgent(id, false);
+      // Leaves the list at once, so it never shows beside the agent it became.
+      setAnswered((current) => new Set(current).add(id));
+      try {
+        if (approve) await accept(client, request, name);
+        else await client.decideOwnedAgent(id, false);
+      } catch (error) {
+        setAnswered((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        throw error;
+      }
       await refreshAgents();
     });
   const enter = () =>
@@ -369,7 +395,8 @@ export function useWorkspaceSetup() {
     apiKey,
     username,
     invite,
-    requests,
+    requests: requests.filter((request) => !answered.has(request.id)),
+    joined,
     agents,
     patch,
     go,
@@ -399,18 +426,24 @@ async function applyLocalProvider(
   client: NonNullable<ReturnType<RelayClient["forWorkspace"]>>,
   snapshot: WorkspaceSnapshot,
   provider: SetupDraft["localProvider"],
+  model: string,
 ) {
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
   const ids = ["chief", ...(chief?.subagents.map((agent) => agent.id) ?? [])];
   for (const id of ids) {
     const { config } = await client.loadAgentConfig(id);
-    if (config.inference.provider === provider) continue;
+    if (
+      config.inference.provider === provider &&
+      "model" in config.inference &&
+      config.inference.model === model
+    )
+      continue;
     await client.saveAgentConfig(id, {
       ...config,
       inference:
         provider === "opencode"
-          ? { provider, model: "auto", secretRef: "opencode" }
-          : { provider, model: "auto" },
+          ? { provider, model, secretRef: "opencode" }
+          : { provider, model },
     });
   }
 }
