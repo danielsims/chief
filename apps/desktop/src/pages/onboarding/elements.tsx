@@ -196,7 +196,7 @@ export function PlacesIllustration() {
               strokeWidth="0.35"
               strokeLinejoin="round"
             />
-            <ChiefMark x="12.3" y="12.6" width="7.4" height="7.4" />
+            <ChiefMark x="12.3" y="13.4" width="7.4" height="7.4" />
           </svg>
         </span>
       </div>
