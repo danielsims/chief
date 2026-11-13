@@ -158,9 +158,9 @@ export function PlacesIllustration() {
         aria-label="Chief on a laptop, and Chief in the cloud"
       >
         <span className="ob-places-half">
-          {/* Both marks share one centre line, each at its shape's optical middle. */}
-          <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
-            <g transform="translate(0 5)">
+          {/* Each drawing is cropped to its own shape, so the row centres them. */}
+          <svg viewBox="8 5 144 88" width="101" fill="none" aria-hidden="true">
+            <g>
               <rect
                 x="27"
                 y="6"
@@ -183,16 +183,20 @@ export function PlacesIllustration() {
         </span>
         <span className="ob-places-divider" aria-hidden="true" />
         <span className="ob-places-half">
-          <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
+          <svg
+            viewBox="1.8 6.8 28.4 18.4"
+            width="86"
+            fill="none"
+            aria-hidden="true"
+          >
             <path
-              transform="translate(11.2 -26) scale(4.3)"
               d="M16 7C13.35 7 11.05 8.24 9.41 10.06 9.27 10.05 9.15 10 9 10 6.8 10 5 11.8 5 14 3.27 15.05 2 16.84 2 19c0 3.3 2.7 6 6 6h16c3.3 0 6-2.7 6-6 0-3.16-2.49-5.68-5.59-5.91C23.18 9.57 19.93 7 16 7Z"
               fill="rgba(255,255,255,.1)"
               stroke="currentColor"
-              strokeWidth={1.5 / 4.3}
+              strokeWidth="0.35"
               strokeLinejoin="round"
             />
-            <ChiefMark x="64" y="31" width="32" height="32" />
+            <ChiefMark x="12.3" y="12.6" width="7.4" height="7.4" />
           </svg>
         </span>
       </div>
