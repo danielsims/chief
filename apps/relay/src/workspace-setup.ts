@@ -10,7 +10,6 @@ import type { TrustedRequestContext } from "./internal-context";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { agentConfigsUpdateEnableHostedSpecialists } from "./queries/agent-configs/update-enable-hosted-specialists";
-import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import {
@@ -18,12 +17,6 @@ import {
   workspaceAgentProfiles,
 } from "./workspace-defaults";
 import { enableHostedSpecialists } from "./workspace-hosted-specialists";
-import { ensureWelcomeChannel } from "./workspace-welcome";
-import {
-  postAgentMessage,
-  startWelcomeKickoff,
-  welcomeKickoffTasks,
-} from "./workspace-welcome-kickoff";
 
 /** The owner finishes guided setup and enters their workspace. */
 export async function finishWorkspaceSetup(
@@ -42,21 +35,21 @@ export async function finishWorkspaceSetup(
     .strict()
     .parse(await parseJson(request));
   return json(
-    await completeWorkspaceSetup(storage, env, context, settings.selectedApps),
+    completeWorkspaceSetup(storage, env, context, settings.selectedApps),
   );
 }
 
 /**
- * Opens the workspace: the owner's agents are enabled, Chief welcomes them in
- * their private Welcome channel and each teammate picks up a first task there.
+ * Completes guided setup and enables the owner's agents. Welcome starts only
+ * after the desktop has entered the workspace and connected its live stream.
  * Human setup is separate from provider deployment or a model turn.
  */
-export async function completeWorkspaceSetup(
+export function completeWorkspaceSetup(
   storage: DurableObjectStorage,
   env: Env,
   context: TrustedRequestContext,
   selectedApps?: readonly string[],
-): Promise<WorkspaceSnapshot> {
+): WorkspaceSnapshot {
   const channels = new WorkspaceChannelStore(storage, env);
   channels.requirePrincipalMember(context.principal);
   const workspace = channels.requireWorkspace(context.workspaceId);
@@ -95,8 +88,7 @@ export async function completeWorkspaceSetup(
       "Finish connecting Chief before entering your workspace.",
     );
   const now = new Date().toISOString();
-  const tasks = welcomeKickoffTasks(snapshot);
-  const welcome = storage.transactionSync(() => {
+  storage.transactionSync(() => {
     if (onEve) enableHostedSpecialists(storage, channels, "chief", now);
     else
       for (const agent of workspaceAgentProfiles(snapshot))
@@ -110,33 +102,7 @@ export async function completeWorkspaceSetup(
           ),
           updatedAt: now,
         });
-    // The owner's private line to Chief; each teammate joins for its task.
-    const conversationId = ensureWelcomeChannel(storage, {
-      workspaceId: snapshot.id,
-      userId: workspace.created_by_user_id,
-      now,
-    });
-    for (const task of tasks)
-      channelMembersAddAgentToExistingChannel(storage, {
-        conversationId,
-        agentId: task.agentId,
-        joinedAt: now,
-      });
-    return conversationId;
   });
-  const opener =
-    snapshot.purpose === "personal"
-      ? `Welcome to ${snapshot.name}. I'm Chief, your personal chief of staff. What would you like to work on first?`
-      : `Welcome to ${snapshot.name}. I'm Chief, your team's chief of staff.${snapshot.companyName ? ` We're ready to work with ${snapshot.companyName}.` : ""} What would you like to work on first?`;
-  await postAgentMessage(env, context, {
-    workspaceId: snapshot.id,
-    conversationId: welcome,
-    agentId: "chief",
-    body: opener,
-    seed: "setup:chief",
-    occurredAt: now,
-  });
-  await startWelcomeKickoff(env, context, snapshot, welcome, tasks);
   const completed = workspaceSnapshotSchema.parse({
     ...snapshot,
     setupComplete: true,

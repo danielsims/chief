@@ -56,10 +56,15 @@ Connecting does not lend your machine, install a reply adapter or run background
         },
       },
     );
-  const setup = /^\/v1\/workspaces\/([^/]+)\/setup(?:\/complete)?$/u.exec(
-    url.pathname,
-  );
-  if (setup && ["GET", "POST"].includes(request.method)) {
+  const setup =
+    /^\/v1\/workspaces\/([^/]+)\/setup(?:\/(complete|welcome))?$/u.exec(
+      url.pathname,
+    );
+  if (
+    setup &&
+    ["GET", "POST"].includes(request.method) &&
+    (setup[2] !== "welcome" || request.method === "POST")
+  ) {
     const authenticated = await authenticateRelayRequest(request, env);
     requireAccountBinding(env, authenticated.bound);
     const workspaceId = workspaceIdSchema.parse(setup[1]);
@@ -75,7 +80,11 @@ Connecting does not lend your machine, install a reply adapter or run background
           headers: {
             "content-type": "application/json",
             "x-chief-internal-operation":
-              request.method === "GET" ? "setup-snapshot" : "finish-setup",
+              request.method === "GET"
+                ? "setup-snapshot"
+                : setup[2] === "welcome"
+                  ? "start-welcome"
+                  : "finish-setup",
           },
           body:
             request.method === "POST"

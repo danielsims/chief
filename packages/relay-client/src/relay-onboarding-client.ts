@@ -78,6 +78,17 @@ export class RelayOnboardingClient extends RelayVercelProvisioning {
     );
   }
 
+  startWorkspaceWelcome() {
+    return this.fetchJson(
+      this.workspaceUrl("setup/welcome"),
+      workspaceSnapshotSchema,
+      true,
+      {
+        method: "POST",
+      },
+    );
+  }
+
   accountProfile() {
     return this.fetchJson(
       new URL("/v1/me/profile", this.relayUrl),

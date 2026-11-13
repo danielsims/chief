@@ -65,6 +65,7 @@ import {
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
+import { startWorkspaceWelcome } from "./workspace-start-welcome";
 import { relayConversationTyping } from "./workspace-typing";
 import {
   updateOutdatedEveAgents,
@@ -325,6 +326,10 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "finish-setup")
         return yield* attempt("workspace.finish_setup", () =>
           finishWorkspaceSetup(ctx.storage, env, request),
+        );
+      if (operation === "start-welcome")
+        return yield* attempt("workspace.start_welcome", () =>
+          startWorkspaceWelcome(ctx.storage, env, request),
         );
 
       if (operation?.startsWith("github-")) {

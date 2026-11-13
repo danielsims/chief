@@ -41,7 +41,8 @@ export type RelayRuntimeRelay = Pick<
   | "updateProjectIcon"
   | "updateWorkspaceFile"
 > &
-  ProjectGitHubAccess;
+  ProjectGitHubAccess &
+  Partial<Pick<RelayClient, "startWorkspaceWelcome">>;
 
 /** Shares what this computer's local providers can run with the workspace. */
 export function publishLocalModels(
