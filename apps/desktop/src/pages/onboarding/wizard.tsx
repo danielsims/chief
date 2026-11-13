@@ -102,7 +102,13 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
       <WorkspaceSetupChrome onExit={onCancel} />
       <PluginStepScope setup={s}>
         <div className="ob-scroll" ref={main}>
-          <div className="ob-screen">
+          <motion.div
+            className="ob-screen"
+            key={s.draft.step}
+            initial={reduced ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
             <header className="ob-top">
               <ChiefMark className="size-6" />
               <div
@@ -117,13 +123,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
                 ))}
               </div>
             </header>
-            {/* Only the step's content enters, upward and once; the header stays put. */}
-            <motion.div
-              key={s.draft.step}
-              initial={reduced ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            >
+            <div>
               <div className="ob-body">
                 {s.loading ? (
                   <div
@@ -193,8 +193,8 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
                   </button>
                 ) : null}
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         </div>
       </PluginStepScope>
     </div>

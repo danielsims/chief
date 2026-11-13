@@ -19,10 +19,8 @@
   display: flex;
   padding: 36px 24px 48px;
 }
-/* Anchored near the top, not centred: content that loads in grows
-   downward instead of shifting the whole screen while it animates. */
 .ob-screen {
-  margin: max(0px, calc(12vh - 60px)) auto auto;
+  margin: auto;
   width: 100%;
   max-width: 460px;
 }
