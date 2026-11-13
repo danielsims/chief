@@ -824,3 +824,81 @@
     0 0 0 2px var(--background),
     inset 0 0 0 1px rgb(18 18 18 / 0.12);
 }
+
+/* Connecting Chief: the design lab's sky progress bar and stage list. */
+.ob-sky-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.ob-sky-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #6f7fd0 url("/splash-sky.webp") 82% 22% / 700px auto;
+  transition: width 0.7s ease;
+}
+.ob-sky-bar.is-stopped i {
+  background: var(--muted-foreground);
+}
+.ob-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ob-stage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--muted-foreground);
+  transition: color 0.2s;
+}
+.ob-stage[data-state="active"],
+.ob-stage[data-state="done"] {
+  color: var(--foreground);
+}
+.ob-stage[data-state="failed"] {
+  color: var(--destructive);
+}
+.ob-stage-dot {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--border);
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+.ob-stage[data-state="active"] .ob-stage-dot {
+  border-top-color: var(--foreground);
+  animation: ob-spin 0.8s linear infinite;
+}
+.ob-stage[data-state="done"] .ob-stage-dot {
+  border-color: var(--foreground);
+  background-color: var(--foreground);
+  color: var(--background);
+}
+.ob-stage[data-state="failed"] .ob-stage-dot {
+  border-color: var(--destructive);
+  background-color: var(--destructive);
+  color: white;
+}
+@keyframes ob-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-stage[data-state="active"] .ob-stage-dot {
+    animation: none;
+  }
+  .ob-sky-bar i {
+    transition: none;
+  }
+}

@@ -241,51 +241,65 @@ export function useWorkspaceSetup() {
       });
       go("workspace");
     });
+  const providerName =
+    draft.location === "device"
+      ? { codex: "ChatGPT", claude: "Claude", opencode: "OpenCode" }[
+          draft.localProvider
+        ]
+      : draft.service === "opencode"
+        ? "OpenCode"
+        : "Vercel AI Gateway";
+  /** Creates the workspace with Chief, or points an existing Chief at the chosen app. */
+  const prepareChief = async (): Promise<string> => {
+    if (draft.workspaceId) {
+      // Chief already exists: a different agent app just changes what
+      // Chief and its teammates run on.
+      if (draft.location === "device" && client && snapshot)
+        await applyLocalProvider(client, snapshot, draft.localProvider);
+      return draft.workspaceId;
+    }
+    const command = createWorkspaceCommandSchema.parse({
+      commandId: draft.commandId,
+      name: draft.name,
+      slug: draft.slug,
+      purpose: draft.purpose,
+      companyName: draft.purpose === "company" ? draft.companyName : undefined,
+      website: draft.purpose === "company" ? draft.website : "",
+      runtime: draft.location === "device" ? "desktop" : "cloud",
+      agentRuntime: draft.location === "cloud" ? draft.host : "relay-cell",
+      inferenceProvider:
+        draft.location === "device" ? "onDevice" : draft.service,
+      localProvider: draft.localProvider,
+      inferenceModel: "auto",
+      selectedAgentIds: draft.selectedAgentIds,
+      selectedApps: draft.selectedApps,
+      deferOnboarding: true,
+    });
+    const created = await relay.createWorkspace(command, apiKey, {
+      reconnect: false,
+    });
+    setSnapshot(created);
+    setApiKey("");
+    patch({ workspaceId: created.id });
+    return created.id;
+  };
+  /** Reads the workspace back and confirms Chief is in it. */
+  const verifyChief = async (workspaceId: string) => {
+    if (!relay.client) throw new Error("Chief is reconnecting. Try again.");
+    const loaded = await relay.client.forWorkspace(workspaceId).setupSnapshot();
+    if (!loaded.agents.some((agent) => agent.id === "chief"))
+      throw new Error("Chief isn’t in your workspace yet. Try again.");
+    setSnapshot(loaded);
+  };
+  const eveSetup = draft.location === "cloud" && draft.host === "vercel-eve";
+  /** Eve deploys on its own screen; everything else shows Connecting Chief. */
   const connect = () =>
-    run(
-      async () => {
-        if (draft.workspaceId) {
-          // Chief already exists: a different agent app just changes what
-          // Chief and its teammates run on.
-          if (draft.location === "device" && client && snapshot)
-            await applyLocalProvider(client, snapshot, draft.localProvider);
-          go(
-            draft.host === "vercel-eve" && draft.location === "cloud"
-              ? "eve"
-              : "apps",
-          );
-          return;
-        }
-        const command = createWorkspaceCommandSchema.parse({
-          commandId: draft.commandId,
-          name: draft.name,
-          slug: draft.slug,
-          purpose: draft.purpose,
-          companyName:
-            draft.purpose === "company" ? draft.companyName : undefined,
-          website: draft.purpose === "company" ? draft.website : "",
-          runtime: draft.location === "device" ? "desktop" : "cloud",
-          agentRuntime: draft.location === "cloud" ? draft.host : "relay-cell",
-          inferenceProvider:
-            draft.location === "device" ? "onDevice" : draft.service,
-          localProvider: draft.localProvider,
-          inferenceModel: "auto",
-          selectedAgentIds: draft.selectedAgentIds,
-          selectedApps: draft.selectedApps,
-          deferOnboarding: true,
-        });
-        const created = await relay.createWorkspace(command, apiKey, {
-          reconnect: false,
-        });
-        setSnapshot(created);
-        setApiKey("");
-        patch({
-          workspaceId: created.id,
-          step: command.agentRuntime === "vercel-eve" ? "eve" : "apps",
-        });
-      },
-      `Connecting ${draft.location === "device" ? { codex: "ChatGPT", claude: "Claude", opencode: "OpenCode" }[draft.localProvider] : draft.service === "opencode" ? "OpenCode" : "Vercel AI Gateway"}`,
-    );
+    eveSetup
+      ? run(async () => {
+          await prepareChief();
+          go("eve");
+        }, `Connecting ${providerName}`)
+      : go("connecting");
   const createInvite = () =>
     run(async () => {
       if (!client)
@@ -355,6 +369,9 @@ export function useWorkspaceSetup() {
     patch,
     go,
     run,
+    providerName,
+    prepareChief,
+    verifyChief,
     setApiKey,
     setUsername,
     setError,
