@@ -609,7 +609,7 @@ export function PluginDetailDialog({
                 // Keeps its size while working, so the footer doesn't move.
                 <Button
                   size="sm"
-                  className="relative rounded-md"
+                  className="relative cursor-pointer rounded-md"
                   disabled={busy}
                   onClick={() =>
                     plugin.status === "available"

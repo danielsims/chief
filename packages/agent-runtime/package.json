@@ -49,7 +49,6 @@
     "@chief/browser": "workspace:*",
     "@chief/channel-api": "workspace:*",
     "@chief/email": "workspace:*",
-    "@chief/google-oauth-connector": "workspace:*",
     "@chief/plugin-api": "workspace:*",
     "@chief/relay-client": "workspace:*",
     "@chief/relay-contracts": "workspace:*",
