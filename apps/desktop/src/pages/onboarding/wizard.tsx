@@ -17,6 +17,7 @@ import {
   ChiefScreen,
   CompanyScreen,
   ConnectScreen,
+  IntroScreen,
   ProfileScreen,
   WorkspaceScreen,
 } from "./setup-screens";
@@ -34,6 +35,7 @@ const screenSteps: Record<SetupStep, number> = {
   profile: 0,
   workspace: 0,
   company: 0,
+  intro: 1,
   chief: 1,
   connect: 2,
   eve: 2,
@@ -62,7 +64,8 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     const previous: Partial<Record<SetupStep, SetupStep>> = {
       workspace: s.profile?.username ? undefined : "profile",
       company: "workspace",
-      chief: s.draft.purpose === "company" ? "company" : "workspace",
+      intro: s.draft.purpose === "company" ? "company" : "workspace",
+      chief: "intro",
       connect: "chief",
       eve: "connect",
       apps: "connect",
@@ -84,6 +87,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     profile: ProfileScreen,
     workspace: WorkspaceScreen,
     company: CompanyScreen,
+    intro: IntroScreen,
     chief: ChiefScreen,
     connect: ConnectScreen,
     apps: AppsScreen,

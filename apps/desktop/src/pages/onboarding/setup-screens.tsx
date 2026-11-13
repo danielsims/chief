@@ -238,8 +238,8 @@ export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
       <SetupHeading title="On your device. Or in the cloud.">
-        Chief is your chief of staff. It works wherever suits you, and you can
-        change your mind later.
+        Chief can work from this computer or from the cloud. You’ll choose on
+        the next screen, and can change it any time.
       </SetupHeading>
       <PlacesIllustration />
       <button className="ob-primary" onClick={() => s.go("chief")}>
