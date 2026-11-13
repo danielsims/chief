@@ -52,9 +52,13 @@ export function WorkspaceEntryState({
   }, [revealDelayMs]);
 
   return (
-    <main className="bg-background text-foreground flex h-dvh items-center justify-center" role="status" aria-label="Loading workspace">
+    <main
+      className="bg-background text-foreground flex h-dvh items-center justify-center"
+      role="status"
+      aria-label="Loading workspace"
+    >
       <SplashProgress
-        className={`bg-foreground/10 mt-0 [&>div]:bg-foreground/30 transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0"}`}
+        className={`bg-foreground/10 [&>div]:bg-foreground/30 mt-0 transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0"}`}
       />
     </main>
   );

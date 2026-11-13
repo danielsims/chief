@@ -16,13 +16,23 @@ export interface PluginAccessAgent {
   disabledReason?: string;
 }
 
-const accessCache = new WeakMap<RelayClient, Map<string, McpConnectionAccess>>();
+const accessCache = new WeakMap<
+  RelayClient,
+  Map<string, McpConnectionAccess>
+>();
 function cachedAccess(client: RelayClient | null, id: string) {
   return client ? accessCache.get(client)?.get(id) : undefined;
 }
-function rememberAccess(client: RelayClient, id: string, value: McpConnectionAccess) {
+function rememberAccess(
+  client: RelayClient,
+  id: string,
+  value: McpConnectionAccess,
+) {
   let values = accessCache.get(client);
-  if (!values) { values = new Map(); accessCache.set(client, values); }
+  if (!values) {
+    values = new Map();
+    accessCache.set(client, values);
+  }
   values.set(id, value);
 }
 
@@ -279,7 +289,11 @@ export async function preloadPluginAgentAccess(
   client: RelayClient,
   connectionId: string,
 ) {
-  rememberAccess(client, connectionId, await client.plugins.access(connectionId));
+  rememberAccess(
+    client,
+    connectionId,
+    await client.plugins.access(connectionId),
+  );
 }
 
 export type PluginAgentAccessState = ReturnType<typeof usePluginAgentAccess>;

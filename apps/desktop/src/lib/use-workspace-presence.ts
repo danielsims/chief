@@ -55,9 +55,7 @@ export function useWorkspacePresence() {
         current?.erroredAgentIds.has(host)
       )
         return "error";
-      return current?.offlineAgentIds.has(host)
-        ? "offline"
-        : "online";
+      return current?.offlineAgentIds.has(host) ? "offline" : "online";
     },
     [agents, current, status],
   );

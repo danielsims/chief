@@ -18,15 +18,18 @@ export function relayRuntimeTransport(
     : new PendingRelayRuntimeClient(error);
 }
 
-export function useRelayRuntimeTransport({
-  client,
-  snapshot,
-  error,
-}: {
-  client: RelayClient | null;
-  snapshot: WorkspaceSnapshot | null;
-  error: string | null;
-}, loadSnapshot?: () => Promise<WorkspaceSnapshot>) {
+export function useRelayRuntimeTransport(
+  {
+    client,
+    snapshot,
+    error,
+  }: {
+    client: RelayClient | null;
+    snapshot: WorkspaceSnapshot | null;
+    error: string | null;
+  },
+  loadSnapshot?: () => Promise<WorkspaceSnapshot>,
+) {
   const workspaceId = snapshot?.id ?? null;
   const pendingError = client && snapshot ? null : error;
   const [state, setState] = useState(() => ({
