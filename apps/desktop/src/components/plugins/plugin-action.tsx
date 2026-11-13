@@ -5,7 +5,8 @@ import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-const actionClassName = "raised-button relative min-w-[84px] rounded-full px-4";
+const actionClassName =
+  "raised-button relative min-w-[84px] cursor-pointer rounded-full px-4";
 
 /** A state rather than a button, so it never looks clickable. */
 function PluginState({

@@ -25,7 +25,6 @@
     "@browser-ui/react": "0.2.0",
     "@chief/agent-runtime": "workspace:*",
     "@chief/channel-api": "workspace:*",
-    "@chief/google-oauth-connector": "workspace:*",
     "@chief/relay-client": "workspace:*",
     "@chief/relay-contracts": "workspace:*",
     "@chief/ui": "workspace:*",

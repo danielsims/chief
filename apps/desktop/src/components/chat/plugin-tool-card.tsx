@@ -142,7 +142,7 @@ function PluginRow({
           <Button
             variant="secondary"
             size="sm"
-            className="relative min-w-[84px] rounded-full px-4"
+            className="relative min-w-[84px] cursor-pointer rounded-full px-4"
             disabled={busy}
             onClick={(event) => {
               // The card opens the plugin; its button connects it.
