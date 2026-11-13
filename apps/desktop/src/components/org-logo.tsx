@@ -109,6 +109,7 @@ function OrgLogoImage({
 
   return (
     <span
+      data-loaded={loaded || undefined}
       className={cn(
         "relative flex items-center justify-center overflow-hidden",
         loaded && transparentWhenLoaded
