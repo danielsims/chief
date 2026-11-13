@@ -3,9 +3,8 @@ import { execFileSync } from "node:child_process";
 // lint-staged hides unstaged changes before this runs. Refuse to stage anything
 // if that protection was omitted, so only formatter output enters the index.
 execFileSync("git", ["diff", "--quiet"]);
-execFileSync("pnpm", ["format:fix"], { stdio: "inherit" });
-
-// Workspace format tasks do not cover root config files and tooling scripts.
+// Format only the proposed commit; changing hidden files makes lint-staged
+// conflict when it restores already-formatted local work.
 const stagedFiles = execFileSync(
   "git",
   ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
@@ -28,8 +27,7 @@ for (let offset = 0; offset < stagedFiles.length; offset += 50) {
   );
 }
 
-// Include formatting fixes in tracked files outside the original selection too.
-// Never add untracked files or use a broad `git add` from this hook.
+// Include only formatter output. Never add untracked files or use a broad add.
 const patch = execFileSync("git", ["diff", "--binary", "--no-ext-diff"], {
   maxBuffer: 32 * 1024 * 1024,
 });

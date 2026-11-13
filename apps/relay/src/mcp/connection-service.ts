@@ -52,7 +52,7 @@ import {
 } from "./fetch-guard";
 import {
   oneAtATime,
-  optionalMetadata,
+  requireAuthorizationResponseIssuer,
   requireConsistentIssuer,
   revokeSession,
 } from "./oauth-policy";
@@ -127,10 +127,7 @@ export class McpConnectionService {
     return next;
   }
 
-  /**
-   * Updates a plugin only while it still exists as the same plugin, so work
-   * that finishes after a removal never brings it back.
-   */
+  /** Never resurrect a removed plugin when its pending work finishes. */
   private save(connection: McpConnection) {
     if (this.read(connection.id).createdAt !== connection.createdAt)
       throw new HttpError(
@@ -631,22 +628,8 @@ export class McpConnectionService {
           "plugin_sign_in_superseded",
           "A newer sign-in replaced this one. Start again from Chief.",
         );
-      // RFC 9207 mix-up defence: when an issuer is named it must be ours.
-      if (
-        (input.issuer !== null ||
-          optionalMetadata(credential.session)
-            .authorization_response_iss_parameter_supported === true) &&
-        input.issuer !==
-          credential.session.discovery?.authorizationServerMetadata?.issuer
-      )
-        throw new HttpError(
-          400,
-          "plugin_sign_in_issuer",
-          "The sign-in came back from an unexpected provider.",
-        );
-      requireConsistentIssuer(credential.session);
-      // What was stored before: a failed exchange must leave it, and any
-      // working tokens, exactly as they were.
+      requireAuthorizationResponseIssuer(credential.session, input.issuer);
+      // A failed exchange must preserve the previous session and working tokens.
       const before = structuredClone(credential.session);
       delete before.codeVerifier;
       const provider = this.oauthProvider(connection, credential.session, true);
