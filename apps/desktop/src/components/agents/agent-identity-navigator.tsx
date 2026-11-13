@@ -60,7 +60,11 @@ export function AgentIdentityNavigator({
                 selected && "bg-muted/70",
               )}
             >
-              <AgentAvatar label={profile.name} className="size-7" />
+              <AgentAvatar
+                agentId={profile.id}
+                label={profile.name}
+                className="size-7"
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium">
                   {profile.name}
@@ -80,54 +84,5 @@ export function AgentIdentityNavigator({
         Use ↑ and ↓ to move through this deployment.
       </p>
     </aside>
-  );
-}
-
-export function SubagentDetail({
-  profile,
-  parent,
-}: {
-  profile: NonNullable<AgentDefinition["subagents"]>[number];
-  parent: AgentDefinition;
-}) {
-  return (
-    <div>
-      <header className="flex min-w-0 items-center gap-4">
-        <AgentAvatar label={profile.name} className="size-14" />
-        <div className="min-w-0">
-          <h2 className="truncate text-[26px] leading-none font-normal tracking-[-0.04em]">
-            {profile.name}
-          </h2>
-          <p className="text-muted-foreground mt-1.5 text-xs">{profile.role}</p>
-        </div>
-      </header>
-      <p className="text-muted-foreground mt-5 max-w-3xl text-[13px] leading-6">
-        {profile.description}
-      </p>
-      <div className="mt-7 border-t border-black/[0.06] py-7 dark:border-white/[0.065]">
-        <section>
-          <h3 className="text-sm font-medium">Instructions</h3>
-          <p className="text-muted-foreground mt-1 text-[13px] leading-5">
-            {profile.name} works privately inside {parent.name}'s deployment.
-            Message {parent.name} to delegate work here.
-          </p>
-          <pre className="bg-muted/25 mt-3 max-h-[52vh] overflow-auto rounded-2xl p-4 font-sans text-[13px] leading-6 whitespace-pre-wrap">
-            {profile.instructions}
-          </pre>
-        </section>
-        {profile.capabilities?.length ? (
-          <section className="mt-8">
-            <h3 className="text-sm font-medium">Workspace features</h3>
-            <div className="bg-muted/25 mt-3 divide-y divide-black/[0.055] overflow-hidden rounded-2xl dark:divide-white/[0.06]">
-              {profile.capabilities.map((capability) => (
-                <div key={capability} className="px-4 py-3 text-[13px]">
-                  {capability}
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-      </div>
-    </div>
   );
 }

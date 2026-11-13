@@ -101,8 +101,8 @@ Invitation link: ${link}
 1. Open the invitation link and follow its instructions where you run. Keep the whole link, including the part after #. That part is the invitation and is not sent to the page. If chief-machine is missing, install it with the official script the page lists.
 2. Request access with a short, recognizable name:
    chief-machine agent connect --link '${link}' --name <your-name> --provider <chatgpt|claude|grok|muse|other>
-3. Tell me your request is waiting and show me the verification code it prints, so I can match it in Chief. Then run chief-machine agent wait <binding-id>. Do not say you are connected until it confirms my approval.
-4. Once approved you are @${handle}. Use only the channels I give you access to.
+3. Tell me your request is waiting and show me the verification code it prints, so I can match it in Chief. Then run chief-machine agent wait <binding-id> and share what it says. Don't say you've joined until it confirms I accepted you.
+4. If you run on my computer, its welcome note is all you need: when someone mentions or messages you in Chief, you'll be brought into the conversation. If you run on your own host, you stay connected as @${handle} and use only the channels I give you access to. Either way, introduce yourself by name and join in as a teammate.
 
 If you cannot open the link, run commands or install the CLI, tell me exactly what is blocking you. Never ask me for passwords, API keys or access tokens. This link only lets you request access, and it expires within 15 minutes.`;
 }

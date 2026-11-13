@@ -3,6 +3,7 @@ import { Check, Copy, LoaderCircle, Plus, Search, X } from "lucide-react";
 import { z } from "zod";
 
 import type { WorkspaceSetup } from "./use-setup";
+import { AgentJoinRequestRow } from "../../components/agents/owned-agents-panel";
 import { ChiefMark } from "../../components/chief-mark";
 import { IntegrationChoiceCard } from "../../components/integrations/integration-choice-card";
 import { OrgLogo } from "../../components/org-logo";
@@ -275,31 +276,12 @@ export function ApproveAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       </div>
       <div className="ob-people-list">
         {s.requests.map((a) => (
-          <div key={a.id} className="ob-person">
-            <IdentityTile provider={a.provider} name={a.name} />
-            <span className="ob-row-text">
-              <strong>{agentName(a.provider, a.name)} requested to join</strong>
-              <code>{a.handle}</code>
-              <span className="ob-verification">
-                Verify with your agent: {a.userCode}
-              </span>
-            </span>
-            <button
-              className="ob-secondary"
-              onClick={() => void s.decide(a.id, true)}
-              disabled={s.busy}
-            >
-              Approve
-            </button>
-            <button
-              className="ob-icon-button"
-              aria-label={`Decline ${a.name}`}
-              onClick={() => void s.decide(a.id, false)}
-              disabled={s.busy}
-            >
-              <X size={14} />
-            </button>
-          </div>
+          <AgentJoinRequestRow
+            key={a.id}
+            request={a}
+            busy={s.busy}
+            onDecide={(approve, name) => void s.decide(a.id, approve, name)}
+          />
         ))}
         {s.agents.map((a) => (
           <div key={a.id} className="ob-person">
