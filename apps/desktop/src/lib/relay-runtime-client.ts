@@ -345,8 +345,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
           (reply) => this.emit(reply),
         );
         return;
-      // A cloud workspace has no local browser runs, so there is nothing to
-      // list and no run for the other browser commands to act on.
+      // A cloud workspace has no local browser runs to list or act on.
       case "listBrowserRuns":
         this.emit({
           type: "browserRuns",
@@ -629,8 +628,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       (conversation) => conversation.id === message.conversationId,
     );
     const knownChannel = knownConversation?.kind === "channel";
-    // An agent DM is not in the channel roster, but its messages still drive
-    // the unread badge and notifications, so observe them like a channel.
+    // Agent DMs aren't in the channel roster but still drive unread and alerts.
     const knownAgentDirect =
       knownConversation?.kind === "direct" && !knownConversation.directUserId;
     const revised =
