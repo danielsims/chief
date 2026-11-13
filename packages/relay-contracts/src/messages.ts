@@ -93,6 +93,7 @@ export const questionPayloadSchema = z
 export const channelMemberJoinedPayloadSchema = z
   .object({
     type: z.literal("member-joined"),
+    actorId: z.string().trim().min(1).max(128),
     actorName: z.string().trim().min(1).max(80),
   })
   .strict();
