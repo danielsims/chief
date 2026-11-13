@@ -294,6 +294,7 @@ export function ApproveAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
               key={a.id}
               request={a}
               busy={s.busy}
+              inlineCode
               onDecide={(approve, name) => void s.decide(a.id, approve, name)}
             />
           ))}
