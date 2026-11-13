@@ -336,7 +336,8 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       )}
       <button
         className="ob-primary"
-        disabled={saving || Boolean(plugins.busyPluginId)}
+        // A sign-in left open in the browser never blocks moving on.
+        disabled={saving}
         onClick={() => void next()}
       >
         {saving ? (
