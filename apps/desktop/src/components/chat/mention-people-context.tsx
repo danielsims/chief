@@ -5,6 +5,7 @@ import type { WorkspaceMember } from "@chief/relay-contracts";
 
 import type { MentionAlias } from "./agent-mention-parser";
 import { useAuth } from "../../lib/auth/auth-context";
+import { ownedAgentLabel } from "../../lib/owned-agent-presentation";
 import { relayAvatarUrl } from "../../lib/relay-avatar";
 import { useRelaySession } from "../../lib/relay-session";
 import { useRuntime } from "../../lib/runtime";
@@ -103,7 +104,15 @@ export function MentionPeopleProvider({ children }: { children: ReactNode }) {
     () => [
       ...people,
       ...ownedAgents.flatMap((agent) =>
-        agent.handle ? [{ id: agent.id, name: agent.handle }] : [],
+        agent.handle
+          ? [
+              {
+                id: agent.id,
+                name: agent.handle,
+                label: ownedAgentLabel(agent),
+              },
+            ]
+          : [],
       ),
       ...agents.flatMap((agent) => [
         { id: agent.id, name: agent.name },
