@@ -494,6 +494,13 @@
   grid-template-columns: 1fr 1fr;
   gap: 9px;
 }
+.ob-plugin-row {
+  border-radius: 11px;
+  transition: background-color 120ms ease;
+}
+.ob-plugin-row:hover {
+  background: color-mix(in srgb, var(--muted) 70%, transparent);
+}
 .ob-app {
   display: flex;
   align-items: center;
