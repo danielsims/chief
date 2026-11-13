@@ -31,7 +31,7 @@ void test("every agent receives the subject-channel operating model", () => {
   for (const agent of defaultAgents) {
     const instructions = composeWorkspaceInstructions(agent.instructions);
     assert.match(instructions, /subject channel as where its work lives/u);
-    assert.match(instructions, /private #setup channel/u);
+    assert.match(instructions, /private channels such as `#welcome`/u);
     assert.match(
       instructions,
       /always write a known workspace channel as its/u,
