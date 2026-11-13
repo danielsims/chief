@@ -104,8 +104,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private projectsRevision = 0;
 
-  // Every project update carries this machine's local clones, so a snapshot
-  // refresh never hides a clone behind the relay's copy of the project.
+  // Keep local clones visible across relay snapshot refreshes.
   private async emitProjects() {
     const revision = ++this.projectsRevision;
     const snapshot = this.snapshot;
@@ -189,8 +188,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       await this.refreshSnapshot();
       await saveRelayAgentPreference(this.relay, this.snapshot, preference);
     }
-    // Refresh after saving, so the new agent arrives with its provider and
-    // settings together instead of showing defaults first.
+    // Refresh after saving so the new agent arrives with its configured provider.
     await this.refreshSnapshot();
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
     this.emit(await relayAgentPreferencesMessage(this.relay, this.snapshot));
@@ -385,8 +383,13 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.emit(await environmentMessage(this.relay, this.snapshot.id));
   }
   private async refreshSnapshot() {
-    const snapshot = await (this.loadSnapshot ? this.loadSnapshot() : this.relay.activeWorkspace());
-    if (snapshot.id !== this.snapshot.id) throw new Error("The workspace connection changed. Reconnect to continue.");
+    const snapshot = await (this.loadSnapshot
+      ? this.loadSnapshot()
+      : this.relay.activeWorkspace());
+    if (snapshot.id !== this.snapshot.id)
+      throw new Error(
+        "The workspace connection changed. Reconnect to continue.",
+      );
     this.snapshot = snapshot;
   }
   private async startUserDirect(
@@ -627,10 +630,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const knownConversation = this.snapshot.conversations.find(
       (conversation) => conversation.id === message.conversationId,
     );
-    const knownChannel = knownConversation?.kind === "channel";
-    // Agent DMs aren't in the channel roster but still drive unread and alerts.
-    const knownAgentDirect =
-      knownConversation?.kind === "direct" && !knownConversation.directUserId;
     const revised =
       event.type === "conversation.message.reacted" ||
       event.type === "conversation.message.edited" ||
@@ -642,7 +641,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     if (
       !isActivity &&
-      (knownChannel || knownAgentDirect || isChannelMembershipMessage(message))
+      (this.subscribedConversationIds.has(message.conversationId) ||
+        isChannelMembershipMessage(message))
     ) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
       if (revised) {

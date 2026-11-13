@@ -246,6 +246,7 @@ describe("approval-bound onboarding", () => {
         })
       ).status,
     ).toBe(409);
+    const setupStartedAt = Date.now();
     const finished = await ctx.call("/setup/complete", "POST", {
       selectedApps: ["github.com"],
     });
@@ -266,7 +267,16 @@ describe("approval-bound onboarding", () => {
       `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
     );
     expect(messages.status).toBe(200);
-    const content = await messages.text();
+    const welcomePage = (await messages.json()) as {
+      messages: { createdAt: string }[];
+    };
+    expect(welcomePage.messages.length).toBeGreaterThan(0);
+    for (const message of welcomePage.messages) {
+      expect(Date.parse(message.createdAt)).toBeGreaterThanOrEqual(
+        setupStartedAt,
+      );
+    }
+    const content = JSON.stringify(welcomePage);
     expect(content).toContain("personal chief of staff");
     expect(content).not.toContain("researches your business");
     expect(content.match(/Welcome to Test workspace/gu)).toHaveLength(1);

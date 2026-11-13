@@ -244,13 +244,19 @@ function ScopedChannelReadStateProvider({
   );
 
   useEffect(() => {
-    if (!activeChannelId || document.visibilityState !== "visible") return;
+    if (
+      !activeChannelId ||
+      document.visibilityState !== "visible" ||
+      !document.hasFocus()
+    )
+      return;
     markChannelRead(activeChannelId);
   }, [activeChannelId, markChannelRead, observedByChannel]);
 
   useEffect(() => {
     const markVisible = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || !document.hasFocus())
+        return;
       const current = locationRef.current;
       const channelId = routeConversationId(
         current.pathname,
