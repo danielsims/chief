@@ -48,6 +48,7 @@ import {
   useWorkspaceData,
 } from "../lib/runtime";
 import { useStartDirectMessage } from "../lib/use-start-direct-message";
+import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
   channelIdFromChatId,
   directMessageChatForAgent,
@@ -83,6 +84,7 @@ export function ConversationsPage() {
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
   const { agents: rootAgents, status: runtimeStatus } = useRuntime();
+  const { agentPresence } = useWorkspacePresence();
   const runtimeAgents = useMemo(
     () => rootAgents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]),
     [rootAgents],
@@ -187,12 +189,12 @@ export function ConversationsPage() {
   const activeEntry = localChats.chats.find(
     (entry) => entry.id === activeChatId,
   );
-  const directPresence: AgentPresence =
-    activeChatId && (running[activeChatId] ?? activeEntry?.running ?? false)
-      ? "working"
-      : runtimeStatus === "connected"
-        ? "online"
-        : "offline";
+  const directPresence = agentPresence(
+    requestedDirectMessage?.id ?? "",
+    Boolean(
+      activeChatId && (running[activeChatId] ?? activeEntry?.running ?? false),
+    ),
+  );
   const profileParam = params.get("profile");
   const activeProfileAgentId =
     profileParam === "agent" && requestedDirectMessage
@@ -219,11 +221,10 @@ export function ConversationsPage() {
       )?.id ?? null)
     : null;
   const activeProfilePresence: AgentPresence = activeProfileAgentId
-    ? activeProfileChatId && running[activeProfileChatId]
-      ? "working"
-      : runtimeStatus === "connected"
-        ? "online"
-        : "offline"
+    ? agentPresence(
+        activeProfileAgentId,
+        Boolean(activeProfileChatId && running[activeProfileChatId]),
+      )
     : "offline";
   const activeProfileChannels = activeProfileAgent
     ? workspaceChannels.channels

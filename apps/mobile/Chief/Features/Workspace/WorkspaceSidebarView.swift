@@ -158,26 +158,29 @@ struct DMsGroup: View {
       case .agent(let agent): "agent:\(agent.id)"
       }
     }
-
-    var lastMessageAt: String {
-      if case .conversation(let conversation) = self { return conversation.lastMessageAt ?? "" }
-      return ""
-    }
   }
 
-  /// Agents and people together, most recent message first. DMs without
+  /// Agents and people together, most recent message first. An agent's team
+  /// moves up with its latest message, a subagent's included. DMs without
   /// messages keep their roster order below.
   private var recentFirstEntries: [DirectEntry] {
-    let entries: [DirectEntry] =
-      (model.workspace?.agents ?? []).map { agent in
-        directConversation(for: agent).map(DirectEntry.conversation) ?? .agent(agent)
-      } + unmatchedDirectConversations.map(DirectEntry.conversation)
+    let teams: [(DirectEntry, String)] = (model.workspace?.agents ?? []).map { agent in
+      let entry = directConversation(for: agent).map(DirectEntry.conversation) ?? .agent(agent)
+      let ids = Set([agent.id] + agent.subagents.map(\.id))
+      let latest = directConversations
+        .filter { ids.contains($0.directAgentID ?? "") }
+        .compactMap(\.lastMessageAt)
+        .max() ?? ""
+      return (entry, latest)
+    }
+    let entries = teams + unmatchedDirectConversations.map {
+      (DirectEntry.conversation($0), $0.lastMessageAt ?? "")
+    }
     return entries.enumerated()
       .sorted { lhs, rhs in
-        lhs.element.lastMessageAt == rhs.element.lastMessageAt
-          ? lhs.offset < rhs.offset : lhs.element.lastMessageAt > rhs.element.lastMessageAt
+        lhs.element.1 == rhs.element.1 ? lhs.offset < rhs.offset : lhs.element.1 > rhs.element.1
       }
-      .map(\.element)
+      .map(\.element.0)
   }
 
   private var directConversations: [ConversationSummary] {
@@ -275,7 +278,9 @@ struct DMsGroup: View {
       }
     } label: {
       HStack(spacing: 9) {
-        AgentMark(name: name, id: id, size: 24, working: model.isAgentWorking(agentID: id))
+        let working = model.isAgentWorking(agentID: id)
+        AgentMark(name: name, id: id, size: 24, working: working)
+          .presenceDot(working ? nil : model.agentPresence(id), avatarSize: 24)
         Text(name)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ChiefTheme.secondary)
@@ -347,15 +352,21 @@ private struct ConversationRow: View {
             size: 24,
             rounded: true
           )
+          .presenceDot(model.isUserOnline(userID) ? .online : .offline, avatarSize: 24)
         } else if conversation.kind == .direct {
+          let working = model.isAgentWorking(
+            workspaceID: model.workspace?.id,
+            conversationID: conversation.id
+          )
           AgentMark(
             name: conversation.name,
             id: conversation.directAgentID,
             size: 24,
-            working: model.isAgentWorking(
-              workspaceID: model.workspace?.id,
-              conversationID: conversation.id
-            )
+            working: working
+          )
+          .presenceDot(
+            working ? nil : model.agentPresence(conversation.directAgentID),
+            avatarSize: 24
           )
         } else {
           Image(systemName: conversation.isPrivate ? "lock" : "number")
@@ -454,12 +465,17 @@ struct ChannelMembersSheet: View {
             HStack(spacing: 12) {
               if member.kind == "agent" {
                 AgentMark(name: member.name ?? member.principalId, size: 32)
+                  .presenceDot(model.agentPresence(member.principalId), avatarSize: 32)
               } else {
                 Circle().fill(ChiefTheme.elevated).frame(width: 32, height: 32)
                   .overlay {
                     Text((member.name ?? "You").prefix(1)).font(
                       .system(size: 13, weight: .semibold))
                   }
+                  .presenceDot(
+                    model.isUserOnline(member.principalId) ? .online : .offline,
+                    avatarSize: 32
+                  )
               }
               VStack(alignment: .leading, spacing: 2) {
                 Text(member.name ?? member.principalId).font(.system(size: 15, weight: .medium))

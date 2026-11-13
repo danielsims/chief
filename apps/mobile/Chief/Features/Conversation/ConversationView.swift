@@ -42,7 +42,7 @@ struct ConversationView: View {
     .modifier(ScheduledRunTracking(messages: messages, conversationID: conversationID))
     .safeAreaInset(edge: .top, spacing: 0) {
       VStack(spacing: 0) {
-        PageDetailBar(title: conversation?.name ?? "Conversation") {
+        PageDetailBar(title: conversation?.name ?? "Conversation", titleLeading: directAvatar) {
           if isMember {
             Button {
               Haptics.medium()
@@ -85,7 +85,7 @@ struct ConversationView: View {
       model.markChannelRead(conversationID: conversationID)
     }
     .task(id: conversationID) {
-      openTabs = ChannelTabStore.tabs(conversationID)
+      openTabs = ChannelTabStore.tabs(conversationID, workspaceID: model.workspace?.id)
       if showsTabs { await loadArtifacts() }
     }
     .onChange(of: draft) { _, value in
@@ -123,6 +123,32 @@ struct ConversationView: View {
         }
       }
       .refreshable { await load() }
+  }
+
+  /// A DM's other side, with whether they're online, as on desktop.
+  private var directAvatar: AnyView? {
+    guard let conversation, conversation.kind == .direct else { return nil }
+    if let userID = conversation.directUserID {
+      return AnyView(
+        UserAvatar(
+          user: model.person(userID: userID, fallbackName: conversation.name),
+          size: 22,
+          rounded: true
+        )
+        .presenceDot(model.isUserOnline(userID) ? .online : .offline, avatarSize: 22)
+      )
+    }
+    let working = model.isAgentWorking(
+      workspaceID: model.workspace?.id,
+      conversationID: conversationID
+    )
+    return AnyView(
+      AgentMark(name: conversation.name, id: conversation.directAgentID, size: 22)
+        .presenceDot(
+          model.agentPresence(conversation.directAgentID, working: working),
+          avatarSize: 22
+        )
+    )
   }
 
   /// Channels show their views as tabs; DMs are only messages, as on desktop.
@@ -254,13 +280,13 @@ struct ConversationView: View {
     } else {
       openTabs.append(tab)
     }
-    ChannelTabStore.save(openTabs, for: conversationID)
+    ChannelTabStore.save(openTabs, for: conversationID, workspaceID: model.workspace?.id)
     view = .tab(tab)
   }
 
   private func close(_ tab: ChannelTab) {
     openTabs.removeAll { artifacts.canonical($0) == tab }
-    ChannelTabStore.save(openTabs, for: conversationID)
+    ChannelTabStore.save(openTabs, for: conversationID, workspaceID: model.workspace?.id)
     if view == .tab(tab) { view = .artifacts }
   }
 

@@ -22,6 +22,7 @@ import { selectDeployment } from "../../lib/agent-execution";
 import { PROVIDER_META } from "../../lib/providers";
 import { useProviderModels } from "../../lib/runtime";
 import { nativeProvidersForDeployment } from "./agent-connection-model";
+import { eveDraftScope } from "./agent-eve-deployment-draft";
 import {
   AgentEveDeploymentPanel,
   hasEveDeploymentDraft,
@@ -61,7 +62,7 @@ export function AgentExecutionCard({
 }) {
   const [draft, setDraft] = useState<NativeExecutionDraft | null>(null);
   const [deployingToEve, setDeployingToEve] = useState(() =>
-    hasEveDeploymentDraft(agent.id),
+    hasEveDeploymentDraft(eveDraftScope(relayClient?.workspaceId, agent.id)),
   );
   const agentName = agent.name;
   const nativeDeployment: NativeDeployment | null =
@@ -294,15 +295,17 @@ export function AgentExecutionCard({
       ) : null}
       {changed ? (
         <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!ready || saving}
-            onClick={() => apply(true)}
-          >
-            <Users size={13} />
-            Apply to team
-          </Button>
+          {agent.subagents?.length ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!ready || saving}
+              onClick={() => apply(true)}
+            >
+              <Users size={13} />
+              Apply to subagents
+            </Button>
+          ) : null}
           <Button
             size="sm"
             disabled={!ready || saving}

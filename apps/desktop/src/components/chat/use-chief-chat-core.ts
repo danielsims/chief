@@ -182,6 +182,9 @@ export function useChiefChatCore({
                     ? { threadRootId: message.metadata.threadRootId }
                     : undefined),
                   blocks: withoutMarkerLines(messageBlocks(message)),
+                  ...(message.metadata?.runError
+                    ? { error: message.metadata.runError }
+                    : undefined),
                 },
               ]
             : [],

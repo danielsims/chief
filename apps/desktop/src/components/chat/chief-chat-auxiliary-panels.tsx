@@ -84,7 +84,10 @@ export function ChiefChatAuxiliaryPanels({
   activeThreadSummary: ThreadSummary;
   composer: Composer;
   core: Core;
-  controlsForMessage: (message: ChiefUIMessage) => {
+  controlsForMessage: (
+    message: ChiefUIMessage,
+    options?: { threadRoot?: boolean },
+  ) => {
     actions?: ReactNode;
     footer: ReactNode;
   };
@@ -369,7 +372,9 @@ export function ChiefChatAuxiliaryPanels({
                     onOpenChannel={onOpenChannel}
                     onOpenProfile={openUserProfile}
                     onOpenMention={openAgentMention}
-                    {...controlsForMessage(activeThreadRoot)}
+                    {...controlsForMessage(activeThreadRoot, {
+                      threadRoot: true,
+                    })}
                     text={messageText(activeThreadRoot)}
                     timestamp={activeThreadRoot.metadata?.createdAt}
                   />

@@ -5,6 +5,11 @@ import type {
   WorkspaceChannel,
 } from "@chief/agent-runtime/types";
 
+import {
+  readStoredWorkspaceChannels,
+  storeWorkspaceChannels,
+} from "./stored-workspace-channels";
+
 const MAX_CACHED_CONVERSATIONS = 24;
 
 interface WorkspaceConversationCache {
@@ -176,9 +181,9 @@ export function cacheChannelEvent(workspaceId: string, event: ChannelEvent) {
 }
 
 export function cachedWorkspaceChannels(workspaceId: string) {
-  return activeCache?.workspaceId === workspaceId
-    ? activeCache.channels
-    : undefined;
+  if (activeCache?.workspaceId !== workspaceId) return undefined;
+  activeCache.channels ??= readStoredWorkspaceChannels(workspaceId);
+  return activeCache.channels;
 }
 
 export function cacheWorkspaceChannels(
@@ -187,6 +192,7 @@ export function cacheWorkspaceChannels(
 ) {
   if (activeCache?.workspaceId !== workspaceId) return false;
   activeCache.channels = channels;
+  storeWorkspaceChannels(workspaceId, channels);
   return true;
 }
 

@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   jsonObjectSchema,
+  localProviderModelsSchema,
+  localProviderSchema,
   relayErrorSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -53,6 +55,8 @@ function operationFor(
 
 const automationToolsRoute = /^\/v1\/workspaces\/([^/]+)\/automation-tools$/u;
 const catalogToolsRoute = /^\/v1\/workspaces\/([^/]+)\/plugin-tools$/u;
+const providerModelsRoute =
+  /^\/v1\/workspaces\/([^/]+)\/provider-models\/(codex|claude)$/u;
 const catalogDomainSchema = z
   .string()
   .min(3)
@@ -92,6 +96,59 @@ export function routeWorkspaceMcp(
           }),
         ),
       });
+    }
+    const providerModels = providerModelsRoute.exec(
+      new URL(request.url).pathname,
+    );
+    if (
+      providerModels &&
+      (request.method === "GET" || request.method === "PUT")
+    ) {
+      const workspaceId = yield* sync("relay.provider_models.scope", () =>
+        workspaceIdSchema.parse(decodeURIComponent(providerModels[1] ?? "")),
+      );
+      const provider = localProviderSchema.parse(providerModels[2]);
+      const authenticated = yield* attempt("relay.authenticate", () =>
+        authenticateRelayRequest(request, env),
+      );
+      const principal = yield* attempt("relay.workspace.authorize", () =>
+        authorizeWorkspace(env, {
+          identity: authenticated.identity,
+          requestId,
+          workspaceId,
+        }),
+      );
+      // A person's computer publishes what its local ChatGPT or Claude Code
+      // can run, so their own phone can offer it. Each person has their own.
+      if (principal.kind !== "user")
+        return relayError(
+          403,
+          "provider_models_denied",
+          "Only a person's own devices share models.",
+          requestId,
+        );
+      const key = `provider-models/${workspaceId}/${principal.userId}/${provider}.json`;
+      if (request.method === "PUT") {
+        const input = yield* attempt("relay.provider_models.body", async () =>
+          localProviderModelsSchema.parse(await authenticated.request.json()),
+        );
+        const stored = { models: input.models, publishedAt: Date.now() };
+        yield* attempt("relay.provider_models.store", () =>
+          env.ARTIFACTS.put(key, JSON.stringify(stored), {
+            httpMetadata: { contentType: "application/json" },
+          }),
+        );
+        return Response.json(stored);
+      }
+      const object = yield* attempt("relay.provider_models.read", () =>
+        env.ARTIFACTS.get(key),
+      );
+      const stored = object
+        ? localProviderModelsSchema.safeParse(
+            yield* attempt("relay.provider_models.parse", () => object.json()),
+          )
+        : undefined;
+      return Response.json(stored?.success ? stored.data : { models: [] });
     }
     const catalogTools = catalogToolsRoute.exec(new URL(request.url).pathname);
     if (catalogTools && request.method === "GET") {

@@ -4,18 +4,12 @@ import test from "node:test";
 import type {
   AgentDefinition,
   AgentPreference,
+  AgentProfile,
 } from "@chief/agent-runtime/types";
 
 import { executionPreferencesForTeam } from "../src/lib/agent-execution-preferences.ts";
 
-const agents: AgentDefinition[] = [
-  {
-    id: "chief",
-    name: "Chief",
-    role: "Chief of staff",
-    description: "Coordinates the team.",
-    instructions: "",
-  },
+const subagents: AgentProfile[] = [
   {
     id: "brand",
     name: "Brand",
@@ -23,23 +17,17 @@ const agents: AgentDefinition[] = [
     description: "Owns brand work.",
     instructions: "",
   },
-  {
-    id: "researcher",
-    name: "Researcher",
-    role: "External agent",
-    description: "Runs in Vercel Eve.",
-    instructions: "",
-    runtime: {
-      kind: "external-channel",
-      provider: "eve",
-      endpoint: "https://researcher.vercel.app/channels/chief/messages",
-      connectionStatus: "connected",
-      deployment: { status: "unattested" },
-    },
-  },
 ];
+const chief: AgentDefinition = {
+  id: "chief",
+  name: "Chief",
+  role: "Chief of staff",
+  description: "Coordinates the team.",
+  instructions: "",
+  subagents,
+};
 
-void test("team assignment preserves native policy and skips Eve agents", () => {
+void test("subagent assignment covers only the agent and its subagents", () => {
   const current: AgentPreference[] = [
     {
       agentId: "chief",
@@ -50,7 +38,7 @@ void test("team assignment preserves native policy and skips Eve agents", () => 
   ];
 
   const next = executionPreferencesForTeam(
-    agents,
+    chief,
     current,
     "desktop",
     "codex",

@@ -39,6 +39,7 @@ import type {
 } from "../lib/workspace-channels";
 import type { SidebarChannel } from "./channel-browser-dialog";
 import type { ChannelDetailsTab } from "./channel-details-dialog";
+import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
   isSidebarPinnedItem,
   placeSidebarPinnedItem,
@@ -186,6 +187,7 @@ export function SidebarChannels({
   onPinnedChange: (pinnedItems: SidebarPinnedItem[]) => void;
 }) {
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  const { agentPresence } = useWorkspacePresence();
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [channelBrowserOpen, setChannelBrowserOpen] = useState(false);
   useEffect(() => {
@@ -338,6 +340,7 @@ export function SidebarChannels({
                             unreadDirectMessageCounts.get(item.id) ?? 0
                           }
                           working={workingAgentIds.has(item.id)}
+                          presence={agentPresence(item.id)}
                         />
                       );
                     }

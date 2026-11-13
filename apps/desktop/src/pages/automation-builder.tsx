@@ -25,8 +25,10 @@ import type { AutomationDraft, StepSlot } from "./automation-draft";
 import type { PickedStep } from "./automation-step-picker";
 import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { usePluginConnectFlow } from "../components/plugins/plugin-connect-flow";
+import { canManagePlugins } from "../lib/auth/organization-role";
 import { useRelaySession } from "../lib/relay-session-context";
 import { usePlugins } from "../lib/runtime-plugins";
+import { useWorkspaceRole } from "../lib/workspace-role";
 import { TriggerEventContext } from "./automation-arguments";
 import { AutomationCanvas } from "./automation-canvas";
 import { AutomationChatPanel, useAutomationChat } from "./automation-chat";
@@ -245,12 +247,14 @@ export function AutomationBuilderPage() {
         ),
     [plugins.plugins],
   );
+  const canManage = canManagePlugins(useWorkspaceRole());
   const picker: PickerOptions = {
     catalogue,
     agents,
-    connectable,
+    // Members use installed plugins; owners and admins add new ones.
+    connectable: canManage ? connectable : [],
     onConnect: connect.open,
-    onAddServer: connect.addServer,
+    onAddServer: canManage ? connect.addServer : undefined,
   };
 
   const issues = useMemo(() => draftIssueMap(draft), [draft]);

@@ -92,16 +92,57 @@ struct MessageComponentList: View {
   }
 }
 
-private struct PluginAuthorizationMessageComponent: View {
+/// Connects a plugin from a chat card through the same relay flow as the
+/// Plugins page. The card's own link may be stale, so every connect asks the
+/// relay for a fresh sign-in.
+@MainActor
+private struct PluginCardConnector {
+  let model: AppModel
   let message: ConversationMessage
   let component: MessageComponent
+
+  /// The card's plugin, if the card still belongs to this conversation.
+  func plugin(
+    id: String?, name: String, domain: String?, description: String?
+  ) async throws -> PluginOption {
+    guard component.payload["workspaceId"] == message.workspaceID,
+      component.payload["conversationId"] == message.conversationID,
+      let id
+    else { throw PluginConnectError("This plugin card no longer matches this conversation.") }
+    guard
+      let plugin = await PluginCatalogClient.shared.plugin(
+        id: id, name: name, domain: domain, description: description)
+    else { throw PluginConnectError("This plugin is no longer in the catalog.") }
+    return plugin
+  }
+
+  /// The agent that posted the card, pre-ticked when choosing who gets the plugin.
+  var agentID: String? { component.payload["agentId"] ?? message.author.agentID }
+
+  func flow(_ current: PluginConnectFlow?) -> PluginConnectFlow {
+    current ?? PluginConnectFlow(workspaceID: message.workspaceID, relay: model.relay)
+  }
+}
+
+@MainActor
+private struct PluginAuthorizationMessageComponent: View {
+  @Environment(AppModel.self) private var model
+  let message: ConversationMessage
+  let component: MessageComponent
+  @State private var flow: PluginConnectFlow?
+  @State private var resolving = false
   @State private var errorMessage: String?
 
   private var name: String { component.payload["pluginName"] ?? "Plugin" }
+  private var pluginID: String? { component.payload["pluginId"] }
+  private var needsKey: Bool { component.payload["kind"] == "plugin_api_key" }
+  private var state: PluginConnectState {
+    pluginID.flatMap { flow?.state(for: $0) } ?? .idle
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Label("Authorize \(name)", systemImage: "link.badge.plus")
+      Label(needsKey ? "Connect \(name)" : "Authorize \(name)", systemImage: "link.badge.plus")
         .font(.system(size: 14, weight: .semibold))
         .foregroundStyle(.primary)
       if let description = component.payload["description"] {
@@ -109,11 +150,18 @@ private struct PluginAuthorizationMessageComponent: View {
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
       }
-      Button("Continue securely") { openAuthorization() }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-      if let errorMessage {
-        Text(errorMessage)
+      if state == .connected {
+        Label("Connected", systemImage: "checkmark.circle.fill")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(.green)
+      } else {
+        Button("Continue securely") { connect() }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.small)
+          .disabled(resolving || state == .connecting)
+      }
+      if let error = errorMessage ?? failure {
+        Text(error)
           .font(.system(size: 11))
           .foregroundStyle(.red)
       }
@@ -125,40 +173,55 @@ private struct PluginAuthorizationMessageComponent: View {
       RoundedRectangle(cornerRadius: 12)
         .stroke(ChiefTheme.line, lineWidth: 0.5)
     }
+    .modifier(OptionalPluginConnectSheets(flow: flow))
   }
 
-  private func openAuthorization() {
-    guard component.payload["workspaceId"] == message.workspaceID,
-      component.payload["conversationId"] == message.conversationID,
-      let rawURL = component.payload["authorizationUrl"],
-      let url = URL(string: rawURL),
-      url.scheme == "https"
-        || (url.scheme == "http" && ["127.0.0.1", "localhost"].contains(url.host ?? ""))
-    else {
-      errorMessage = "Chief blocked an invalid authorization link."
-      return
-    }
+  private var failure: String? {
+    if case .failed(let reason) = state { reason } else { nil }
+  }
+
+  private func connect() {
+    let connector = PluginCardConnector(model: model, message: message, component: component)
+    let provider = component.payload["provider"]
+    resolving = true
+    errorMessage = nil
     Haptics.medium()
-    UIApplication.shared.open(url) { opened in
-      if !opened { errorMessage = "The authorization page could not be opened." }
+    Task {
+      defer { resolving = false }
+      do {
+        let plugin = try await connector.plugin(
+          id: pluginID, name: name,
+          domain: provider?.contains(".") == true ? provider : nil,
+          description: component.payload["description"])
+        let flow = connector.flow(flow)
+        self.flow = flow
+        flow.connect(plugin, agentID: connector.agentID)
+      } catch {
+        errorMessage = PluginFailure.message(error, name: name)
+        Haptics.error()
+      }
     }
   }
 }
 
 @MainActor
 private struct PluginRecommendationMessageComponent: View {
+  @Environment(AppModel.self) private var model
   let message: ConversationMessage
   let component: MessageComponent
-  @State private var busy = false
-  @State private var locallyConnected = false
-  @State private var authorization = PluginAuthorizationPresenter()
+  @State private var flow: PluginConnectFlow?
+  @State private var resolving = false
   @State private var errorMessage: String?
 
   private var name: String {
     component.payload["name"] ?? component.payload["pluginId"] ?? "Plugin"
   }
-  private var status: String { component.payload["status"] ?? "available" }
-  private var connected: Bool { status == "connected" || locallyConnected }
+  private var pluginID: String? { component.payload["pluginId"] }
+  private var state: PluginConnectState? { pluginID.flatMap { flow?.state(for: $0) } }
+  private var connected: Bool {
+    state == .connected || (state == nil && component.payload["status"] == "connected")
+  }
+  private var busy: Bool { resolving || state == .connecting }
   private var domain: String {
     component.payload["domain"] ?? component.payload["pluginId"] ?? ""
   }
@@ -202,8 +265,8 @@ private struct PluginRecommendationMessageComponent: View {
         }
       }
 
-      if let errorMessage {
-        Text(errorMessage)
+      if let error = errorMessage ?? failure {
+        Text(error)
           .font(.system(size: 11))
           .foregroundStyle(.red)
       }
@@ -215,57 +278,30 @@ private struct PluginRecommendationMessageComponent: View {
       RoundedRectangle(cornerRadius: 16)
         .stroke(ChiefTheme.line, lineWidth: 0.5)
     }
-    .sheet(
-      isPresented: Binding(
-        get: { authorization.authorizationURL != nil },
-        set: { if !$0 { authorization.cancel() } }
-      )
-    ) {
-      if let url = authorization.authorizationURL {
-        PluginBrowserView(url: url)
-          .ignoresSafeArea()
-      }
-    }
+    .modifier(OptionalPluginConnectSheets(flow: flow))
+  }
+
+  private var failure: String? {
+    if case .failed(let reason) = state { reason } else { nil }
   }
 
   private func connectPlugin() {
-    guard let workspaceID = component.payload["workspaceId"],
-      workspaceID == message.workspaceID,
-      let conversationID = component.payload["conversationId"],
-      conversationID == message.conversationID,
-      let pluginID = component.payload["pluginId"]
-    else {
-      errorMessage = "This plugin card no longer matches this conversation."
-      return
-    }
-    busy = true
+    let connector = PluginCardConnector(model: model, message: message, component: component)
+    resolving = true
     errorMessage = nil
     Haptics.medium()
     Task {
+      defer { resolving = false }
       do {
-        let plugin = await PluginCatalogClient.shared.plugin(
-          id: pluginID,
-          name: name,
+        let plugin = try await connector.plugin(
+          id: pluginID, name: name,
           domain: domain == pluginID ? nil : domain,
-          description: component.payload["description"]
-        )
-        guard let plugin else {
-          throw MobilePluginRuntimeError.unavailable("This plugin is no longer in the catalog.")
-        }
-        try await PluginCatalogClient.shared.install(
-          plugin,
-          workspaceID: workspaceID,
-          presenter: authorization
-        )
-        locallyConnected = true
-        busy = false
-        Haptics.success()
-      } catch MobilePluginRuntimeError.browserDismissed {
-        busy = false
+          description: component.payload["description"])
+        let flow = connector.flow(flow)
+        self.flow = flow
+        flow.connect(plugin, agentID: connector.agentID)
       } catch {
-        busy = false
-        errorMessage =
-          (error as? LocalizedError)?.errorDescription ?? "The plugin could not be connected."
+        errorMessage = PluginFailure.message(error, name: name)
         Haptics.error()
       }
     }
@@ -393,7 +429,7 @@ extension ConversationMessage.Author {
     switch self {
     case .agent(let id, _): id
     case .system: "chief"
-    case .user, .guest: nil
+    case .user: nil
     }
   }
 }
@@ -507,9 +543,15 @@ private struct AuthenticatedRelayImage: View {
       failed = true
       return
     }
+    // The relay binds requests to this device, as every other relay call does.
+    if let deviceAuthorization = await DeviceAuthorizationVault.shared.load(for: relayURL) {
+      request.setValue(deviceAuthorization, forHTTPHeaderField: "x-chief-device-authorization")
+    }
 
     do {
-      let (data, response) = try await URLSession.shared.data(for: request)
+      // Never follow a redirect: it would carry the device's credentials along.
+      let (data, response) = try await URLSession.shared.data(
+        for: request, delegate: RefuseRedirects())
       guard let http = response as? HTTPURLResponse,
         (200..<300).contains(http.statusCode),
         let decoded = UIImage(data: data)
@@ -833,5 +875,15 @@ private struct ProjectRecommendationMessageComponent: View {
       return host.replacingOccurrences(of: "www.", with: "")
     }
     return description
+  }
+}
+
+/// Stops a request at its first redirect instead of following it.
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest
+  ) async -> URLRequest? {
+    nil
   }
 }
