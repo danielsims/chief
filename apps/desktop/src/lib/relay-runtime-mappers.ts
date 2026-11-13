@@ -368,28 +368,36 @@ function pluginRecommendationParts(
     );
     if (!parsed.success) return [];
     const value = parsed.data;
+    const base = {
+      pluginId: value.pluginId,
+      pluginName: value.pluginName,
+      description: value.description,
+      provider: value.provider,
+    };
     return [
       (value.status === "authorization_required"
         ? {
+            ...base,
             kind: "plugin_authorization",
-            pluginId: value.pluginId,
-            pluginName: value.pluginName,
-            description: value.description,
-            provider: value.provider,
             authorizationUrl: value.authorizationUrl,
             status: value.status,
           }
-        : {
-            kind: value.kind,
-            pluginId: value.pluginId,
-            pluginName: value.pluginName,
-            description: value.description,
-            provider: value.provider,
-            serverName: value.serverName,
-            callbackUrl: value.callbackUrl,
-            setupUrl: value.setupUrl,
-            status: value.status,
-          }) satisfies PluginAuthorizationAction,
+        : value.status === "api_key_required"
+          ? {
+              ...base,
+              kind: value.kind,
+              label: value.label,
+              docsUrl: value.docsUrl,
+              status: value.status,
+            }
+          : {
+              ...base,
+              kind: value.kind,
+              serverName: value.serverName,
+              callbackUrl: value.callbackUrl,
+              setupUrl: value.setupUrl,
+              status: value.status,
+            }) satisfies PluginAuthorizationAction,
     ];
   });
   const authorizationPlugins = authorizations.map(

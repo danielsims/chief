@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -9,13 +8,20 @@ import type {
   ContentBlock,
   PluginAuthorizationAction,
 } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
+import { Button, buttonVariants } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 
-import type { PluginOAuthClientInput } from "../../lib/runtime-plugins";
+import type {
+  PluginApiKeyInput,
+  PluginOAuthClientInput,
+} from "../../lib/runtime-plugins";
+import type { PluginApiKeyAction } from "../plugins/plugin-api-key-dialog";
 import { integrationSetupChannelPath } from "../../lib/integration-setup";
 import { connectRecommendedPlugin } from "../../lib/plugin-connection";
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
+import { PluginApiKeyDialog } from "../plugins/plugin-api-key-dialog";
+import { openPluginDialog } from "../plugins/plugin-dialog-host";
 import { PluginOAuthClientDialog } from "../plugins/plugin-oauth-client-dialog";
 import { ProviderLogo } from "../provider-logo";
 import {
@@ -45,6 +51,9 @@ function PluginRow({
   const navigate = useNavigate();
   const [oauthClientAction, setOAuthClientAction] =
     useState<OAuthClientAction | null>(null);
+  const [apiKeyAction, setApiKeyAction] = useState<PluginApiKeyAction | null>(
+    null,
+  );
   const current =
     runtime.plugins?.find((item) => item.id === plugin.id) ?? plugin;
   const busy = runtime.busyPluginId === plugin.id;
@@ -55,8 +64,11 @@ function PluginRow({
           setOAuthClientAction(authorization);
           return;
         }
-        await openUrl(authorization.authorizationUrl);
-        return;
+        if (authorization.kind === "plugin_api_key") {
+          setApiKeyAction(authorization);
+          return;
+        }
+        // Ask the relay for a fresh sign-in instead of opening an old chat link.
       }
       if (current.source.type === "setup") {
         await navigate(
@@ -71,6 +83,7 @@ function PluginRow({
       if (action?.kind === "plugin_oauth_client") {
         setOAuthClientAction(action);
       }
+      if (action?.kind === "plugin_api_key") setApiKeyAction(action);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -87,9 +100,25 @@ function PluginRow({
       throw error;
     }
   };
+  const submitApiKey = async (input: PluginApiKeyInput) => {
+    if (!apiKeyAction) return;
+    await runtime.authorize(apiKeyAction.pluginId, input);
+  };
   return (
     <>
-      <div className="bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${current.name}`}
+        onClick={() => openPluginDialog(current.id)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openPluginDialog(current.id);
+          }
+        }}
+        className="bg-card/60 hover:bg-card flex min-w-0 cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm transition-colors"
+      >
         <ProviderLogo
           domain={pluginDomain(current)}
           label={current.name}
@@ -101,26 +130,35 @@ function PluginRow({
           </strong>
         </span>
         {current.status === "connected" ? (
-          <span className="flex items-center gap-1 text-xs text-emerald-500">
-            <Check size={13} /> Connected
+          <span
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "pointer-events-none rounded-full px-4 text-emerald-500",
+            )}
+          >
+            Connected
           </span>
         ) : (
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
+            className="relative min-w-[84px] rounded-full px-4"
             disabled={busy}
-            onClick={() => void connect()}
+            onClick={(event) => {
+              // The card opens the plugin; its button connects it.
+              event.stopPropagation();
+              void connect();
+            }}
           >
-            {busy ? <LoaderCircle className="animate-spin" size={13} /> : null}
-            {current.status === "available"
-              ? "Authorize"
-              : current.status === "waiting"
-                ? "Reopen"
-                : current.status === "failed" || current.status === "error"
-                  ? "Retry"
-                  : current.status === "reconnect"
-                    ? "Reconnect"
-                    : "Authorize"}
+            <span className={cn(busy && "invisible")}>
+              {current.status === "reconnect" ? "Reconnect" : "Install"}
+            </span>
+            {busy ? (
+              <LoaderCircle
+                className="absolute inset-0 m-auto animate-spin"
+                size={14}
+              />
+            ) : null}
           </Button>
         )}
       </div>
@@ -131,6 +169,14 @@ function PluginRow({
           busy={busy}
           onClose={() => setOAuthClientAction(null)}
           onSubmit={configureClient}
+        />
+      ) : null}
+      {apiKeyAction ? (
+        <PluginApiKeyDialog
+          key={apiKeyAction.pluginId}
+          action={apiKeyAction}
+          onClose={() => setApiKeyAction(null)}
+          onSubmit={submitApiKey}
         />
       ) : null}
     </>
@@ -194,6 +240,9 @@ function AuthorizationCard({
     useState<OAuthClientAction | null>(
       action?.kind === "plugin_oauth_client" ? action : null,
     );
+  const [apiKeyAction, setApiKeyAction] = useState<PluginApiKeyAction | null>(
+    action?.kind === "plugin_api_key" ? action : null,
+  );
   if (!action) return null;
   const current = plugins.plugins?.find(
     (plugin) => plugin.id === action.pluginId,
@@ -212,7 +261,13 @@ function AuthorizationCard({
         setOAuthClientAction(action);
         return;
       }
-      await openUrl(action.authorizationUrl);
+      if (action.kind === "plugin_api_key") {
+        setApiKeyAction(action);
+        return;
+      }
+      const next = await plugins.authorize(action.pluginId);
+      if (next?.kind === "plugin_oauth_client") setOAuthClientAction(next);
+      if (next?.kind === "plugin_api_key") setApiKeyAction(next);
       setOpened(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -236,6 +291,9 @@ function AuthorizationCard({
       setOAuthClientAction(active);
       toast.error(error instanceof Error ? error.message : String(error));
     }
+  };
+  const submitApiKey = async (input: PluginApiKeyInput) => {
+    await plugins.authorize(action.pluginId, input);
   };
   return (
     <>
@@ -321,6 +379,14 @@ function AuthorizationCard({
           busy={plugins.busyPluginId === oauthClientAction.pluginId}
           onClose={() => setOAuthClientAction(null)}
           onSubmit={configureClient}
+        />
+      ) : null}
+      {apiKeyAction ? (
+        <PluginApiKeyDialog
+          key={apiKeyAction.pluginId}
+          action={apiKeyAction}
+          onClose={() => setApiKeyAction(null)}
+          onSubmit={submitApiKey}
         />
       ) : null}
     </>

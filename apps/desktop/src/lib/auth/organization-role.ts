@@ -33,6 +33,11 @@ export function canDeleteChannels(role: OrganizationRole | null): boolean {
   return role === "owner";
 }
 
+/** The relay independently enforces workspace owner/admin management. */
+export function canManagePlugins(role: OrganizationRole | null): boolean {
+  return role !== "member";
+}
+
 export function workspaceRoleForUser(
   members: readonly WorkspaceMember[],
   userId: string | null | undefined,

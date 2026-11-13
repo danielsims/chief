@@ -50,7 +50,7 @@ export function AgentPluginAccess({
   if (!client || connected.length === 0) return null;
 
   return (
-    <section className="mt-8">
+    <section>
       <SectionHeading
         title="Plugins"
         description={

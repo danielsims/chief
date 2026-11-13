@@ -17,6 +17,7 @@ import type {
 import {
   accessTokenExpired,
   McpOAuthProvider,
+  registrationRejected,
   requiresConfiguredOAuthClient,
 } from "@chief/agent-runtime/mcp-oauth";
 import {
@@ -36,11 +37,13 @@ import { mcpConnectionsFindOAuthRequest } from "../queries/mcp-connections/find-
 import { mcpConnectionsInsertOAuthRequest } from "../queries/mcp-connections/insert-oauth-request";
 import { mcpConnectionsUpdateOAuthBinding } from "../queries/mcp-connections/update-oauth-binding";
 import { mcpConnectionsUpsertConnection } from "../queries/mcp-connections/upsert-connection";
-import { workspaceFindAuthorize } from "../queries/workspace/find-authorize";
 import { requireWorkspaceAdministrator } from "../workspace-administration";
 import { WorkspaceChannelStore } from "../workspace-channel-store";
 import { callMcpTool, listMcpTools } from "./client";
+import { McpAgentAccess } from "./connection-agent-access";
 import { unlinkConnection } from "./connection-cleanup";
+import { parseFailureMessage } from "./connection-errors";
+import { replaceMcpHeaders, requirePluginHeaders } from "./connection-headers";
 import { McpCredentialStore } from "./credentials";
 import {
   guardedMcpFetch,
@@ -54,11 +57,14 @@ import {
   revokeSession,
 } from "./oauth-policy";
 import {
+  chiefOAuthClient,
   MCP_OAUTH_START_PATH,
   mcpClientMetadata,
+  mcpRegistrationMetadata,
   randomToken,
   sameDigest,
   sha256,
+  withoutChiefClient,
   workspaceSignInTag,
 } from "./oauth-support";
 
@@ -66,23 +72,11 @@ const maximumConnections = 100;
 const signInLifetimeMs = 5 * 60_000;
 const toolListFreshMs = 15 * 60_000;
 
-// Headers the transport owns or that could change how the request is routed.
-const reservedHeader =
-  /^(host|cookie|connection|keep-alive|content-|transfer-encoding|upgrade|te|trailer|proxy-|forwarded|x-forwarded-|mcp-session-id|mcp-protocol-version|last-event-id)/iu;
-
-/** Never let a provider's error text (which may echo request data) through. */
-function parseFailureMessage(error: unknown) {
-  if (error instanceof HttpError || error instanceof McpFetchError)
-    return error.message;
-  if (error instanceof UnauthorizedError)
-    return "The plugin needs to be connected again.";
-  return "Chief could not reach this plugin.";
-}
-
 export class McpConnectionService {
   private readonly channels: WorkspaceChannelStore;
   private readonly credentials: McpCredentialStore;
   private readonly origin: string;
+  private readonly agentAccess: McpAgentAccess;
 
   constructor(
     private readonly storage: DurableObjectStorage,
@@ -96,6 +90,7 @@ export class McpConnectionService {
       workspaceId,
     );
     this.origin = relayOrigin(env);
+    this.agentAccess = new McpAgentAccess(storage, env, workspaceId);
   }
 
   list(): McpConnection[] {
@@ -164,9 +159,10 @@ export class McpConnectionService {
   ) {
     const metadata = mcpClientMetadata(this.env);
     const startingRefreshToken = session.tokens?.refresh_token;
+    session.clientInformation ??= chiefOAuthClient(this.env, connection.url);
     return new McpOAuthProvider(session, {
       redirectUrl: metadata.redirect_uris[0] ?? "",
-      clientMetadata: metadata,
+      clientMetadata: mcpRegistrationMetadata(this.env),
       clientMetadataUrl: metadata.client_id,
       allowAuthorizationUrl: (url) => {
         try {
@@ -184,7 +180,7 @@ export class McpConnectionService {
         if (interactive) {
           await this.credentials.write(connection.id, connection.url, {
             kind: "oauth",
-            session: value,
+            session: withoutChiefClient(this.env, value),
           });
           return;
         }
@@ -290,14 +286,7 @@ export class McpConnectionService {
   async create(principal: Principal, input: McpConnectionCreate) {
     requireWorkspaceAdministrator(this.channels, principal);
     requirePublicMcpUrl(input.url, new URL(this.origin).hostname);
-    if (input.auth.kind === "headers")
-      for (const { name } of input.auth.headers)
-        if (reservedHeader.test(name))
-          throw new HttpError(
-            400,
-            "plugin_header_reserved",
-            `${name} cannot be set for a plugin.`,
-          );
+    if (input.auth.kind === "headers") requirePluginHeaders(input.auth.headers);
     if (mcpConnectionsFindConnection(this.storage, input.id))
       throw new HttpError(
         409,
@@ -344,15 +333,37 @@ export class McpConnectionService {
       : this.refreshTools(connection);
   }
 
+  /** Swaps a plugin's key once the new one lists tools, so a typo never breaks it. */
+  async replaceHeaders(
+    principal: Principal,
+    id: string,
+    headers: { name: string; value: string }[],
+  ) {
+    requireWorkspaceAdministrator(this.channels, principal);
+    return replaceMcpHeaders({
+      connection: this.read(id),
+      headers,
+      limits: this.limits(512_000),
+      credentials: this.credentials,
+      save: (connection) => this.save(connection),
+      read: () => this.read(id),
+      lockKey: this.lockKey(id),
+    });
+  }
+
   async remove(principal: Principal, id: string) {
     requireWorkspaceAdministrator(this.channels, principal);
     const connection = this.read(id);
-    const credential = await this.credentials
-      .read(connection.id, connection.url)
-      .catch(() => undefined);
-    mcpConnectionsDeleteConnection(this.storage, connection.id);
-    this.credentials.delete(connection.id);
-    unlinkConnection(this.storage, connection.id);
+    // Shares the key-replacement lock, so a new key never outlives its plugin.
+    const credential = await oneAtATime(this.lockKey(id), async () => {
+      const stored = await this.credentials
+        .read(connection.id, connection.url)
+        .catch(() => undefined);
+      mcpConnectionsDeleteConnection(this.storage, connection.id);
+      this.credentials.delete(connection.id);
+      unlinkConnection(this.storage, connection.id);
+      return stored;
+    });
     if (credential?.kind === "oauth")
       await revokeSession(
         credential.session,
@@ -453,7 +464,14 @@ export class McpConnectionService {
         return { result, provider };
       } catch (error) {
         if (error instanceof HttpError) throw error;
-        if (requiresConfiguredOAuthClient(provider.current, true))
+        if (
+          requiresConfiguredOAuthClient(provider.current, true) ||
+          (!(error instanceof McpFetchError) &&
+            registrationRejected(
+              provider.current,
+              error instanceof Error ? error : new Error("Registration failed"),
+            ))
+        )
           return { result: "client_required" as const, provider };
         throw new HttpError(
           502,
@@ -507,36 +525,18 @@ export class McpConnectionService {
     return { status: "authorize", startUrl: start.toString() };
   }
 
-  private async pendingByStart(startToken: string) {
-    const request = mcpConnectionsFindOAuthRequest(this.storage, {
-      startHash: await sha256(startToken),
-    });
-    if (!request || request.expires_at < Date.now() || request.binding_hash)
-      throw new HttpError(
-        410,
-        "plugin_sign_in_expired",
-        "This sign-in link has expired or was already used. Start again from Chief.",
-      );
-    return request;
-  }
-
   /** What the confirmation page shows before anything leaves Chief. */
   async describeStart(startToken: string) {
-    const request = await this.pendingByStart(startToken);
-    const connection = this.read(request.connection_id);
-    const workspace = workspaceFindAuthorize<{ name: string }>(this.storage)[0];
-    return {
-      pluginName: connection.name,
-      domain: new URL(connection.url).hostname,
-      logoDomain: connection.domain ?? new URL(connection.url).hostname,
-      signInHost: new URL(request.authorization_url).hostname,
-      workspaceName: workspace?.name ?? "your workspace",
-    };
+    const request = await this.agentAccess.pendingStart(startToken);
+    return this.agentAccess.describe(
+      this.read(request.connection_id),
+      request.authorization_url,
+    );
   }
 
   /** Confirms in the browser: binds the sign-in to it and reveals the provider URL. */
   async confirmStart(startToken: string) {
-    const request = await this.pendingByStart(startToken);
+    const request = await this.agentAccess.pendingStart(startToken);
     const binding = randomToken();
     const bound = mcpConnectionsUpdateOAuthBinding(
       this.storage,
@@ -567,6 +567,7 @@ export class McpConnectionService {
         "plugin_sign_in_expired",
         "This sign-in expired. Start again from Chief.",
       );
+    this.agentAccess.requireAdministrator(request.user_id);
     // Only the browser that confirmed can finish, or end, this sign-in.
     if (
       !request.binding_hash ||

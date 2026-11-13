@@ -31,17 +31,20 @@ function pluginToolName(
 
 export async function relayPluginTools(
   context: RelayCellContext,
-  assigned: readonly string[],
+  /** The assignment the cell started with, for a relay that doesn't say. */
+  startingAssignment: readonly string[],
 ) {
   const bindings = new Map<string, RelayPluginBinding>();
-  if (assigned.length === 0) return { definitions: [], bindings };
-  const connections = await context.client.plugins.list();
+  const listed = await context.client.plugins.list();
+  // The relay reports the agent's live assignment, so access granted while it
+  // runs takes effect on its next turn.
+  const connections = listed.filter(
+    (connection) =>
+      connection.assignedToYou ?? startingAssignment.includes(connection.id),
+  );
   const taken = new Set<string>();
   const definitions = connections
-    .filter(
-      (connection) =>
-        connection.status === "connected" && assigned.includes(connection.id),
-    )
+    .filter((connection) => connection.status === "connected")
     .flatMap((connection) =>
       connection.tools.map((tool) => {
         const name = pluginToolName(connection.id, tool.name, taken);

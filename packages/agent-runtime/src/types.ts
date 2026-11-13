@@ -47,6 +47,7 @@ import type {
 export type {
   AgentPluginSummary,
   AgentPluginTool,
+  AgentPluginToolInput,
   PluginAuthorizationAction,
 } from "@chief/plugin-api";
 
@@ -408,6 +409,7 @@ export type ServerMessage =
     }
   | {
       type: "plugins";
+      requestId?: string;
       workspaceId: string;
       plugins: AgentPluginSummary[];
       sources: {

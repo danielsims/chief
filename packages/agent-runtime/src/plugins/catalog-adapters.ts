@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url";
-
 import type { JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
@@ -22,49 +20,6 @@ const catalogCache = new Map<
   string,
   { entries: RemotePluginCatalogEntry[]; refreshedAt: number; warning?: string }
 >();
-
-const bundledGoogleWorkspace: RemotePluginCatalogEntry = {
-  id: "google-workspace",
-  name: "Google Workspace",
-  description:
-    "Connect Gmail and Google Drive through Google's remote MCP services.",
-  category: "Communication",
-  homepage: "https://workspace.google.com/",
-  featured: true,
-  popularity: 100_000,
-  source: {
-    type: "bundled",
-    path: fileURLToPath(
-      new URL("../plugins-bundled/google-workspace/", import.meta.url),
-    ),
-  },
-  catalogId: "chief-bundled",
-  domains: [
-    "workspace.google.com",
-    "gmail.googleapis.com",
-    "file.googleapis.com",
-  ],
-  keywords: ["Google Workspace", "Gmail", "Google Drive", "email", "files"],
-};
-
-const bundledGitHub: RemotePluginCatalogEntry = {
-  id: "github",
-  name: "GitHub",
-  description:
-    "Work with repositories, issues, pull requests, and code on GitHub.",
-  category: "Engineering",
-  homepage: "https://github.com/",
-  repository: "https://github.com/github/github-mcp-server",
-  featured: true,
-  popularity: 100_000,
-  source: {
-    type: "bundled",
-    path: fileURLToPath(new URL("../plugins-bundled/github/", import.meta.url)),
-  },
-  catalogId: "chief-bundled",
-  domains: ["github.com"],
-  keywords: ["GitHub", "Git", "repositories", "issues", "pull requests"],
-};
 
 function text(value: JsonValue | undefined) {
   return isJsonString(value) && value.trim() ? value.trim() : undefined;
@@ -233,7 +188,7 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
   if (remoteEntries.length === 0 && cached) {
     return { ...cached, warning: warnings.join("; ") };
   }
-  const entries = [bundledGoogleWorkspace, bundledGitHub, ...remoteEntries];
+  const entries = remoteEntries;
   const next = {
     entries: mergePluginCatalogEntries(entries),
     refreshedAt: Date.now(),

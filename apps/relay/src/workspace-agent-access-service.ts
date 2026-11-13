@@ -280,6 +280,14 @@ export class WorkspaceAgentAccessService {
     ) {
       requirePersonalAgentOwner(this.channels, agentId, context.principal);
     }
+    const currentIntegrations =
+      this.channels.agentConfiguration(agentId).integrations;
+    if (
+      currentIntegrations.length !== parsedConfig.integrations.length ||
+      currentIntegrations.some((id) => !parsedConfig.integrations.includes(id))
+    ) {
+      requirePersonalAgentOwner(this.channels, agentId, context.principal);
+    }
     const updatedAt = new Date().toISOString();
     agentConfigsInsertConfigSet(this.storage, {
       agentId: agentId,

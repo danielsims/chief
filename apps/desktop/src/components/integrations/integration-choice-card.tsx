@@ -17,6 +17,7 @@ export function IntegrationChoiceCard({
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={onClick}
       className={cn(
         "bg-background hover:border-foreground flex items-start gap-3 overflow-hidden rounded-xl border text-left transition-colors",

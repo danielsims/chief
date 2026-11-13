@@ -26,6 +26,7 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { PluginRuntimeState } from "../../lib/runtime-plugins";
+import { canManagePlugins } from "../../lib/auth/organization-role";
 import { pagePluginGroups } from "../../lib/plugin-pagination";
 import {
   comparePluginPresentation,
@@ -35,6 +36,7 @@ import {
   pluginDomain,
   pluginProviderKey,
 } from "../../lib/plugin-presentation";
+import { useWorkspaceRole } from "../../lib/workspace-role";
 import { ProviderLogo } from "../provider-logo";
 import { PluginAction } from "./plugin-action";
 import { usePluginConnectFlow } from "./plugin-connect-flow";
@@ -80,10 +82,18 @@ function groupPlugins(
   includeFeatured: boolean,
 ): PluginGroup[] {
   const groups = new Map<string, AgentPluginSummary[]>();
-  const featured = includeFeatured ? featuredPluginOptions(plugins) : [];
+  // The browsing view leads with what's already installed, then the rest.
+  const installed = includeFeatured
+    ? plugins.filter((plugin) => plugin.status !== "available")
+    : [];
+  if (installed.length > 0) groups.set("Installed", installed);
+  const browsable = includeFeatured
+    ? plugins.filter((plugin) => plugin.status === "available")
+    : plugins;
+  const featured = includeFeatured ? featuredPluginOptions(browsable) : [];
   const featuredProviders = new Set(featured.map(pluginProviderKey));
   if (featured.length > 0) groups.set("Featured", featured);
-  for (const plugin of plugins) {
+  for (const plugin of browsable) {
     if (featuredProviders.has(pluginProviderKey(plugin))) continue;
     const label = pluginCategoryLabel(plugin);
     groups.set(label, [...(groups.get(label) ?? []), plugin]);
@@ -119,6 +129,7 @@ const PluginSections = memo(function PluginSections({
   onAuthorize: (plugin: AgentPluginSummary) => void;
 }) {
   const [limit, setLimit] = useState(48);
+  const canManage = canManagePlugins(useWorkspaceRole());
   const sentinel = useRef<HTMLDivElement>(null);
   const total = grouped.reduce((sum, [, group]) => sum + group.length, 0);
   useEffect(() => {
@@ -173,6 +184,7 @@ const PluginSections = memo(function PluginSections({
                   <PluginAction
                     plugin={plugin}
                     busy={busyPluginId === plugin.id}
+                    canManage={canManage}
                     onInstall={() => onInstall(plugin)}
                     onAuthorize={() => onAuthorize(plugin)}
                   />
@@ -223,6 +235,7 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   const [type, setType] = useState<TypeFilter>("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const connect = usePluginConnectFlow(plugins);
+  const canManage = canManagePlugins(useWorkspaceRole());
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const matching = useMemo(() => {
     const matching = (plugins.plugins ?? []).filter((plugin) => {
@@ -369,10 +382,12 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
             >
               <RefreshCw size={14} />
             </Button>
-            <Button variant="outline" size="sm" onClick={connect.addServer}>
-              <Plus size={14} />
-              Add server
-            </Button>
+            {canManage ? (
+              <Button variant="outline" size="sm" onClick={connect.addServer}>
+                <Plus size={14} />
+                Add server
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

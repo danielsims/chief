@@ -83,9 +83,7 @@ function toCatalogPlugin(candidate: JsonValue): AgentPluginSummary[] {
   const name = catalogText(item.name);
   const description = catalogText(item.description);
   const domain = catalogText(item.domain);
-  // GitHub is a project provider, connected as a Git repository.
-  if (!id || !name || !description || !domain || domain === "github.com")
-    return [];
+  if (!id || !name || !description || !domain) return [];
   const categories = Array.isArray(item.categories)
     ? item.categories.filter((value): value is string => isJsonString(value))
     : [];

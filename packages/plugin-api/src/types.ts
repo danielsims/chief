@@ -47,6 +47,15 @@ export interface AgentPluginTool {
   description: string;
   /** Only tools the server marks read-only; everything else can change data. */
   readOnly: boolean;
+  /** The tool's arguments, required ones first. */
+  inputs?: AgentPluginToolInput[];
+}
+
+export interface AgentPluginToolInput {
+  name: string;
+  /** JSON Schema type, such as "string" or "number or string". */
+  type: string;
+  required: boolean;
 }
 
 export interface AgentPluginSummary extends AgentPluginCatalogEntry {
@@ -83,4 +92,11 @@ export type PluginAuthorizationAction =
       callbackUrl: string;
       setupUrl?: string;
       status: "client_configuration_required";
+    })
+  | (PluginAuthorizationActionBase & {
+      kind: "plugin_api_key";
+      /** What the provider calls the key, e.g. "API key". */
+      label: string;
+      docsUrl?: string;
+      status: "api_key_required";
     });
