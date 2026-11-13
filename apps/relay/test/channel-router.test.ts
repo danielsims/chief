@@ -129,14 +129,14 @@ describe("channel HTTP surface", () => {
     const first = await invoke();
     const duplicate = await invoke();
 
-    expect(first.status).toBe(202);
+    expect(first.status, await first.clone().text()).toBe(202);
     expect(await first.json()).toMatchObject({
       duplicate: false,
       job: {
         agentId: "chief",
         kind: "agent.invoke",
         payload: {
-          conversationId: "chief",
+          conversationId: expect.stringMatching(/^dm-/u),
           instruction: "Prepare a concise workspace update.",
         },
       },
@@ -218,7 +218,18 @@ async function setupWorkspace() {
       secrets: { opencode: "test-opencode-key" },
     }),
   );
-  return workspaceSnapshotSchema.parse(await created.json()).id;
+  const id = workspaceSnapshotSchema.parse(await created.json()).id;
+  const finished = await worker.fetch(
+    signedRequest(
+      `https://relay.test/v1/workspaces/${id}/setup/complete`,
+      "POST",
+      "{}",
+    ),
+    relay,
+    createExecutionContext(),
+  );
+  expect(finished.status, await finished.clone().text()).toBe(200);
+  return id;
 }
 
 function signedRequest(url: string, method: string, body?: string) {

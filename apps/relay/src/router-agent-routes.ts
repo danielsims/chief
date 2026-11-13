@@ -28,6 +28,7 @@ import { routeAgentAvatar } from "./router-agent-avatar";
 import {
   authorizeNativeAgent,
   deterministicUuid,
+  invokeConversationId,
   parseAgentId,
   parseWorkspaceId,
   routeOwnAgentProfile,
@@ -370,7 +371,12 @@ export async function routeAgentRequest(
     }
     if (agentResource && request.method === "POST") {
       const input = invokeAgentSchema.parse(await authenticated.request.json());
-      const conversationId = input.conversationId ?? agentId;
+      const conversationId = await invokeConversationId(
+        env,
+        principal,
+        agentId,
+        input,
+      );
       await authorizeConversation(env, {
         principal,
         requestId,
@@ -686,12 +692,7 @@ export async function routeAgentRequest(
   return undefined;
 }
 
-/**
- * The workspace Durable Object only knows principals that have joined the
- * relay workspace. Better Auth organization members exist as soon as they
- * accept an invitation, so merge them in for the owner's member list. The
- * Durable Object stays authoritative whenever a principal exists in both.
- */
+/** Merge organization members; the workspace owns existing principal records. */
 async function mergeOrganizationMembers(
   env: Env,
   workspaceId: WorkspaceId,

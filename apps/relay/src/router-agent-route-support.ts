@@ -1,12 +1,15 @@
 import { z } from "zod";
 
+import type { Principal } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   agentSummarySchema,
+  directStartResultSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "./auth";
+import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { authenticateRelayRequest } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
@@ -87,4 +90,44 @@ export async function deterministicUuid(value: string) {
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
+/** Agent invocations without a channel use the caller's actual private DM. */
+export async function invokeConversationId(
+  env: Env,
+  principal: Principal,
+  agentId: string,
+  input: { conversationId?: string },
+) {
+  if (input.conversationId) return input.conversationId;
+  const workspaceId = workspaceIdSchema.parse(principal.workspaceId);
+  const response = await env.WORKSPACES.get(
+    env.WORKSPACES.idFromName(workspaceId),
+  ).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal/directs", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "directs-start",
+        },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          protocolVersion: 1,
+          occurredAt: new Date().toISOString(),
+          payload: { participant: { kind: "agent", principalId: agentId } },
+        }),
+      }),
+      { principal, requestId: crypto.randomUUID(), workspaceId },
+    ),
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new HttpError(
+      response.status,
+      "agent_conversation_unavailable",
+      "Chief could not open this agent's conversation.",
+    );
+  }
+  return directStartResultSchema.parse(await response.json()).conversation.id;
 }
