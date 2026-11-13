@@ -10,6 +10,7 @@ export const setupDraftSchema = z.object({
     "profile",
     "workspace",
     "company",
+    "intro",
     "chief",
     "connect",
     "eve",

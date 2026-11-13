@@ -170,15 +170,6 @@ export function usePlugins() {
     return () => clearTimeout(timer);
   }, [error, refresh, state, status]);
 
-  // Leaving a screen stops waiting on its sign-ins, so nothing keeps polling
-  // or comes back still connecting.
-  const lifetime = useRef(new AbortController());
-  useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    return () => controller.abort();
-  }, []);
-
   const waitForPlugin = useCallback(
     (
       pluginId: string,
@@ -187,22 +178,12 @@ export function usePlugins() {
       requestId?: string,
     ) =>
       new Promise<AgentPluginSummary | undefined>((resolve, reject) => {
-        const signal = lifetime.current.signal;
         const timer = window.setTimeout(() => {
           unsubscribe();
           reject(
             new Error("Chief did not finish the plugin operation in time."),
           );
         }, timeoutMs);
-        signal.addEventListener(
-          "abort",
-          () => {
-            window.clearTimeout(timer);
-            unsubscribe();
-            reject(new Error("Sign-in was cancelled."));
-          },
-          { once: true },
-        );
         const unsubscribe = client.subscribe((message) => {
           // A plugin that signs in with a key isn't added until it has one,
           // so asking for the key finishes the request as it stands.
