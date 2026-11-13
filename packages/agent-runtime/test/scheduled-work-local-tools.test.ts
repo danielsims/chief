@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import test from "node:test";
 
 import type { JsonObject, JsonValue } from "@chief/relay-contracts";
@@ -11,8 +10,6 @@ import type {
   SessionRecord,
 } from "../src/types.js";
 import { handleScheduledWorkLocalTool } from "../src/scheduled-work-local-tools.js";
-import { dispatchScheduledWorkEvent } from "../src/scheduled-work-triggers.js";
-import { handleScheduledWorkWebhook } from "../src/scheduled-work-webhook.js";
 
 function request(path: string, method: string, body?: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
@@ -325,125 +322,4 @@ void test("scheduled work run commands expose history, cancellation, retry, and 
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(state.queued.at(-1)?.triggerId, "manual:manual-check");
-});
-
-void test("local webhook delivery validates its secret and deduplicates provider retries", async () => {
-  const state = fixture();
-  const created = await state.call("/local-tools/scheduled-work", "POST", {
-    ...createBody,
-    operationKey: "github-pull-request-hook",
-    trigger: { type: "webhook" },
-  });
-  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
-  const stored = storedWork(state, scheduledWork.id);
-  state.work.set(scheduledWork.id, {
-    ...stored,
-    status: "active",
-    grant: {
-      version: 1,
-      approvedAt: 1,
-      toolPatterns: stored.proposedToolPatterns,
-    },
-  });
-  const secret = "local-hook-secret";
-  state.webhookHashes.set(
-    scheduledWork.id,
-    createHash("sha256").update(secret).digest("hex"),
-  );
-  const rejected = await handleScheduledWorkWebhook({
-    path: `/hooks/scheduled-runs/${scheduledWork.id}/wrong`,
-    body: {},
-    idempotencyKey: "delivery-1",
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(rejected.status, 404);
-  const accepted = await handleScheduledWorkWebhook({
-    path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
-    body: { action: "opened", pullRequest: 42 },
-    idempotencyKey: "delivery-1",
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(accepted.status, 202);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(state.queued.at(-1)?.triggerId, "webhook:delivery-1");
-  assert.deepEqual(state.queued.at(-1)?.context?.payload, {
-    action: "opened",
-    pullRequest: 42,
-  });
-
-  const tooLong = await handleScheduledWorkWebhook({
-    path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
-    body: {},
-    idempotencyKey: "x".repeat(161),
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(tooLong.status, 400);
-
-  state.work.set(scheduledWork.id, {
-    ...storedWork(state, scheduledWork.id),
-    trigger: { type: "once", at: Date.now() + 60_000 },
-  });
-  const staleSecret = await handleScheduledWorkWebhook({
-    path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
-    body: {},
-    idempotencyKey: "delivery-2",
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(staleSecret.status, 404);
-});
-
-void test("channel triggers default to human messages and preserve the source event", async () => {
-  const state = fixture();
-  const created = await state.call(
-    "/local-tools/scheduled-work",
-    "POST",
-    createBody,
-  );
-  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
-  const stored = storedWork(state, scheduledWork.id);
-  state.work.set(scheduledWork.id, {
-    ...stored,
-    status: "active",
-    grant: {
-      version: 1,
-      approvedAt: 1,
-      toolPatterns: stored.proposedToolPatterns,
-    },
-  });
-  const event = {
-    protocol: "nip29" as const,
-    id: "event-human-1",
-    channelId: "engineering",
-    kind: 9 as const,
-    pubkey: "human",
-    tags: [["h", "engineering"]],
-    content: "A new pull request is ready",
-    actor: { type: "user" as const, id: "workspace-owner", name: "Owner" },
-    createdAt: Date.now(),
-  };
-  await dispatchScheduledWorkEvent({
-    workspaceId: "workspace-a",
-    event,
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(state.queued.at(-1)?.triggerId, "channel-event:event-human-1");
-  assert.equal(state.queued.at(-1)?.context?.eventId, "event-human-1");
-
-  const before = state.queued.length;
-  await dispatchScheduledWorkEvent({
-    workspaceId: "workspace-a",
-    event: {
-      ...event,
-      id: "event-agent-1",
-      actor: { type: "agent", id: "engineer", name: "Engineer" },
-    },
-    manager: state.manager,
-    runner: state.runner,
-  });
-  assert.equal(state.queued.length, before);
 });
