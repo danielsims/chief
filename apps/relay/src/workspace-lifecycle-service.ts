@@ -140,7 +140,8 @@ export class WorkspaceLifecycleService {
                 : input.localProvider === "codex"
                   ? ("codex" as const)
                   : ("opencode" as const),
-            model: "auto",
+            // The model chosen during setup; "auto" lets the app choose.
+            model: input.inferenceModel,
             secretRef: "opencode",
           }
         : workspaceInference(provision.workspace.inferenceProvider);
