@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, X } from "lucide-react";
 
+import type { LocalProviderProbe } from "../../lib/local-provider-probe";
 import type { WorkspaceSetup } from "./use-setup";
+import { probeLocalProvider } from "../../lib/local-provider-probe";
 import { SetupHeading } from "./elements";
 
 export type StageState = "pending" | "active" | "done" | "failed";
@@ -48,9 +50,29 @@ export function ProgressStages({
   );
 }
 
+type Joined =
+  { ok: true; workspaceId: string } | { ok: false; message: string };
+
+/** What went wrong with the agent app, in a sentence a person can act on. */
+function probeMessage(name: string, probe: LocalProviderProbe) {
+  if (probe.ok) return "";
+  if (probe.reason === "usage") {
+    const reset = /try again at ([^.]+)\./iu.exec(probe.detail)?.[1];
+    return reset
+      ? `${name} is out of usage until ${reset}. Choose another app, or try again then.`
+      : `${name} is out of usage right now. Choose another app, or try again later.`;
+  }
+  if (probe.reason === "signed_out")
+    return `${name} isn’t signed in on this computer. Sign in, then try again.`;
+  if (probe.reason === "missing")
+    return `${name} isn’t installed on this computer. Choose another app.`;
+  return `${name} didn’t answer. ${probe.detail}`.trim();
+}
+
 /**
- * Connects Chief to the chosen agent app, then confirms Chief is in the
- * workspace. Each stage is real work, shown for a moment so it can be read.
+ * Checks the agent app answers on this computer while Chief joins the
+ * workspace, then confirms Chief is in it. Both run at once so the wait is
+ * barely longer than the check; the bar creeps while it works.
  */
 export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const [stages, setStages] = useState<[StageState, StageState]>([
@@ -58,65 +80,97 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
     "pending",
   ]);
   const [progress, setProgress] = useState(6);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; app: boolean } | null>(
+    null,
+  );
   const [attempt, setAttempt] = useState(0);
-  // Each attempt runs exactly once, using the latest setup functions.
+  // Each attempt runs exactly once, using the latest setup values.
   const started = useRef(-1);
-  const actions = useRef({
-    prepareChief: s.prepareChief,
-    verifyChief: s.verifyChief,
-  });
+  const latest = useRef(s);
   useEffect(() => {
-    actions.current = {
-      prepareChief: s.prepareChief,
-      verifyChief: s.verifyChief,
-    };
+    latest.current = s;
   });
   useEffect(() => {
     if (started.current === attempt) return;
     started.current = attempt;
-    const fail = (stage: 0 | 1, message: string) => {
-      setStages(stage === 0 ? ["failed", "pending"] : ["done", "failed"]);
-      setError(message);
-    };
+    let creep: ReturnType<typeof setInterval> | undefined;
     const run = async () => {
+      const setup = latest.current;
+      const local = setup.draft.location === "device";
       setError(null);
       setStages(["active", "pending"]);
-      setProgress(24);
-      let workspaceId: string;
-      try {
-        [workspaceId] = await Promise.all([
-          actions.current.prepareChief(),
-          minimum(1100),
-        ]);
-      } catch (cause) {
-        fail(0, cause instanceof Error ? cause.message : String(cause));
+      setProgress(16);
+      creep = setInterval(
+        () => setProgress((value) => value + (58 - value) * 0.07),
+        250,
+      );
+      const check = async (): Promise<LocalProviderProbe> => {
+        if (!local) return { ok: true };
+        try {
+          return await probeLocalProvider(setup.draft.localProvider);
+        } catch (cause) {
+          return {
+            ok: false,
+            reason: "failed",
+            detail: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
+      };
+      const join = async (): Promise<Joined> => {
+        try {
+          return { ok: true, workspaceId: await setup.prepareChief() };
+        } catch (cause) {
+          return {
+            ok: false,
+            message: cause instanceof Error ? cause.message : String(cause),
+          };
+        }
+      };
+      const probe = check();
+      // Joining the workspace starts straight away, alongside the check.
+      const prepared = join();
+      const [checked] = await Promise.all([probe, minimum(700)]);
+      clearInterval(creep);
+      if (!checked.ok) {
+        setStages(["failed", "pending"]);
+        setError({
+          message: probeMessage(setup.providerName, checked),
+          app: true,
+        });
         return;
       }
       setStages(["done", "active"]);
-      setProgress(64);
+      setProgress(68);
+      const joined = await prepared;
       try {
+        if (!joined.ok) throw new Error(joined.message);
         await Promise.all([
-          actions.current.verifyChief(workspaceId),
-          minimum(800),
+          latest.current.verifyChief(joined.workspaceId),
+          minimum(500),
         ]);
       } catch (cause) {
-        fail(1, cause instanceof Error ? cause.message : String(cause));
+        setStages(["done", "failed"]);
+        setError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          app: false,
+        });
         return;
       }
       setStages(["done", "done"]);
       setProgress(100);
     };
     void run();
+    return () => clearInterval(creep);
   }, [attempt]);
   const done = stages[1] === "done";
   const failed = Boolean(error);
+  const retry = () => setAttempt((value) => value + 1);
   return (
     <>
       <SetupHeading title="Connecting Chief">
         <span role="status">
-          {failed
-            ? error
+          {error
+            ? error.message
             : done
               ? `Chief is connected to ${s.providerName}.`
               : `Connecting Chief to ${s.providerName}.`}
@@ -130,27 +184,40 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
           { label: "Connect Chief to your workspace", state: stages[1] },
         ]}
       />
-      {failed ? (
-        <button
-          className="ob-primary"
-          onClick={() => setAttempt((value) => value + 1)}
-        >
-          Try again
-        </button>
+      {error?.app ? (
+        <>
+          <button className="ob-primary" onClick={() => s.go("connect")}>
+            Choose another app
+          </button>
+          <button className="ob-back" onClick={retry}>
+            Try again
+          </button>
+        </>
+      ) : error ? (
+        <>
+          <button className="ob-primary" onClick={retry}>
+            Try again
+          </button>
+          <button className="ob-back" onClick={() => s.go("connect")}>
+            Back
+          </button>
+        </>
       ) : (
-        <button
-          className="ob-primary"
-          disabled={!done}
-          onClick={() => s.go("apps")}
-        >
-          {done ? "Continue" : "Waiting for connection"}
-        </button>
+        <>
+          <button
+            className="ob-primary"
+            disabled={!done}
+            onClick={() => s.go("apps")}
+          >
+            {done ? "Continue" : "Waiting for connection"}
+          </button>
+          {done ? (
+            <button className="ob-back" onClick={() => s.go("connect")}>
+              Back
+            </button>
+          ) : null}
+        </>
       )}
-      {done || failed ? (
-        <button className="ob-back" onClick={() => s.go("connect")}>
-          Back
-        </button>
-      ) : null}
     </>
   );
 }
