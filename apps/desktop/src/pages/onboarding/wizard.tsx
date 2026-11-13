@@ -27,6 +27,7 @@ import {
   InviteAgentsScreen,
   InviteTeamScreen,
   SuccessScreen,
+  WorkspaceLogo,
 } from "./social-screens";
 import { useWorkspaceSetup } from "./use-setup";
 
@@ -111,6 +112,12 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     <div className="ob-shell">
       <div data-tauri-drag-region className="ob-drag" />
       <WorkspaceSetupChrome onExit={onCancel} />
+      {/* Loads the workspace logo before You're in, so it shows at once. */}
+      {s.profile && ["team", "invite", "approve"].includes(s.draft.step) ? (
+        <div className="sr-only" aria-hidden="true">
+          <WorkspaceLogo setup={s} />
+        </div>
+      ) : null}
       <PluginStepScope setup={s}>
         <div className="ob-scroll" ref={main}>
           <motion.div

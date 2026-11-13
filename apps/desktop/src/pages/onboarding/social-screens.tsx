@@ -331,6 +331,23 @@ export function ApproveAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
     </>
   );
 }
+/** The workspace's tile on You're in; also preloaded off screen earlier. */
+export function WorkspaceLogo({ setup: s }: { setup: WorkspaceSetup }) {
+  return (
+    <OrgLogo
+      name={
+        s.draft.purpose === "personal"
+          ? (s.auth.user?.name ?? s.draft.name)
+          : s.draft.name
+      }
+      website={s.draft.purpose === "company" ? s.draft.website : undefined}
+      className="ob-workspace-avatar"
+      transparentWhenLoaded
+      logo={s.snapshot?.imageURL}
+    />
+  );
+}
+
 export function SuccessScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
@@ -338,17 +355,7 @@ export function SuccessScreen({ setup: s }: { setup: WorkspaceSetup }) {
         Your workspace is ready. Make yourself at home.
       </SetupHeading>
       <div className="ob-workspace-summary">
-        <OrgLogo
-          name={
-            s.draft.purpose === "personal"
-              ? (s.auth.user?.name ?? s.draft.name)
-              : s.draft.name
-          }
-          website={s.draft.purpose === "company" ? s.draft.website : undefined}
-          className="ob-workspace-avatar"
-          transparentWhenLoaded
-          logo={s.snapshot?.imageURL}
-        />
+        <WorkspaceLogo setup={s} />
         <div>
           <strong>{s.draft.name}</strong>
           <div
