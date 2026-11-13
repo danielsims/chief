@@ -51,6 +51,10 @@ export function SetupPluginScope({
   );
 }
 
+/** Matches .ob-app-list's height and one row, for loading placeholders. */
+const APP_LIST_HEIGHT = 326;
+const ROW_HEIGHT = 66;
+
 /** Connectors only, one per provider, like the Plugins page lists them. */
 function connectors(plugins: readonly AgentPluginSummary[] | undefined) {
   const seen = new Set<string>();
@@ -125,10 +129,12 @@ function PluginRow({
   );
 }
 
-function Loading({ label }: { label: string }) {
+/** Holds the height of what it stands in for, so the centred screen never jumps. */
+function Loading({ label, height }: { label: string; height: number }) {
   return (
     <div
-      className="flex min-h-40 items-center justify-center"
+      className="flex items-center justify-center"
+      style={{ height }}
       role="status"
       aria-label={label}
     >
@@ -190,7 +196,7 @@ export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
           </button>
         </p>
       ) : !plugins.plugins ? (
-        <Loading label="Loading apps" />
+        <Loading label="Loading apps" height={APP_LIST_HEIGHT} />
       ) : (
         <div className="ob-app-list flex flex-col gap-1.5" aria-label="Apps">
           {shown.map((plugin) => (
@@ -229,6 +235,22 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
     );
   }, [plugins.plugins, s.draft.selectedApps]);
   const connected = rows.filter((plugin) => plugin.status === "connected");
+  const [saving, setSaving] = useState(false);
+  // Apps picked but not signed in to are still added, so they wait under
+  // Installed in Plugins with their Install button for later.
+  const next = async () => {
+    setSaving(true);
+    try {
+      await Promise.allSettled(
+        rows
+          .filter((plugin) => plugin.status === "available")
+          .map((plugin) => plugins.install(plugin.id, true)),
+      );
+    } finally {
+      setSaving(false);
+    }
+    s.go("team");
+  };
   return (
     <>
       <SetupHeading title="Connect your apps">
@@ -242,7 +264,13 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
           </button>
         </p>
       ) : !plugins.plugins ? (
-        <Loading label="Loading app connections" />
+        <Loading
+          label="Loading app connections"
+          height={Math.min(
+            APP_LIST_HEIGHT,
+            s.draft.selectedApps.length * ROW_HEIGHT,
+          )}
+        />
       ) : (
         <div className="ob-app-list flex flex-col gap-1.5">
           {rows.map((plugin) => (
@@ -275,10 +303,19 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       )}
       <button
         className="ob-primary"
-        disabled={Boolean(plugins.busyPluginId)}
-        onClick={() => s.go("team")}
+        disabled={saving || Boolean(plugins.busyPluginId)}
+        onClick={() => void next()}
       >
-        {connected.length ? "Continue" : "Skip for now"}
+        {saving ? (
+          <>
+            <LoaderCircle size={15} className="animate-spin" />
+            Saving your apps
+          </>
+        ) : connected.length === rows.length ? (
+          "Continue"
+        ) : (
+          "Connect later"
+        )}
       </button>
       {connect.dialogs}
     </>
