@@ -218,13 +218,14 @@ export function toChannelMessageEvent(
         };
   // A relay notice that someone was added is that person's action, so the event
   // carries them and the targets, matching the history projection.
-  const added = message.components
+  const action = message.components
     .map(channelActionFromComponent)
-    .find((action) => action?.type === "member-added");
+    .find((candidate) => candidate !== undefined);
+  const added = action?.type === "member-added" ? action : undefined;
   const scheduledRun = scheduledRunOf(message);
   const actor =
-    added?.actorId && added.actorType
-      ? { type: added.actorType, id: added.actorId, name: added.actorName }
+    action?.actorId && action.actorType
+      ? { type: action.actorType, id: action.actorId, name: action.actorName }
       : author;
   return {
     protocol: "nip29",

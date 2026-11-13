@@ -1,4 +1,9 @@
-import type { JsonValue, Principal } from "@chief/relay-contracts";
+import type {
+  AppendMessageCommand,
+  JsonValue,
+  Principal,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   channelActionResultSchema,
@@ -19,6 +24,7 @@ import type {
   ChannelMemberRow,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { deterministicUuid } from "./external-agent-channel-security";
 import { HttpError, json, parseJson } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
@@ -308,6 +314,52 @@ export class WorkspaceChannelMembership {
         ],
       },
     });
+    await this.appendRelayMessage(parsedWorkspaceId, conversationId, append);
+  }
+
+  /** Tells a channel that a person joined it, once per person and channel. */
+  async publishMemberJoinedEvent(
+    workspaceId: string,
+    conversationId: string,
+    member: { userId: string; name: string; occurredAt: string },
+  ) {
+    const parsedWorkspaceId = workspaceIdSchema.parse(workspaceId);
+    const commandId = await deterministicUuid(
+      `${parsedWorkspaceId}:${conversationId}:joined:${member.userId}`,
+    );
+    const actorName = member.name.trim().slice(0, 80) || "A new member";
+    const append = appendMessageCommandSchema.parse({
+      commandId,
+      protocolVersion: 1,
+      occurredAt: member.occurredAt,
+      payload: {
+        messageId: commandId,
+        conversationId,
+        body: `${actorName} joined the channel.`,
+        mentions: [],
+        components: [
+          {
+            id: `joined-${commandId}`,
+            kind: "channel-action",
+            version: 1,
+            payload: {
+              type: "member-joined",
+              actorId: member.userId,
+              actorName,
+            },
+          },
+        ],
+      },
+    });
+    await this.appendRelayMessage(parsedWorkspaceId, conversationId, append);
+  }
+
+  private async appendRelayMessage(
+    parsedWorkspaceId: WorkspaceId,
+    conversationId: string,
+    append: AppendMessageCommand,
+  ) {
+    const { commandId } = append;
     const relayPrincipal = {
       kind: "service" as const,
       service: "relay",

@@ -12,9 +12,7 @@ import {
 import type { WorkspaceRow } from "./workspace-channel-store";
 import { HttpError, json, parseJson } from "./http";
 import { channelMembersInsertClaim } from "./queries/channel-members/insert-claim";
-import { channelMembersInsertJoinOrganizationMember } from "./queries/channel-members/insert-join-organization-member";
 import { channelsFindCreateChannel } from "./queries/channels/find-create-channel";
-import { channelsFindJoinOrganizationMember } from "./queries/channels/find-join-organization-member";
 import { membersInsertClaim } from "./queries/members/insert-claim";
 import { workspaceInviteClaimsFindClaim } from "./queries/workspace-invite-claims/find-claim";
 import { workspaceInviteClaimsInsertClaim } from "./queries/workspace-invite-claims/insert-claim";
@@ -25,8 +23,13 @@ import { workspaceInvitesInsertCreate } from "./queries/workspace-invites/insert
 import { workspaceInvitesUpdateClaim } from "./queries/workspace-invites/update-claim";
 import { workspaceInvitesUpdateRevoke } from "./queries/workspace-invites/update-revoke";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
+import { WorkspaceChannelMembership } from "./workspace-channel-membership";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import {
+  memberDisplayNames,
+  refreshMemberDisplayNames,
+} from "./workspace-member-names";
 import { ensureWelcomeChannel } from "./workspace-welcome";
 
 interface InviteRow extends Record<string, SqlStorageValue> {
@@ -199,6 +202,7 @@ export class WorkspaceInvitationService {
       await parseJson(request),
     );
     const invite = await this.lookupAvailableInvite(input.secret);
+    this.requireSetupFinished();
     return json(this.describeInvite(invite));
   }
 
@@ -225,30 +229,32 @@ export class WorkspaceInvitationService {
     const alreadyMember = this.channels.memberRole("user", userId) !== null;
     if (!existingClaim) {
       this.requireInviteAvailable(invite);
+      if (!alreadyMember) this.requireSetupFinished();
       const now = new Date().toISOString();
       const workspaceId = this.workspaceSnapshot().id;
-      this.storage.transactionSync(() => {
+      // Newcomers land in #general; anyone gets the channel the invite names.
+      const channels = [
+        ...new Set([
+          ...(alreadyMember ? [] : ["general"]),
+          ...(invite.conversation_id ? [invite.conversation_id] : []),
+        ]),
+      ];
+      const joined = this.storage.transactionSync(() => {
         membersInsertClaim(this.storage, userId, now);
         // Everyone who joins gets their own private Welcome with Chief.
         ensureWelcomeChannel(this.storage, { workspaceId, userId, now });
-        const conversationId = invite.conversation_id ?? "general";
-        const channel = firstRow<{ conversation_id: string }>(
-          channelsFindCreateChannel(this.storage, conversationId),
+        const added = channels.filter((conversationId) =>
+          this.joinChannel(conversationId, userId, now),
         );
-        if (channel) {
-          channelMembersInsertClaim(this.storage, {
-            conversationId: conversationId,
-            principalId: userId,
-            joinedAt: now,
-          });
-        }
         workspaceInviteClaimsInsertClaim(this.storage, {
           inviteId: invite.invite_id,
           userId: userId,
           claimedAt: now,
         });
         workspaceInvitesUpdateClaim(this.storage, invite.invite_id);
+        return added;
       });
+      await this.announceJoin(workspaceId, userId, joined, now);
     }
     return json(
       workspaceInviteClaimResultSchema.parse({
@@ -258,7 +264,7 @@ export class WorkspaceInvitationService {
     );
   }
 
-  joinOrganizationMember(identity: AuthenticatedIdentity) {
+  async joinOrganizationMember(identity: AuthenticatedIdentity) {
     if (identity.kind !== "user") {
       throw new HttpError(
         403,
@@ -266,32 +272,73 @@ export class WorkspaceInvitationService {
         "A signed-in user is required to join a workspace.",
       );
     }
-    const now = new Date().toISOString();
-    const workspaceId = this.workspaceSnapshot().id;
-    this.storage.transactionSync(() => {
-      membersInsertClaim(this.storage, identity.userId, now);
-      ensureWelcomeChannel(this.storage, {
-        workspaceId,
-        userId: identity.userId,
-        now,
-      });
-      const general = firstRow<{ conversation_id: string }>(
-        channelsFindJoinOrganizationMember(this.storage),
-      );
-      if (general) {
-        channelMembersInsertJoinOrganizationMember(
-          this.storage,
-          identity.userId,
+    // Opening a workspace you're already in changes nothing.
+    if (this.channels.memberRole("user", identity.userId) === null) {
+      this.requireSetupFinished();
+      const now = new Date().toISOString();
+      const workspaceId = this.workspaceSnapshot().id;
+      const joined = this.storage.transactionSync(() => {
+        membersInsertClaim(this.storage, identity.userId, now);
+        ensureWelcomeChannel(this.storage, {
+          workspaceId,
+          userId: identity.userId,
           now,
-        );
-      }
-    });
+        });
+        return this.joinChannel("general", identity.userId, now)
+          ? ["general"]
+          : [];
+      });
+      await this.announceJoin(workspaceId, identity.userId, joined, now);
+    }
     const snapshot = this.workspaceSnapshot();
     return json({
       workspaceId: snapshot.id,
       workspaceName: snapshot.name,
       website: snapshot.website,
     });
+  }
+
+  /** Adds a person to a channel; true only when they weren't in it before. */
+  private joinChannel(conversationId: string, userId: string, now: string) {
+    if (!firstRow(channelsFindCreateChannel(this.storage, conversationId)))
+      return false;
+    if (this.channels.channelMembership(conversationId, "user", userId))
+      return false;
+    channelMembersInsertClaim(this.storage, {
+      conversationId,
+      principalId: userId,
+      joinedAt: now,
+    });
+    return true;
+  }
+
+  /**
+   * Posts "Name joined the channel" where a person just arrived. The join has
+   * already happened, so a notice that fails to post is logged, not thrown.
+   */
+  private async announceJoin(
+    workspaceId: string,
+    userId: string,
+    conversationIds: readonly string[],
+    now: string,
+  ) {
+    if (conversationIds.length === 0) return;
+    await refreshMemberDisplayNames(this.storage, this.channels.env);
+    const name = memberDisplayNames(this.storage).get(`user:${userId}`) ?? "";
+    const membership = new WorkspaceChannelMembership(this.channels);
+    for (const conversationId of conversationIds) {
+      await membership
+        .publishMemberJoinedEvent(workspaceId, conversationId, {
+          userId,
+          name,
+          occurredAt: now,
+        })
+        .catch((error: unknown) => {
+          console.error("relay.invitations.join_notice_failed", {
+            reason: error instanceof Error ? error.message : "unknown",
+          });
+        });
+    }
   }
 
   private async lookupAvailableInvite(secret: string) {
@@ -335,6 +382,17 @@ export class WorkspaceInvitationService {
         410,
         "workspace_invite_consumed",
         "This workspace invite has already been used.",
+      );
+    }
+  }
+
+  /** Nobody joins until the owner has finished setting the workspace up. */
+  private requireSetupFinished() {
+    if (this.workspaceSnapshot().setupComplete === false) {
+      throw new HttpError(
+        409,
+        "workspace_unavailable",
+        "This workspace isn’t available yet. Contact the workspace owner.",
       );
     }
   }
