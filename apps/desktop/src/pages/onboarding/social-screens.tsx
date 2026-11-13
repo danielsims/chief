@@ -7,7 +7,10 @@ import { AgentJoinRequestRow } from "../../components/agents/owned-agents-panel"
 import { ChiefMark } from "../../components/chief-mark";
 import { IntegrationChoiceCard } from "../../components/integrations/integration-choice-card";
 import { OrgLogo } from "../../components/org-logo";
-import { agentName } from "../../lib/owned-agent-presentation";
+import {
+  agentName,
+  workspaceAgentHandle,
+} from "../../lib/owned-agent-presentation";
 import { workspaceOnboardingApps } from "../workspace-create-options";
 import { IdentityTile, ProviderIcon, SetupHeading } from "./elements";
 import { setupPrompt } from "./model";
@@ -254,10 +257,14 @@ export function InviteAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       <button
         className="ob-primary"
         onClick={() =>
-          s.go(s.agents.length || s.requests.length ? "approve" : "success")
+          s.go(
+            s.agents.length || s.joined.length || s.requests.length
+              ? "approve"
+              : "success",
+          )
         }
       >
-        {s.agents.length || s.requests.length
+        {s.agents.length || s.joined.length || s.requests.length
           ? "Review agents"
           : "Skip for now"}
       </button>
@@ -265,6 +272,8 @@ export function InviteAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
   );
 }
 export function ApproveAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
+  const joined = s.joined;
+  const empty = !s.agents.length && !s.requests.length && !joined.length;
   return (
     <>
       <SetupHeading title="Approve your agents">
@@ -274,31 +283,44 @@ export function ApproveAgentsScreen({ setup: s }: { setup: WorkspaceSetup }) {
         <span>Your agents</span>
         <CopyPrompt setup={s} compact />
       </div>
-      <div className="ob-people-list">
-        {s.requests.map((a) => (
-          <AgentJoinRequestRow
-            key={a.id}
-            request={a}
-            busy={s.busy}
-            onDecide={(approve, name) => void s.decide(a.id, approve, name)}
-          />
-        ))}
-        {s.agents.map((a) => (
-          <div key={a.id} className="ob-person">
-            <IdentityTile provider={a.provider} name={a.name} />
-            <span className="ob-row-text">
-              <strong>{agentName(a.provider, a.name)}</strong>
-              <code>{a.handle}</code>
-            </span>
-            <span className="ob-connected">Connected</span>
-          </div>
-        ))}
-        {!s.agents.length && !s.requests.length ? (
-          <p className="ob-empty">
-            No requests yet. Copy the setup prompt to invite an agent.
-          </p>
-        ) : null}
-      </div>
+      {empty ? (
+        <p className="ob-empty">
+          No requests yet. Copy the setup prompt to invite an agent.
+        </p>
+      ) : (
+        <div className="ob-people-list">
+          {s.requests.map((a) => (
+            <AgentJoinRequestRow
+              key={a.id}
+              request={a}
+              busy={s.busy}
+              onDecide={(approve, name) => void s.decide(a.id, approve, name)}
+            />
+          ))}
+          {s.agents.map((a) => (
+            <div key={a.id} className="ob-person">
+              <IdentityTile provider={a.provider} name={a.name} />
+              <span className="ob-row-text">
+                <strong>{agentName(a.provider, a.name)}</strong>
+                <code>{a.handle}</code>
+              </span>
+              <span className="ob-connected">Connected</span>
+            </div>
+          ))}
+          {joined.map((a) => (
+            <div key={a.id} className="ob-person">
+              <IdentityTile provider={a.provider ?? "other"} name={a.name} />
+              <span className="ob-row-text">
+                <strong>{a.name}</strong>
+                <code>
+                  {workspaceAgentHandle(s.profile?.username ?? null, a.id)}
+                </code>
+              </span>
+              <span className="ob-connected">Joined</span>
+            </div>
+          ))}
+        </div>
+      )}
       <p className="ob-hint">
         Approval gives access to #general. You can change access or disconnect
         agents later.
@@ -331,6 +353,7 @@ export function WorkspaceLogo({ setup: s }: { setup: WorkspaceSetup }) {
 }
 
 export function SuccessScreen({ setup: s }: { setup: WorkspaceSetup }) {
+  const joined = s.joined;
   return (
     <>
       <SetupHeading title="You’re in.">
@@ -354,6 +377,14 @@ export function SuccessScreen({ setup: s }: { setup: WorkspaceSetup }) {
                 stackOrder={28 - index}
                 provider={a.provider}
                 name={agentName(a.provider, a.name)}
+              />
+            ))}
+            {joined.map((a, index) => (
+              <IdentityTile
+                key={a.id}
+                stackOrder={28 - s.agents.length - index}
+                provider={a.provider ?? "other"}
+                name={a.name}
               />
             ))}
           </div>
