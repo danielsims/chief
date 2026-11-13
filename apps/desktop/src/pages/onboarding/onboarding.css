@@ -404,7 +404,6 @@
   place-items: center;
 }
 .ob-places-half > svg {
-  width: 112px;
   height: auto;
   filter: drop-shadow(0 6px 18px #00000059);
 }
@@ -681,12 +680,12 @@
 .ob-workspace-avatar {
   width: 58px !important;
   height: 58px !important;
-  border-radius: 15px !important;
+  border-radius: 17px !important;
   background: #b57353 url("/splash-sky.webp") 0% 45%/700px auto !important;
   color: white;
   border: 0 !important;
   isolation: isolate;
-  clip-path: inset(0 round 15px);
+  clip-path: inset(0 round 17px);
 }
 .ob-workspace-avatar > img {
   border-radius: inherit;
