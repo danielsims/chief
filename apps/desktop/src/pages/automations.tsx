@@ -48,30 +48,6 @@ export function AutomationsPage() {
 
   return (
     <div className="flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <PageHeader
-        title="Automations"
-        description="Work your agents do on a schedule or when something happens."
-        actions={
-          <>
-            <Button
-              variant={calendarOpen ? "secondary" : "outline"}
-              size="sm"
-              aria-pressed={calendarOpen}
-              onClick={() => setCalendarOpen((open) => !open)}
-            >
-              <CalendarDays size={13} />
-              {calendarOpen ? "Hide calendar" : "Calendar"}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void navigate("/schedule/automations/new")}
-            >
-              <Plus size={14} />
-              New automation
-            </Button>
-          </>
-        }
-      />
       <main className="relative flex min-h-0 flex-1 flex-col gap-2 min-[901px]:flex-row">
         <section
           className={cn(
@@ -79,6 +55,30 @@ export function AutomationsPage() {
             "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
           )}
         >
+          <PageHeader
+            title="Automations"
+            description="Work your agents do on a schedule or when something happens."
+            actions={
+              <>
+                <Button
+                  variant={calendarOpen ? "secondary" : "outline"}
+                  size="sm"
+                  aria-pressed={calendarOpen}
+                  onClick={() => setCalendarOpen((open) => !open)}
+                >
+                  <CalendarDays size={13} />
+                  {calendarOpen ? "Hide calendar" : "Calendar"}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => void navigate("/schedule/automations/new")}
+                >
+                  <Plus size={14} />
+                  New automation
+                </Button>
+              </>
+            }
+          />
           <div
             className={cn(
               "flex min-h-0 flex-1 flex-col overflow-y-auto px-6",
