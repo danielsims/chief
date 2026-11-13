@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -19,7 +18,7 @@ import type {
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
 
 import type { RuntimeBrowserSession } from "./browser-sessions";
-import type { RuntimeContextValue, RuntimeStatus } from "./runtime-context";
+import type { RuntimeStatus } from "./runtime-context";
 import { removeAgentFromRoster } from "./agent-roster-state";
 import {
   anchorBrowserRun as anchorRuntimeBrowserRun,
@@ -38,6 +37,7 @@ import {
 import { navigateApp, notifySystem } from "./notifications";
 import { useRelayRuntimeTransport } from "./relay-runtime-transport";
 import { useRelaySession } from "./relay-session";
+import { RuntimeContext } from "./runtime-context";
 import { useWorkspaceCapability } from "./workspace-capability";
 
 /** Durable NIP-29 events for channel timelines and message search. */
@@ -49,8 +49,6 @@ const EMPTY_SETUP_PROGRESS: Readonly<Record<string, IntegrationSetupProgress>> =
 export type { RuntimeStatus } from "./runtime-context";
 
 const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
-
-const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeCoreProvider({
   children,
