@@ -65,7 +65,6 @@ import type {
   RelayTypingEvent,
   RelayWorkspaceSubscription,
 } from "./relay-workspace-subscription";
-import { RelayChannelGuestsClient } from "./relay-channel-guests-client";
 import { RelayChannelSettingsClient } from "./relay-channel-settings-client";
 import { RelayClientError } from "./relay-client-error";
 import { RelayDatabasesClient } from "./relay-databases-client";
@@ -88,7 +87,6 @@ export type { RelayTypingEvent };
 export class RelayClient extends RelayVercelProvisioning {
   readonly databases: RelayDatabasesClient;
   readonly externalAgents: RelayExternalAgentsClient;
-  readonly channelGuests: RelayChannelGuestsClient;
   readonly channelSettings: RelayChannelSettingsClient;
   readonly github: RelayGitHubClient;
   readonly plugins: RelayPluginsClient;
@@ -112,7 +110,6 @@ export class RelayClient extends RelayVercelProvisioning {
     super(options);
     this.databases = new RelayDatabasesClient(options);
     this.externalAgents = new RelayExternalAgentsClient(options);
-    this.channelGuests = new RelayChannelGuestsClient(options);
     this.channelSettings = new RelayChannelSettingsClient(options);
     this.github = new RelayGitHubClient(options);
     this.plugins = new RelayPluginsClient(options);

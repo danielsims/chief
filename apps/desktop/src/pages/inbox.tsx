@@ -9,7 +9,6 @@ import type { ChannelInboxMessage } from "../lib/channel-inbox";
 import { AgentAvatar } from "../components/agent-avatar";
 import { AttentionPill } from "../components/attention-pill";
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
-import { GuestAvatar } from "../components/guest-avatar";
 import { PageHeader } from "../components/page-header";
 import { useAuth } from "../lib/auth/auth-context";
 import { channelIdsNeedingUser } from "../lib/channel-action-items";
@@ -64,14 +63,6 @@ function ActorAvatar({
   actor: ChannelInboxMessage["actor"];
   className?: string;
 }) {
-  if (actor.type === "guest") {
-    return (
-      <GuestAvatar
-        className={cn("size-8", className)}
-        guest={actor.guest ?? { name: actor.name, image: actor.image }}
-      />
-    );
-  }
   return <AgentAvatar className={className} label={actor.name} />;
 }
 

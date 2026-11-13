@@ -54,13 +54,11 @@ export function channelActionFromEvent(
 ): ChiefMessageMetadata["channelAction"] | undefined {
   if (event.kind !== 9) return undefined;
   if (
-    event.actor.type === "guest" &&
     event.tags.some((tag) => tag[0] === "action" && tag[1] === "member-joined")
   ) {
     return {
       type: "member-joined",
       actorName: event.actor.name,
-      ...(event.actor.guest ? { actorGuest: event.actor.guest } : undefined),
       agentIds: [],
     };
   }
@@ -73,9 +71,7 @@ export function channelActionFromEvent(
     type: "member-added",
     actorName: event.actor.name,
     actorId: event.actor.id,
-    ...(event.actor.type === "guest"
-      ? undefined
-      : { actorType: event.actor.type }),
+    actorType: event.actor.type,
     agentIds: event.tags.flatMap((tag) =>
       tag[0] === "agent" && tag[1] ? [tag[1]] : [],
     ),

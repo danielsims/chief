@@ -404,15 +404,10 @@ export function ChiefChatAuxiliaryPanels({
                       <div id={`chief-message-${message.id}`}>
                         <UserMessage
                           author={authorFor(message)}
-                          {...(message.metadata?.guest
-                            ? { guest: message.metadata.guest }
-                            : undefined)}
                           attachments={imageParts(message)}
                           channelReferences={channelReferences}
                           onOpenChannel={onOpenChannel}
-                          {...(message.metadata?.guest
-                            ? undefined
-                            : { onOpenProfile: openAuthorProfile(message) })}
+                          onOpenProfile={openAuthorProfile(message)}
                           onOpenMention={openAgentMention}
                           {...controlsForMessage(message)}
                           text={messageText(message)}

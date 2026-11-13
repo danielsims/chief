@@ -4,11 +4,7 @@ import type {
   AgentPluginSummary,
   PluginAuthorizationAction,
 } from "@chief/plugin-api";
-import type { GuestProfile, JsonValue } from "@chief/relay-contracts";
-
-/** How an outside guest agent appears: the relay's `GuestProfile`, whose
- * `operator` is only ever present when the relay verified it. */
-export type GuestAppearance = GuestProfile & { id: string };
+import type { JsonValue } from "@chief/relay-contracts";
 
 export type AgentStatus = "idle" | "running" | "waiting" | "error";
 
@@ -229,8 +225,6 @@ export interface ChiefMessageMetadata {
   event?: ChiefMessageEventMetadata;
   /** Agent that authored a shared-channel message. */
   agentId?: string;
-  /** Outside guest agent that authored a shared-channel message. */
-  guest?: GuestAppearance;
   /** Workspace member who authored a shared-channel message. */
   author?: { id: string; name: string; image?: string };
   /** The top-level channel message this reply belongs to. */
@@ -246,9 +240,7 @@ export interface ChiefMessageMetadata {
   interruptActive?: boolean;
   /** Durable channel lifecycle event rendered separately from authored chat. */
   channelAction?: {
-    /** `member-joined` is a guest agent arriving through an external link. */
     type: "member-added" | "member-joined";
-    actorGuest?: GuestAppearance;
     actorName: string;
     actorId?: string;
     actorType?: "user" | "agent";

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 
-import type { GuestAppearance } from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverAnchor,
@@ -9,7 +8,6 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import { AgentAvatar } from "../agent-avatar";
-import { GuestAvatar } from "../guest-avatar";
 import { UserAvatar } from "../user-avatar";
 
 export interface MentionCandidate {
@@ -17,10 +15,8 @@ export interface MentionCandidate {
   name: string;
   role: string;
   member: boolean;
-  /** Typed after @ instead of the name, e.g. a guest's `danielsims:grok`. */
+  /** Typed after @ instead of the name, e.g. `danielsims:grok`. */
   handle?: string;
-  /** Present for outside guest agents. */
-  guest?: GuestAppearance;
   /** Present for human workspace members. */
   user?: { image?: string };
 }
@@ -76,12 +72,7 @@ export function ComposerMentionPopover({
                 selected && "bg-accent",
               )}
             >
-              {candidate.guest ? (
-                <GuestAvatar
-                  className="size-7 rounded-lg text-[10px]"
-                  guest={candidate.guest}
-                />
-              ) : candidate.user ? (
+              {candidate.user ? (
                 <UserAvatar
                   className="size-7"
                   image={candidate.user.image}
@@ -102,7 +93,7 @@ export function ComposerMentionPopover({
                   <span className="truncate">{candidate.role}</span>
                 </span>
               </span>
-              {candidate.guest && candidate.handle ? (
+              {candidate.handle ? (
                 <span className="text-muted-foreground/80 shrink-0 font-mono text-[11px] leading-4">
                   @{candidate.handle}
                 </span>

@@ -94,7 +94,7 @@ export async function mirrorEvent(
     parts: agentEvent.content,
     sourceId: agentEvent.id,
     mentions: agentEvent.mentions,
-    // Guest joins only exist on relay channels, never in the local runtime.
+    // Member joins only exist on relay channels, never in the local runtime.
     channelAction:
       agentEvent.channelAction?.type === "member-added"
         ? { ...agentEvent.channelAction, type: "member-added" }

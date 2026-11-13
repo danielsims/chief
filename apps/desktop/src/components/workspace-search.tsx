@@ -404,9 +404,7 @@ export function WorkspaceSearch() {
                   ? (runtimeAgents.find(
                       (agent) => agent.id === message.author.id,
                     )?.name ?? "Agent")
-                  : message.author.kind === "guest"
-                    ? message.author.name
-                    : "Chief";
+                  : "Chief";
             const where =
               channel.visibility === "direct"
                 ? channel.name
