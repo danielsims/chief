@@ -4,9 +4,11 @@
 # come through here.
 #
 # An unsigned debug build looks like a new app to macOS after every rebuild,
-# so each Keychain item asks for the password again. Signing it with this
-# Mac's Apple Development certificate keeps one identity across rebuilds, so
-# "Always Allow" sticks. It also runs as "Chief Dev", the name the Dock shows.
+# so each Keychain item asks for the password again. Prefer the release Mac's
+# Developer ID certificate and code-signing identifier so the dev and release
+# apps share one Keychain identity. Otherwise, use an Apple Development
+# certificate for a stable identity across dev rebuilds. The app still runs as
+# "Chief Dev", the name the Dock shows.
 set -euo pipefail
 
 binary="$1"
@@ -44,12 +46,22 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 PLIST
 cp "$(dirname "$0")/../icons/dev-icon.icns" "$bundle/Contents/Resources/dev-icon.icns"
 
-identity="${CHIEF_DEV_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Apple Development/ { print $2; exit }')}"
+identity="${CHIEF_DEV_SIGNING_IDENTITY:-${CHIEF_APPLE_SIGNING_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}}"
+if [ -z "$identity" ]; then
+  identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/"Developer ID Application:/ { print $2; exit }')"
+fi
+if [ -z "$identity" ]; then
+  identity="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/"Apple Development:/ { print $2; exit }')"
+fi
 if [ -n "$identity" ]; then
-  codesign --force --sign "$identity" --identifier sh.heychief.desktop.dev "$bundle" >/dev/null 2>&1 ||
+  identifier=sh.heychief.desktop.dev
+  case "$identity" in
+    *"Developer ID Application:"*) identifier=sh.heychief.desktop ;;
+  esac
+  codesign --force --sign "$identity" --identifier "$identifier" "$bundle" >/dev/null 2>&1 ||
     echo "Chief Dev: could not sign the dev build; Keychain will ask again after each rebuild." >&2
 else
-  echo "Chief Dev: no Apple Development certificate found; Keychain will ask again after each rebuild." >&2
+  echo "Chief Dev: no code-signing identity found; Keychain may ask again after each rebuild." >&2
 fi
 
 exec "$named" "$@"

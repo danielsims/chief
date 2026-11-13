@@ -42,10 +42,13 @@ export const registerAgentKeyCommandSchema = z
   .object({
     agentId: agentIdSchema,
     pubkey: hexPubkeySchema,
+    previousPubkey: hexPubkeySchema.optional(),
   })
   .strict();
 
-export const registerAgentKeyResultSchema = registerAgentKeyCommandSchema;
+export const registerAgentKeyResultSchema = registerAgentKeyCommandSchema.omit({
+  previousPubkey: true,
+});
 
 export type RegisterAgentKeyResult = z.infer<
   typeof registerAgentKeyResultSchema
