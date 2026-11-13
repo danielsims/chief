@@ -215,9 +215,12 @@ export async function activeManagedWorkspace(
   }
   snapshot.runtime =
     entry.command?.agentRuntime === "relay-cell" ? entry.command.runtime : null;
+  // Guided setup runs its own kickoff in Welcome when it finishes, so the
+  // legacy kickoff is never repaired into it, even while setup is open.
   if (
     snapshot.onboardingComplete === false &&
-    entry.command?.agentRuntime === "relay-cell"
+    entry.command?.agentRuntime === "relay-cell" &&
+    !entry.command.deferOnboarding
   ) {
     const repair = enqueueOnboarding(
       env,

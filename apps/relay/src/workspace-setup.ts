@@ -2,15 +2,13 @@ import { z } from "zod";
 
 import {
   agentConfigSchema,
-  agentIdSchema,
-  appendMessageCommandSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
-import { deterministicUuid } from "./external-agent-channel-security";
 import { HttpError, json, parseJson } from "./http";
-import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { readTrustedContext } from "./internal-context";
 import { agentConfigsUpdateEnableHostedSpecialists } from "./queries/agent-configs/update-enable-hosted-specialists";
+import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import {
@@ -18,6 +16,11 @@ import {
   workspaceAgentProfiles,
 } from "./workspace-defaults";
 import { ensureWelcomeChannel } from "./workspace-welcome";
+import {
+  postAgentMessage,
+  startWelcomeKickoff,
+  welcomeKickoffTasks,
+} from "./workspace-welcome-kickoff";
 
 /** Human setup is separate from provider deployment or a model turn. */
 export async function finishWorkspaceSetup(
@@ -103,56 +106,26 @@ export async function finishWorkspaceSetup(
     snapshot.purpose === "personal"
       ? `Welcome to ${snapshot.name}. I'm Chief, your personal chief of staff. What would you like to work on first?`
       : `Welcome to ${snapshot.name}. I'm Chief, your team's chief of staff.${snapshot.companyName ? ` We're ready to work with ${snapshot.companyName}.` : ""} What would you like to work on first?`;
-  const greetings = [{ id: "chief", body: opener }];
-  for (const greeting of greetings) {
-    const commandId = await deterministicUuid(
-      `${snapshot.id}:setup:${greeting.id}`,
-    );
-    const principal = {
-      kind: "agent" as const,
-      agentId: agentIdSchema.parse(greeting.id),
-      workspaceId: snapshot.id,
-      role: "member" as const,
-      pubkey: "0".repeat(64),
-    };
-    const command = appendMessageCommandSchema.parse({
-      commandId,
-      protocolVersion: 1,
-      occurredAt: snapshot.createdAt,
-      payload: {
-        messageId: commandId,
-        conversationId: welcome,
-        body: greeting.body,
-        mentions: [],
-        components: [],
-      },
-    });
-    const response = await env.CONVERSATIONS.get(
-      env.CONVERSATIONS.idFromName(`${snapshot.id}:${welcome}`),
-    ).fetch(
-      withTrustedContext(
-        new Request("https://conversation.internal/messages", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(command),
-        }),
-        {
-          ...context,
-          principal,
+  await postAgentMessage(env, context, {
+    workspaceId: snapshot.id,
+    conversationId: welcome,
+    agentId: "chief",
+    body: opener,
+    seed: "setup:chief",
+    occurredAt: snapshot.createdAt,
+  });
+  // Eve runs its own first turn; a Chief cell brings the team in here.
+  if (snapshot.runtime !== null) {
+    const tasks = welcomeKickoffTasks(snapshot);
+    storage.transactionSync(() => {
+      for (const task of tasks)
+        channelMembersAddAgentToExistingChannel(storage, {
           conversationId: welcome,
-          requestId: commandId,
-        },
-      ),
-    );
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new HttpError(
-        502,
-        "welcome_failed",
-        "Your welcome messages could not be saved. Please try again.",
-      );
-    }
-    await response.body?.cancel();
+          agentId: task.agentId,
+          joinedAt: now,
+        });
+    });
+    await startWelcomeKickoff(env, context, snapshot, welcome, tasks);
   }
   const completed = workspaceSnapshotSchema.parse({
     ...snapshot,
