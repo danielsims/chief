@@ -95,6 +95,7 @@ export const eveChiefChannelTools: readonly EveChiefToolSpec[] = [
     input: {
       channelId: "z.string().min(1)",
       cursor: "z.string().min(1).max(240).optional()",
+      bodyChars: "z.number().int().min(1).max(8000).optional()",
       limit: "z.number().int().min(1).max(100).optional()",
     },
   }),
