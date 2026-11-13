@@ -35,7 +35,6 @@ import {
 } from "./workspace-channel-router";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
-import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
 import {
   mintGitToken,
@@ -327,16 +326,6 @@ export class WorkspaceObject extends DurableObject<Env> {
         return yield* attempt("workspace.finish_setup", () =>
           finishWorkspaceSetup(ctx.storage, env, request),
         );
-      if (operation === "complete-onboarding") {
-        return yield* attempt("workspace.onboarding.complete", () =>
-          lifecycle.completeOnboarding(request),
-        );
-      }
-      if (operation === "start-eve-onboarding") {
-        return yield* attempt("workspace.onboarding.start", () =>
-          startEveWorkspaceKickoffFromRequest(env, ctx.storage, request),
-        );
-      }
 
       if (operation?.startsWith("github-")) {
         const github = new WorkspaceGitHubService(ctx.storage, env);

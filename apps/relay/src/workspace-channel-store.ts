@@ -11,7 +11,6 @@ import { HttpError } from "./http";
 import { agentConfigsFindConfigGet } from "./queries/agent-configs/find-config-get";
 import { agentKeysFindAgentPubkey } from "./queries/agent-keys/find-agent-pubkey";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
-import { channelMembersEnsureMissionChief } from "./queries/channel-members/ensure-mission-chief";
 import { channelMembersEnsureOwner } from "./queries/channel-members/ensure-owner";
 import { channelMembersFindChannelMemberRows } from "./queries/channel-members/find-channel-member-rows";
 import { channelMembersFindChannelsMembersRemove } from "./queries/channel-members/find-channels-members-remove";
@@ -479,9 +478,6 @@ export class WorkspaceChannelStore {
         joinedAt: createdAt,
         conversationId: agent.id,
       });
-    }
-    if (snapshot.agents.some((agent) => agent.id === "chief")) {
-      channelMembersEnsureMissionChief(this.storage, createdAt);
     }
   }
 

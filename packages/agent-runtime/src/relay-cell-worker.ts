@@ -15,6 +15,7 @@ import {
   agentAttachmentSchema,
   agentConfigSchema,
   attachmentLocation,
+  jobConversationId,
   parseJsonObject,
   parseJsonString,
 } from "@chief/relay-contracts";
@@ -414,7 +415,7 @@ async function executeJob(
     );
     // A run that ends without a word hasn't done what was asked; it fails
     // and says why rather than claiming it finished.
-    if (!reply && !posted && job.kind !== "workspace.onboarding")
+    if (!reply && !posted)
       throw new LocalJobBlockedError(
         refused.length
           ? `Stopped without finishing: it wasn't allowed to ${[...new Set(refused)].join(", ")}.`
@@ -427,23 +428,18 @@ async function executeJob(
       outcome: {
         status: "completed",
         result:
-          job.kind === "workspace.onboarding"
-            ? {
-                openingMessage:
-                  "Hey, welcome to Chief 👋 I'm getting the team oriented around your business. What would make the biggest difference this month: shipping something in your product, reaching more customers, or another outcome? Tell me what's getting in the way, and we'll turn it into a focused plan while the team researches your business.",
-              }
-            : posted || !reply
-              ? {}
-              : {
-                  publishedMessage: {
-                    conversationId,
-                    ...(activityContext.threadRootId
-                      ? { threadRootId: activityContext.threadRootId }
-                      : undefined),
-                    body: reply,
-                    components: [],
-                  },
+          posted || !reply
+            ? {}
+            : {
+                publishedMessage: {
+                  conversationId,
+                  ...(activityContext.threadRootId
+                    ? { threadRootId: activityContext.threadRootId }
+                    : undefined),
+                  body: reply,
+                  components: [],
                 },
+              },
       },
     });
     console.info(
@@ -508,12 +504,6 @@ function normalizeDriver(driver: string): DriverType {
     return driver;
   }
   throw new Error(`The ${driver} provider cannot run in a desktop cell.`);
-}
-
-function jobConversationId(job: AgentJob) {
-  return (
-    parseJsonString(job.payload.conversationId)?.trim() ?? "mission-control"
-  );
 }
 
 async function drainMailbox(

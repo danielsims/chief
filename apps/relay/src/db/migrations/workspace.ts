@@ -1,7 +1,6 @@
 import { isJsonString } from "@chief/relay-contracts";
 
 import type { AdditiveColumnDefinition } from "./sqlite-identifiers";
-import { channelsUpdateInitializeWorkspaceSchema } from "../../queries/channels/update-initialize-workspace-schema";
 import { WorkspaceChannelStore } from "../../workspace-channel-store";
 import { initializeWorkspaceData } from "../../workspace-data-store";
 import { initializeWorkspaceLive } from "../../workspace-live-store";
@@ -210,7 +209,6 @@ export function initializeWorkspaceSchema(
   `);
   const channelStore = new WorkspaceChannelStore(storage, env);
   channelStore.ensureSnapshotChannels();
-  channelsUpdateInitializeWorkspaceSchema(storage);
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
   initializeWorkspaceLive(storage);

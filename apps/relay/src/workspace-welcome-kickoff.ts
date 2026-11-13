@@ -4,13 +4,11 @@ import {
   appendMessageCommandSchema,
 } from "@chief/relay-contracts";
 
-import type { readTrustedContext } from "./internal-context";
+import type { TrustedRequestContext } from "./internal-context";
 import { deterministicUuid } from "./external-agent-channel-security";
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
-
-type TrustedContext = ReturnType<typeof readTrustedContext>;
 
 interface FirstTask {
   /** Chief's message in Welcome that brings the teammate in. */
@@ -109,7 +107,7 @@ export function welcomeKickoffTasks(snapshot: WorkspaceSnapshot) {
 /** Posts as an agent straight into a conversation; retries reuse one ID. */
 export async function postAgentMessage(
   env: Env,
-  context: TrustedContext,
+  context: TrustedRequestContext,
   input: {
     workspaceId: WorkspaceId;
     conversationId: string;
@@ -181,7 +179,7 @@ export async function postAgentMessage(
  */
 export async function startWelcomeKickoff(
   env: Env,
-  context: TrustedContext,
+  context: TrustedRequestContext,
   snapshot: WorkspaceSnapshot,
   welcome: string,
   tasks: ReturnType<typeof welcomeKickoffTasks>,

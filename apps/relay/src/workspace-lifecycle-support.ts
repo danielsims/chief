@@ -1,5 +1,3 @@
-import { HttpError } from "./http";
-
 export function workspaceInference(provider: string) {
   if (provider === "vercelAiGateway") {
     return {
@@ -29,10 +27,6 @@ export function initialConversation(
     requiresAttention: false,
     lastMessage: null,
   };
-}
-
-export function delegationIncomplete(message: string) {
-  return new HttpError(409, "onboarding_delegation_incomplete", message);
 }
 
 export async function matchesBootstrapToken(token: string, env: Env) {

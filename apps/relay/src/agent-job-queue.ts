@@ -32,10 +32,8 @@ import {
   requireAgentOwnsJob,
   requireAgentPrincipal,
 } from "./agent-job-store";
-import { validateSpecialistKickoff } from "./agent-kickoff-verification";
 import { publishAgentMessage } from "./agent-message-publisher";
 import { hostedPrincipal } from "./agent-object-values";
-import { publishOnboardingResult } from "./agent-onboarding";
 import {
   HOSTED_JOB_MAX_ATTEMPTS,
   hostedAutomaticRetryAt,
@@ -199,32 +197,13 @@ export class AgentJobQueue {
         ? agentJobCompletionResultSchema.parse(input.outcome.result)
         : null;
     try {
-      if (result?.publishedMessage && job.kind !== "workspace.onboarding") {
-        if (job.kind.startsWith("workspace.kickoff.")) {
-          await validateSpecialistKickoff(this.env, job, context.principal);
-        }
+      if (result?.publishedMessage) {
         await publishAgentMessage(
           this.env,
           job,
           result.publishedMessage,
           job.id,
           actorPubkey(context.principal),
-        );
-      }
-      if (result && job.kind === "workspace.onboarding") {
-        await publishOnboardingResult(
-          this.env,
-          job,
-          context.principal,
-          parseJsonObject(result) ?? {},
-          (targetJob, message, commandId, pubkey) =>
-            publishAgentMessage(
-              this.env,
-              targetJob,
-              message,
-              commandId,
-              pubkey,
-            ),
         );
       }
     } catch (cause) {
@@ -503,24 +482,6 @@ export class AgentJobQueue {
     const stored = firstAgentRow<{ status: string }>(
       jobsFindRefreshExisting(this.storage, priorJob.id),
     );
-    if (
-      repairTerminal &&
-      priorJob.kind === "workspace.onboarding" &&
-      (stored?.status === "failed" || stored?.status === "completed")
-    ) {
-      const repaired = agentJobSchema.parse({
-        ...refreshed,
-        status: "pending",
-        attempt: 0,
-        lastError: null,
-        availableAt: now,
-        leaseExpiresAt: null,
-      });
-      this.updateReceipt(command.commandId, repaired, true);
-      this.broadcastAvailable(repaired, now);
-      await this.scheduleHostedAlarm(repaired);
-      return json({ duplicate: false, repaired: true, job: repaired });
-    }
     if (repairTerminal && stored?.status === "pending") {
       this.updateReceipt(command.commandId, refreshed, false);
       if (Date.parse(refreshed.availableAt) <= Date.now()) {

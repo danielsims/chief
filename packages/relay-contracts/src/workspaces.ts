@@ -260,7 +260,6 @@ export const createWorkspaceCommandSchema = z
       .max(10)
       .optional(),
     localProvider: z.enum(["codex", "claude", "opencode"]).optional(),
-    deferOnboarding: z.boolean().optional(),
     agentRuntime: z.enum(["relay-cell", "vercel-eve"]),
     inferenceProvider: z.enum([
       "openCodeGo",

@@ -11,6 +11,7 @@ import type {
 import {
   createWorkspaceCommandSchema,
   suggestedAgentIds,
+  welcomeChannelId,
 } from "@chief/relay-contracts";
 
 import type { SetupDraft, SetupStep } from "./model";
@@ -273,7 +274,6 @@ export function useWorkspaceSetup() {
       inferenceModel: "auto",
       selectedAgentIds: draft.selectedAgentIds,
       selectedApps: draft.selectedApps,
-      deferOnboarding: true,
     });
     const created = await relay.createWorkspace(command, apiKey, {
       reconnect: false,
@@ -346,9 +346,10 @@ export function useWorkspaceSetup() {
           sessionStorage.removeItem(entry);
       }
       sessionStorage.removeItem("chief.pending-workspace-create-relay.v1");
-      void navigate("/conversations?channel=mission-control", {
-        replace: true,
-      });
+      void navigate(
+        `/conversations?channel=${encodeURIComponent(welcomeChannelId(auth.user?.id ?? ""))}`,
+        { replace: true },
+      );
     }, "Opening your workspace");
   return {
     auth,

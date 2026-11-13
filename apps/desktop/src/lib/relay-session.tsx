@@ -24,7 +24,6 @@ import {
   resolveRelayConnection,
   workspaceForRelayIdentities,
 } from "./relay-connection";
-import { startPendingEveWorkspaceKickoff } from "./relay-eve-kickoff";
 import {
   activeRelayWorkspace,
   connectBoundRelayDevice,
@@ -184,7 +183,6 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
               error: null,
             }),
           );
-          startPendingEveWorkspaceKickoff(client, snapshot);
           // Directory metadata must not turn a healthy workspace into an outage.
           if (!refreshedWorkspaces) {
             void accountClient
@@ -516,10 +514,6 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         );
       }
       const snapshot = await state.client.createWorkspace(command, apiKeyValue);
-      const workspace = state.client.forWorkspace(snapshot.id);
-      if (command.agentRuntime === "relay-cell" && !command.deferOnboarding) {
-        await ensureDesktopCells(snapshot, workspace);
-      }
 
       const nextWorkspaces = workspacesAfterCreate(snapshot, state.workspaces);
       rememberRelayWorkspaces(RELAY_URL, accountId, nextWorkspaces);

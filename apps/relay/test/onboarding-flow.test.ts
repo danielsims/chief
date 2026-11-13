@@ -103,7 +103,6 @@ async function setup(purpose: "personal" | "company" = "personal") {
       purpose === "personal"
         ? ["researcher", "planner"]
         : ["brand", "engineer"],
-    deferOnboarding: true,
   });
   const response = await createManagedWorkspace(
     env,

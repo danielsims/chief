@@ -5,7 +5,11 @@ import type {
   AgentJobCompletionResult,
   JsonValue,
 } from "@chief/relay-contracts";
-import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+import {
+  isJsonString,
+  jobConversationId,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 import { firstAgentRow } from "./agent-job-store";
 import { safeJsonArray } from "./agent-object-values";
@@ -41,9 +45,7 @@ export function recordCompletedTurn(
   result: AgentJobCompletionResult,
   agent?: { id: string; name: string; role: string },
 ) {
-  const conversationId = isJsonString(job.payload.conversationId)
-    ? job.payload.conversationId
-    : "mission-control";
+  const conversationId = jobConversationId(job);
   const key = `conversation:${conversationId}:messages`;
   const priorMessages = loadArray(storage, key).filter(
     (value) => parseJsonObject(value)?.jobId !== job.id,
@@ -52,8 +54,7 @@ export function recordCompletedTurn(
   const instruction = isJsonString(job.payload.instruction)
     ? job.payload.instruction
     : job.kind;
-  const answer =
-    result.publishedMessage?.body ?? result.openingMessage ?? "Completed.";
+  const answer = result.publishedMessage?.body ?? "Completed.";
   const messages = [
     ...priorMessages,
     { jobId: job.id, role: "user", content: instruction, at, conversationId },
