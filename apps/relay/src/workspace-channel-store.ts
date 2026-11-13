@@ -153,6 +153,17 @@ export class WorkspaceChannelStore {
         created_at: new Date().toISOString(),
       };
     }
+    // Relay-hosted work uses an internal sentinel, never a client signing key.
+    if (principal.kind === "agent" && principal.pubkey !== "0".repeat(64)) {
+      const registeredKey = this.agentPubkey(principal.agentId);
+      if (registeredKey && registeredKey !== principal.pubkey) {
+        throw new HttpError(
+          403,
+          "agent_revoked",
+          "This agent identity no longer has access.",
+        );
+      }
+    }
     const { kind, id } = principalKindId(principal);
     const member = firstRow<MemberRow>(
       membersFindAuthorize(this.storage, kind, id),
