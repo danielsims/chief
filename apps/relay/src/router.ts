@@ -26,12 +26,13 @@ import {
   enforceEdgeRequestLimit,
   enforcePublicIdentityRequestLimit,
 } from "./request-rate-limits";
+import { routeAccountProfile } from "./router-account-profile";
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
-import { routeChannelGuestRequest } from "./router-channel-guests";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
 import { routeOnboardingTelemetry } from "./router-onboarding";
+import { routeOwnedAgents } from "./router-owned-agents";
 import { routeProfileImage } from "./router-profile-image";
 import { routePublicRequest } from "./router-public";
 import { routeScheduleRunRequest } from "./router-schedule-runs";
@@ -121,10 +122,10 @@ export async function routeRelayRequest(
       routePublicRequest(request, url, env),
     );
     if (publicResponse) return publicResponse;
-    const guestResponse = yield* attempt("relay.channel_guests", () =>
-      routeChannelGuestRequest(env, request, requestId),
+    const ownedResponse = yield* attempt("relay.owned_agents", () =>
+      routeOwnedAgents(env, request, requestId),
     );
-    if (guestResponse) return guestResponse;
+    if (ownedResponse) return ownedResponse;
     const githubBrowserResponse = yield* attempt("relay.github_browser", () =>
       routeGitHubBrowser(request, url, env, requestId),
     );
@@ -137,6 +138,10 @@ export async function routeRelayRequest(
       routeIdentityAndPush(env, request),
     );
     if (identityResponse) return identityResponse;
+    const profileResponse = yield* attempt("relay.account_profile", () =>
+      routeAccountProfile(env, request),
+    );
+    if (profileResponse) return profileResponse;
     const scheduleResponse = yield* attempt("relay.schedule_runs", () =>
       routeScheduleRunRequest(env, request, requestId),
     );

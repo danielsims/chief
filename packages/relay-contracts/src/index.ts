@@ -2,8 +2,6 @@ export * from "./agents";
 export * from "./agent-avatar";
 export * from "./attachments";
 export * from "./channels";
-export * from "./channel-guests";
-export * from "./guest-profile";
 export * from "./discovery";
 export * from "./directs";
 export * from "./device-identities";
@@ -34,3 +32,7 @@ export * from "./artifacts";
 export * from "./typing";
 export * from "./pages";
 export * from "./web-machine";
+export * from "./usernames";
+export * from "./onboarding-roster";
+
+export * from "./owned-agents";

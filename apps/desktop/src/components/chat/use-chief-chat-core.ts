@@ -5,12 +5,14 @@ import type {
   ChiefUIMessage,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { ChiefChatProps } from "./chief-chat-types";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import { withoutMarkerLines } from "../../lib/integration-setup";
+import { agentName } from "../../lib/owned-agent-presentation";
 import {
   messageBlocks,
   useChannelReactions,
@@ -24,6 +26,7 @@ import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
 import { useMentionPeople, useWorkspaceUsers } from "./mention-people-context";
+import { useOwnedAgents } from "./owned-agents-value";
 import { useScheduledRunProgress } from "./use-scheduled-run-progress";
 
 /**
@@ -60,6 +63,7 @@ export function useChiefChatCore({
     agentsLoaded,
   } = useRuntime();
   const workspacePeople = useMentionPeople();
+  const ownedAgents = useOwnedAgents();
   const { cloudOrganizationId, user } = useAuth();
   const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
@@ -216,7 +220,22 @@ export function useChiefChatCore({
         member: true,
         user: { image: workspaceUsers.get(person.id)?.image },
       }));
-    return orderMentionCandidatesByMembership([...people, ...agents]);
+    const connected = ownedAgents
+      .filter((agent) =>
+        agent.channels.some((c) => c.id === destinationChannelId),
+      )
+      .map((agent) => ({
+        id: agent.id,
+        name: agentName(agent.provider, agent.name),
+        handle: agent.handle ?? undefined,
+        role: "Connected agent",
+        member: true,
+      }));
+    return orderMentionCandidatesByMembership([
+      ...people,
+      ...agents,
+      ...connected,
+    ]);
   }, [
     addedAgentIds,
     channel?.agentIds,
@@ -225,19 +244,29 @@ export function useChiefChatCore({
     runtimeAgents,
     workspacePeople,
     workspaceUsers,
+    ownedAgents,
+    destinationChannelId,
   ]);
   /** Every agent and subagent, so messages name their real author. */
   const agentRoster = useMemo(
     () =>
       new Map(
-        runtimeAgents
-          .flatMap((agent) => [agent, ...(agent.subagents ?? [])])
-          .map((agent) => [
-            agent.id,
-            { id: agent.id, name: agent.name, role: agent.role },
+        [
+          ...runtimeAgents.flatMap((agent) => [
+            agent,
+            ...(agent.subagents ?? []),
           ]),
+          ...ownedAgents.map((agent) => ({
+            id: agent.id,
+            name: agent.handle ?? agentName(agent.provider, agent.name),
+            role: "Connected agent",
+          })),
+        ].map((agent) => [
+          agent.id,
+          { id: agent.id, name: agent.name, role: agent.role },
+        ]),
       ),
-    [runtimeAgents],
+    [runtimeAgents, ownedAgents],
   );
   const knownAgentIds = useMemo(
     () => new Set(agentRoster.keys()),
@@ -258,7 +287,7 @@ export function useChiefChatCore({
       .map((candidate) => ({
         id: candidate.id,
         position: normalizedText.indexOf(
-          `@${candidate.name.toLocaleLowerCase()}`,
+          `@${("handle" in candidate && isJsonString(candidate.handle) ? candidate.handle : candidate.name).toLocaleLowerCase()}`,
         ),
       }))
       .filter((mention) => mention.position >= 0)

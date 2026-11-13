@@ -70,10 +70,10 @@ import { RelayClientError } from "./relay-client-error";
 import { RelayDatabasesClient } from "./relay-databases-client";
 import { RelayExternalAgentsClient } from "./relay-external-agents-client";
 import { RelayGitHubClient } from "./relay-github-client";
+import { RelayOnboardingClient } from "./relay-onboarding-client";
 import { RelayPluginsClient } from "./relay-plugins-client";
 import { RelaySchedulesClient } from "./relay-schedules-client";
 import { openRelayConversationSubscription } from "./relay-subscription";
-import { RelayVercelProvisioning } from "./relay-vercel-provisioning";
 import { openRelayWebMachine } from "./relay-web-machine";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
@@ -84,7 +84,7 @@ export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
 export type { RelayTypingEvent };
 
-export class RelayClient extends RelayVercelProvisioning {
+export class RelayClient extends RelayOnboardingClient {
   readonly databases: RelayDatabasesClient;
   readonly externalAgents: RelayExternalAgentsClient;
   readonly channelSettings: RelayChannelSettingsClient;

@@ -23,6 +23,10 @@ import { externalAgentRuntimesFindAgentIsLive } from "./queries/external-agent-r
 import { membersFindAuthorize } from "./queries/members/find-authorize";
 import { membersFindWorkspaceAgentIds } from "./queries/members/find-workspace-agent-ids";
 import { membersInsertRegisterAgentKey } from "./queries/members/insert-register-agent-key";
+import {
+  ownedAgentChannelsFind,
+  ownedAgentsFind,
+} from "./queries/owned-agents/agents";
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-agent";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
@@ -141,6 +145,15 @@ export class WorkspaceChannelStore {
   }
 
   requirePrincipalMember(principal: Principal) {
+    if (principal.kind === "agent" && principal.ownerUserId) {
+      this.requireOwnedAgent(principal);
+      return {
+        principal_kind: "agent",
+        principal_id: principal.agentId,
+        role: "member",
+        created_at: new Date().toISOString(),
+      };
+    }
     const { kind, id } = principalKindId(principal);
     const member = firstRow<MemberRow>(
       membersFindAuthorize(this.storage, kind, id),
@@ -153,6 +166,22 @@ export class WorkspaceChannelStore {
       );
     }
     return member;
+  }
+
+  private requireOwnedAgent(principal: Extract<Principal, { kind: "agent" }>) {
+    const agent = ownedAgentsFind(this.storage, principal.agentId);
+    if (
+      agent?.status !== "active" ||
+      agent.pubkey !== principal.pubkey ||
+      agent.owner_user_id !== principal.ownerUserId ||
+      !this.memberRole("user", agent.owner_user_id)
+    )
+      throw new HttpError(
+        403,
+        "agent_revoked",
+        "This agent no longer has access.",
+      );
+    return agent;
   }
 
   agentConfiguration(agentId: string) {
@@ -175,6 +204,16 @@ export class WorkspaceChannelStore {
 
   requireAgentCapability(principal: Principal, capability: string) {
     if (principal.kind !== "agent") return;
+    if (principal.ownerUserId) {
+      this.requireOwnedAgent(principal);
+      if (!["messages.read", "messages.send"].includes(capability))
+        throw new HttpError(
+          403,
+          "agent_capability_denied",
+          "Connected agents can only read and send messages in assigned channels.",
+        );
+      return;
+    }
     const config = this.agentConfiguration(principal.agentId);
     if (
       !this.agentIsLive(principal.agentId) ||
@@ -217,6 +256,23 @@ export class WorkspaceChannelStore {
 
   requireChannelVisible(conversationId: string, principal: Principal) {
     const channel = this.requireChannel(conversationId);
+    if (principal.kind === "agent" && principal.ownerUserId) {
+      this.requireOwnedAgent(principal);
+      if (
+        !ownedAgentChannelsFind(
+          this.storage,
+          principal.agentId,
+          conversationId,
+        ) ||
+        !this.agentMayAccess(channel, principal.ownerUserId)
+      )
+        throw new HttpError(
+          403,
+          "channel_access_denied",
+          "This agent is not in that channel.",
+        );
+      return channel;
+    }
     if (Number(channel.is_private) === 0) return channel;
     const { kind, id } = principalKindId(principal);
     if (

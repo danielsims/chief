@@ -8,6 +8,11 @@ import { Button } from "@chief/ui/components/button";
 import { relayRuntimeIdentity } from "../components/agents/agent-connection-model";
 import { AgentDetail } from "../components/agents/agent-detail";
 import { ConnectAgentDialog } from "../components/agents/connect-agent-dialog";
+import {
+  CopyInvitePromptButton,
+  OwnedAgentRows,
+  useOwnedAgents,
+} from "../components/agents/owned-agents-panel";
 import { listColumnClass } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
 import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
@@ -24,6 +29,7 @@ import { TeamAgentRow } from "./agents-components";
 
 export function AgentsPage() {
   const relay = useRelaySession();
+  const ownedAgents = useOwnedAgents(relay.client);
   const [connectOpen, setConnectOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { agents, agentsLoaded, createNativeAgent, removeAgent } = useRuntime();
@@ -100,10 +106,13 @@ export function AgentsPage() {
           title="Agents"
           description="See who is available, what they can access, and where they are working."
           actions={
-            <Button size="sm" onClick={() => setConnectOpen(true)}>
-              <Plus size={14} />
-              Add agent
-            </Button>
+            <>
+              <CopyInvitePromptButton client={relay.client} />
+              <Button size="sm" onClick={() => setConnectOpen(true)}>
+                <Plus size={14} />
+                Add agent
+              </Button>
+            </>
           }
         />
       ) : null}
@@ -185,6 +194,10 @@ export function AgentsPage() {
                     }}
                   />
                 ))}
+                <OwnedAgentRows
+                  state={ownedAgents}
+                  channels={workspaceChannels.channels}
+                />
               </ul>
               {agentsLoaded && agents.length === 0 ? (
                 <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed text-center">

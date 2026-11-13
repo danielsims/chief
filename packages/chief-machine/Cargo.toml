@@ -2,7 +2,7 @@
 name = "chief-machine"
 version = "0.1.0"
 edition = "2021"
-description = "Connect channel agents and lend isolated browser capacity to Chief workspaces."
+description = "Connect approved agents and lend isolated browser capacity to Chief workspaces."
 license = "UNLICENSED"
 publish = false
 
@@ -34,6 +34,9 @@ cli = [
   "dep:uuid",
   "dep:fs2",
   "dep:libc",
+  "dep:k256",
+  "dep:sha2",
+  "dep:hex",
 ]
 
 [dependencies]
@@ -49,6 +52,10 @@ tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"], 
 uuid = { version = "1", features = ["v4", "v5", "serde"], optional = true }
 fs2 = { version = "0.4", optional = true }
 libc = { version = "0.2", optional = true }
+
+k256 = { version = "0.13", features = ["schnorr"], optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
 
 [profile.release]
 opt-level = "z"

@@ -8,6 +8,7 @@ import { initializeWorkspaceLive } from "../../workspace-live-store";
 import { initializeWorkspaceLog } from "../../workspace-log-store";
 import { initializeWorkspaceSchedules } from "../../workspace-schedule-store";
 import { initializeMcpConnectionTables } from "./initialize-mcp-connection-tables";
+import { initializeOwnedAgentTables } from "./initialize-owned-agent-tables";
 import { initializeWorkspaceGitTables } from "./initialize-workspace-git-tables";
 import { sqliteIdentifier } from "./sqlite-identifiers";
 
@@ -15,6 +16,7 @@ export function initializeWorkspaceSchema(
   storage: DurableObjectStorage,
   env: Env,
 ) {
+  initializeOwnedAgentTables(storage);
   initializeWorkspaceSchedules(storage);
   initializeMcpConnectionTables(storage);
   storage.sql.exec(`
