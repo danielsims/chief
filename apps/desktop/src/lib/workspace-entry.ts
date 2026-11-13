@@ -12,9 +12,20 @@ export function workspaceEntryIntent(search: string): "create" | "join" {
     : "create";
 }
 
-/** Leaving setup never turns an unfinished workspace into a usable one. */
-export function mustResumeWorkspaceSetup(workspace: { setupComplete?: boolean } | null, pathname: string) {
-  return workspace?.setupComplete === false && pathname !== "/workspaces/new" && pathname !== "/workspaces";
+/**
+ * Leaving setup never turns an unfinished workspace into a usable one, but
+ * its settings stay open so an abandoned setup can still be deleted.
+ */
+export function mustResumeWorkspaceSetup(
+  workspace: { setupComplete?: boolean } | null,
+  pathname: string,
+) {
+  return (
+    workspace?.setupComplete === false &&
+    pathname !== "/workspaces/new" &&
+    pathname !== "/workspaces" &&
+    !pathname.startsWith("/settings")
+  );
 }
 
 function setupExitKey(relayUrl: string, accountId: string) {
