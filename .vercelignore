@@ -23,9 +23,7 @@ packages/agent-runtime/
 packages/auth/
 packages/backend/
 packages/browser/
-packages/buzz-team/
 packages/email/
-packages/google-oauth-connector/
 packages/plugin-api/
 packages/relay-client/
 packages/relay-contracts/

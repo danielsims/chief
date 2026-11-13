@@ -23,7 +23,6 @@ COPY packages/auth/package.json ./packages/auth/package.json
 COPY packages/browser/package.json ./packages/browser/package.json
 COPY packages/channel-api/package.json ./packages/channel-api/package.json
 COPY packages/email/package.json ./packages/email/package.json
-COPY packages/google-oauth-connector/package.json ./packages/google-oauth-connector/package.json
 COPY packages/plugin-api/package.json ./packages/plugin-api/package.json
 COPY packages/relay-client/package.json ./packages/relay-client/package.json
 COPY packages/relay-contracts/package.json ./packages/relay-contracts/package.json
@@ -44,7 +43,6 @@ COPY packages/auth ./packages/auth
 COPY packages/browser ./packages/browser
 COPY packages/channel-api ./packages/channel-api
 COPY packages/email ./packages/email
-COPY packages/google-oauth-connector ./packages/google-oauth-connector
 COPY packages/plugin-api ./packages/plugin-api
 COPY packages/relay-client ./packages/relay-client
 COPY packages/relay-contracts ./packages/relay-contracts
