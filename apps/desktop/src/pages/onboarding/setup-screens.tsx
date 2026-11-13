@@ -10,6 +10,7 @@ import {
 import type { WorkspaceSetup } from "./use-setup";
 import { ChiefMark } from "../../components/chief-mark";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import { useProviderModels } from "../../lib/runtime";
 import {
   Field,
   IconSelect,
@@ -330,6 +331,14 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
           icon: <ProviderIcon provider="opencode" />,
         },
       ];
+  // The app's own list leads with Auto, stored as "auto" in Chief's config.
+  const listed = useProviderModels(local ? s.draft.localProvider : null).models;
+  const modelOptions = [
+    { value: "auto", label: "Auto", icon: null },
+    ...listed
+      .filter((model) => model.value !== "" && model.value !== "auto")
+      .map((model) => ({ value: model.value, label: model.label, icon: null })),
+  ];
   return (
     <>
       <SetupHeading title="Connect Chief">
@@ -360,7 +369,7 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
                 value === "claude" ||
                 value === "opencode"
               )
-                s.patch({ localProvider: value });
+                s.patch({ localProvider: value, localModel: "auto" });
             } else if (value === "vercelAiGateway" || value === "opencode")
               s.patch({ service: value });
           }}
@@ -373,9 +382,20 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
         />
       </Field>
       {local ? (
-        <p className="ob-hint">
-          Keep this device awake and online while Chief is working.
-        </p>
+        <>
+          <Field label="Model">
+            <IconSelect
+              label="Model"
+              value={s.draft.localModel}
+              onChange={(value) => s.patch({ localModel: value })}
+              options={modelOptions}
+              disabled={s.busy}
+            />
+          </Field>
+          <p className="ob-hint">
+            Keep this device awake and online while Chief is working.
+          </p>
+        </>
       ) : (
         <>
           {s.draft.host === "relay-cell" ? (
