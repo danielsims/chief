@@ -377,13 +377,55 @@
 }
 .ob-place {
   position: relative;
-  height: 296px;
+  height: 212px;
   overflow: hidden;
   border-radius: 15px;
   background: #3b2a3a no-repeat;
   background-size: 940px auto;
   color: #fff;
+  text-align: left;
+  cursor: pointer;
   box-shadow: inset 0 0 0 1px #0000000f;
+  outline: none;
+  opacity: 0.55;
+  transition:
+    opacity 0.15s,
+    box-shadow 0.15s;
+}
+.ob-place:hover {
+  opacity: 0.8;
+}
+.ob-place[aria-checked="true"] {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--foreground);
+}
+.ob-place:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--ring);
+}
+.ob-place-check {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1.5px solid #ffffffb3;
+  color: transparent;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.ob-place[aria-checked="true"] .ob-place-check {
+  background: #fff;
+  border-color: #fff;
+  color: #111;
 }
 .ob-device {
   background-position: 0% 42%;
@@ -404,12 +446,12 @@
 .ob-place-art {
   position: absolute;
   z-index: 1;
-  inset: 0 0 78px;
+  inset: 0 0 92px;
   display: grid;
   place-items: center;
 }
 .ob-place-art > svg {
-  width: 124px;
+  width: 104px;
   height: auto;
   filter: drop-shadow(0 6px 18px #00000059);
 }
@@ -453,8 +495,8 @@
 }
 .ob-place p span {
   display: block;
-  margin-top: 4px;
-  font-size: 14px;
+  margin-top: 3px;
+  font-size: 13px;
   line-height: 1.4;
   color: #ffffffd6;
 }
@@ -797,7 +839,7 @@
     padding: 20px 20px 36px;
   }
   .ob-place {
-    height: 254px;
+    height: 196px;
   }
   .ob-app-grid {
     gap: 8px;
