@@ -181,14 +181,17 @@ export function PlacesIllustration() {
         <span className="ob-places-divider" aria-hidden="true" />
         <span className="ob-places-half">
           <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
+            {/* Lucide's cloud, scaled so its body sits around the mark. The
+                mark shares the laptop's centre line. */}
             <path
-              d="M41 92H119A27.3 27.3 0 0 0 114.6 37.8A35.1 35.1 0 0 0 44.9 45.6A23.4 23.4 0 0 0 41 92Z"
+              transform="translate(15.2 -24) scale(5.4)"
+              d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"
               fill="rgba(255,255,255,.1)"
               stroke="currentColor"
-              strokeWidth="1.5"
+              strokeWidth={1.5 / 5.4}
               strokeLinejoin="round"
             />
-            <ChiefMark x="63" y="48" width="34" height="34" />
+            <ChiefMark x="63" y="25" width="34" height="34" />
           </svg>
         </span>
       </div>
