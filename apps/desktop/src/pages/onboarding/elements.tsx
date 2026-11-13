@@ -20,17 +20,24 @@ export function ProviderIcon({
   provider: string;
   className?: string;
 }) {
-  const Icon =
-    provider === "vercelAiGateway"
-      ? Vercel
-      : provider === "opencode"
-        ? OpenCode
-        : provider === "claude"
-          ? Claude.Color
-          : provider === "grok"
-            ? Grok
-            : OpenAI;
+  const Icon = providerIcons[provider] ?? OpenAI;
   return <Icon className={className} />;
+}
+const providerIcons: Record<
+  string,
+  React.ComponentType<{ className?: string }>
+> = {
+  vercelAiGateway: Vercel,
+  opencode: OpenCode,
+  claude: Claude.Color,
+  grok: Grok,
+  chatgpt: OpenAI,
+  codex: OpenAI,
+};
+/** The logo for an agent that joined itself; "other" goes by its name. */
+export function agentBrand(provider: string, name?: string) {
+  const key = provider === "other" ? (name ?? "").toLowerCase() : provider;
+  return key in providerIcons ? key : null;
 }
 export function IdentityTile({
   provider,
@@ -57,8 +64,8 @@ export function IdentityTile({
     >
       {image ? (
         <img src={image} alt={name ?? "Profile"} />
-      ) : provider ? (
-        <ProviderIcon provider={provider} />
+      ) : provider && agentBrand(provider, name) ? (
+        <ProviderIcon provider={agentBrand(provider, name) ?? provider} />
       ) : color ? (
         <ChiefMark className="size-6" />
       ) : (

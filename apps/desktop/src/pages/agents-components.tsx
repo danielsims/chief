@@ -105,14 +105,20 @@ export function AgentAvatar({
 /** An agent as one row: who it is, its role and whether it's on. */
 export function TeamAgentRow({
   agent,
+  handle,
   override,
+  status,
   onSelect,
 }: {
   agent: AgentDefinition;
+  /** The agent's namespaced name, username:agent. */
+  handle?: string | null;
   override: AgentOverride | undefined;
+  /** Replaces Active/Paused for agents Chief doesn't run. */
+  status?: { on: boolean; label: string };
   onSelect: () => void;
 }) {
-  const enabled = override?.enabled ?? true;
+  const enabled = status?.on ?? override?.enabled ?? true;
   const subagents = agent.subagents?.length ?? 0;
   return (
     <ListRow
@@ -127,9 +133,16 @@ export function TeamAgentRow({
       }
       title={agent.name}
       subtitle={
-        subagents > 0
-          ? `${agent.role} · ${subagents} ${subagents === 1 ? "subagent" : "subagents"}`
-          : agent.role
+        <>
+          {handle ? (
+            <span className="text-foreground/70">@{handle}</span>
+          ) : null}
+          {handle ? " · " : null}
+          {agent.role}
+          {subagents > 0
+            ? ` · ${subagents} ${subagents === 1 ? "subagent" : "subagents"}`
+            : null}
+        </>
       }
       trailing={
         <span className="text-muted-foreground flex w-28 shrink-0 items-center gap-1.5 text-[12px]">
@@ -140,7 +153,7 @@ export function TeamAgentRow({
               enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
             )}
           />
-          {enabled ? "Active" : "Paused"}
+          {status?.label ?? (enabled ? "Active" : "Paused")}
         </span>
       }
     />

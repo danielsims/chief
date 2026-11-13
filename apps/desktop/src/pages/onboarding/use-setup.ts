@@ -15,6 +15,7 @@ import {
 } from "@chief/relay-contracts";
 
 import type { SetupDraft, SetupStep } from "./model";
+import { useAcceptAgentRequest } from "../../components/agents/owned-agents-panel";
 import { useAuth } from "../../lib/auth/auth-context";
 import { RELAY_URL } from "../../lib/config";
 import { useRelaySession } from "../../lib/relay-session";
@@ -83,6 +84,7 @@ export function useWorkspaceSetup() {
     expiresAt: string;
   } | null>(null);
   const [requests, setRequests] = useState<OwnedAgentRequest[]>([]);
+  const accept = useAcceptAgentRequest();
   const [agents, setAgents] = useState<OwnedAgent[]>([]);
   const running = useRef(false);
   const client = useMemo(
@@ -307,10 +309,12 @@ export function useWorkspaceSetup() {
       const result = await client.createOwnedAgentInvite();
       setInvite({ link: result.connectionUrl, expiresAt: result.expiresAt });
     });
-  const decide = (id: string, approve: boolean) =>
+  const decide = (id: string, approve: boolean, name: string) =>
     run(async () => {
-      if (!client) return;
-      await client.decideOwnedAgent(id, approve);
+      const request = requests.find((entry) => entry.id === id);
+      if (!client || !request) return;
+      if (approve) await accept(client, request, name);
+      else await client.decideOwnedAgent(id, false);
       await refreshAgents();
     });
   const enter = () =>
