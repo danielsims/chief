@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { z } from "zod";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 import type { JsonValue } from "@chief/relay-contracts";
@@ -9,6 +10,8 @@ import {
   isJsonString,
   parseJsonObject,
 } from "@chief/relay-contracts";
+
+import { readLocalCache, writeLocalCache } from "./local-cache";
 
 interface PluginCatalogSnapshot {
   plugins: AgentPluginSummary[];
@@ -23,7 +26,24 @@ interface PluginCatalogSnapshot {
   warning?: string;
 }
 
+const storedCatalogKey = "chief:plugin-catalog";
+const storedCatalogSchema = z.object({
+  refreshedAt: z.number(),
+  plugins: z.custom<AgentPluginSummary[]>(Array.isArray),
+});
+
 let cachedPluginCatalog: PluginCatalogSnapshot | undefined;
+
+/**
+ * The last catalog this computer saw, straight away, so lists that browse it
+ * paint immediately. The live catalog replaces it once loaded.
+ */
+export function peekRelayPluginCatalog(): AgentPluginSummary[] | undefined {
+  return (
+    cachedPluginCatalog?.plugins ??
+    readLocalCache(storedCatalogKey, storedCatalogSchema)?.plugins
+  );
+}
 
 export async function loadRelayPluginCatalog(
   force: boolean,
@@ -60,6 +80,10 @@ export async function loadRelayPluginCatalog(
       refreshedAt: Date.now(),
       stale: false,
     };
+    writeLocalCache(storedCatalogKey, {
+      refreshedAt: cachedPluginCatalog.refreshedAt,
+      plugins,
+    });
     return cachedPluginCatalog;
   } catch (error) {
     if (cachedPluginCatalog) {

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, LoaderCircle, Search } from "lucide-react";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
@@ -16,6 +16,10 @@ import {
   pluginDomain,
   pluginProviderKey,
 } from "../../lib/plugin-presentation";
+import {
+  loadRelayPluginCatalog,
+  peekRelayPluginCatalog,
+} from "../../lib/relay-plugin-catalog";
 import { RelaySessionContext } from "../../lib/relay-session-context";
 import { usePlugins } from "../../lib/runtime-plugins";
 import { RuntimeCoreProvider } from "../../lib/runtime-provider";
@@ -146,7 +150,23 @@ function Loading({ label, height }: { label: string; height: number }) {
 export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const plugins = usePlugins();
   const [query, setQuery] = useState("");
-  const all = useMemo(() => connectors(plugins.plugins), [plugins.plugins]);
+  // Picking only needs the catalog, so it paints from the saved copy at once
+  // and the workspace's own list takes over once it loads.
+  const [catalog, setCatalog] = useState(peekRelayPluginCatalog);
+  useEffect(() => {
+    if (catalog) return;
+    let active = true;
+    void loadRelayPluginCatalog(false)
+      .then((loaded) => {
+        if (active) setCatalog(loaded.plugins);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [catalog]);
+  const source = plugins.plugins ?? catalog;
+  const all = useMemo(() => connectors(source), [source]);
   const selected = new Set(s.draft.selectedApps);
   const term = query.trim().toLowerCase();
   const shown = useMemo(() => {
@@ -188,14 +208,14 @@ export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      {plugins.error && !plugins.plugins ? (
+      {plugins.error && !source ? (
         <p className="ob-error" role="alert">
           {plugins.error}{" "}
           <button className="ob-text" onClick={() => plugins.refresh(true)}>
             Try again
           </button>
         </p>
-      ) : !plugins.plugins ? (
+      ) : !source ? (
         <Loading label="Loading apps" height={APP_LIST_HEIGHT} />
       ) : (
         <div className="ob-app-list flex flex-col gap-1.5" aria-label="Apps">
