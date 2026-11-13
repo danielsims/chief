@@ -132,20 +132,37 @@ export function AgentJoinRequestRow({
   const [name, setName] = useState(() =>
     agentName(request.provider, request.name),
   );
+  const [editing, setEditing] = useState(false);
   return (
     <div className="ob-person">
       <IdentityTile provider={request.provider} name={request.name} />
       <span className="ob-row-text">
         <strong>
-          <input
-            aria-label="Agent name"
-            title="Rename before approving"
-            value={name}
-            maxLength={48}
-            size={Math.max(name.length, 3)}
-            onChange={(event) => setName(event.target.value)}
-            className="hover:bg-foreground/[0.06] focus:bg-foreground/[0.06] -mx-1 rounded-[5px] bg-transparent px-1 font-medium outline-none"
-          />{" "}
+          {editing ? (
+            <input
+              autoFocus
+              aria-label="Agent name"
+              value={name}
+              maxLength={48}
+              size={Math.max(name.length, 3)}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => setEditing(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "Escape")
+                  setEditing(false);
+              }}
+              className="bg-foreground/[0.06] rounded-[5px] font-medium outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              title="Rename before approving"
+              onClick={() => setEditing(true)}
+              className="hover:bg-foreground/[0.06] -mx-0.5 cursor-text rounded-[5px] px-0.5 font-medium"
+            >
+              {name.trim() || agentName(request.provider, request.name)}
+            </button>
+          )}{" "}
           requested to join
         </strong>
         <code>{request.handle}</code>
