@@ -1,10 +1,11 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
-import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 
 import { DesktopAuthResult } from "@chief/ui/components/desktop-auth-result";
+
+import { ChiefBrand } from "../../chief-brand";
 
 const DEEP_LINK = "chief-desktop:///auth";
 
@@ -39,15 +40,7 @@ function DesktopAuthContent() {
       success={success}
       error={Boolean(error)}
       returnHref={deepLink}
-      brand={
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
-        />
-      }
+      brand={<ChiefBrand />}
     />
   );
 }
