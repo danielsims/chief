@@ -228,6 +228,13 @@ pub async fn cli(args: &[String]) -> Result<(), String> {
                         let delay = approval_poll_delay(&e);
                         tokio::time::sleep(Duration::from_secs(delay)).await;
                     }
+                    // Accepted to take part through the person's own device, so
+                    // this host keeps no identity.
+                    Err(e) if e.starts_with("joined_on_device: ") => {
+                        println!("{}", &e["joined_on_device: ".len()..]);
+                        let _ = std::fs::remove_file(path(id)?);
+                        return Ok(());
+                    }
                     Err(e) => return Err(e),
                 }
             }
