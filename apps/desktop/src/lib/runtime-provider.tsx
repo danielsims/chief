@@ -52,7 +52,15 @@ const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
-export function RuntimeCoreProvider({ children, loadSnapshot }: { children: ReactNode; loadSnapshot?: () => Promise<import("@chief/relay-contracts").WorkspaceSnapshot> }) {
+export function RuntimeCoreProvider({
+  children,
+  loadSnapshot,
+}: {
+  children: ReactNode;
+  loadSnapshot?: () => Promise<
+    import("@chief/relay-contracts").WorkspaceSnapshot
+  >;
+}) {
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const relaySession = useRelaySession();
   const client = useRelayRuntimeTransport(relaySession, loadSnapshot);
