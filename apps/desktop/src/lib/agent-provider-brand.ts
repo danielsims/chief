@@ -6,6 +6,7 @@ export function agentProviderBrand(
     case "claude":
       return "claude";
     case "codex":
+    case "chatgpt":
       return "codex";
     case "opencode":
     case "openCodeGo":
