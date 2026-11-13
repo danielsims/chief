@@ -143,17 +143,21 @@ export const purposeOptions = [
   { value: "personal", label: "Just me", icon: <UserRound size={18} /> },
   { value: "company", label: "A company", icon: <Building2 size={18} /> },
 ];
+/**
+ * One picture of the two places Chief can run, captioned below it. It only
+ * explains: the choice is made on the next screen, so nothing here looks
+ * like something to click.
+ */
 export function PlacesIllustration() {
   return (
-    <div
-      className="ob-places"
-      aria-label="Chief runs on your device or in the cloud"
-    >
+    <figure className="ob-places">
       <div
-        className="ob-place ob-device"
+        className="ob-places-art"
         style={{ backgroundImage: `url(${sky})` }}
+        role="img"
+        aria-label="Chief on a laptop, and Chief in the cloud"
       >
-        <div className="ob-place-art">
+        <span className="ob-places-half">
           <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
             <rect
               x="27"
@@ -173,26 +177,24 @@ export function PlacesIllustration() {
             />
             <ChiefMark x="64" y="26" width="32" height="32" />
           </svg>
-        </div>
-        <p>
-          <strong>On your device</strong>
-          <span>Uses an agent app you already have.</span>
-        </p>
-      </div>
-      <div
-        className="ob-place ob-cloud"
-        style={{ backgroundImage: `url(${sky})` }}
-      >
-        <div className="ob-place-art">
+        </span>
+        <span className="ob-places-divider" aria-hidden="true" />
+        <span className="ob-places-half">
           <span className="ob-orbit">
             <ChiefMark className="size-[25px]" />
           </span>
-        </div>
+        </span>
+      </div>
+      <figcaption className="ob-places-captions">
+        <p>
+          <strong>On your device</strong>
+          <span>Uses ChatGPT or Claude already on this computer.</span>
+        </p>
         <p>
           <strong>In the cloud</strong>
           <span>Keeps working while you’re away.</span>
         </p>
-      </div>
-    </div>
+      </figcaption>
+    </figure>
   );
 }
