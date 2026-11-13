@@ -6,6 +6,7 @@ import type { SetupStep } from "./model";
 import { AgentEveDeploymentPanel } from "../../components/agents/agent-eve-deployment-panel";
 import { ChiefMark } from "../../components/chief-mark";
 import { WorkspaceSetupChrome } from "../../components/workspace-setup-chrome";
+import { loadRelayPluginCatalog } from "../../lib/relay-plugin-catalog";
 import { relayAgentDefinitions } from "../../lib/relay-runtime-agents";
 import {
   AppsScreen,
@@ -16,7 +17,6 @@ import {
   ChiefScreen,
   CompanyScreen,
   ConnectScreen,
-  IntroScreen,
   ProfileScreen,
   WorkspaceScreen,
 } from "./setup-screens";
@@ -34,7 +34,6 @@ const screenSteps: Record<SetupStep, number> = {
   profile: 0,
   workspace: 0,
   company: 0,
-  intro: 1,
   chief: 1,
   connect: 2,
   eve: 2,
@@ -49,6 +48,10 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
   const s = useWorkspaceSetup();
   const reduced = useReducedMotion();
   const main = useRef<HTMLDivElement>(null);
+  // Ready long before the apps step, so its list paints at once.
+  useEffect(() => {
+    void loadRelayPluginCatalog(false).catch(() => undefined);
+  }, []);
   useEffect(() => {
     main.current?.scrollTo(0, 0);
     const heading = main.current?.querySelector<HTMLHeadingElement>("h1");
@@ -59,8 +62,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     const previous: Partial<Record<SetupStep, SetupStep>> = {
       workspace: s.profile?.username ? undefined : "profile",
       company: "workspace",
-      intro: s.draft.purpose === "company" ? "company" : "workspace",
-      chief: "intro",
+      chief: s.draft.purpose === "company" ? "company" : "workspace",
       connect: "chief",
       eve: "connect",
       apps: "connect",
@@ -82,7 +84,6 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     profile: ProfileScreen,
     workspace: WorkspaceScreen,
     company: CompanyScreen,
-    intro: IntroScreen,
     chief: ChiefScreen,
     connect: ConnectScreen,
     apps: AppsScreen,
