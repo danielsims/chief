@@ -2,7 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, MoreHorizontal, Pin, PinOff, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Plus,
+  Settings2,
+  UserRound,
+} from "lucide-react";
+import { useNavigate } from "react-router";
 
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import {
@@ -18,6 +27,7 @@ import type {
   WorkspaceAgentId,
 } from "../lib/workspace-channels";
 import type { AgentPresence } from "./chat/agent-profile-panel";
+import { routeForChiefDestination } from "../lib/app-navigation";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   orderSidebarDirectMessages,
@@ -25,6 +35,7 @@ import {
   readSidebarDirectMessagesCache,
   writeSidebarDirectMessagesCache,
 } from "../lib/sidebar-direct-messages-cache";
+import { useIsOwnAgent } from "../lib/use-messageable-agents";
 import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
   sidebarPinnedItemKey,
@@ -81,6 +92,8 @@ export function DirectMessageRow({
     name ? [{ id: agentId, name, role: "Agent" }] : [],
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
+  const isOwnAgent = useIsOwnAgent();
   const source = useDraggable({
     id: `source:${sidebarPinnedItemKey(item)}`,
     data: { pin: item },
@@ -236,10 +249,59 @@ export function DirectMessageRow({
               <Pin size={14} strokeWidth={1.7} />
               Pin conversation
             </button>
+            {isOwnAgent(agentId) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void navigate(`/agents?agent=${encodeURIComponent(agentId)}`);
+                }}
+                className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px]"
+              >
+                <Settings2 size={14} strokeWidth={1.7} />
+                Manage agent
+              </button>
+            ) : null}
           </PopoverContent>
         </Popover>
       )}
     </div>
+  );
+}
+
+function PersonMenu({
+  name,
+  onViewProfile,
+}: {
+  name: string;
+  onViewProfile: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`More options for ${name}`}
+          className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground pointer-events-none absolute top-1 right-1 flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,color,background-color] group-hover/direct:pointer-events-auto group-hover/direct:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.8} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" className="w-48 p-1">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            onViewProfile();
+          }}
+          className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px]"
+        >
+          <UserRound size={14} strokeWidth={1.7} />
+          View profile
+        </button>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -297,6 +359,7 @@ export function SidebarDirectMessages({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const navigate = useNavigate();
   useEffect(() => {
     const open = () => setNewMessageOpen(true);
     window.addEventListener(OPEN_NEW_MESSAGE_EVENT, open);
@@ -365,40 +428,51 @@ export function SidebarDirectMessages({
   const renderPerson = (direct: (typeof peopleDirects)[number]) => {
     const unread = unreadChannelCounts.get(direct.channelId) ?? 0;
     return (
-      <button
-        key={direct.channelId}
-        type="button"
-        aria-current={activeChannelId === direct.channelId ? "page" : undefined}
-        onClick={() => onOpenChannel(direct.channelId)}
-        className={cn(
-          "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-          activeChannelId === direct.channelId &&
-            "bg-sidebar-accent text-sidebar-foreground font-medium",
-          activeChannelId !== direct.channelId &&
-            unread > 0 &&
-            "text-sidebar-foreground font-semibold",
-        )}
-      >
-        <WithPresence
-          presence={userOnline(direct.userId) ? "online" : "offline"}
-          dotClassName={SIDEBAR_DOT}
+      <div key={direct.channelId} className="group/direct relative">
+        <button
+          type="button"
+          aria-current={
+            activeChannelId === direct.channelId ? "page" : undefined
+          }
+          onClick={() => onOpenChannel(direct.channelId)}
+          className={cn(
+            "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 pr-9 text-left text-[13px] transition-colors",
+            activeChannelId === direct.channelId &&
+              "bg-sidebar-accent text-sidebar-foreground font-medium",
+            activeChannelId !== direct.channelId &&
+              unread > 0 &&
+              "text-sidebar-foreground font-semibold",
+          )}
         >
-          <UserAvatar
-            name={direct.name}
-            image={direct.image}
-            className="size-4 text-[8px]"
-          />
-        </WithPresence>
-        <span className="min-w-0 flex-1 truncate">{direct.name}</span>
-        {unread > 0 ? (
-          <span
-            aria-label={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
-            className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 shrink-0 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+          <WithPresence
+            presence={userOnline(direct.userId) ? "online" : "offline"}
+            dotClassName={SIDEBAR_DOT}
           >
-            {unread > 99 ? "99+" : unread}
-          </span>
-        ) : null}
-      </button>
+            <UserAvatar
+              name={direct.name}
+              image={direct.image}
+              className="size-4 text-[8px]"
+            />
+          </WithPresence>
+          <span className="min-w-0 flex-1 truncate">{direct.name}</span>
+          {unread > 0 ? (
+            <span
+              aria-label={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
+              className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 shrink-0 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          ) : null}
+        </button>
+        <PersonMenu
+          name={direct.name}
+          onViewProfile={() =>
+            void navigate(
+              `${routeForChiefDestination({ kind: "conversation", channelId: direct.channelId })}&profile=${encodeURIComponent(`user:${direct.userId}`)}`,
+            )
+          }
+        />
+      </div>
     );
   };
   const renderAgent = (agentId: WorkspaceAgentId) => {

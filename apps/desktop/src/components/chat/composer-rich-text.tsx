@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/react";
 import {
   forwardRef,
+  useContext,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -13,6 +14,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "tiptap-markdown";
 import { z } from "zod";
 
@@ -20,11 +22,15 @@ import { isJsonString } from "@chief/relay-contracts";
 
 import type { MentionAlias } from "./agent-mention-parser";
 import type { ComposerFormat } from "./composer-editing";
+import { AgentAppearanceContext, AgentAvatar } from "../agent-avatar";
 import {
   removeAgentMentionBeforeCaret,
   splitAgentMentions,
 } from "./agent-mention-parser";
-import { useMentionAliases } from "./mention-people-context";
+import { useMentionAliases, useMentionPeople } from "./mention-people-context";
+
+const MENTION_CHIP_CLASS =
+  "mx-px inline-flex items-center gap-1 whitespace-nowrap rounded-[5px] bg-foreground/[0.075] px-1.5 py-px align-baseline text-[13px] font-medium leading-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_13%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_32%,transparent)]";
 
 type QueryKind = "emoji" | "emoji-complete" | "mention";
 
@@ -111,24 +117,33 @@ function queryRange(editor: Editor, kind: QueryKind) {
   };
 }
 
-const mentionPeopleKey = new PluginKey<readonly MentionAlias[]>(
-  "agentMentionDecorations",
-);
 const mentionAliasesSchema = z.array(
-  z.object({ id: z.string(), name: z.string() }),
+  z.object({ id: z.string(), name: z.string(), label: z.string().optional() }),
 );
+
+/** Draws an agent mention as its avatar and name over the typed handle. */
+type MentionChip = (agentId: string, label: string) => HTMLElement | null;
+interface MentionState {
+  aliases: readonly MentionAlias[];
+  chip: MentionChip;
+}
+const mentionStateSchema = z.object({
+  aliases: mentionAliasesSchema,
+  chip: z.custom<MentionChip>((value) => value instanceof Function),
+});
+const mentionPeopleKey = new PluginKey<MentionState>("agentMentionDecorations");
 
 function agentMentionDecorations() {
   return Extension.create({
     name: "agentMentionDecorations",
     addProseMirrorPlugins() {
       return [
-        new Plugin<readonly MentionAlias[]>({
+        new Plugin<MentionState>({
           key: mentionPeopleKey,
           state: {
-            init: () => [],
+            init: () => ({ aliases: [], chip: () => null }),
             apply(transaction, current) {
-              const parsed = mentionAliasesSchema.safeParse(
+              const parsed = mentionStateSchema.safeParse(
                 transaction.getMeta(mentionPeopleKey),
               );
               return parsed.success ? parsed.data : current;
@@ -140,15 +155,35 @@ function agentMentionDecorations() {
               state.doc.descendants((node, position) => {
                 if (!node.isText || !node.text) return;
                 let offset = 0;
+                const mentions = mentionPeopleKey.getState(state);
                 for (const segment of splitAgentMentions(
                   node.text,
-                  mentionPeopleKey.getState(state) ?? [],
+                  mentions?.aliases ?? [],
                 )) {
                   const length =
                     segment.type === "mention"
                       ? segment.token.length
                       : segment.value.length;
-                  if (segment.type === "mention") {
+                  const drawn =
+                    segment.type === "mention"
+                      ? (mentions?.chip(segment.agentId, segment.label) ?? null)
+                      : null;
+                  if (segment.type === "mention" && drawn) {
+                    decorations.push(
+                      Decoration.widget(position + offset, () => drawn, {
+                        side: -1,
+                        key: `${segment.agentId}:${segment.label}`,
+                      }),
+                      Decoration.inline(
+                        position + offset,
+                        position + offset + length,
+                        {
+                          class: "text-[0px]",
+                          "data-composer-agent-mention": segment.agentId,
+                        },
+                      ),
+                    );
+                  } else if (segment.type === "mention") {
                     decorations.push(
                       Decoration.inline(
                         position + offset,
@@ -181,7 +216,7 @@ function agentMentionDecorations() {
                 paragraphText,
                 $from.parentOffset,
                 $from.parentOffset,
-                mentionPeopleKey.getState(view.state) ?? [],
+                mentionPeopleKey.getState(view.state)?.aliases ?? [],
               );
               if (!edit) return false;
               const removedLength = paragraphText.length - edit.value.length;
@@ -266,6 +301,8 @@ export const ComposerRichText = forwardRef<
   ref,
 ) {
   const people = useMentionAliases();
+  const persons = useMentionPeople();
+  const appearance = useContext(AgentAppearanceContext);
   const applyingRef = useRef(false);
   const lastValueRef = useRef(value);
   const selectionRef = useRef<SelectionRange>({ from: 1, to: 1 });
@@ -346,9 +383,29 @@ export const ComposerRichText = forwardRef<
   }, [editor, value]);
 
   useEffect(() => {
-    if (editor && !editor.isDestroyed)
-      editor.view.dispatch(editor.state.tr.setMeta(mentionPeopleKey, people));
-  }, [editor, people]);
+    if (!editor || editor.isDestroyed) return;
+    const chip: MentionChip = (agentId, label) => {
+      if (persons.some((person) => person.id === agentId)) return null;
+      const element = document.createElement("span");
+      element.className = MENTION_CHIP_CLASS;
+      element.contentEditable = "false";
+      element.innerHTML = renderToStaticMarkup(
+        <AgentAppearanceContext.Provider value={appearance}>
+          <AgentAvatar
+            agentId={agentId}
+            label={label}
+            className="size-3.5 rounded-[4px]"
+            markClassName="size-2.5"
+          />
+        </AgentAppearanceContext.Provider>,
+      );
+      element.append(label);
+      return element;
+    };
+    editor.view.dispatch(
+      editor.state.tr.setMeta(mentionPeopleKey, { aliases: people, chip }),
+    );
+  }, [editor, people, persons, appearance]);
 
   useImperativeHandle(
     ref,

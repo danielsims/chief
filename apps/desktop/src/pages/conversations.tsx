@@ -26,6 +26,7 @@ import {
   useRequestedDirectMessage,
 } from "../components/chat/direct-message-opening";
 import { useWorkspaceUsers } from "../components/chat/mention-people-context";
+import { useOwnedAgents } from "../components/chat/owned-agents-value";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { workspaceCardClassName } from "../components/workspace-content-surface";
 import { useAuth } from "../lib/auth/auth-context";
@@ -47,6 +48,7 @@ import {
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
+import { useMessageableAgents } from "../lib/use-messageable-agents";
 import { useStartDirectMessage } from "../lib/use-start-direct-message";
 import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
@@ -83,7 +85,9 @@ export function ConversationsPage() {
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
-  const { agents: rootAgents, status: runtimeStatus } = useRuntime();
+  const { status: runtimeStatus } = useRuntime();
+  const rootAgents = useMessageableAgents();
+  const ownedAgents = useOwnedAgents();
   const { agentPresence } = useWorkspacePresence();
   const runtimeAgents = useMemo(
     () => rootAgents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]),
@@ -231,7 +235,12 @@ export function ConversationsPage() {
         .filter(
           (channel) =>
             channel.visibility !== "direct" &&
-            channel.agentIds.includes(activeProfileAgent.id),
+            (channel.agentIds.includes(activeProfileAgent.id) ||
+              ownedAgents.some(
+                (owned) =>
+                  owned.id === activeProfileAgent.id &&
+                  owned.channels.some((entry) => entry.id === channel.id),
+              )),
         )
         .map((channel) => ({
           id: channel.id,
