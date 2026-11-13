@@ -184,7 +184,16 @@ export class WorkspaceLifecycleService {
       imageURL: null,
       onboardingComplete: false,
       conversations: [
-        initialConversation("mission-control", "mission-control", "channel"),
+        // Guided setup gives each person a private Welcome instead.
+        ...(input.deferOnboarding
+          ? []
+          : [
+              initialConversation(
+                "mission-control",
+                "mission-control",
+                "channel",
+              ),
+            ]),
         initialConversation("general", "general", "channel"),
         initialConversation("chief", "Chief", "direct"),
       ],

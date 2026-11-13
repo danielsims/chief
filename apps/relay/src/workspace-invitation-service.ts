@@ -27,6 +27,7 @@ import { workspaceInvitesUpdateRevoke } from "./queries/workspace-invites/update
 import { workspaceFindAuthorize } from "./queries/workspace/find-authorize";
 import { firstRow, WorkspaceChannelStore } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
+import { ensureWelcomeChannel } from "./workspace-welcome";
 
 interface InviteRow extends Record<string, SqlStorageValue> {
   invite_id: string;
@@ -225,8 +226,11 @@ export class WorkspaceInvitationService {
     if (!existingClaim) {
       this.requireInviteAvailable(invite);
       const now = new Date().toISOString();
+      const workspaceId = this.workspaceSnapshot().id;
       this.storage.transactionSync(() => {
         membersInsertClaim(this.storage, userId, now);
+        // Everyone who joins gets their own private Welcome with Chief.
+        ensureWelcomeChannel(this.storage, { workspaceId, userId, now });
         const conversationId = invite.conversation_id ?? "general";
         const channel = firstRow<{ conversation_id: string }>(
           channelsFindCreateChannel(this.storage, conversationId),
@@ -263,8 +267,14 @@ export class WorkspaceInvitationService {
       );
     }
     const now = new Date().toISOString();
+    const workspaceId = this.workspaceSnapshot().id;
     this.storage.transactionSync(() => {
       membersInsertClaim(this.storage, identity.userId, now);
+      ensureWelcomeChannel(this.storage, {
+        workspaceId,
+        userId: identity.userId,
+        now,
+      });
       const general = firstRow<{ conversation_id: string }>(
         channelsFindJoinOrganizationMember(this.storage),
       );
