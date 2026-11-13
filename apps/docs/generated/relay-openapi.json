@@ -110,6 +110,41 @@
                         "type": "string",
                         "enum": ["phone", "desktop", "cloud"]
                       },
+                      "slug": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                      },
+                      "purpose": {
+                        "type": "string",
+                        "enum": ["personal", "company"]
+                      },
+                      "companyName": { "type": "string", "maxLength": 120 },
+                      "selectedAgentIds": {
+                        "maxItems": 10,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "researcher",
+                            "planner",
+                            "writer",
+                            "brand",
+                            "content",
+                            "analyst",
+                            "prospector",
+                            "ads",
+                            "engineer",
+                            "setup"
+                          ]
+                        }
+                      },
+                      "localProvider": {
+                        "type": "string",
+                        "enum": ["codex", "claude", "opencode"]
+                      },
+                      "deferOnboarding": { "type": "boolean" },
                       "agentRuntime": {
                         "type": "string",
                         "enum": ["relay-cell", "vercel-eve"]
@@ -194,6 +229,13 @@
                       "minLength": 1,
                       "maxLength": 120
                     },
+                    "slug": { "type": "string" },
+                    "purpose": {
+                      "type": "string",
+                      "enum": ["personal", "company"]
+                    },
+                    "companyName": { "type": "string" },
+                    "setupComplete": { "type": "boolean" },
                     "website": {
                       "default": "",
                       "type": "string",
@@ -293,6 +335,11 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "connectionKind": {
+                            "type": "string",
+                            "const": "owned"
+                          },
+                          "handle": { "type": "string" },
                           "ownerUserId": { "type": "string" },
                           "canMessage": { "type": "boolean" },
                           "canRunOnDevice": { "type": "boolean" },
@@ -651,6 +698,11 @@
                             "items": {
                               "type": "object",
                               "properties": {
+                                "connectionKind": {
+                                  "type": "string",
+                                  "const": "owned"
+                                },
+                                "handle": { "type": "string" },
                                 "ownerUserId": { "type": "string" },
                                 "canMessage": { "type": "boolean" },
                                 "canRunOnDevice": { "type": "boolean" },
@@ -1164,6 +1216,13 @@
                       "minLength": 1,
                       "maxLength": 120
                     },
+                    "slug": { "type": "string" },
+                    "purpose": {
+                      "type": "string",
+                      "enum": ["personal", "company"]
+                    },
+                    "companyName": { "type": "string" },
+                    "setupComplete": { "type": "boolean" },
                     "website": {
                       "default": "",
                       "type": "string",
@@ -1263,6 +1322,11 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "connectionKind": {
+                            "type": "string",
+                            "const": "owned"
+                          },
+                          "handle": { "type": "string" },
                           "ownerUserId": { "type": "string" },
                           "canMessage": { "type": "boolean" },
                           "canRunOnDevice": { "type": "boolean" },
@@ -1621,6 +1685,11 @@
                             "items": {
                               "type": "object",
                               "properties": {
+                                "connectionKind": {
+                                  "type": "string",
+                                  "const": "owned"
+                                },
+                                "handle": { "type": "string" },
                                 "ownerUserId": { "type": "string" },
                                 "canMessage": { "type": "boolean" },
                                 "canRunOnDevice": { "type": "boolean" },
@@ -2087,117 +2156,6 @@
                                   "id": { "type": "string", "const": "relay" }
                                 },
                                 "required": ["kind", "id"],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "kind": {
-                                    "type": "string",
-                                    "const": "guest"
-                                  },
-                                  "id": {
-                                    "type": "string",
-                                    "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                  },
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 80
-                                  },
-                                  "provider": {
-                                    "default": "other",
-                                    "type": "string",
-                                    "enum": [
-                                      "claude",
-                                      "openai",
-                                      "grok",
-                                      "gemini",
-                                      "opencode",
-                                      "openclaw",
-                                      "hermes",
-                                      "other"
-                                    ]
-                                  },
-                                  "model": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 80
-                                  },
-                                  "image": {
-                                    "type": "string",
-                                    "maxLength": 2048,
-                                    "format": "uri"
-                                  },
-                                  "mark": {
-                                    "type": "object",
-                                    "properties": {
-                                      "style": {
-                                        "type": "string",
-                                        "const": "grok-bot"
-                                      },
-                                      "shape": {
-                                        "type": "string",
-                                        "enum": [
-                                          "blob",
-                                          "pebble",
-                                          "bean",
-                                          "egg",
-                                          "squircle",
-                                          "tablet",
-                                          "capsule",
-                                          "cylinder",
-                                          "hex",
-                                          "gem",
-                                          "crystal",
-                                          "wedge",
-                                          "shield",
-                                          "dome",
-                                          "arch",
-                                          "cloud",
-                                          "teardrop",
-                                          "leaf"
-                                        ]
-                                      },
-                                      "color": {
-                                        "type": "string",
-                                        "enum": [
-                                          "black",
-                                          "brown",
-                                          "red",
-                                          "orange",
-                                          "yellow",
-                                          "green",
-                                          "cyan",
-                                          "blue",
-                                          "violet",
-                                          "magenta",
-                                          "gray"
-                                        ]
-                                      }
-                                    },
-                                    "required": ["style", "shape", "color"],
-                                    "additionalProperties": false
-                                  },
-                                  "operator": {
-                                    "type": "object",
-                                    "properties": {
-                                      "id": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128
-                                      },
-                                      "name": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      }
-                                    },
-                                    "required": ["id", "name"],
-                                    "additionalProperties": false
-                                  }
-                                },
-                                "required": ["kind", "id", "name", "provider"],
                                 "additionalProperties": false
                               }
                             ]
@@ -2706,114 +2664,6 @@
                                 "id": { "type": "string", "const": "relay" }
                               },
                               "required": ["kind", "id"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "const": "guest" },
-                                "id": {
-                                  "type": "string",
-                                  "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "provider": {
-                                  "default": "other",
-                                  "type": "string",
-                                  "enum": [
-                                    "claude",
-                                    "openai",
-                                    "grok",
-                                    "gemini",
-                                    "opencode",
-                                    "openclaw",
-                                    "hermes",
-                                    "other"
-                                  ]
-                                },
-                                "model": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "image": {
-                                  "type": "string",
-                                  "maxLength": 2048,
-                                  "format": "uri"
-                                },
-                                "mark": {
-                                  "type": "object",
-                                  "properties": {
-                                    "style": {
-                                      "type": "string",
-                                      "const": "grok-bot"
-                                    },
-                                    "shape": {
-                                      "type": "string",
-                                      "enum": [
-                                        "blob",
-                                        "pebble",
-                                        "bean",
-                                        "egg",
-                                        "squircle",
-                                        "tablet",
-                                        "capsule",
-                                        "cylinder",
-                                        "hex",
-                                        "gem",
-                                        "crystal",
-                                        "wedge",
-                                        "shield",
-                                        "dome",
-                                        "arch",
-                                        "cloud",
-                                        "teardrop",
-                                        "leaf"
-                                      ]
-                                    },
-                                    "color": {
-                                      "type": "string",
-                                      "enum": [
-                                        "black",
-                                        "brown",
-                                        "red",
-                                        "orange",
-                                        "yellow",
-                                        "green",
-                                        "cyan",
-                                        "blue",
-                                        "violet",
-                                        "magenta",
-                                        "gray"
-                                      ]
-                                    }
-                                  },
-                                  "required": ["style", "shape", "color"],
-                                  "additionalProperties": false
-                                },
-                                "operator": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
-                                    }
-                                  },
-                                  "required": ["id", "name"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["kind", "id", "name", "provider"],
                               "additionalProperties": false
                             }
                           ]
@@ -4374,6 +4224,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -4405,136 +4260,6 @@
                                       }
                                     },
                                     "required": ["kind", "service"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "provider": {
-                                        "default": "other",
-                                        "type": "string",
-                                        "enum": [
-                                          "claude",
-                                          "openai",
-                                          "grok",
-                                          "gemini",
-                                          "opencode",
-                                          "openclaw",
-                                          "hermes",
-                                          "other"
-                                        ]
-                                      },
-                                      "model": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "image": {
-                                        "type": "string",
-                                        "maxLength": 2048,
-                                        "format": "uri"
-                                      },
-                                      "mark": {
-                                        "type": "object",
-                                        "properties": {
-                                          "style": {
-                                            "type": "string",
-                                            "const": "grok-bot"
-                                          },
-                                          "shape": {
-                                            "type": "string",
-                                            "enum": [
-                                              "blob",
-                                              "pebble",
-                                              "bean",
-                                              "egg",
-                                              "squircle",
-                                              "tablet",
-                                              "capsule",
-                                              "cylinder",
-                                              "hex",
-                                              "gem",
-                                              "crystal",
-                                              "wedge",
-                                              "shield",
-                                              "dome",
-                                              "arch",
-                                              "cloud",
-                                              "teardrop",
-                                              "leaf"
-                                            ]
-                                          },
-                                          "color": {
-                                            "type": "string",
-                                            "enum": [
-                                              "black",
-                                              "brown",
-                                              "red",
-                                              "orange",
-                                              "yellow",
-                                              "green",
-                                              "cyan",
-                                              "blue",
-                                              "violet",
-                                              "magenta",
-                                              "gray"
-                                            ]
-                                          }
-                                        },
-                                        "required": ["style", "shape", "color"],
-                                        "additionalProperties": false
-                                      },
-                                      "operator": {
-                                        "type": "object",
-                                        "properties": {
-                                          "id": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 128
-                                          },
-                                          "name": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 80
-                                          }
-                                        },
-                                        "required": ["id", "name"],
-                                        "additionalProperties": false
-                                      },
-                                      "kind": {
-                                        "type": "string",
-                                        "const": "guest"
-                                      },
-                                      "guestId": {
-                                        "type": "string",
-                                        "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                      },
-                                      "workspaceId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      },
-                                      "conversationId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      }
-                                    },
-                                    "required": [
-                                      "name",
-                                      "provider",
-                                      "kind",
-                                      "guestId",
-                                      "workspaceId",
-                                      "conversationId"
-                                    ],
                                     "additionalProperties": false
                                   }
                                 ]
@@ -4630,126 +4355,6 @@
                                               }
                                             },
                                             "required": ["kind", "id"],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "kind": {
-                                                "type": "string",
-                                                "const": "guest"
-                                              },
-                                              "id": {
-                                                "type": "string",
-                                                "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                              },
-                                              "name": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "provider": {
-                                                "default": "other",
-                                                "type": "string",
-                                                "enum": [
-                                                  "claude",
-                                                  "openai",
-                                                  "grok",
-                                                  "gemini",
-                                                  "opencode",
-                                                  "openclaw",
-                                                  "hermes",
-                                                  "other"
-                                                ]
-                                              },
-                                              "model": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "image": {
-                                                "type": "string",
-                                                "maxLength": 2048,
-                                                "format": "uri"
-                                              },
-                                              "mark": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "style": {
-                                                    "type": "string",
-                                                    "const": "grok-bot"
-                                                  },
-                                                  "shape": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "blob",
-                                                      "pebble",
-                                                      "bean",
-                                                      "egg",
-                                                      "squircle",
-                                                      "tablet",
-                                                      "capsule",
-                                                      "cylinder",
-                                                      "hex",
-                                                      "gem",
-                                                      "crystal",
-                                                      "wedge",
-                                                      "shield",
-                                                      "dome",
-                                                      "arch",
-                                                      "cloud",
-                                                      "teardrop",
-                                                      "leaf"
-                                                    ]
-                                                  },
-                                                  "color": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "black",
-                                                      "brown",
-                                                      "red",
-                                                      "orange",
-                                                      "yellow",
-                                                      "green",
-                                                      "cyan",
-                                                      "blue",
-                                                      "violet",
-                                                      "magenta",
-                                                      "gray"
-                                                    ]
-                                                  }
-                                                },
-                                                "required": [
-                                                  "style",
-                                                  "shape",
-                                                  "color"
-                                                ],
-                                                "additionalProperties": false
-                                              },
-                                              "operator": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "id": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 128
-                                                  },
-                                                  "name": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 80
-                                                  }
-                                                },
-                                                "required": ["id", "name"],
-                                                "additionalProperties": false
-                                              }
-                                            },
-                                            "required": [
-                                              "kind",
-                                              "id",
-                                              "name",
-                                              "provider"
-                                            ],
                                             "additionalProperties": false
                                           }
                                         ]
@@ -4993,6 +4598,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -5024,136 +4634,6 @@
                                       }
                                     },
                                     "required": ["kind", "service"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "provider": {
-                                        "default": "other",
-                                        "type": "string",
-                                        "enum": [
-                                          "claude",
-                                          "openai",
-                                          "grok",
-                                          "gemini",
-                                          "opencode",
-                                          "openclaw",
-                                          "hermes",
-                                          "other"
-                                        ]
-                                      },
-                                      "model": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "image": {
-                                        "type": "string",
-                                        "maxLength": 2048,
-                                        "format": "uri"
-                                      },
-                                      "mark": {
-                                        "type": "object",
-                                        "properties": {
-                                          "style": {
-                                            "type": "string",
-                                            "const": "grok-bot"
-                                          },
-                                          "shape": {
-                                            "type": "string",
-                                            "enum": [
-                                              "blob",
-                                              "pebble",
-                                              "bean",
-                                              "egg",
-                                              "squircle",
-                                              "tablet",
-                                              "capsule",
-                                              "cylinder",
-                                              "hex",
-                                              "gem",
-                                              "crystal",
-                                              "wedge",
-                                              "shield",
-                                              "dome",
-                                              "arch",
-                                              "cloud",
-                                              "teardrop",
-                                              "leaf"
-                                            ]
-                                          },
-                                          "color": {
-                                            "type": "string",
-                                            "enum": [
-                                              "black",
-                                              "brown",
-                                              "red",
-                                              "orange",
-                                              "yellow",
-                                              "green",
-                                              "cyan",
-                                              "blue",
-                                              "violet",
-                                              "magenta",
-                                              "gray"
-                                            ]
-                                          }
-                                        },
-                                        "required": ["style", "shape", "color"],
-                                        "additionalProperties": false
-                                      },
-                                      "operator": {
-                                        "type": "object",
-                                        "properties": {
-                                          "id": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 128
-                                          },
-                                          "name": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 80
-                                          }
-                                        },
-                                        "required": ["id", "name"],
-                                        "additionalProperties": false
-                                      },
-                                      "kind": {
-                                        "type": "string",
-                                        "const": "guest"
-                                      },
-                                      "guestId": {
-                                        "type": "string",
-                                        "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                      },
-                                      "workspaceId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      },
-                                      "conversationId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      }
-                                    },
-                                    "required": [
-                                      "name",
-                                      "provider",
-                                      "kind",
-                                      "guestId",
-                                      "workspaceId",
-                                      "conversationId"
-                                    ],
                                     "additionalProperties": false
                                   }
                                 ]
@@ -5249,126 +4729,6 @@
                                               }
                                             },
                                             "required": ["kind", "id"],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "kind": {
-                                                "type": "string",
-                                                "const": "guest"
-                                              },
-                                              "id": {
-                                                "type": "string",
-                                                "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                              },
-                                              "name": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "provider": {
-                                                "default": "other",
-                                                "type": "string",
-                                                "enum": [
-                                                  "claude",
-                                                  "openai",
-                                                  "grok",
-                                                  "gemini",
-                                                  "opencode",
-                                                  "openclaw",
-                                                  "hermes",
-                                                  "other"
-                                                ]
-                                              },
-                                              "model": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "image": {
-                                                "type": "string",
-                                                "maxLength": 2048,
-                                                "format": "uri"
-                                              },
-                                              "mark": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "style": {
-                                                    "type": "string",
-                                                    "const": "grok-bot"
-                                                  },
-                                                  "shape": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "blob",
-                                                      "pebble",
-                                                      "bean",
-                                                      "egg",
-                                                      "squircle",
-                                                      "tablet",
-                                                      "capsule",
-                                                      "cylinder",
-                                                      "hex",
-                                                      "gem",
-                                                      "crystal",
-                                                      "wedge",
-                                                      "shield",
-                                                      "dome",
-                                                      "arch",
-                                                      "cloud",
-                                                      "teardrop",
-                                                      "leaf"
-                                                    ]
-                                                  },
-                                                  "color": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "black",
-                                                      "brown",
-                                                      "red",
-                                                      "orange",
-                                                      "yellow",
-                                                      "green",
-                                                      "cyan",
-                                                      "blue",
-                                                      "violet",
-                                                      "magenta",
-                                                      "gray"
-                                                    ]
-                                                  }
-                                                },
-                                                "required": [
-                                                  "style",
-                                                  "shape",
-                                                  "color"
-                                                ],
-                                                "additionalProperties": false
-                                              },
-                                              "operator": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "id": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 128
-                                                  },
-                                                  "name": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 80
-                                                  }
-                                                },
-                                                "required": ["id", "name"],
-                                                "additionalProperties": false
-                                              }
-                                            },
-                                            "required": [
-                                              "kind",
-                                              "id",
-                                              "name",
-                                              "provider"
-                                            ],
                                             "additionalProperties": false
                                           }
                                         ]
@@ -5612,6 +4972,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -5643,136 +5008,6 @@
                                       }
                                     },
                                     "required": ["kind", "service"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "provider": {
-                                        "default": "other",
-                                        "type": "string",
-                                        "enum": [
-                                          "claude",
-                                          "openai",
-                                          "grok",
-                                          "gemini",
-                                          "opencode",
-                                          "openclaw",
-                                          "hermes",
-                                          "other"
-                                        ]
-                                      },
-                                      "model": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "image": {
-                                        "type": "string",
-                                        "maxLength": 2048,
-                                        "format": "uri"
-                                      },
-                                      "mark": {
-                                        "type": "object",
-                                        "properties": {
-                                          "style": {
-                                            "type": "string",
-                                            "const": "grok-bot"
-                                          },
-                                          "shape": {
-                                            "type": "string",
-                                            "enum": [
-                                              "blob",
-                                              "pebble",
-                                              "bean",
-                                              "egg",
-                                              "squircle",
-                                              "tablet",
-                                              "capsule",
-                                              "cylinder",
-                                              "hex",
-                                              "gem",
-                                              "crystal",
-                                              "wedge",
-                                              "shield",
-                                              "dome",
-                                              "arch",
-                                              "cloud",
-                                              "teardrop",
-                                              "leaf"
-                                            ]
-                                          },
-                                          "color": {
-                                            "type": "string",
-                                            "enum": [
-                                              "black",
-                                              "brown",
-                                              "red",
-                                              "orange",
-                                              "yellow",
-                                              "green",
-                                              "cyan",
-                                              "blue",
-                                              "violet",
-                                              "magenta",
-                                              "gray"
-                                            ]
-                                          }
-                                        },
-                                        "required": ["style", "shape", "color"],
-                                        "additionalProperties": false
-                                      },
-                                      "operator": {
-                                        "type": "object",
-                                        "properties": {
-                                          "id": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 128
-                                          },
-                                          "name": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 80
-                                          }
-                                        },
-                                        "required": ["id", "name"],
-                                        "additionalProperties": false
-                                      },
-                                      "kind": {
-                                        "type": "string",
-                                        "const": "guest"
-                                      },
-                                      "guestId": {
-                                        "type": "string",
-                                        "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                      },
-                                      "workspaceId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      },
-                                      "conversationId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      }
-                                    },
-                                    "required": [
-                                      "name",
-                                      "provider",
-                                      "kind",
-                                      "guestId",
-                                      "workspaceId",
-                                      "conversationId"
-                                    ],
                                     "additionalProperties": false
                                   }
                                 ]
@@ -5868,126 +5103,6 @@
                                               }
                                             },
                                             "required": ["kind", "id"],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "kind": {
-                                                "type": "string",
-                                                "const": "guest"
-                                              },
-                                              "id": {
-                                                "type": "string",
-                                                "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                              },
-                                              "name": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "provider": {
-                                                "default": "other",
-                                                "type": "string",
-                                                "enum": [
-                                                  "claude",
-                                                  "openai",
-                                                  "grok",
-                                                  "gemini",
-                                                  "opencode",
-                                                  "openclaw",
-                                                  "hermes",
-                                                  "other"
-                                                ]
-                                              },
-                                              "model": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "image": {
-                                                "type": "string",
-                                                "maxLength": 2048,
-                                                "format": "uri"
-                                              },
-                                              "mark": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "style": {
-                                                    "type": "string",
-                                                    "const": "grok-bot"
-                                                  },
-                                                  "shape": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "blob",
-                                                      "pebble",
-                                                      "bean",
-                                                      "egg",
-                                                      "squircle",
-                                                      "tablet",
-                                                      "capsule",
-                                                      "cylinder",
-                                                      "hex",
-                                                      "gem",
-                                                      "crystal",
-                                                      "wedge",
-                                                      "shield",
-                                                      "dome",
-                                                      "arch",
-                                                      "cloud",
-                                                      "teardrop",
-                                                      "leaf"
-                                                    ]
-                                                  },
-                                                  "color": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "black",
-                                                      "brown",
-                                                      "red",
-                                                      "orange",
-                                                      "yellow",
-                                                      "green",
-                                                      "cyan",
-                                                      "blue",
-                                                      "violet",
-                                                      "magenta",
-                                                      "gray"
-                                                    ]
-                                                  }
-                                                },
-                                                "required": [
-                                                  "style",
-                                                  "shape",
-                                                  "color"
-                                                ],
-                                                "additionalProperties": false
-                                              },
-                                              "operator": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "id": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 128
-                                                  },
-                                                  "name": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 80
-                                                  }
-                                                },
-                                                "required": ["id", "name"],
-                                                "additionalProperties": false
-                                              }
-                                            },
-                                            "required": [
-                                              "kind",
-                                              "id",
-                                              "name",
-                                              "provider"
-                                            ],
                                             "additionalProperties": false
                                           }
                                         ]
@@ -6231,6 +5346,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -6262,136 +5382,6 @@
                                       }
                                     },
                                     "required": ["kind", "service"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "provider": {
-                                        "default": "other",
-                                        "type": "string",
-                                        "enum": [
-                                          "claude",
-                                          "openai",
-                                          "grok",
-                                          "gemini",
-                                          "opencode",
-                                          "openclaw",
-                                          "hermes",
-                                          "other"
-                                        ]
-                                      },
-                                      "model": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 80
-                                      },
-                                      "image": {
-                                        "type": "string",
-                                        "maxLength": 2048,
-                                        "format": "uri"
-                                      },
-                                      "mark": {
-                                        "type": "object",
-                                        "properties": {
-                                          "style": {
-                                            "type": "string",
-                                            "const": "grok-bot"
-                                          },
-                                          "shape": {
-                                            "type": "string",
-                                            "enum": [
-                                              "blob",
-                                              "pebble",
-                                              "bean",
-                                              "egg",
-                                              "squircle",
-                                              "tablet",
-                                              "capsule",
-                                              "cylinder",
-                                              "hex",
-                                              "gem",
-                                              "crystal",
-                                              "wedge",
-                                              "shield",
-                                              "dome",
-                                              "arch",
-                                              "cloud",
-                                              "teardrop",
-                                              "leaf"
-                                            ]
-                                          },
-                                          "color": {
-                                            "type": "string",
-                                            "enum": [
-                                              "black",
-                                              "brown",
-                                              "red",
-                                              "orange",
-                                              "yellow",
-                                              "green",
-                                              "cyan",
-                                              "blue",
-                                              "violet",
-                                              "magenta",
-                                              "gray"
-                                            ]
-                                          }
-                                        },
-                                        "required": ["style", "shape", "color"],
-                                        "additionalProperties": false
-                                      },
-                                      "operator": {
-                                        "type": "object",
-                                        "properties": {
-                                          "id": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 128
-                                          },
-                                          "name": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 80
-                                          }
-                                        },
-                                        "required": ["id", "name"],
-                                        "additionalProperties": false
-                                      },
-                                      "kind": {
-                                        "type": "string",
-                                        "const": "guest"
-                                      },
-                                      "guestId": {
-                                        "type": "string",
-                                        "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                      },
-                                      "workspaceId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      },
-                                      "conversationId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 128,
-                                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-                                      }
-                                    },
-                                    "required": [
-                                      "name",
-                                      "provider",
-                                      "kind",
-                                      "guestId",
-                                      "workspaceId",
-                                      "conversationId"
-                                    ],
                                     "additionalProperties": false
                                   }
                                 ]
@@ -6487,126 +5477,6 @@
                                               }
                                             },
                                             "required": ["kind", "id"],
-                                            "additionalProperties": false
-                                          },
-                                          {
-                                            "type": "object",
-                                            "properties": {
-                                              "kind": {
-                                                "type": "string",
-                                                "const": "guest"
-                                              },
-                                              "id": {
-                                                "type": "string",
-                                                "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                              },
-                                              "name": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "provider": {
-                                                "default": "other",
-                                                "type": "string",
-                                                "enum": [
-                                                  "claude",
-                                                  "openai",
-                                                  "grok",
-                                                  "gemini",
-                                                  "opencode",
-                                                  "openclaw",
-                                                  "hermes",
-                                                  "other"
-                                                ]
-                                              },
-                                              "model": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 80
-                                              },
-                                              "image": {
-                                                "type": "string",
-                                                "maxLength": 2048,
-                                                "format": "uri"
-                                              },
-                                              "mark": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "style": {
-                                                    "type": "string",
-                                                    "const": "grok-bot"
-                                                  },
-                                                  "shape": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "blob",
-                                                      "pebble",
-                                                      "bean",
-                                                      "egg",
-                                                      "squircle",
-                                                      "tablet",
-                                                      "capsule",
-                                                      "cylinder",
-                                                      "hex",
-                                                      "gem",
-                                                      "crystal",
-                                                      "wedge",
-                                                      "shield",
-                                                      "dome",
-                                                      "arch",
-                                                      "cloud",
-                                                      "teardrop",
-                                                      "leaf"
-                                                    ]
-                                                  },
-                                                  "color": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                      "black",
-                                                      "brown",
-                                                      "red",
-                                                      "orange",
-                                                      "yellow",
-                                                      "green",
-                                                      "cyan",
-                                                      "blue",
-                                                      "violet",
-                                                      "magenta",
-                                                      "gray"
-                                                    ]
-                                                  }
-                                                },
-                                                "required": [
-                                                  "style",
-                                                  "shape",
-                                                  "color"
-                                                ],
-                                                "additionalProperties": false
-                                              },
-                                              "operator": {
-                                                "type": "object",
-                                                "properties": {
-                                                  "id": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 128
-                                                  },
-                                                  "name": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 80
-                                                  }
-                                                },
-                                                "required": ["id", "name"],
-                                                "additionalProperties": false
-                                              }
-                                            },
-                                            "required": [
-                                              "kind",
-                                              "id",
-                                              "name",
-                                              "provider"
-                                            ],
                                             "additionalProperties": false
                                           }
                                         ]
@@ -7247,114 +6117,6 @@
                               },
                               "required": ["kind", "id"],
                               "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "const": "guest" },
-                                "id": {
-                                  "type": "string",
-                                  "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "provider": {
-                                  "default": "other",
-                                  "type": "string",
-                                  "enum": [
-                                    "claude",
-                                    "openai",
-                                    "grok",
-                                    "gemini",
-                                    "opencode",
-                                    "openclaw",
-                                    "hermes",
-                                    "other"
-                                  ]
-                                },
-                                "model": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "image": {
-                                  "type": "string",
-                                  "maxLength": 2048,
-                                  "format": "uri"
-                                },
-                                "mark": {
-                                  "type": "object",
-                                  "properties": {
-                                    "style": {
-                                      "type": "string",
-                                      "const": "grok-bot"
-                                    },
-                                    "shape": {
-                                      "type": "string",
-                                      "enum": [
-                                        "blob",
-                                        "pebble",
-                                        "bean",
-                                        "egg",
-                                        "squircle",
-                                        "tablet",
-                                        "capsule",
-                                        "cylinder",
-                                        "hex",
-                                        "gem",
-                                        "crystal",
-                                        "wedge",
-                                        "shield",
-                                        "dome",
-                                        "arch",
-                                        "cloud",
-                                        "teardrop",
-                                        "leaf"
-                                      ]
-                                    },
-                                    "color": {
-                                      "type": "string",
-                                      "enum": [
-                                        "black",
-                                        "brown",
-                                        "red",
-                                        "orange",
-                                        "yellow",
-                                        "green",
-                                        "cyan",
-                                        "blue",
-                                        "violet",
-                                        "magenta",
-                                        "gray"
-                                      ]
-                                    }
-                                  },
-                                  "required": ["style", "shape", "color"],
-                                  "additionalProperties": false
-                                },
-                                "operator": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
-                                    }
-                                  },
-                                  "required": ["id", "name"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["kind", "id", "name", "provider"],
-                              "additionalProperties": false
                             }
                           ]
                         },
@@ -7919,114 +6681,6 @@
                                 "id": { "type": "string", "const": "relay" }
                               },
                               "required": ["kind", "id"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "const": "guest" },
-                                "id": {
-                                  "type": "string",
-                                  "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "provider": {
-                                  "default": "other",
-                                  "type": "string",
-                                  "enum": [
-                                    "claude",
-                                    "openai",
-                                    "grok",
-                                    "gemini",
-                                    "opencode",
-                                    "openclaw",
-                                    "hermes",
-                                    "other"
-                                  ]
-                                },
-                                "model": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "image": {
-                                  "type": "string",
-                                  "maxLength": 2048,
-                                  "format": "uri"
-                                },
-                                "mark": {
-                                  "type": "object",
-                                  "properties": {
-                                    "style": {
-                                      "type": "string",
-                                      "const": "grok-bot"
-                                    },
-                                    "shape": {
-                                      "type": "string",
-                                      "enum": [
-                                        "blob",
-                                        "pebble",
-                                        "bean",
-                                        "egg",
-                                        "squircle",
-                                        "tablet",
-                                        "capsule",
-                                        "cylinder",
-                                        "hex",
-                                        "gem",
-                                        "crystal",
-                                        "wedge",
-                                        "shield",
-                                        "dome",
-                                        "arch",
-                                        "cloud",
-                                        "teardrop",
-                                        "leaf"
-                                      ]
-                                    },
-                                    "color": {
-                                      "type": "string",
-                                      "enum": [
-                                        "black",
-                                        "brown",
-                                        "red",
-                                        "orange",
-                                        "yellow",
-                                        "green",
-                                        "cyan",
-                                        "blue",
-                                        "violet",
-                                        "magenta",
-                                        "gray"
-                                      ]
-                                    }
-                                  },
-                                  "required": ["style", "shape", "color"],
-                                  "additionalProperties": false
-                                },
-                                "operator": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
-                                    }
-                                  },
-                                  "required": ["id", "name"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["kind", "id", "name", "provider"],
                               "additionalProperties": false
                             }
                           ]
@@ -8746,114 +7400,6 @@
                               },
                               "required": ["kind", "id"],
                               "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "const": "guest" },
-                                "id": {
-                                  "type": "string",
-                                  "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "provider": {
-                                  "default": "other",
-                                  "type": "string",
-                                  "enum": [
-                                    "claude",
-                                    "openai",
-                                    "grok",
-                                    "gemini",
-                                    "opencode",
-                                    "openclaw",
-                                    "hermes",
-                                    "other"
-                                  ]
-                                },
-                                "model": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "image": {
-                                  "type": "string",
-                                  "maxLength": 2048,
-                                  "format": "uri"
-                                },
-                                "mark": {
-                                  "type": "object",
-                                  "properties": {
-                                    "style": {
-                                      "type": "string",
-                                      "const": "grok-bot"
-                                    },
-                                    "shape": {
-                                      "type": "string",
-                                      "enum": [
-                                        "blob",
-                                        "pebble",
-                                        "bean",
-                                        "egg",
-                                        "squircle",
-                                        "tablet",
-                                        "capsule",
-                                        "cylinder",
-                                        "hex",
-                                        "gem",
-                                        "crystal",
-                                        "wedge",
-                                        "shield",
-                                        "dome",
-                                        "arch",
-                                        "cloud",
-                                        "teardrop",
-                                        "leaf"
-                                      ]
-                                    },
-                                    "color": {
-                                      "type": "string",
-                                      "enum": [
-                                        "black",
-                                        "brown",
-                                        "red",
-                                        "orange",
-                                        "yellow",
-                                        "green",
-                                        "cyan",
-                                        "blue",
-                                        "violet",
-                                        "magenta",
-                                        "gray"
-                                      ]
-                                    }
-                                  },
-                                  "required": ["style", "shape", "color"],
-                                  "additionalProperties": false
-                                },
-                                "operator": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
-                                    }
-                                  },
-                                  "required": ["id", "name"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["kind", "id", "name", "provider"],
-                              "additionalProperties": false
                             }
                           ]
                         },
@@ -9437,114 +7983,6 @@
                                 "id": { "type": "string", "const": "relay" }
                               },
                               "required": ["kind", "id"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": { "type": "string", "const": "guest" },
-                                "id": {
-                                  "type": "string",
-                                  "pattern": "^guest_[A-Za-z0-9_-]{16,64}$"
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "provider": {
-                                  "default": "other",
-                                  "type": "string",
-                                  "enum": [
-                                    "claude",
-                                    "openai",
-                                    "grok",
-                                    "gemini",
-                                    "opencode",
-                                    "openclaw",
-                                    "hermes",
-                                    "other"
-                                  ]
-                                },
-                                "model": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 80
-                                },
-                                "image": {
-                                  "type": "string",
-                                  "maxLength": 2048,
-                                  "format": "uri"
-                                },
-                                "mark": {
-                                  "type": "object",
-                                  "properties": {
-                                    "style": {
-                                      "type": "string",
-                                      "const": "grok-bot"
-                                    },
-                                    "shape": {
-                                      "type": "string",
-                                      "enum": [
-                                        "blob",
-                                        "pebble",
-                                        "bean",
-                                        "egg",
-                                        "squircle",
-                                        "tablet",
-                                        "capsule",
-                                        "cylinder",
-                                        "hex",
-                                        "gem",
-                                        "crystal",
-                                        "wedge",
-                                        "shield",
-                                        "dome",
-                                        "arch",
-                                        "cloud",
-                                        "teardrop",
-                                        "leaf"
-                                      ]
-                                    },
-                                    "color": {
-                                      "type": "string",
-                                      "enum": [
-                                        "black",
-                                        "brown",
-                                        "red",
-                                        "orange",
-                                        "yellow",
-                                        "green",
-                                        "cyan",
-                                        "blue",
-                                        "violet",
-                                        "magenta",
-                                        "gray"
-                                      ]
-                                    }
-                                  },
-                                  "required": ["style", "shape", "color"],
-                                  "additionalProperties": false
-                                },
-                                "operator": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 80
-                                    }
-                                  },
-                                  "required": ["id", "name"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["kind", "id", "name", "provider"],
                               "additionalProperties": false
                             }
                           ]
