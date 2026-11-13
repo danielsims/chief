@@ -110,6 +110,40 @@
                         "type": "string",
                         "enum": ["phone", "desktop", "cloud"]
                       },
+                      "slug": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                      },
+                      "purpose": {
+                        "type": "string",
+                        "enum": ["personal", "company"]
+                      },
+                      "companyName": { "type": "string", "maxLength": 120 },
+                      "selectedAgentIds": {
+                        "maxItems": 10,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "researcher",
+                            "planner",
+                            "writer",
+                            "brand",
+                            "content",
+                            "analyst",
+                            "prospector",
+                            "ads",
+                            "engineer",
+                            "setup"
+                          ]
+                        }
+                      },
+                      "localProvider": {
+                        "type": "string",
+                        "enum": ["codex", "claude", "opencode"]
+                      },
                       "agentRuntime": {
                         "type": "string",
                         "enum": ["relay-cell", "vercel-eve"]
@@ -194,6 +228,13 @@
                       "minLength": 1,
                       "maxLength": 120
                     },
+                    "slug": { "type": "string" },
+                    "purpose": {
+                      "type": "string",
+                      "enum": ["personal", "company"]
+                    },
+                    "companyName": { "type": "string" },
+                    "setupComplete": { "type": "boolean" },
                     "website": {
                       "default": "",
                       "type": "string",
@@ -293,6 +334,11 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "connectionKind": {
+                            "type": "string",
+                            "const": "owned"
+                          },
+                          "handle": { "type": "string" },
                           "ownerUserId": { "type": "string" },
                           "canMessage": { "type": "boolean" },
                           "canRunOnDevice": { "type": "boolean" },
@@ -651,6 +697,11 @@
                             "items": {
                               "type": "object",
                               "properties": {
+                                "connectionKind": {
+                                  "type": "string",
+                                  "const": "owned"
+                                },
+                                "handle": { "type": "string" },
                                 "ownerUserId": { "type": "string" },
                                 "canMessage": { "type": "boolean" },
                                 "canRunOnDevice": { "type": "boolean" },
@@ -859,12 +910,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -1164,6 +1213,13 @@
                       "minLength": 1,
                       "maxLength": 120
                     },
+                    "slug": { "type": "string" },
+                    "purpose": {
+                      "type": "string",
+                      "enum": ["personal", "company"]
+                    },
+                    "companyName": { "type": "string" },
+                    "setupComplete": { "type": "boolean" },
                     "website": {
                       "default": "",
                       "type": "string",
@@ -1263,6 +1319,11 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "connectionKind": {
+                            "type": "string",
+                            "const": "owned"
+                          },
+                          "handle": { "type": "string" },
                           "ownerUserId": { "type": "string" },
                           "canMessage": { "type": "boolean" },
                           "canRunOnDevice": { "type": "boolean" },
@@ -1621,6 +1682,11 @@
                             "items": {
                               "type": "object",
                               "properties": {
+                                "connectionKind": {
+                                  "type": "string",
+                                  "const": "owned"
+                                },
+                                "handle": { "type": "string" },
                                 "ownerUserId": { "type": "string" },
                                 "canMessage": { "type": "boolean" },
                                 "canRunOnDevice": { "type": "boolean" },
@@ -1829,12 +1895,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -4155,6 +4219,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -4524,6 +4593,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -4893,6 +4967,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -5262,6 +5341,11 @@
                                       "role": {
                                         "type": "string",
                                         "enum": ["owner", "admin", "member"]
+                                      },
+                                      "ownerUserId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
                                       }
                                     },
                                     "required": [
@@ -10816,12 +10900,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -11060,16 +11142,8 @@
                       "bitbucket"
                     ]
                   },
-                  "canonicalRemoteUrl": {
-                    "type": "string",
-                    "maxLength": 2048,
-                    "format": "uri"
-                  },
-                  "repositoryWebUrl": {
-                    "type": "string",
-                    "maxLength": 2048,
-                    "format": "uri"
-                  },
+                  "canonicalRemoteUrl": { "type": "string", "format": "uri" },
+                  "repositoryWebUrl": { "type": "string", "format": "uri" },
                   "repositoryFiles": {
                     "maxItems": 1000,
                     "type": "array",
@@ -11151,16 +11225,8 @@
                         "bitbucket"
                       ]
                     },
-                    "canonicalRemoteUrl": {
-                      "type": "string",
-                      "maxLength": 2048,
-                      "format": "uri"
-                    },
-                    "repositoryWebUrl": {
-                      "type": "string",
-                      "maxLength": 2048,
-                      "format": "uri"
-                    },
+                    "canonicalRemoteUrl": { "type": "string", "format": "uri" },
+                    "repositoryWebUrl": { "type": "string", "format": "uri" },
                     "repositoryFiles": {
                       "maxItems": 1000,
                       "type": "array",

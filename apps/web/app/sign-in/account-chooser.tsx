@@ -3,10 +3,18 @@
 import { useState } from "react";
 import Image from "next/image";
 
-import { Button } from "@chief/ui/components/button";
+import {
+  HandoffCard,
+  HandoffHeading,
+  HandoffNote,
+  handoffPrimaryClassName,
+  handoffSecondaryClassName,
+  HandoffWorkspace,
+} from "@chief/ui/components/handoff-card";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { SignInAccount, SignInWorkspace } from "../../lib/sign-in-context";
+import { ChiefBrand } from "../chief-brand";
 
 export function AccountChooser({
   account,
@@ -26,59 +34,50 @@ export function AccountChooser({
   workspace: SignInWorkspace | null;
 }) {
   return (
-    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="px-6 pt-6">
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
-        />
-      </header>
-      <div className="flex flex-1 items-center justify-center px-8 pb-20">
-        <div className="mx-auto flex w-full max-w-sm flex-col items-center text-center">
+    <HandoffCard brand={<ChiefBrand />}>
+      <HandoffHeading title="Welcome back">
+        {workspace ? (
+          <span className="inline-flex items-center gap-1.5">
+            Continue to
+            <Picture
+              className="size-4 rounded-[4px] text-[9px]"
+              image={workspace.image}
+              name={workspace.name}
+            />
+            <span className="text-foreground">{workspace.name}</span>
+          </span>
+        ) : (
+          "Continue to Chief with this account."
+        )}
+      </HandoffHeading>
+      <HandoffWorkspace
+        icon={
           <Picture
-            className="h-16 w-16 rounded-full text-2xl"
+            className="size-10 rounded-full text-base"
             image={account.image}
             name={account.name}
           />
-          <h1 className="mt-6 text-3xl leading-tight font-normal">
-            {account.name}
-          </h1>
-          {account.name !== account.email ? (
-            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-              {account.email}
-            </p>
-          ) : null}
-          {workspace ? (
-            <p className="text-muted-foreground mt-6 inline-flex items-center gap-2 text-sm">
-              Continue to
-              <Picture
-                className="h-5 w-5 rounded-[5px] text-[11px]"
-                image={workspace.image}
-                name={workspace.name}
-              />
-              <span className="text-foreground">{workspace.name}</span>
-            </p>
-          ) : null}
-          <Button className="mt-8 h-11 w-full" onClick={onContinue}>
-            Continue as {account.name}
-          </Button>
-          <Button
-            className="text-muted-foreground hover:text-foreground mt-2 h-11 w-full"
-            disabled={signingOut}
-            onClick={onSignOut}
-            variant="ghost"
-          >
-            {signOutLabel}
-          </Button>
-          {error ? (
-            <p className="text-destructive mt-4 text-sm leading-5">{error}</p>
-          ) : null}
-        </div>
-      </div>
-    </main>
+        }
+        name={account.name}
+        detail={account.name !== account.email ? account.email : undefined}
+      />
+      <button
+        type="button"
+        className={handoffPrimaryClassName}
+        onClick={onContinue}
+      >
+        Continue as {account.name}
+      </button>
+      <button
+        type="button"
+        className={handoffSecondaryClassName}
+        disabled={signingOut}
+        onClick={onSignOut}
+      >
+        {signOutLabel}
+      </button>
+      {error ? <HandoffNote tone="error">{error}</HandoffNote> : null}
+    </HandoffCard>
   );
 }
 

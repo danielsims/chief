@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   BellRing,
@@ -102,9 +102,14 @@ export function NotificationsSettings() {
   const [testResult, setTestResult] =
     useState<DesktopNotificationTestResult | null>(null);
   const [testing, setTesting] = useState(false);
+  const [testCountdown, setTestCountdown] = useState<number | null>(null);
+  const testTimer = useRef<number | null>(null);
 
   useEffect(() => {
     void desktopNotificationEnvironment().then(setEnvironment);
+    return () => {
+      if (testTimer.current !== null) window.clearInterval(testTimer.current);
+    };
   }, []);
 
   const chooseSound = (sound: NotificationSound) => {
@@ -121,13 +126,29 @@ export function NotificationsSettings() {
     setEnvironment(await desktopNotificationEnvironment());
   };
 
-  const sendTestNotification = async () => {
+  const sendTestNotification = () => {
+    if (testTimer.current !== null || testing) return;
     setTesting(true);
-    const result = await testDesktopNotification();
-    setTestResult(result);
-    setEnvironment(result.environment);
-    if (result.delivered) setDesktopEnabled(true);
-    setTesting(false);
+    setTestResult(null);
+    setTestCountdown(10);
+    const deadline = Date.now() + 10_000;
+    testTimer.current = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTestCountdown(remaining);
+      if (remaining > 0) return;
+      if (testTimer.current !== null) window.clearInterval(testTimer.current);
+      testTimer.current = null;
+      void testDesktopNotification()
+        .then((result) => {
+          setTestResult(result);
+          setEnvironment(result.environment);
+          if (result.delivered) setDesktopEnabled(true);
+        })
+        .finally(() => {
+          setTestCountdown(null);
+          setTesting(false);
+        });
+    }, 250);
   };
 
   return (
@@ -189,8 +210,26 @@ export function NotificationsSettings() {
                 onClick={() => void sendTestNotification()}
               >
                 <BellRing size={14} />
-                {testing ? "Sending…" : "Send test notification"}
+                {testCountdown !== null
+                  ? `Sending in ${testCountdown}s…`
+                  : testing
+                    ? "Sending…"
+                    : "Send test notification"}
               </Button>
+              {testCountdown !== null ? (
+                <p
+                  role="status"
+                  className="text-muted-foreground mt-2 text-xs leading-5"
+                >
+                  Minimize Chief now to check the macOS banner and sound.
+                </p>
+              ) : null}
+              {testResult?.delivered && environment?.nativePermissionChecks ? (
+                <p className="text-muted-foreground mt-2 max-w-xl text-xs leading-5">
+                  No banner? Check Focus and System Settings → Notifications →
+                  when mirroring or sharing the display → Allow Notifications.
+                </p>
+              ) : null}
             </div>
             <Switch
               aria-label="Show desktop notifications"

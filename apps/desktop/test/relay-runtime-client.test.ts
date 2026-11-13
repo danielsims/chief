@@ -472,5 +472,127 @@ void test("refreshes the sidebar channel roster when a live membership grant arr
       .find((channel) => channel.id === "marketing")
       ?.userIds.includes("workspace-owner"),
   );
+  // The roster can know a channel before the initial workspace snapshot does.
+  // Its messages must reach unread counts and notifications without opening it.
+  const liveMessages: ServerMessage[] = [];
+  client.subscribe((message) => {
+    if (message.type === "channelEvent") liveMessages.push(message);
+  });
+  const reply = conversationEventSchema.parse({
+    eventId: crypto.randomUUID(),
+    sequence: 2,
+    protocolVersion: 1,
+    workspaceId: snapshot.id,
+    streamId: "conversation:marketing",
+    type: "conversation.message.appended",
+    actor: {
+      kind: "agent",
+      agentId: "chief",
+      pubkey: "a".repeat(64),
+      workspaceId: snapshot.id,
+      role: "member",
+    },
+    occurredAt: "2026-08-22T00:02:00.000Z",
+    payload: {
+      message: {
+        id: crypto.randomUUID(),
+        workspaceId: snapshot.id,
+        conversationId: "marketing",
+        body: "Your update is ready.",
+        author: { kind: "agent", id: "chief" },
+        createdAt: "2026-08-22T00:02:00.000Z",
+        sequence: 2,
+        mentions: [],
+        components: [],
+        reactions: [],
+        edited: false,
+        deleted: false,
+      },
+    },
+  });
+  onEvent(reply);
+  assert.equal(liveMessages.length, 1);
+  assert.equal(liveMessages[0]?.type, "channelEvent");
+  assert.equal(liveMessages[0].event.content, "Your update is ready.");
+  onEvent(
+    conversationEventSchema.parse({
+      ...reply,
+      payload: {
+        message: { ...reply.payload.message, conversationId: "unsubscribed" },
+      },
+    }),
+  );
+  assert.equal(liveMessages.length, 1);
   client.destroy();
 });
+
+for (const mode of ["workspace", "unfinished", "setup-view"] as const) {
+  void test(`Welcome waits for the live workspace subscription in ${mode}`, async (t) => {
+    const readySnapshot = { ...snapshot, setupComplete: mode !== "unfinished" };
+    const relay = new RelayClient({
+      relayUrl: "https://relay.test",
+      workspaceId: snapshot.id,
+    });
+    const channel = channelRecordSchema.parse({
+      id: "general",
+      workspaceId: snapshot.id,
+      name: "general",
+      isPrivate: false,
+      archived: false,
+      createdAt: snapshot.createdAt,
+    });
+    t.mock.method(relay, "listChannels", () => Promise.resolve([channel]));
+    t.mock.method(relay, "listCurrentChannelMemberships", () =>
+      Promise.resolve([
+        channelMembershipSchema.parse({
+          conversationId: "general",
+          kind: "user",
+          principalId: "workspace-owner",
+          role: "owner",
+          joinedAt: snapshot.createdAt,
+        }),
+      ]),
+    );
+    t.mock.method(relay, "listChannelMemberships", () => Promise.resolve([]));
+    let ready: (() => void) | undefined;
+    const subscribe = t.mock.method(
+      relay,
+      "subscribeWorkspace",
+      () =>
+        new Promise((resolve) => {
+          ready = () =>
+            resolve({
+              close: () => undefined,
+              cursor: () => 0,
+              updateConversationIds: () => undefined,
+              sendTyping: () => undefined,
+            });
+        }),
+    );
+    const welcome = t.mock.method(relay, "startWorkspaceWelcome", () =>
+      Promise.resolve(readySnapshot),
+    );
+    const client = new RelayRuntimeClient(
+      relay,
+      readySnapshot,
+      mode === "setup-view" ? () => Promise.resolve(readySnapshot) : undefined,
+    );
+    t.after(() => client.destroy());
+    const command = {
+      type: "listChannels" as const,
+      workspaceId: snapshot.id,
+      executorCapability: { apiBaseUrl: "http://127.0.0.1", token: "test" },
+    };
+    client.send(command);
+    await setImmediate();
+    assert.equal(subscribe.mock.callCount(), 1);
+    assert.equal(welcome.mock.callCount(), 0);
+    assert.ok(ready);
+    ready();
+    await setImmediate();
+    assert.equal(welcome.mock.callCount(), mode === "workspace" ? 1 : 0);
+    client.send(command);
+    await setImmediate();
+    assert.equal(welcome.mock.callCount(), mode === "workspace" ? 1 : 0);
+  });
+}

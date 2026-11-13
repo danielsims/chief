@@ -41,15 +41,19 @@ struct ChannelMembershipRow: View {
   }
 
   private var summary: AttributedString {
+    let joined = action.payload["type"] == "member-joined"
     let target = targetNames.isEmpty
       ? (action.payload["targetName"] ?? "a member")
       : Self.formattedList(targetNames)
-    var result = AttributedString("\(actorName) added \(target) to the channel")
+    var result = AttributedString(joined
+      ? "\(actorName) joined the channel"
+      : "\(actorName) added \(target) to the channel")
     result.foregroundColor = ChiefTheme.secondary
     if let actorRange = result.range(of: actorName) {
       result[actorRange].font = .system(size: 12, weight: .semibold)
       result[actorRange].foregroundColor = ChiefTheme.accent
     }
+    if joined { return result }
     if let targetRange = result.range(of: target, options: .backwards) {
       result[targetRange].font = .system(size: 12, weight: .semibold)
       result[targetRange].foregroundColor = ChiefTheme.accent

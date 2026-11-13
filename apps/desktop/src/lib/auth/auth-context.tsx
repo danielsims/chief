@@ -15,12 +15,7 @@ import type { StoredRelayConnection } from "../relay-connection";
 import type { AuthState } from "./auth-state";
 import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
-import {
-  AUTH_BASE_URL,
-  AUTH_UI_BASE_URL,
-  CHIEF_CLOUD_RELAY_URL,
-  RELAY_URL,
-} from "../config";
+import { AUTH_BASE_URL, AUTH_UI_BASE_URL, RELAY_URL } from "../config";
 import { relayAvatarUrl } from "../relay-avatar";
 import {
   activateKnownRelay,
@@ -88,6 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
     void hydrateStoredSession()
       .then((session) => {
+        if (session)
+          rememberRelayConnection({
+            version: 1,
+            relayUrl: RELAY_URL,
+            authBaseUrl: AUTH_BASE_URL,
+            authUiUrl: AUTH_UI_BASE_URL,
+          });
         setStoredSessionState(session);
         setSessionHydrated(true);
         // A persisted OAuth access token may have expired while Chief was
@@ -133,13 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storeSessionForRelay(relayOrigin, storedSession);
 
       if (new URL(relayOrigin).origin !== new URL(RELAY_URL).origin) {
-        if (
-          new URL(relayOrigin).origin === new URL(CHIEF_CLOUD_RELAY_URL).origin
-        ) {
-          saveStoredRelayConnection(null);
-        } else {
-          activateKnownRelay(relayOrigin);
-        }
+        activateKnownRelay(relayOrigin);
         window.location.assign("/");
         return;
       }
@@ -308,18 +304,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.clearTimeout(timeout);
       };
       authFlowCompletedRef.current = false;
-      await openRelayAuthorization({
+      const target: StoredRelayConnection = {
         version: 1,
         relayUrl: relayOrigin,
         authBaseUrl,
         authUiUrl,
-      });
+      };
+      rememberRelayConnection(target);
+      await openRelayAuthorization(target);
     },
     [failDesktopAuth],
   );
 
   const signIn = useCallback(() => {
-    void startRelayAuthorization(chiefAccountConnection).catch((error) =>
+    void startRelayAuthorization().catch((error) =>
       failDesktopAuth(asError(error instanceof Error ? error : String(error))),
     );
   }, [failDesktopAuth, startRelayAuthorization]);
@@ -399,11 +397,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         saveStoredRelayConnection(null);
         return;
       }
-      if (connection.relayUrl === chiefAccountConnection.relayUrl) {
-        saveStoredRelayConnection(null);
-      } else {
-        activateKnownRelay(connection.relayUrl);
-      }
+      saveStoredRelayConnection(connection);
       window.location.assign("/");
     });
   }, []);

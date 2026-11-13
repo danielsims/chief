@@ -25,7 +25,7 @@ import {
 
 export type EveConnectionPhase = EveAgentProvisioningPhase | "verifying";
 
-const steps: readonly {
+export const eveDeploymentSteps: readonly {
   phases: readonly EveConnectionPhase[];
   label: string;
 }[] = [
@@ -112,7 +112,9 @@ export function EveProvisioningStatus({
   complete?: boolean;
   error?: string | null;
 }) {
-  const activeIndex = steps.findIndex((step) => step.phases.includes(phase));
+  const activeIndex = eveDeploymentSteps.findIndex((step) =>
+    step.phases.includes(phase),
+  );
   const inspectorUrl = result?.inspectorUrl ?? progress?.inspectorUrl;
   const finished = Boolean(result) || complete;
   return (
@@ -142,7 +144,7 @@ export function EveProvisioningStatus({
         )}
       </div>
       <div className="space-y-3 py-1">
-        {steps.map((step, index) => {
+        {eveDeploymentSteps.map((step, index) => {
           const stepComplete = finished || (!error && index < activeIndex);
           const failed = Boolean(error) && index === activeIndex;
           const active = !finished && !error && index === activeIndex;
@@ -198,7 +200,7 @@ export function EveProvisioningStatus({
   );
 }
 
-function VercelBuildLog({
+export function VercelBuildLog({
   complete,
   failed,
   logs,
@@ -282,7 +284,7 @@ function VercelBuildLog({
           role="log"
           aria-live="polite"
           aria-label="Vercel build log"
-          className={`overscroll-contain bg-zinc-950 px-3 py-2 font-mono text-[11px] leading-5 text-zinc-300 ${VERCEL_BUILD_LOG_BODY_CLASS}`}
+          className={`overscroll-contain bg-zinc-950 px-4 py-3 font-mono text-xs leading-6 text-zinc-300 ${VERCEL_BUILD_LOG_BODY_CLASS}`}
         >
           {logs.length === 0 ? (
             <p className="text-zinc-500">Waiting for Vercel build output…</p>

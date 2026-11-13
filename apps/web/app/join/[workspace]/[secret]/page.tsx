@@ -1,5 +1,10 @@
-import Image from "next/image";
 import Link from "next/link";
+
+import {
+  HandoffCard,
+  HandoffHeading,
+  handoffPrimaryClassName,
+} from "@chief/ui/components/handoff-card";
 
 import { isWorkspaceId } from "../../../../lib/invitation-links";
 import { publicRelayOrigin } from "../../../../lib/invitation-server";
@@ -13,6 +18,7 @@ import {
   forwardedRelayHeaders,
   readRelayAccount,
 } from "../../../../lib/sign-in-context";
+import { ChiefBrand } from "../../../chief-brand";
 import { JoinAccept } from "./join-accept";
 
 export const dynamic = "force-dynamic";
@@ -67,32 +73,11 @@ function JoinUnavailable({
           ? "This invitation was revoked. Ask whoever invited you for a new link."
           : "This invitation isn’t valid. Ask whoever invited you for a new link.";
   return (
-    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="px-6 pt-6">
-        <Image
-          alt="Chief"
-          className="h-8 w-8"
-          src="/brand/chief-mark-white.svg"
-          width={32}
-          height={32}
-        />
-      </header>
-      <div className="flex flex-1 items-center justify-center px-8 pb-20">
-        <div className="mx-auto flex w-full max-w-sm flex-col text-center">
-          <h1 className="text-3xl leading-tight font-normal">
-            Invite unavailable
-          </h1>
-          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-            {reason}
-          </p>
-          <Link
-            className="text-muted-foreground hover:text-foreground mt-8 text-sm"
-            href="/"
-          >
-            Back to Chief
-          </Link>
-        </div>
-      </div>
-    </main>
+    <HandoffCard brand={<ChiefBrand />}>
+      <HandoffHeading title="Invite unavailable">{reason}</HandoffHeading>
+      <Link className={handoffPrimaryClassName} href="/">
+        Back to Chief
+      </Link>
+    </HandoffCard>
   );
 }

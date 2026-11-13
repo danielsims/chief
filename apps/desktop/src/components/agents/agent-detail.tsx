@@ -346,6 +346,13 @@ export function AgentDetail({
                         />
                       ) : null}
                     </div>
+                    <AgentPluginAccess
+                      client={relayClient}
+                      assigned={override?.integrations ?? []}
+                      asksBeforeActing={approvals !== "auto"}
+                      ready={ready}
+                      onChange={(integrations) => save({ integrations })}
+                    />
                     <AgentConfigurationTab
                       approvals={approvals}
                       ready={ready}
@@ -380,13 +387,6 @@ export function AgentDetail({
                       permissions={toolPermissions}
                       ready={ready}
                       onChange={(value) => save({ toolPermissions: value })}
-                    />
-                    <AgentPluginAccess
-                      client={relayClient}
-                      assigned={override?.integrations ?? []}
-                      asksBeforeActing={approvals !== "auto"}
-                      ready={ready}
-                      onChange={(integrations) => save({ integrations })}
                     />
                   </>
                 ) : null}

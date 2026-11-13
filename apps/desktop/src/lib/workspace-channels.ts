@@ -1,18 +1,6 @@
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
-export const MISSION_CONTROL_CHANNEL_ID = "mission-control";
-export const MISSION_CONTROL_CHANNEL_RELAY_ID =
-  "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
-
 export const WORKSPACE_CHANNELS = [
-  {
-    id: MISSION_CONTROL_CHANNEL_ID,
-    relayId: MISSION_CONTROL_CHANNEL_RELAY_ID,
-    label: "mission-control",
-    description: "Priorities, decisions, and progress across active work",
-    agentIds: ["chief"],
-    userIds: ["workspace-owner"],
-  },
   {
     id: "engineering",
     relayId: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
@@ -66,6 +54,9 @@ export const WORKSPACE_CHANNELS = [
 export const WORKSPACE_AGENT_IDENTITIES = {
   chief: { name: "Chief", role: "Workspace Lead", color: "#ffffff" },
   setup: { name: "Setup", role: "Private Workspace Setup", color: "#61d9a3" },
+  researcher: { name: "Researcher", role: "Research", color: "#7dc7fa" },
+  planner: { name: "Planner", role: "Planning", color: "#61dbe8" },
+  writer: { name: "Writer", role: "Writing", color: "#fcc24d" },
   analyst: {
     name: "Analyst",
     role: "Measurement and Reporting",
@@ -158,49 +149,6 @@ export const WORKSPACE_DIRECT_MESSAGES = [
 ] as const satisfies readonly { id: WorkspaceAgentId }[];
 
 export type WorkspaceChannelId = string;
-
-const CHANNEL_KEYWORDS: {
-  id: Exclude<WorkspaceChannelId, "general">;
-  keywords: string[];
-}[] = [
-  {
-    id: "analytics",
-    keywords: ["analytics", "report", "performance", "traffic", "measurement"],
-  },
-  {
-    id: "advertising",
-    keywords: ["advertising", "campaign", "creative", "acquisition", "launch"],
-  },
-  {
-    id: "prospecting",
-    keywords: ["prospect", "lead", "outreach", "buyer", "market research"],
-  },
-  {
-    id: "marketing",
-    keywords: ["marketing", "brand", "positioning", "content", "growth"],
-  },
-  {
-    id: "engineering",
-    keywords: [
-      "engineering",
-      "code",
-      "product change",
-      "bug",
-      "repository",
-      "pull request",
-    ],
-  },
-];
-
-/** Classify durable work outputs; conversations are never inferred this way. */
-export function channelForText(value: string): WorkspaceChannelId {
-  const searchable = value.toLocaleLowerCase();
-  return (
-    CHANNEL_KEYWORDS.find((channel) =>
-      channel.keywords.some((keyword) => searchable.includes(keyword)),
-    )?.id ?? "general"
-  );
-}
 
 export function workspaceChannel(channelId: string | null) {
   return (
@@ -298,31 +246,6 @@ export function directMessageChatForAgent<Chat extends { agent: string }>(
   agentId: WorkspaceAgentId,
 ) {
   return chats.find((chat) => chat.agent === agentId) ?? null;
-}
-
-export function actionConversation(value: {
-  title: string;
-  reason?: string;
-  agentId?: string;
-  missionControlChannelId?: string;
-}) {
-  const text = `${value.title} ${value.reason ?? ""}`.toLocaleLowerCase();
-  if (
-    value.agentId === "engineer" ||
-    /product change|code change|bug|repository|pull request/.test(text)
-  ) {
-    return { kind: "channel" as const, id: "engineering" };
-  }
-  if (
-    value.agentId === "setup" ||
-    /connect|integration|credential|github|vercel|engineering tool/.test(text)
-  ) {
-    return {
-      kind: "channel" as const,
-      id: value.missionControlChannelId ?? MISSION_CONTROL_CHANNEL_ID,
-    };
-  }
-  return { kind: "channel" as const, id: channelForText(text) };
 }
 
 /** Place a channel at a pinned drop target, without duplicates. */

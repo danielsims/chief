@@ -1,6 +1,10 @@
 import type { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
 import type { AgentJob } from "@chief/relay-contracts";
-import { agentJobSchema, isJsonString } from "@chief/relay-contracts";
+import {
+  agentJobSchema,
+  isJsonString,
+  jobConversationId,
+} from "@chief/relay-contracts";
 
 import { firstAgentRow } from "./agent-job-store";
 import { agentWorkflowId } from "./agent-tracing";
@@ -17,9 +21,7 @@ export function agentTraceContext(
     workspaceId: job.workspaceId,
     workspaceName,
     agentId: job.agentId,
-    conversationId: isJsonString(job.payload.conversationId)
-      ? job.payload.conversationId
-      : "mission-control",
+    conversationId: jobConversationId(job),
     jobId: job.id,
     workflowId: agentWorkflowId(job),
     messageId: isJsonString(job.payload.messageId)

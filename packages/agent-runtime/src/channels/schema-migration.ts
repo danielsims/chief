@@ -3,7 +3,6 @@ import type { Client } from "@libsql/client";
 import { isJsonString } from "@chief/relay-contracts";
 
 import * as schema from "../db/schema.js";
-import { MISSION_CONTROL_CHANNEL_ID } from "./nip29.js";
 
 const channelManagementColumns = [
   [schema.channels.userIds.name, "text DEFAULT '[]' NOT NULL"],
@@ -95,24 +94,12 @@ async function archiveLegacyGettingStartedChannel(client: Client) {
   });
 }
 
-async function enableDefaultMissionControlInvites(client: Client) {
-  const now = Date.now();
-  await client.execute({
-    sql: `UPDATE channel
-          SET agent_permissions = ?, updated_at = ?
-          WHERE id = ?
-            AND version = 1
-            AND (agent_permissions IS NULL OR agent_permissions = '[]')`,
-    args: [JSON.stringify(["manage_members"]), now, MISSION_CONTROL_CHANNEL_ID],
-  });
-}
-
 async function migrateOwnerChannelMembership(client: Client) {
   await client.execute({
     sql: `UPDATE channel
           SET user_ids = ?
-          WHERE id = ? OR slug LIKE 'dm-%'`,
-    args: [JSON.stringify(["workspace-owner"]), MISSION_CONTROL_CHANNEL_ID],
+          WHERE slug LIKE 'dm-%'`,
+    args: [JSON.stringify(["workspace-owner"])],
   });
   await client.execute({
     sql: `UPDATE channel
@@ -146,7 +133,6 @@ export async function ensureChannelManagementSchema(client: Client) {
   await addMissingColumns(client, "preference", agentPreferenceColumns);
   await migrateOwnerChannelMembership(client);
   await migrateChiefAgentIdentity(client);
-  await enableDefaultMissionControlInvites(client);
   await archiveLegacyGettingStartedChannel(client);
   await client.execute(`
     CREATE INDEX IF NOT EXISTS audit_channel_timeline

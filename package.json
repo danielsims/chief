@@ -9,7 +9,7 @@
     "check:staged": "lint-staged --concurrent false --hide-all --diff-filter=ACMRD",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
-    "dev": "turbo watch dev --continue",
+    "dev": "bash scripts/dev-desktop.sh",
     "desktop": "turbo dev --filter=@chief/desktop",
     "desktop:dmg": "node scripts/build-desktop-dmg.mjs",
     "email": "pnpm --filter=@chief/email dev",

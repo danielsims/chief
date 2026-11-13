@@ -13,8 +13,8 @@ import { assembleAgentPrompt } from "@chief/agent-runtime/prompts";
 import {
   agentAttachmentSchema,
   attachmentLocation,
-  conversationIdSchema,
   isJsonString,
+  jobConversationId,
   messageAttachments,
   messageIdSchema,
 } from "@chief/relay-contracts";
@@ -26,7 +26,6 @@ import { releaseInternalResponse } from "./internal-response";
 import { assignedPluginTools } from "./mcp/agent-plugin-tools";
 import { isSafeGitRepoSlug } from "./workspace-git-store";
 import { peopleContextLines } from "./workspace-member-names";
-import { WORKSPACE_ONBOARDING_OPENING_MESSAGE } from "./workspace-onboarding-job";
 
 export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
 /**
@@ -36,7 +35,6 @@ export const HOSTED_HISTORY_MESSAGE_LIMIT = 8;
  */
 export const HOSTED_MAX_INFERENCE_STEPS = 100;
 export const HOSTED_KICKOFF_MAX_INFERENCE_STEPS = 14;
-export const HOSTED_ONBOARDING_MAX_INFERENCE_STEPS = 6;
 export const HOSTED_MENTION_CONTEXT_GUIDANCE =
   "A thread carries its own context. When the current message only addresses your name, or refers to something not already in the thread, call channels_messages_list for this conversation to read the recent messages before responding, then continue the latest unfinished request. Do not narrate that the user only tagged you, repeatedly reload the same context, or invent a new task. If there is no actionable request, ask one short question and stop. Address people with @Name and their principal id from the people roster or channels_members_list. Never invent a @chief (user) tag.";
 export const HOSTED_TOOL_SELECTION_GUIDANCE =
@@ -126,9 +124,7 @@ export async function prepareHostedAgentTurn(
     Boolean(projectRepo) ||
     permissions.includes("projects.read") ||
     permissions.includes("projects.write");
-  const conversationId = conversationIdSchema.parse(
-    stringPayload(job, "conversationId") ?? "mission-control",
-  );
+  const conversationId = jobConversationId(job);
   const rawThreadRootId = stringPayload(job, "threadRootId");
   const threadRootId = rawThreadRootId
     ? messageIdSchema.parse(rawThreadRootId)
@@ -174,13 +170,9 @@ export async function prepareHostedAgentTurn(
 }
 
 export function hostedInferenceStepBudget(kind: string) {
-  if (kind === "workspace.onboarding") {
-    return HOSTED_ONBOARDING_MAX_INFERENCE_STEPS;
-  }
-  if (kind.startsWith("workspace.kickoff.")) {
-    return HOSTED_KICKOFF_MAX_INFERENCE_STEPS;
-  }
-  return HOSTED_MAX_INFERENCE_STEPS;
+  return kind.startsWith("workspace.welcome.")
+    ? HOSTED_KICKOFF_MAX_INFERENCE_STEPS
+    : HOSTED_MAX_INFERENCE_STEPS;
 }
 
 export function boundedHostedHistory(
@@ -214,7 +206,7 @@ export function hostedCompletionContract(
   // required tools from their wording misfires. An automation step's run
   // engine judges whether the step is done.
   if (
-    jobKind?.startsWith("workspace.kickoff.") ||
+    jobKind?.startsWith("workspace.welcome.") ||
     jobKind === "schedule.step"
   ) {
     return { requiredToolNames: [], browserMustRemainOpen: false };
@@ -259,21 +251,15 @@ function asksToInviteChannelMembers(instruction: string) {
 }
 
 export function hostedTurnResult(job: AgentJob, finalText: string) {
-  if (job.kind === "workspace.onboarding") {
-    return { openingMessage: WORKSPACE_ONBOARDING_OPENING_MESSAGE };
-  }
-  const conversationId = conversationIdSchema.parse(
-    stringPayload(job, "conversationId") ?? "mission-control",
-  );
+  const conversationId = jobConversationId(job);
   const rawThreadRootId = stringPayload(job, "threadRootId");
   const threadRootId = rawThreadRootId
     ? messageIdSchema.parse(rawThreadRootId)
     : undefined;
-  const publishesToThread = !job.kind.startsWith("workspace.kickoff.");
   return {
     publishedMessage: {
       conversationId,
-      ...(publishesToThread && threadRootId ? { threadRootId } : undefined),
+      ...(threadRootId ? { threadRootId } : undefined),
       body: finalText.slice(0, 4_000),
       components: [],
     },
@@ -310,7 +296,7 @@ function genericIdentity(job: AgentJob, context: HostingContext) {
 You are ${agentName}, the workspace's ${agentRole}. You are the same durable agent whether your cell runs on a phone, desktop, or in Chief Cloud.
 Reply naturally to casual conversation without calling tools. For substantive requests, own the outcome and use the tools available in this turn before you answer. Never claim a tool succeeded unless its result says so.
 If one part of a request is impossible with the tools in this turn, complete every useful part that is possible. Then name the exact missing operation. Never return a generic capability refusal, and never invent research, messages, sources, or tool results.
-Your final answer is posted verbatim to the target conversation unless this is workspace onboarding.`;
+Your final answer is posted verbatim to the target conversation.`;
 }
 
 export function hostedWorkspaceContext(

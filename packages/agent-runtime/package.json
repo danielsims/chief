@@ -4,7 +4,6 @@
   "version": "0.1.4",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./cells": "./src/cells/types.ts",
     "./cells/cloudflare": "./src/cells/cloudflare.ts",
@@ -32,7 +31,6 @@
   "scripts": {
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
-    "dev": "tsx watch src/server.ts",
     "generate:local-tools-openapi": "tsx scripts/generate-local-tools-openapi.mts",
     "generate:agent-instructions": "tsx scripts/generate-agent-instructions.mts",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
@@ -40,7 +38,6 @@
     "smoke:agent-live": "CHIEF_LIVE_MODEL=opencode-go/deepseek-v4-flash tsx scripts/smoke-live-channel-agent.mts",
     "audit:plugin-catalog": "tsx scripts/audit-plugin-catalog.mts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
-    "start": "tsx src/server.ts",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "test:pressure": "CHIEF_PRESSURE_ITERATIONS=100 node --import tsx --test --test-concurrency=1 test/channel-agent-pressure.test.ts test/channel-response-fallback.test.ts test/session-recovery.test.ts",
     "typecheck": "tsc --noEmit"

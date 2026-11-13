@@ -43,7 +43,6 @@ export function composeAgentPrompt(
     deployment: "phone" | "desktop" | "cloud";
     conversationKind?: PromptContext["conversationKind"];
     channel?: PromptContext["channel"];
-    operatingMode?: PromptContext["operatingMode"];
     workspaceContext?: string;
   },
 ): string {

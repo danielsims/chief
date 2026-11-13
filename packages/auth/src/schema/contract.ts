@@ -189,6 +189,7 @@ export const authSchemaContract = {
       "image",
       "name",
       "updatedAt",
+      "username",
     ],
   },
   verification: {

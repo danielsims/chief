@@ -40,6 +40,12 @@ export function OrgLogo({
   );
 }
 
+/**
+ * The candidate that last loaded for a logo, so the next tile showing it
+ * paints the image straight away instead of flashing the initial first.
+ */
+const resolvedLogos = new Map<string, number>();
+
 function OrgLogoImage({
   name,
   logo,
@@ -74,8 +80,11 @@ function OrgLogoImage({
       ).values(),
     );
   }, [logo, website]);
-  const [candidateIndex, setCandidateIndex] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const cacheKey = candidates.map((item) => item.src).join("\n");
+  const [candidateIndex, setCandidateIndex] = useState(
+    () => resolvedLogos.get(cacheKey) ?? 0,
+  );
+  const [loaded, setLoaded] = useState(() => resolvedLogos.has(cacheKey));
   const imageRef = useRef<HTMLImageElement>(null);
   const candidate = candidates[candidateIndex];
   useEffect(() => {
@@ -84,6 +93,7 @@ function OrgLogoImage({
     const frame = requestAnimationFrame(() => {
       if (!image.complete) return;
       if (image.naturalWidth >= candidate.minimumWidth) {
+        resolvedLogos.set(cacheKey, candidateIndex);
         setLoaded(true);
       } else if (image.naturalWidth > 0) {
         setLoaded(false);
@@ -93,7 +103,7 @@ function OrgLogoImage({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [candidate, candidateIndex]);
+  }, [cacheKey, candidate, candidateIndex]);
 
   const initial = name.trim().charAt(0).toUpperCase() || "?";
 
@@ -138,6 +148,7 @@ function OrgLogoImage({
               setCandidateIndex((index) => index + 1);
               return;
             }
+            resolvedLogos.set(cacheKey, candidateIndex);
             setLoaded(true);
           }}
         />

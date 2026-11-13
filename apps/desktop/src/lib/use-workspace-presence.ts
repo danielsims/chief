@@ -13,7 +13,8 @@ interface Presence {
 
 /**
  * Who is connected, from the workspace socket. A subagent runs in its parent's
- * cell, so it is offline with its parent, but only its own runs make it red.
+ * cell on the same agent app, so it is offline with its parent and red when
+ * its parent's last run failed: a parent that can't run means neither can it.
  */
 export function useWorkspacePresence() {
   const { client, status, agents } = useRuntime();
@@ -48,10 +49,13 @@ export function useWorkspacePresence() {
     (agentId: string, working = false): AgentPresence => {
       if (working) return "working";
       if (status !== "connected") return "offline";
-      if (current?.erroredAgentIds.has(agentId)) return "error";
-      return current?.offlineAgentIds.has(hostAgentId(agents, agentId))
-        ? "offline"
-        : "online";
+      const host = hostAgentId(agents, agentId);
+      if (
+        current?.erroredAgentIds.has(agentId) ||
+        current?.erroredAgentIds.has(host)
+      )
+        return "error";
+      return current?.offlineAgentIds.has(host) ? "offline" : "online";
     },
     [agents, current, status],
   );

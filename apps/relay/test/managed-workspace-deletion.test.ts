@@ -10,6 +10,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "../src/auth";
+import { withTrustedContext } from "../src/internal-context";
 import {
   activeManagedWorkspace,
   authorizeWorkspace,
@@ -134,6 +135,26 @@ describe("managed workspace deletion", () => {
       requestId: crypto.randomUUID(),
       workspaceId: workspace.id,
     });
+    const finished = await relay.WORKSPACES.get(
+      relay.WORKSPACES.idFromName(workspace.id),
+    ).fetch(
+      withTrustedContext(
+        new Request("https://workspace.internal", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": "finish-setup",
+          },
+          body: "{}",
+        }),
+        {
+          principal,
+          requestId: crypto.randomUUID(),
+          workspaceId: workspace.id,
+        },
+      ),
+    );
+    expect(finished.status, await finished.clone().text()).toBe(200);
     const secret = "N_s0L3cH7b3YJfOqoxjjqaMk7HI2KDh56ROHWh-0a8I";
     const invitation = await createWorkspaceInvite(
       relay,

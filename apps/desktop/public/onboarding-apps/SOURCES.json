@@ -1,0 +1,13 @@
+{
+  "package": "simple-icons@16.25.0 (installed in Chief); 25 SVG icons",
+  "additional": {
+    "Slack": "https://slack.com/favicon.ico",
+    "Granola": "https://www.granola.ai/favicon/favicon.svg",
+    "Canva": "https://www.canva.com/favicon.ico",
+    "monday.com": "https://monday.com/favicon.ico",
+    "Clay": "https://cdn.prod.website-files.com/61477f2c24a826836f969afe/6a3a92ab841a6313dc068fb8_dot-com_favicon_2026_512.png",
+    "Apollo": "https://www.google.com/s2/favicons?domain=apollo.io&sz=64",
+    "Fireflies": "https://www.google.com/s2/favicons?domain=fireflies.ai&sz=64"
+  },
+  "Google multicolor": "@lobehub/icons@5.4.0, Google/components/Color.js (installed in Program)"
+}

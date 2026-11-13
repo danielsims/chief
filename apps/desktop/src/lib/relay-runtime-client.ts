@@ -38,7 +38,7 @@ import {
 } from "./relay-runtime-channel-settings";
 import {
   createRelayWorkspaceChannel,
-  loadRelayWorkspaceChannels,
+  RelayChannelRoster,
 } from "./relay-runtime-channels";
 import {
   parseRelayError,
@@ -77,6 +77,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private pendingWorkspaceSubscription: Promise<WorkspaceSubscription> | null =
     null;
   private subscribedConversationIds = new Set<string>();
+  private readonly channelRoster: RelayChannelRoster;
   private workspaceCursor: number | undefined;
   private conversationIdsByChat = new Map<string, string>();
   private readonly history: HistoryPages;
@@ -104,8 +105,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private projectsRevision = 0;
 
-  // Every project update carries this machine's local clones, so a snapshot
-  // refresh never hides a clone behind the relay's copy of the project.
+  // Keep local clones visible across relay snapshot refreshes.
   private async emitProjects() {
     const revision = ++this.projectsRevision;
     const snapshot = this.snapshot;
@@ -125,9 +125,20 @@ export class RelayRuntimeClient implements RuntimeTransport {
   constructor(
     private readonly relay: RelayRuntimeRelay,
     snapshot: WorkspaceSnapshot,
+    private readonly loadSnapshot?: () => Promise<WorkspaceSnapshot>,
   ) {
     this.snapshot = snapshot;
     this.workspaceCursor = loadWorkspaceCursor(snapshot.id);
+    this.channelRoster = new RelayChannelRoster(
+      relay,
+      this.subscribedConversationIds,
+      (message) => this.emit(message),
+      () => this.ensureWorkspaceSubscription(),
+      () =>
+        !this.closed &&
+        !this.loadSnapshot &&
+        Boolean(this.workspaceSubscription),
+    );
     this.history = new HistoryPages(relay, (message) =>
       this.rememberMessage(message),
     );
@@ -188,8 +199,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       await this.refreshSnapshot();
       await saveRelayAgentPreference(this.relay, this.snapshot, preference);
     }
-    // Refresh after saving, so the new agent arrives with its provider and
-    // settings together instead of showing defaults first.
+    // Refresh after saving so the new agent arrives with its configured provider.
     await this.refreshSnapshot();
     this.emit({ type: "agents", agents: relayAgentDefinitions(this.snapshot) });
     this.emit(await relayAgentPreferencesMessage(this.relay, this.snapshot));
@@ -344,8 +354,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
           (reply) => this.emit(reply),
         );
         return;
-      // A cloud workspace has no local browser runs, so there is nothing to
-      // list and no run for the other browser commands to act on.
+      // A cloud workspace has no local browser runs to list or act on.
       case "listBrowserRuns":
         this.emit({
           type: "browserRuns",
@@ -385,7 +394,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.emit(await environmentMessage(this.relay, this.snapshot.id));
   }
   private async refreshSnapshot() {
-    this.snapshot = await this.relay.activeWorkspace();
+    const snapshot = await (this.loadSnapshot
+      ? this.loadSnapshot()
+      : this.relay.activeWorkspace());
+    if (snapshot.id !== this.snapshot.id)
+      throw new Error(
+        "The workspace connection changed. Reconnect to continue.",
+      );
+    this.snapshot = snapshot;
   }
   private async startUserDirect(
     message: Extract<ClientMessage, { type: "startUserDirect" }>,
@@ -406,26 +422,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     });
   }
 
-  private async listChannels() {
-    const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
-      this.relay,
-      this.snapshot,
-    );
-    this.emit({
-      type: "channels",
-      workspaceId: this.snapshot.id,
-      channels,
-    });
-    for (const membership of currentMemberships) {
-      this.subscribedConversationIds.add(membership.conversationId);
-    }
-    for (const conversation of this.snapshot.conversations) {
-      if (conversation.kind === "direct") {
-        this.subscribedConversationIds.add(conversation.id);
-      }
-    }
-    await this.ensureWorkspaceSubscription();
-    return channels;
+  private listChannels() {
+    return this.channelRoster.list(this.snapshot);
   }
 
   private requestChannelRosterRefresh() {
@@ -625,11 +623,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const knownConversation = this.snapshot.conversations.find(
       (conversation) => conversation.id === message.conversationId,
     );
-    const knownChannel = knownConversation?.kind === "channel";
-    // An agent DM is not in the channel roster, but its messages still drive
-    // the unread badge and notifications, so observe them like a channel.
-    const knownAgentDirect =
-      knownConversation?.kind === "direct" && !knownConversation.directUserId;
     const revised =
       event.type === "conversation.message.reacted" ||
       event.type === "conversation.message.edited" ||
@@ -641,7 +634,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     }
     if (
       !isActivity &&
-      (knownChannel || knownAgentDirect || isChannelMembershipMessage(message))
+      (this.subscribedConversationIds.has(message.conversationId) ||
+        isChannelMembershipMessage(message))
     ) {
       // Re-read folded reactions so removals replace synthetic NIP-25 events.
       if (revised) {

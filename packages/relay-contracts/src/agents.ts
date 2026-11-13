@@ -291,10 +291,8 @@ export const agentPublishedMessageSchema = z
 export const agentJobCompletionResultSchema = z
   .object({
     // Every completed agent turn may publish a message to a workspace
-    // conversation. `workspace.onboarding` also carries `openingMessage`
-    // (appended to mission-control) so a compact executor can keep working.
+    // conversation.
     publishedMessage: agentPublishedMessageSchema.optional(),
-    openingMessage: z.string().trim().min(1).max(4_000).optional(),
   })
   .strict();
 
@@ -322,14 +320,6 @@ export const completeAgentJobResultSchema = z
   })
   .strict();
 
-// Backwards-compatible alias used by the workspace onboarding flow.
-export const workspaceOnboardingResultSchema = z
-  .object({
-    openingMessage: z.string().trim().min(1).max(4_000),
-    publishedMessage: agentPublishedMessageSchema.optional(),
-  })
-  .strict();
-
 export type AgentPublishedMessage = z.infer<typeof agentPublishedMessageSchema>;
 export type AgentJobCompletionResult = z.infer<
   typeof agentJobCompletionResultSchema
@@ -337,6 +327,14 @@ export type AgentJobCompletionResult = z.infer<
 export type AgentCellSnapshot = z.infer<typeof agentCellSnapshotSchema>;
 
 export type AgentJob = z.infer<typeof agentJobSchema>;
+
+/** Every job runs in a conversation; one without is a bug, never a default. */
+export function jobConversationId(job: Pick<AgentJob, "id" | "payload">) {
+  const parsed = conversationIdSchema.safeParse(job.payload.conversationId);
+  if (!parsed.success)
+    throw new Error(`Agent job ${job.id} has no conversation.`);
+  return parsed.data;
+}
 export type AgentLease = z.infer<typeof agentLeaseSchema>;
 
 /** Models a computer's local providers offer, published so phones can list them. */

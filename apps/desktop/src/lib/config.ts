@@ -1,5 +1,15 @@
 import { env } from "../env";
+import {
+  CHIEF_CLOUD_RELAY_URL,
+  desktopRelayConfiguration,
+} from "./relay-config";
 import { readStoredRelayConnection } from "./relay-connection";
+
+export {
+  CHIEF_CLOUD_RELAY_URL,
+  CHIEF_CLOUD_AUTH_BASE_URL,
+  CHIEF_CLOUD_AUTH_UI_URL,
+} from "./relay-config";
 
 declare global {
   var __AUTH_BASE_URL__: string | undefined;
@@ -12,27 +22,15 @@ function readOptionalValue(value: string | undefined): string | undefined {
 
 const injectedAuthBaseUrl = readOptionalValue(globalThis.__AUTH_BASE_URL__);
 
-const storedConnection = readStoredRelayConnection();
+const connection = desktopRelayConfiguration(
+  env,
+  readStoredRelayConnection(),
+  injectedAuthBaseUrl,
+);
 
-export const CHIEF_CLOUD_RELAY_URL =
-  env.VITE_CHIEF_RELAY_URL ?? "https://relay.heychief.sh";
-
-export const CHIEF_CLOUD_AUTH_BASE_URL =
-  env.VITE_AUTH_BASE_URL ?? injectedAuthBaseUrl ?? "https://relay.heychief.sh";
-
-export const CHIEF_CLOUD_AUTH_UI_URL =
-  env.VITE_AUTH_UI_URL ??
-  env.VITE_AUTH_BASE_URL ??
-  injectedAuthBaseUrl ??
-  "https://heychief.sh";
-
-export const AUTH_UI_BASE_URL =
-  storedConnection?.authUiUrl ?? CHIEF_CLOUD_AUTH_UI_URL;
-
-export const RELAY_URL = storedConnection?.relayUrl ?? CHIEF_CLOUD_RELAY_URL;
-
-export const AUTH_BASE_URL =
-  storedConnection?.authBaseUrl ?? CHIEF_CLOUD_AUTH_BASE_URL;
+export const AUTH_UI_BASE_URL = connection.authUiUrl;
+export const RELAY_URL = connection.relayUrl;
+export const AUTH_BASE_URL = connection.authBaseUrl;
 
 export const USING_CUSTOM_RELAY =
   new URL(RELAY_URL).origin !== new URL(CHIEF_CLOUD_RELAY_URL).origin;

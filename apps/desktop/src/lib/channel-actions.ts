@@ -34,6 +34,8 @@ export function channelActionFromComponent(
     return {
       type: "member-joined",
       actorName: joined.data.actorName,
+      actorId: joined.data.actorId,
+      actorType: "user",
       agentIds: [],
     };
   }

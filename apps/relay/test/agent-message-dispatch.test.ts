@@ -168,7 +168,7 @@ describe("workspace agent message dispatch", () => {
         updatedAt: now,
       }),
       {
-        conversationId: "mission-control",
+        conversationId: "general",
         body: "Hey @Coordinator, take this.",
         mentions: [agentId],
       },
@@ -200,7 +200,7 @@ describe("workspace agent message dispatch", () => {
         agentId,
         kind: "conversation.message",
         payload: {
-          conversationId: "mission-control",
+          conversationId: "general",
           workflowId,
           mentions: [agentId],
           instruction: "Hey @Coordinator, take this.",
@@ -216,7 +216,7 @@ describe("workspace agent message dispatch", () => {
     await assignProvider(ctx, setupId);
     const message = testMessage(
       ctx,
-      "mission-control",
+      "general",
       "@Setup can you help with this privately?",
     );
 
@@ -257,7 +257,7 @@ describe("workspace agent message dispatch", () => {
       principal: ctx.principal,
       requestId: crypto.randomUUID(),
       workspaceId: ctx.workspaceId,
-      conversationId: "mission-control",
+      conversationId: "general",
     });
 
     expect(await claimAgent(ctx, setupId)).toMatchObject({
@@ -349,7 +349,7 @@ async function appendConversationMessage(
 ) {
   const request = withTrustedContext(
     new Request(
-      `https://conversation.internal/v1/workspaces/${ctx.workspaceId}/conversations/mission-control/messages`,
+      `https://conversation.internal/v1/workspaces/${ctx.workspaceId}/conversations/general/messages`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -360,7 +360,7 @@ async function appendConversationMessage(
             occurredAt: new Date().toISOString(),
             payload: {
               messageId: input.id,
-              conversationId: "mission-control",
+              conversationId: "general",
               body: input.body,
               mentions: input.mentions,
               components: [],
@@ -376,11 +376,11 @@ async function appendConversationMessage(
       principal: ctx.principal,
       requestId: crypto.randomUUID(),
       workspaceId: ctx.workspaceId,
-      conversationId: "mission-control",
+      conversationId: "general",
     },
   );
   const response = await ctx.env.CONVERSATIONS.get(
-    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:mission-control`),
+    ctx.env.CONVERSATIONS.idFromName(`${ctx.workspaceId}:general`),
   ).fetch(request);
   expect(response.status).toBe(200);
   return {

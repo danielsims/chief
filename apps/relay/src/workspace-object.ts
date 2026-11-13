@@ -12,7 +12,7 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
-import { attempt, runResponse } from "./effect";
+import { attempt, runResponse, sync } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
@@ -21,6 +21,7 @@ import {
   trustedTelemetryAttributes,
 } from "./internal-context";
 import { routeMcpConnections } from "./mcp/route";
+import { OwnedAgentService } from "./owned-agent-service";
 import { metered, meterSql, requestOperation } from "./sql-metering";
 import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
@@ -34,7 +35,6 @@ import {
 } from "./workspace-channel-router";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
-import { startEveWorkspaceKickoffFromRequest } from "./workspace-eve-onboarding";
 import { externalAgentRouter } from "./workspace-external-agent-router";
 import {
   mintGitToken,
@@ -57,10 +57,15 @@ import { routeScheduleWebhooks } from "./workspace-schedule-webhooks";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
+  finishWorkspaceSetup,
+  workspaceSetupSnapshot,
+} from "./workspace-setup";
+import {
   consumeSocketAllowance,
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
+import { startWorkspaceWelcome } from "./workspace-start-welcome";
 import { relayConversationTyping } from "./workspace-typing";
 import {
   updateOutdatedEveAgents,
@@ -190,6 +195,10 @@ export class WorkspaceObject extends DurableObject<Env> {
           routeWorkspaceSchedule(ctx.storage, env, request, operation),
         );
       }
+      if (operation?.startsWith("owned-agent-"))
+        return yield* attempt("workspace.owned_agents", () =>
+          new OwnedAgentService(ctx.storage, env).route(request, operation),
+        );
       if (operation?.startsWith("channels-")) {
         return yield* attempt("workspace.channels", () =>
           routeWorkspaceChannel(ctx.storage, env, request, operation),
@@ -310,16 +319,18 @@ export class WorkspaceObject extends DurableObject<Env> {
       }
 
       const lifecycle = new WorkspaceLifecycleService(ctx.storage, env);
-      if (operation === "complete-onboarding") {
-        return yield* attempt("workspace.onboarding.complete", () =>
-          lifecycle.completeOnboarding(request),
+      if (operation === "setup-snapshot")
+        return yield* sync("workspace.setup_snapshot", () =>
+          workspaceSetupSnapshot(ctx.storage, env, request),
         );
-      }
-      if (operation === "start-eve-onboarding") {
-        return yield* attempt("workspace.onboarding.start", () =>
-          startEveWorkspaceKickoffFromRequest(env, ctx.storage, request),
+      if (operation === "finish-setup")
+        return yield* attempt("workspace.finish_setup", () =>
+          finishWorkspaceSetup(ctx.storage, env, request),
         );
-      }
+      if (operation === "start-welcome")
+        return yield* attempt("workspace.start_welcome", () =>
+          startWorkspaceWelcome(ctx.storage, env, request),
+        );
 
       if (operation?.startsWith("github-")) {
         const github = new WorkspaceGitHubService(ctx.storage, env);

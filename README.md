@@ -67,25 +67,23 @@ cd chief
 pnpm install
 ```
 
-Start the relay in one terminal:
-
-```bash
-pnpm relay:dev
-```
-
-Start the web and workspace services:
+Start Docker Desktop, then run:
 
 ```bash
 pnpm dev
 ```
 
-Then start the desktop app:
+This starts the existing self-hosted Docker stack at `http://localhost:8080`,
+applies local database migrations and opens the normal Tauri desktop dev app
+with hot reload. Existing Docker images are reused with the current relay source
+mounted into them; rebuild images with `pnpm self-host:up` when dependencies change. It preserves local accounts and workspaces. Production is not
+deployed or changed. If the app previously selected another relay, use
+**Connect a self-hosted relay** and enter `http://localhost:8080`.
 
-```bash
-pnpm desktop
-```
-
-The marketing site runs on `http://localhost:3000` and the React Email preview runs on `http://localhost:3001` with `pnpm email`.
+`pnpm desktop:dev` is an alias for the same loop. Ctrl+C stops the desktop;
+`pnpm self-host:down` stops Docker services without deleting their data.
+The authentication UI is served by the Docker stack. The React Email preview
+remains available separately with `pnpm email`.
 
 ## Useful commands
 

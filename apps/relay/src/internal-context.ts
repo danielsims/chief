@@ -69,6 +69,8 @@ export function readTrustedContext(request: Request) {
   };
 }
 
+export type TrustedRequestContext = ReturnType<typeof readTrustedContext>;
+
 export function trustedTelemetryAttributes(request: Request) {
   const workspace = workspaceIdSchema.safeParse(
     request.headers.get(workspaceHeader),

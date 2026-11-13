@@ -40,8 +40,8 @@ const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const command = process.argv[2];
 if (process.env.FAIL_CHECK === command) { console.error('requested failure: ' + command); process.exit(1); }
-if (command === 'format:fix') {
-  for (const file of execFileSync('git', ['ls-files', '-z'], {encoding:'utf8'}).split('\\0').filter(f => f.endsWith('.txt'))) {
+if (command === 'exec') {
+  for (const file of process.argv.slice(process.argv.indexOf('--') + 1).filter(f => f.endsWith('.txt'))) {
     if (fs.existsSync(file)) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('unformatted', 'formatted'));
   }
   if (process.env.FAIL_CHECK === 'after-format') { console.error('requested failure: after-format'); process.exit(1); }
@@ -81,12 +81,12 @@ if (command === 'format:fix') {
   return { git, run, directory };
 }
 
-test("formats the commit and other tracked files without including unfinished work", (t) => {
+test("formats only the commit without including unfinished work", (t) => {
   const { git, run, directory } = fixture(t);
   run();
   assert.match(git("show", ":partial.txt"), /^formatted staged/);
   assert.doesNotMatch(git("show", ":partial.txt"), /local-only/);
-  assert.equal(git("show", ":untouched.txt"), "formatted\n");
+  assert.equal(git("show", ":untouched.txt"), "unformatted\n");
   assert.equal(git("show", ":unfinished.txt"), "original\n");
   assert.match(
     readFileSync(join(directory, "partial.txt"), "utf8"),

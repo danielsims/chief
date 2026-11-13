@@ -12,10 +12,6 @@ import type {
 import type { WorkspaceChannel } from "../types.js";
 import type { ChannelUpdateInput } from "./store-types.js";
 import * as schema from "../db/schema.js";
-import {
-  readWorkspaceWaysOfWorking,
-  requiredWorkspaceChannelIds,
-} from "../workspace-ways-of-working.js";
 import { reconcileDefaultChannelPolicies } from "./default-channel-policy.js";
 import { ChannelHistoryStore } from "./history-store.js";
 import { defaultWorkspaceChannels } from "./nip29.js";
@@ -38,24 +34,10 @@ export class ChannelStore extends ChannelHistoryStore {
           .from(schema.channels)
           .where(eq(schema.channels.organizationId, workspaceId))
           .all();
-        const defaults = defaultWorkspaceChannels();
         await reconcileDefaultChannelPolicies(this.database(), workspaceId);
-        const requiredChannelIds = requiredWorkspaceChannelIds(workspaceId);
-        const channelsToSeed =
-          existing.length === 0
-            ? defaults
-            : defaults
-                .filter((channel) => requiredChannelIds.has(channel.id))
-                .filter(
-                  (channel) =>
-                    !existing.some((candidate) => candidate.id === channel.id),
-                )
-                .map((channel) => ({
-                  ...channel,
-                  createdAt: 0,
-                  updatedAt: Date.now(),
-                }));
-        if (channelsToSeed.length === 0) return;
+        // Defaults seed a new workspace once; afterwards its channels are its own.
+        if (existing.length > 0) return;
+        const channelsToSeed = defaultWorkspaceChannels();
         await this.database()
           .insert(schema.channels)
           .values(
@@ -431,15 +413,6 @@ export class ChannelStore extends ChannelHistoryStore {
     if (!channel) throw new Error("Channel was not found in this workspace.");
     if (channel.visibility === "direct") {
       throw new Error("Direct messages cannot be deleted as channels.");
-    }
-    const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
-    if (
-      waysOfWorking.mode === "mission-control" &&
-      waysOfWorking.missionControlChannelId === channel.id
-    ) {
-      throw new Error(
-        `#${channel.name} is the workspace's main channel, so it can't be archived.`,
-      );
     }
     const remainingActivePublicChannels = (await this.list(workspaceId)).filter(
       (candidate) =>
