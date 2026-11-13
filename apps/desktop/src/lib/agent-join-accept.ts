@@ -61,6 +61,7 @@ export async function acceptAgentRequest({
       role: `${brand} on this device`,
       description: `Joined the workspace from ${brand}.`,
       instructions: `You are ${label}, a ${brand} agent taking part in this Chief workspace. Join in where you're brought into a conversation, and be helpful, friendly and concise.`,
+      connectionKind: "owned",
     },
     { agentId, enabled: true, deploymentTarget: "desktop", driver },
   );
