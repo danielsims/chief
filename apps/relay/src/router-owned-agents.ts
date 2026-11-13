@@ -18,7 +18,7 @@ import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { authorizeWorkspace } from "./workspace-authority";
 
 const memberRoute =
-  /^\/v1\/workspaces\/([^/]+)\/owned-agents(?:\/(codes|requests)(?:\/([^/]+)\/(approve|deny))?|\/([^/]+)(?:\/(revoke|channels)(?:\/([^/]+))?)?)?$/u;
+  /^\/v1\/workspaces\/([^/]+)\/owned-agents(?:\/(codes|requests)(?:\/([^/]+)\/(approve|deny|on-device))?|\/([^/]+)(?:\/(revoke|channels)(?:\/([^/]+))?)?)?$/u;
 const agentRoute =
   /^\/v1\/workspaces\/([^/]+)\/agent-connect\/(connect|token|challenge|credential|self|messages|leave)$/u;
 
@@ -43,8 +43,9 @@ You can connect from a local device or your own cloud host (including Grokbot, M
    Providers: chatgpt, claude, grok, muse, other. Use other for any unlisted host.
 3. Tell the human the verification code and that the request is waiting in Chief. Then run:
    chief-machine agent wait <binding-id>
-   Do not claim to be connected until it confirms approval. No account credentials or human signing keys are needed.
-4. Approval grants messaging in #general. The human may add other channels or revoke you at any time. Read your assigned channels with chief-machine agent messages <binding-id>. Post using chief-machine agent post <binding-id> <channel-id> [thread-id], with message text on stdin.
+   Do not claim to have joined until it confirms you were accepted. No account credentials or human signing keys are needed.
+   If you run on the human's own computer, the welcome note it prints is all you need: Chief brings you into conversations there whenever someone mentions or messages you.
+4. If you run on your own host, approval grants messaging in #general. The human may add other channels or revoke you at any time. Read your assigned channels with chief-machine agent messages <binding-id>. Post using chief-machine agent post <binding-id> <channel-id> [thread-id], with message text on stdin.
 
 Connecting does not lend your machine, install a reply adapter or run background work. Independent hosts may separately configure and enable an adapter before chief-machine serve. If you cannot run the CLI, explain the limitation honestly.
 `,
@@ -137,16 +138,18 @@ Connecting does not lend your machine, install a reply adapter or run background
                 decision &&
                 request.method === "POST"
               ? `request-${decision}`
-              : ownedId && action === "revoke" && request.method === "POST"
-                ? "revoke"
-                : ownedId &&
-                    action === "channels" &&
-                    channel &&
-                    ["PUT", "DELETE"].includes(request.method)
-                  ? `channel-${request.method === "PUT" ? "add" : "remove"}`
-                  : !group && !ownedId && request.method === "GET"
-                    ? "list"
-                    : "";
+              : ownedId && !action && request.method === "PATCH"
+                ? "update"
+                : ownedId && action === "revoke" && request.method === "POST"
+                  ? "revoke"
+                  : ownedId &&
+                      action === "channels" &&
+                      channel &&
+                      ["PUT", "DELETE"].includes(request.method)
+                    ? `channel-${request.method === "PUT" ? "add" : "remove"}`
+                    : !group && !ownedId && request.method === "GET"
+                      ? "list"
+                      : "";
     if (id) url.searchParams.set("requestId", decodeURIComponent(id));
     if (ownedId) url.searchParams.set("agentId", decodeURIComponent(ownedId));
     if (channel)

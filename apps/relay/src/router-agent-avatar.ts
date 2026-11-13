@@ -48,7 +48,39 @@ export async function routeAgentAvatar(
     requestId,
     workspaceId,
   });
-  if (!canManageAgents(principal)) {
+  // An owned agent is managed by its owner as well as admins; the workspace
+  // checks that before any upload, removal or change.
+  const owned = agentId.startsWith("oa_");
+  const workspace = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
+  const ownedOperation = (operation: string, body: string) => {
+    const target = new URL("https://workspace.internal/owned");
+    target.searchParams.set("agentId", agentId);
+    return workspace.fetch(
+      withTrustedContext(
+        new Request(target, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chief-internal-operation": operation,
+          },
+          body,
+        }),
+        { principal, requestId, workspaceId },
+      ),
+    );
+  };
+  if (owned) {
+    if (principal.kind !== "user") {
+      return relayError(
+        403,
+        "agent_avatar_denied",
+        "Only a person in this workspace can change an agent's avatar.",
+        requestId,
+      );
+    }
+    const allowed = await ownedOperation("owned-agent-avatar-authorize", "{}");
+    if (!allowed.ok) return allowed;
+  } else if (!canManageAgents(principal)) {
     return relayError(
       403,
       "agent_avatar_denied",
@@ -86,7 +118,9 @@ export async function routeAgentAvatar(
       requestId,
     );
   }
-  const workspace = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
+  if (owned) {
+    return ownedOperation("owned-agent-avatar-set", JSON.stringify(command));
+  }
   const target = new URL("https://workspace.internal/agent");
   target.searchParams.set("agentId", agentId);
   return workspace.fetch(

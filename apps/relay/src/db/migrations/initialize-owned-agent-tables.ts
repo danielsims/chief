@@ -34,6 +34,8 @@ export function initializeOwnedAgentTables(storage: DurableObjectStorage) {
       owner_user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       provider TEXT NOT NULL,
+      display_name TEXT,
+      avatar_json TEXT,
       pubkey TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,

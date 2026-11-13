@@ -175,6 +175,10 @@ export function wakeReason(
   if (message.mentions.some((id) => id === agent.agent_id)) {
     return "mention" as const;
   }
+  // In a DM every message from its owner is addressed to the agent.
+  if (message.author.kind === "user" && this.isDirect(message.conversationId)) {
+    return "mention" as const;
+  }
   if (
     message.author.kind === "user" &&
     message.threadRootId &&
@@ -183,6 +187,14 @@ export function wakeReason(
     return "thread" as const;
   }
   return null;
+}
+
+export function isDirect(this: OwnedAgentService, conversationId: string) {
+  try {
+    return this.channels.requireChannel(conversationId).kind === "direct";
+  } catch {
+    return false;
+  }
 }
 
 export function wake(this: OwnedAgentService, event: ConversationEvent) {

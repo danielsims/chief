@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+/**
+ * Owned agents: outside agents (ChatGPT, Claude Code, Codex, a cloud agent on
+ * its own machine) that join a workspace as an agent owned by one human
+ * member, after that member approves the request. The handle shown to people
+ * is `<owner username>:<agent name>`. It is always computed from the owner's
+ * current username and the agent's name, and never stored or resolved as text.
+ */
+
+import { agentAvatarSchema } from "./agent-avatar";
 import {
   agentIdSchema,
   conversationIdSchema,
@@ -9,14 +18,6 @@ import {
   userIdSchema,
   workspaceIdSchema,
 } from "./identifiers";
-/**
- * Owned agents: outside agents (ChatGPT, Claude Code, Codex, a cloud agent on
- * its own machine) that join a workspace as an agent owned by one human
- * member, after that member approves the request. The handle shown to people
- * is `<owner username>:<agent name>`. It is always computed from the owner's
- * current username and the agent's name, and never stored or resolved as text.
- */
-
 import { usernameSchema } from "./usernames";
 
 /** The short name an agent chooses for itself, unique among its owner's agents. */
@@ -103,6 +104,8 @@ export const ownedAgentTokenErrorSchema = z.enum([
   "slow_down",
   "access_denied",
   "expired_token",
+  /** Accepted to take part through the person's own device. */
+  "joined_on_device",
 ]);
 
 export const ownedAgentTokenResultSchema = z
@@ -159,6 +162,9 @@ export const ownedAgentSchema = z
     id: agentIdSchema,
     name: ownedAgentNameSchema,
     provider: ownedAgentProviderSchema,
+    /** Set by its owner or an admin; the handle keeps using name. */
+    displayName: z.string().max(48).nullable(),
+    avatar: agentAvatarSchema.nullable(),
     /** Null while the owner has no username, which approval prevents. */
     handle: z.string().min(3).max(64).nullable(),
     owner: z
@@ -181,9 +187,13 @@ export const ownedAgentListSchema = z
 
 export const ownedAgentDecisionResultSchema = z
   .object({
-    status: z.enum(["approved", "denied"]),
+    status: z.enum(["approved", "denied", "joined_on_device"]),
     agent: ownedAgentSchema.optional(),
   })
+  .strict();
+
+export const ownedAgentUpdateSchema = z
+  .object({ displayName: z.string().trim().min(1).max(48).nullable() })
   .strict();
 
 export const ownedAgentRevokedSchema = z
@@ -273,6 +283,7 @@ export const ownedAgentWakeSchema = z
 
 export type OwnedAgentProvider = z.infer<typeof ownedAgentProviderSchema>;
 export type OwnedAgent = z.infer<typeof ownedAgentSchema>;
+export type OwnedAgentUpdate = z.infer<typeof ownedAgentUpdateSchema>;
 export type OwnedAgentRequest = z.infer<typeof ownedAgentRequestSchema>;
 export type OwnedAgentConnectCode = z.infer<typeof ownedAgentConnectCodeSchema>;
 export type OwnedAgentMessage = z.infer<typeof ownedAgentMessageSchema>;

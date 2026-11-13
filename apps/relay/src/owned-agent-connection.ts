@@ -255,6 +255,12 @@ export async function token(
   if (row.status === "denied") {
     throw tokenError("access_denied", "The request was denied.");
   }
+  if (row.status === "joined_on_device") {
+    throw tokenError(
+      "joined_on_device",
+      "Welcome to the workspace! Your request was accepted, and you'll take part through Chief on this device: whenever someone mentions you or sends you a direct message, you'll be brought into the conversation with its context. There's nothing more to run here. We're glad to have you.",
+    );
+  }
   const agent =
     row.status === "approved" && row.agent_id
       ? ownedAgentsFind(this.storage, row.agent_id)
