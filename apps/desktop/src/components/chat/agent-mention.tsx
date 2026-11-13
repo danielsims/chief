@@ -3,10 +3,10 @@ import { Fragment } from "react";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
-import { isWorkspaceAgentId } from "../../lib/workspace-channels";
+import { AgentAvatar } from "../agent-avatar";
 import { ChiefMark } from "../chief-mark";
 import { splitAgentMentions } from "./agent-mention-parser";
-import { useMentionAliases } from "./mention-people-context";
+import { useMentionAliases, useMentionPeople } from "./mention-people-context";
 
 export function AgentMentionText({
   text,
@@ -16,6 +16,7 @@ export function AgentMentionText({
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
 }) {
   const people = useMentionAliases();
+  const persons = useMentionPeople();
   return splitAgentMentions(text, people).map((segment, index) => {
     if (segment.type === "text") {
       return (
@@ -23,13 +24,19 @@ export function AgentMentionText({
       );
     }
 
-    const isAgent = isWorkspaceAgentId(segment.agentId);
+    const isAgent = !persons.some((person) => person.id === segment.agentId);
     const content = (
       <>
-        <ChiefMark
-          className="size-3"
-          title={isAgent ? `${segment.label} agent` : segment.label}
-        />
+        {isAgent ? (
+          <AgentAvatar
+            agentId={segment.agentId}
+            label={segment.label}
+            className="size-3.5 rounded-[4px]"
+            markClassName="size-2.5"
+          />
+        ) : (
+          <ChiefMark className="size-3" title={segment.label} />
+        )}
         <span className="relative -top-[0.06em] whitespace-nowrap">
           {segment.label}
         </span>

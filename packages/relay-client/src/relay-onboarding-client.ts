@@ -6,6 +6,8 @@ import {
   ownedAgentListSchema,
   ownedAgentRequestListSchema,
   ownedAgentRevokedSchema,
+  ownedAgentSchema,
+  ownedAgentUpdateSchema,
   usernameAvailabilitySchema,
   usernameSetResultSchema,
   workspaceSnapshotSchema,
@@ -44,6 +46,17 @@ export class RelayOnboardingClient extends RelayVercelProvisioning {
       { method: "POST" },
     );
   }
+  /** Accepts an agent that will take part through this device's runtime. */
+  welcomeOwnedAgentOnDevice(requestId: string) {
+    return this.fetchJson(
+      this.workspaceUrl(
+        `owned-agents/requests/${encodeURIComponent(requestId)}/on-device`,
+      ),
+      ownedAgentDecisionResultSchema,
+      true,
+      { method: "POST" },
+    );
+  }
   setOwnedAgentChannel(agentId: string, channelId: string, member: boolean) {
     return this.fetchJson(
       this.workspaceUrl(
@@ -52,6 +65,18 @@ export class RelayOnboardingClient extends RelayVercelProvisioning {
       ownedAgentChannelResultSchema,
       true,
       { method: member ? "PUT" : "DELETE" },
+    );
+  }
+  renameOwnedAgent(agentId: string, displayName: string | null) {
+    return this.fetchJson(
+      this.workspaceUrl(`owned-agents/${encodeURIComponent(agentId)}`),
+      ownedAgentSchema,
+      true,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(ownedAgentUpdateSchema.parse({ displayName })),
+      },
     );
   }
   revokeOwnedAgent(agentId: string) {

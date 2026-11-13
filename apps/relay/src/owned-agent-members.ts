@@ -1,5 +1,11 @@
-import type { Principal } from "@chief/relay-contracts";
+import type {
+  AgentAvatarSet,
+  OwnedAgentUpdate,
+  Principal,
+} from "@chief/relay-contracts";
 import {
+  agentAvatarSchema,
+  agentAvatarSetSchema,
   agentIdSchema,
   conversationIdSchema,
   ownedAgentChannelResultSchema,
@@ -10,6 +16,7 @@ import {
   ownedAgentProviderSchema,
   ownedAgentRequestListSchema,
   ownedAgentRevokedSchema,
+  ownedAgentUpdateSchema,
 } from "@chief/relay-contracts";
 
 import type { OwnedAgentService } from "./owned-agent-service";
@@ -17,7 +24,7 @@ import type { MemberPrincipal } from "./owned-agent-shared";
 import type { OwnedAgentRow } from "./queries/owned-agents/agents";
 import type { ChannelRow } from "./workspace-channel-store";
 import { randomToken, sha256 } from "./external-agent-channel-security";
-import { HttpError, json } from "./http";
+import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import {
   closeOwnedAgentListeners,
@@ -89,12 +96,33 @@ export async function route(
       return json(
         await this.decide(member, url.searchParams.get("requestId"), true),
       );
+    case "owned-agent-request-on-device":
+      return json(this.joinOnDevice(member, url.searchParams.get("requestId")));
     case "owned-agent-request-deny":
       return json(
         await this.decide(member, url.searchParams.get("requestId"), false),
       );
     case "owned-agent-list":
       return json(await this.list(member));
+    case "owned-agent-update":
+      return json(
+        await this.update(
+          member,
+          url.searchParams.get("agentId"),
+          ownedAgentUpdateSchema.parse(await parseJson(request)),
+        ),
+      );
+    case "owned-agent-avatar-authorize":
+      this.requireManagedAgent(member, url.searchParams.get("agentId"));
+      return json({ ok: true });
+    case "owned-agent-avatar-set":
+      return json(
+        this.setAvatar(
+          member,
+          url.searchParams.get("agentId"),
+          agentAvatarSetSchema.parse(await parseJson(request)),
+        ),
+      );
     case "owned-agent-revoke":
       return json(this.revoke(member, url.searchParams.get("agentId")));
     case "owned-agent-channel-add":
@@ -201,6 +229,47 @@ export async function pendingRequests(
       expiresAt: row.expires_at,
     })),
   });
+}
+
+/**
+ * Accepts a request whose agent takes part through its person's own device,
+ * where Chief's on-device runtime brings it into conversations. No owned
+ * identity is created; the waiting agent is told it has joined.
+ */
+export function joinOnDevice(
+  this: OwnedAgentService,
+  member: MemberPrincipal,
+  requestId: string | null,
+) {
+  const request = requestId
+    ? ownedAgentRequestsFind(this.storage, requestId)
+    : undefined;
+  if (!request || request.user_id !== member.userId) {
+    throw new HttpError(
+      404,
+      "agent_request_not_found",
+      "That request was not found.",
+    );
+  }
+  const now = new Date().toISOString();
+  if (request.status !== "pending" || request.expires_at <= now) {
+    throw new HttpError(
+      409,
+      "agent_request_closed",
+      "That request has expired or was already answered.",
+    );
+  }
+  ownedAgentRequestsUpdate(this.storage, request.request_id, {
+    status: "joined_on_device",
+    decided_at: now,
+  });
+  this.audit(
+    member,
+    "owned_agent.join_on_device",
+    `Welcomed agent ${request.name} on their device.`,
+    { ownerUserId: member.userId, provider: request.provider },
+  );
+  return ownedAgentDecisionResultSchema.parse({ status: "joined_on_device" });
 }
 
 export async function decide(
@@ -362,6 +431,8 @@ export function summary(
     id: agent.agent_id,
     name: agent.name,
     provider: ownedAgentProviderSchema.parse(agent.provider),
+    displayName: agent.display_name,
+    avatar: storedAvatar(agent.avatar_json),
     handle: owner?.username
       ? ownedAgentHandle(owner.username, agent.name)
       : null,
@@ -424,6 +495,50 @@ export function requireManagedAgent(
     );
   }
   return agent;
+}
+
+export async function update(
+  this: OwnedAgentService,
+  member: MemberPrincipal,
+  agentId: string | null,
+  { displayName }: OwnedAgentUpdate,
+) {
+  const agent = this.requireManagedAgent(member, agentId);
+  ownedAgentsUpdate(this.storage, agent.agent_id, {
+    display_name: displayName,
+  });
+  this.audit(
+    member,
+    "owned_agent.rename",
+    `Renamed agent ${agent.name}.`,
+    { ownerUserId: agent.owner_user_id },
+    agent.agent_id,
+  );
+  const owners = await this.owners([agent.owner_user_id]);
+  return this.summary({ ...agent, display_name: displayName }, member, owners);
+}
+
+/** The router has already checked the image is this agent's own upload. */
+export function setAvatar(
+  this: OwnedAgentService,
+  member: MemberPrincipal,
+  agentId: string | null,
+  { avatar }: AgentAvatarSet,
+) {
+  const agent = this.requireManagedAgent(member, agentId);
+  ownedAgentsUpdate(this.storage, agent.agent_id, {
+    avatar_json: avatar ? JSON.stringify(avatar) : null,
+  });
+  return { agentId: agent.agent_id, avatar };
+}
+
+function storedAvatar(value: string | null) {
+  if (!value) return null;
+  try {
+    return agentAvatarSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }
 
 export function revoke(

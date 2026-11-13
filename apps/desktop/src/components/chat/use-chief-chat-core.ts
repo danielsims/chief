@@ -12,7 +12,7 @@ import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import { withoutMarkerLines } from "../../lib/integration-setup";
-import { agentName } from "../../lib/owned-agent-presentation";
+import { ownedAgentLabel } from "../../lib/owned-agent-presentation";
 import {
   messageBlocks,
   useChannelReactions,
@@ -227,7 +227,7 @@ export function useChiefChatCore({
       )
       .map((agent) => ({
         id: agent.id,
-        name: agentName(agent.provider, agent.name),
+        name: ownedAgentLabel(agent),
         handle: agent.handle ?? undefined,
         role: "Connected agent",
         member: true,
@@ -259,7 +259,7 @@ export function useChiefChatCore({
           ]),
           ...ownedAgents.map((agent) => ({
             id: agent.id,
-            name: agent.handle ?? agentName(agent.provider, agent.name),
+            name: ownedAgentLabel(agent),
             role: "Connected agent",
           })),
         ].map((agent) => [

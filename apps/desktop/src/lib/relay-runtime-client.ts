@@ -179,7 +179,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
       kind: "agent",
       principalId: agentIdSchema.parse(agentId),
     });
-    await this.listChats();
+    // The DM opens as soon as it exists; its live events are subscribed now
+    // and the snapshot and chat list catch up behind it.
+    this.subscribedConversationIds.add(result.conversation.id);
+    void this.ensureWorkspaceSubscription().catch(() => undefined);
+    void this.listChats().catch(() => undefined);
     return result.conversation.id;
   }
   async removeAgent(agentId: string) {
