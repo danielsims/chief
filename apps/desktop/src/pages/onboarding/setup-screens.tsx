@@ -238,8 +238,7 @@ export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
       <SetupHeading title="On your device. Or in the cloud.">
-        Chief can work from this computer or from the cloud. You’ll choose on
-        the next screen, and can change it any time.
+        Chief can work from this computer or the cloud.
       </SetupHeading>
       <PlacesIllustration />
       <button className="ob-primary" onClick={() => s.go("chief")}>
@@ -367,7 +366,7 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
           }}
           options={options}
           disabled={
-            !!s.draft.workspaceId ||
+            (!local && !!s.draft.workspaceId) ||
             s.busy ||
             (!local && s.draft.host === "vercel-eve")
           }
