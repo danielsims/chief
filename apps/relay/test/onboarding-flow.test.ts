@@ -18,6 +18,7 @@ import {
   ownedAgentTokenResultSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
+  welcomeChannelId,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
@@ -262,7 +263,9 @@ describe("approval-bound onboarding", () => {
         })
       ).status,
     ).toBe(200);
-    const messages = await ctx.call("/conversations/mission-control/messages");
+    const messages = await ctx.call(
+      `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
+    );
     expect(messages.status).toBe(200);
     const content = await messages.text();
     expect(content).toContain("personal chief of staff");
@@ -280,7 +283,9 @@ describe("approval-bound onboarding", () => {
     ]);
     const finished = await ctx.call("/setup/complete", "POST", {});
     expect(finished.status, await finished.clone().text()).toBe(200);
-    const messages = await ctx.call("/conversations/mission-control/messages");
+    const messages = await ctx.call(
+      `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
+    );
     const text = await messages.text();
     expect(text).toContain("team's chief of staff");
     expect(text).toContain("Test Company");

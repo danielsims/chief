@@ -11,13 +11,13 @@ import { deterministicUuid } from "./external-agent-channel-security";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { agentConfigsUpdateEnableHostedSpecialists } from "./queries/agent-configs/update-enable-hosted-specialists";
-import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { workspaceUpdateVerifyConnection } from "./queries/workspace/update-verify-connection";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import {
   decodeWorkspaceSnapshot,
   workspaceAgentProfiles,
 } from "./workspace-defaults";
+import { ensureWelcomeChannel } from "./workspace-welcome";
 
 /** Human setup is separate from provider deployment or a model turn. */
 export async function finishWorkspaceSetup(
@@ -71,7 +71,8 @@ export async function finishWorkspaceSetup(
       "chief_not_connected",
       "Finish connecting Chief before entering your workspace.",
     );
-  storage.transactionSync(() => {
+  const now = new Date().toISOString();
+  const welcome = storage.transactionSync(() => {
     for (const agent of workspaceAgentProfiles(snapshot)) {
       if (
         snapshot.agents.some(
@@ -81,11 +82,6 @@ export async function finishWorkspaceSetup(
         )
       )
         continue;
-      channelMembersAddAgentToExistingChannel(storage, {
-        conversationId: "mission-control",
-        agentId: agent.id,
-        joinedAt: new Date().toISOString(),
-      });
       const config = agentConfigSchema.parse({
         ...channels.agentConfiguration(agent.id),
         enabled: true,
@@ -93,22 +89,21 @@ export async function finishWorkspaceSetup(
       agentConfigsUpdateEnableHostedSpecialists(storage, {
         agentId: agent.id,
         configJson: JSON.stringify(config),
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       });
     }
+    // The owner's private line to Chief; teammates join when work needs them.
+    return ensureWelcomeChannel(storage, {
+      workspaceId: snapshot.id,
+      userId: workspace.created_by_user_id,
+      now,
+    });
   });
   const opener =
     snapshot.purpose === "personal"
       ? `Welcome to ${snapshot.name}. I'm Chief, your personal chief of staff. What would you like to work on first?`
       : `Welcome to ${snapshot.name}. I'm Chief, your team's chief of staff.${snapshot.companyName ? ` We're ready to work with ${snapshot.companyName}.` : ""} What would you like to work on first?`;
-  const openerId = await deterministicUuid(`${snapshot.id}:setup:chief`);
-  const greetings = [
-    { id: "chief", body: opener },
-    ...(chief?.subagents ?? []).map((a) => ({
-      id: a.id,
-      body: `I'm ${a.name}. ${a.description} Tell me what you'd like to start with.`,
-    })),
-  ];
+  const greetings = [{ id: "chief", body: opener }];
   for (const greeting of greetings) {
     const commandId = await deterministicUuid(
       `${snapshot.id}:setup:${greeting.id}`,
@@ -126,15 +121,14 @@ export async function finishWorkspaceSetup(
       occurredAt: snapshot.createdAt,
       payload: {
         messageId: commandId,
-        conversationId: "mission-control",
+        conversationId: welcome,
         body: greeting.body,
         mentions: [],
         components: [],
-        threadRootId: greeting.id !== "chief" ? openerId : undefined,
       },
     });
     const response = await env.CONVERSATIONS.get(
-      env.CONVERSATIONS.idFromName(`${snapshot.id}:mission-control`),
+      env.CONVERSATIONS.idFromName(`${snapshot.id}:${welcome}`),
     ).fetch(
       withTrustedContext(
         new Request("https://conversation.internal/messages", {
@@ -145,7 +139,7 @@ export async function finishWorkspaceSetup(
         {
           ...context,
           principal,
-          conversationId: "mission-control",
+          conversationId: welcome,
           requestId: commandId,
         },
       ),

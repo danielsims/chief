@@ -37,3 +37,4 @@ export * from "./usernames";
 export * from "./onboarding-roster";
 
 export * from "./owned-agents";
+export * from "./welcome";
