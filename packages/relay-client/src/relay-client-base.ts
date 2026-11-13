@@ -152,7 +152,7 @@ export class RelayClientBase {
   }
   async createWorkspace(command: CreateWorkspaceCommand, credential: string) {
     const secrets =
-      command.agentRuntime === "vercel-eve"
+      command.agentRuntime === "vercel-eve" || command.runtime !== "cloud"
         ? {}
         : command.inferenceProvider === "vercelAiGateway"
           ? { vercelAiGateway: credential }

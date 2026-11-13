@@ -65,6 +65,7 @@ export const agentPrincipalSchema = z.object({
   pubkey: hexPubkeySchema,
   workspaceId: workspaceIdSchema,
   role: workspaceRoleSchema,
+  ownerUserId: userIdSchema.optional(),
 });
 
 export const servicePrincipalSchema = z.object({

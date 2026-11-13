@@ -8,8 +8,6 @@ pub mod public_fetch;
 pub mod protocol;
 
 #[cfg(feature = "cli")]
-pub mod agent;
-#[cfg(feature = "cli")]
 pub mod agent_adapter;
 #[cfg(feature = "cli")]
 pub mod browser;
@@ -24,3 +22,8 @@ pub mod relay_http;
 
 #[cfg(feature = "cli")]
 mod browser_cdp;
+
+#[cfg(feature = "cli")]
+pub mod owned_agent;
+#[cfg(feature = "cli")]
+mod agent_identity;
