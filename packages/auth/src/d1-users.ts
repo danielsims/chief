@@ -18,3 +18,10 @@ export async function updateChiefUserImage(
 }
 
 export { getUserNames } from "./queries/get-user-names";
+export {
+  getChiefProfile,
+  findUsernameOwner,
+  claimUsername,
+} from "./queries/usernames";
+
+export { getUsernames } from "./queries/usernames";

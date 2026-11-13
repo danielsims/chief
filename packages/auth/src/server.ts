@@ -58,6 +58,9 @@ export function createChiefAuth(
       ...apple,
     },
     user: {
+      additionalFields: {
+        username: { type: "string", required: false, input: false },
+      },
       deleteUser: {
         enabled: true,
       },
