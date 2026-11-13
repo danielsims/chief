@@ -196,6 +196,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 function WorkspaceAccountHome() {
   const relay = useRelaySession();
   const navigate = useNavigate();
+  const unfinished = relay.snapshot?.setupComplete === false;
   return (
     <Layout workspaceNavigationAvailable={false}>
       <div className="absolute top-12 left-16 z-40 w-60">
@@ -204,14 +205,16 @@ function WorkspaceAccountHome() {
       <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
         <ChiefMark className="text-muted-foreground mb-3 size-10" />
         <h1 className="text-xl font-medium tracking-tight">
-          {relay.snapshot?.setupComplete === false
-            ? "Your workspace setup is saved"
+          {unfinished
+            ? `Finish setting up ${relay.snapshot?.name ?? "your workspace"}`
             : "No workspace selected"}
         </h1>
         <p className="text-muted-foreground max-w-sm text-sm leading-6">
-          Open a workspace from your profile menu to continue.
+          {unfinished
+            ? "Pick up where you left off: connect Chief and choose your team."
+            : "Open a workspace from your profile menu to continue."}
         </p>
-        {relay.snapshot?.setupComplete === false ? (
+        {unfinished ? (
           <Button
             className="mt-3"
             onClick={() => void navigate("/workspaces/new?intent=resume")}
