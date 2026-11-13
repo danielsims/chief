@@ -172,6 +172,27 @@ export function requiresConfiguredOAuthClient(
   );
 }
 
+/**
+ * True when discovery worked but the server turned down Chief's registration
+ * (a missing or forbidden register endpoint, a rejected redirect or
+ * metadata). The person can still connect with an OAuth app of their own. A
+ * network failure is not a rejection, so it is left to retry.
+ */
+export function registrationRejected(
+  session: StoredOAuthSession,
+  error: Error,
+): boolean {
+  return Boolean(
+    !session.clientInformation &&
+    session.discovery?.authorizationServerMetadata &&
+    !(error instanceof TypeError) &&
+    !(
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError")
+    ),
+  );
+}
+
 export interface McpOAuthProviderOptions {
   redirectUrl: string;
   clientMetadata: OAuthClientMetadata;
@@ -196,7 +217,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
     private session: StoredOAuthSession,
     private readonly options: McpOAuthProviderOptions,
   ) {
-    this.clientMetadataUrl = options.clientMetadataUrl;
+    // The SDK only accepts an HTTPS document; a local relay registers instead.
+    this.clientMetadataUrl = options.clientMetadataUrl?.startsWith("https://")
+      ? options.clientMetadataUrl
+      : undefined;
   }
 
   get redirectUrl() {

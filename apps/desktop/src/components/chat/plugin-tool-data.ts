@@ -94,6 +94,28 @@ export function pluginAuthorizationFromResult(
     return action;
   }
   if (
+    value.kind === "plugin_api_key" &&
+    value.status === "api_key_required" &&
+    isJsonString(value.label) &&
+    (value.docsUrl === undefined ||
+      (isJsonString(value.docsUrl) && safeUrl(value.docsUrl)))
+  ) {
+    const action: Extract<
+      PluginAuthorizationAction,
+      { kind: "plugin_api_key" }
+    > = {
+      kind: value.kind,
+      status: value.status,
+      pluginId: value.pluginId,
+      pluginName: value.pluginName,
+      description: value.description,
+      provider: value.provider,
+      label: value.label,
+    };
+    if (value.docsUrl) action.docsUrl = value.docsUrl;
+    return action;
+  }
+  if (
     value.kind !== "plugin_authorization" ||
     value.status !== "authorization_required" ||
     !isJsonString(value.authorizationUrl) ||

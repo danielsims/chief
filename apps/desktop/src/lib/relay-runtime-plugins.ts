@@ -2,8 +2,10 @@ import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 
+import type { McpSurfaceApiKey } from "@chief/agent-runtime/mcp-surface";
 import type {
   AgentPluginSummary,
+  AgentPluginToolInput,
   ClientMessage,
   PluginAuthorizationAction,
   ServerMessage,
@@ -126,6 +128,35 @@ const signInWindowMs = 10 * 60_000;
 // Which plugins the relay manages, from the last list, so commands route correctly.
 const relayManaged = new Map<string, Set<string>>();
 
+const toolArgumentsSchema = z.object({
+  properties: z
+    .record(
+      z.string(),
+      z.object({
+        type: z.union([z.string(), z.array(z.string())]).optional(),
+      }),
+    )
+    .optional(),
+  required: z.array(z.string()).optional(),
+});
+
+/** A tool's arguments from its JSON Schema, required ones first. */
+export function toolInputs(inputSchema: JsonObject): AgentPluginToolInput[] {
+  const schema = toolArgumentsSchema.safeParse(inputSchema);
+  if (!schema.success) return [];
+  const required = new Set(schema.data.required ?? []);
+  return Object.entries(schema.data.properties ?? {})
+    .map(([name, property]) => ({
+      name,
+      type: [property.type ?? "any"]
+        .flat()
+        .filter((type) => type !== "null")
+        .join(" or "),
+      required: required.has(name),
+    }))
+    .sort((left, right) => Number(right.required) - Number(left.required));
+}
+
 function isSigningIn(id: string) {
   const until = signingIn.get(id);
   if (until && until > Date.now()) return true;
@@ -139,13 +170,14 @@ function connectionKey(connection: McpConnection) {
 
 function connectionStatus(
   connection: McpConnection,
+  workspaceId: string,
 ): AgentPluginSummary["status"] {
   if (connection.status === "connected") {
-    signingIn.delete(connectionKey(connection));
+    signingIn.delete(`${workspaceId}:${connectionKey(connection)}`);
     return "connected";
   }
   if (connection.status === "error") return "failed";
-  return isSigningIn(connectionKey(connection))
+  return isSigningIn(`${workspaceId}:${connectionKey(connection)}`)
     ? "waiting"
     : "authorization_required";
 }
@@ -153,10 +185,11 @@ function connectionStatus(
 function withConnection(
   plugin: AgentPluginSummary,
   connection: McpConnection,
+  workspaceId: string,
 ): AgentPluginSummary {
   return {
     ...plugin,
-    status: connectionStatus(connection),
+    status: connectionStatus(connection, workspaceId),
     enabled: true,
     trusted: true,
     installedAt: connection.createdAt,
@@ -165,18 +198,24 @@ function withConnection(
       id: connection.id,
       url: connection.url,
       auth: connection.auth.kind,
-      tools: connection.tools.map(({ name, title, description, readOnly }) => ({
-        name,
-        ...(title ? { title } : undefined),
-        description,
-        readOnly,
-      })),
+      tools: connection.tools.map(
+        ({ name, title, description, readOnly, inputSchema }) => ({
+          name,
+          ...(title ? { title } : undefined),
+          description,
+          readOnly,
+          inputs: toolInputs(inputSchema),
+        }),
+      ),
     },
   };
 }
 
 /** A server added by address, shown like any other connector. */
-function customPlugin(connection: McpConnection): AgentPluginSummary {
+function customPlugin(
+  connection: McpConnection,
+  workspaceId: string,
+): AgentPluginSummary {
   const domain = connection.domain ?? new URL(connection.url).hostname;
   return withConnection(
     {
@@ -191,6 +230,7 @@ function customPlugin(connection: McpConnection): AgentPluginSummary {
       trusted: false,
     },
     connection,
+    workspaceId,
   );
 }
 
@@ -209,7 +249,11 @@ async function hostPlugins(workspaceId: string, refresh: boolean) {
   }
 }
 
-async function listPlugins(context: RelayPluginContext, refresh: boolean) {
+async function listPlugins(
+  context: RelayPluginContext,
+  refresh: boolean,
+  requestId?: string,
+) {
   const [catalog, connections, skills] = await Promise.all([
     loadRelayPluginCatalog(refresh),
     context.relay.plugins.list(),
@@ -222,10 +266,12 @@ async function listPlugins(context: RelayPluginContext, refresh: boolean) {
         (item) =>
           !catalog.plugins.some((plugin) => plugin.id === connectionKey(item)),
       )
-      .map(customPlugin),
+      .map((connection) => customPlugin(connection, context.workspaceId)),
     ...catalog.plugins.map((plugin) => {
       const connection = byKey.get(plugin.id);
-      return connection ? withConnection(plugin, connection) : plugin;
+      return connection
+        ? withConnection(plugin, connection, context.workspaceId)
+        : plugin;
     }),
     ...skills,
   ];
@@ -239,6 +285,7 @@ async function listPlugins(context: RelayPluginContext, refresh: boolean) {
   );
   context.emit({
     type: "plugins",
+    requestId,
     workspaceId: context.workspaceId,
     plugins,
     sources: catalog.sources,
@@ -258,10 +305,7 @@ function connectionIdFor(slug: string) {
     .replace(/-+$/u, "");
 }
 
-async function addCatalogPlugin(
-  context: RelayPluginContext,
-  plugin: AgentPluginSummary,
-) {
+async function catalogSurface(plugin: AgentPluginSummary) {
   if (plugin.source.type !== "discovery")
     throw new Error(`${plugin.name} can't be added here.`);
   const fetcher = isTauri() ? tauriFetch : globalThis.fetch;
@@ -274,20 +318,101 @@ async function addCatalogPlugin(
   const surface = parseMcpSurfaceFromDocument(await response.json());
   if (!surface || new URL(surface.url).protocol !== "https:")
     throw new Error(`${plugin.name} doesn't publish a secure MCP server yet.`);
-  if (surface.auth === "headers")
+  if (surface.auth === "headers" && !surface.apiKey)
     throw new Error(
       `${plugin.name} needs an API key. Add it with Add MCP server.`,
     );
-  await context.relay.plugins.create({
+  // A pasted key is the real credential, so it only goes to the plugin's own
+  // domain, never to wherever a catalog entry happens to point.
+  const host = new URL(surface.url).hostname;
+  if (surface.auth === "headers" && !hostBelongsTo(host, plugin.source.domain))
+    throw new Error(
+      `${plugin.name}'s server is at ${host}, not ${plugin.source.domain}. Add it with Add MCP server if you trust it.`,
+    );
+  return { ...surface, domain: plugin.source.domain };
+}
+
+function hostBelongsTo(host: string, domain: string) {
+  const owner = domain.toLowerCase().replace(/^www\./u, "");
+  const name = host.toLowerCase();
+  return name === owner || name.endsWith(`.${owner}`);
+}
+
+function apiKeyAction(
+  plugin: AgentPluginSummary,
+  apiKey: McpSurfaceApiKey,
+): Extract<PluginAuthorizationAction, { kind: "plugin_api_key" }> {
+  const docsUrl = [apiKey.docsUrl, plugin.homepage].find((url) =>
+    url?.startsWith("https://"),
+  );
+  return {
+    kind: "plugin_api_key",
+    pluginId: plugin.id,
+    pluginName: plugin.name,
+    description: plugin.description,
+    provider: plugin.name,
+    label: apiKey.label,
+    ...(docsUrl ? { docsUrl } : undefined),
+    status: "api_key_required",
+  };
+}
+
+/**
+ * Adds a catalog plugin as a workspace connection. A plugin that signs in
+ * with a key is only added once the person has given one; until then this
+ * returns the step that asks for it.
+ */
+async function addCatalogPlugin(
+  context: RelayPluginContext,
+  plugin: AgentPluginSummary,
+  key?: string,
+): Promise<McpConnection | PluginAuthorizationAction> {
+  const surface = await catalogSurface(plugin);
+  if (key && !surface.apiKey)
+    throw new Error(`${plugin.name} doesn't sign in with a key.`);
+  if (surface.apiKey && !key) return apiKeyAction(plugin, surface.apiKey);
+  return await context.relay.plugins.create({
     id: connectionIdFor(plugin.id),
     name: plugin.name,
     description: plugin.description.slice(0, 1_000),
     url: surface.url,
-    domain: plugin.source.domain,
+    domain: surface.domain,
     ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : undefined),
     catalogId: plugin.id,
-    auth: { kind: surface.auth },
+    auth:
+      surface.apiKey && key
+        ? {
+            kind: "headers",
+            headers: [
+              {
+                name: surface.apiKey.headerName,
+                value: surface.apiKey.scheme
+                  ? `${surface.apiKey.scheme} ${key}`
+                  : key,
+              },
+            ],
+          }
+        : { kind: surface.auth === "none" ? "none" : "oauth" },
   });
+}
+
+/** Adds a key-only plugin with the key given, keeping it only if the server accepts it. */
+async function connectWithKey(
+  context: RelayPluginContext,
+  plugin: AgentPluginSummary,
+  key: string,
+) {
+  const added = await addCatalogPlugin(context, plugin, key);
+  if (!("id" in added)) return;
+  let accepted = false;
+  try {
+    const result = await context.relay.plugins.authorize(added.id);
+    accepted =
+      result.status === "connected" && result.connection.status === "connected";
+  } finally {
+    if (!accepted) await context.relay.plugins.remove(added.id);
+  }
+  if (!accepted) throw new Error(`${plugin.name} rejected this key.`);
 }
 
 function authorizationAction(
@@ -302,7 +427,10 @@ function authorizationAction(
     provider: plugin.name,
   };
   if (result.status === "authorize") {
-    signingIn.set(plugin.id, Date.now() + signInWindowMs);
+    signingIn.set(
+      `${context.workspaceId}:${plugin.id}`,
+      Date.now() + signInWindowMs,
+    );
     return {
       ...base,
       kind: "plugin_authorization",
@@ -319,6 +447,45 @@ function authorizationAction(
       status: "client_configuration_required",
     };
   return undefined;
+}
+
+/**
+ * The key step for replacing an added plugin's key. Header name and scheme
+ * come from the catalog, as when adding; a server added by address keeps the
+ * header it was added with.
+ */
+export async function pluginKeyReplacement(
+  relay: Pick<RelayClient, "plugins">,
+  plugin: AgentPluginSummary,
+) {
+  const connection = (await relay.plugins.list()).find(
+    (item) => connectionKey(item) === plugin.id,
+  );
+  if (connection?.auth.kind !== "headers")
+    throw new Error(`${plugin.name} doesn't sign in with a key.`);
+  const surface = connection.catalogId
+    ? await catalogSurface(plugin).catch(() => undefined)
+    : undefined;
+  const headerName =
+    surface?.apiKey?.headerName ?? connection.auth.headerNames[0];
+  if (!headerName)
+    throw new Error(`${plugin.name} doesn't sign in with a key.`);
+  const scheme = surface?.apiKey
+    ? surface.apiKey.scheme
+    : headerName.toLowerCase() === "authorization"
+      ? "Bearer"
+      : undefined;
+  const action = apiKeyAction(
+    plugin,
+    surface?.apiKey ?? { headerName, label: "API key" },
+  );
+  return {
+    action,
+    replace: (key: string) =>
+      relay.plugins.replaceHeaders(connection.id, [
+        { name: headerName, value: scheme ? `${scheme} ${key}` : key },
+      ]),
+  };
 }
 
 async function routeHostCommand(
@@ -367,7 +534,7 @@ export async function routeRelayPluginCommand(
   context: RelayPluginContext,
 ) {
   if (message.type === "listPlugins") {
-    await listPlugins(context, message.refresh === true);
+    await listPlugins(context, message.refresh === true, message.requestId);
     return;
   }
   // A server added a moment ago is not in the last list yet.
@@ -377,7 +544,7 @@ export async function routeRelayPluginCommand(
     try {
       await routeHostCommand(message, context);
     } finally {
-      await listPlugins(context, false);
+      await listPlugins(context, false, message.requestId);
     }
     return;
   }
@@ -387,15 +554,39 @@ export async function routeRelayPluginCommand(
   const connection = connections.find(
     (item) => connectionKey(item) === plugin.id,
   );
+  const emitAction = (action: PluginAuthorizationAction) =>
+    context.emit({
+      type: "pluginAuthorization",
+      workspaceId: context.workspaceId,
+      requestId: message.requestId,
+      action,
+    });
   try {
     if (message.type === "installPlugin") {
-      if (!connection) await addCatalogPlugin(context, plugin);
+      if (connection) return;
+      const added = await addCatalogPlugin(context, plugin);
+      if (!("id" in added)) emitAction(added);
       return;
+    }
+    if (message.type === "authorizePlugin" && !connection) {
+      if (message.apiKey) {
+        await connectWithKey(context, plugin, message.apiKey.trim());
+        return;
+      }
+      // A key-only plugin isn't added until it has its key.
+      const surface =
+        plugin.source.type === "discovery"
+          ? await catalogSurface(plugin)
+          : undefined;
+      if (surface?.apiKey) {
+        emitAction(apiKeyAction(plugin, surface.apiKey));
+        return;
+      }
     }
     if (!connection)
       throw new Error(`Add ${plugin.name} before connecting it.`);
     if (message.type === "uninstallPlugin") {
-      signingIn.delete(plugin.id);
+      signingIn.delete(`${context.workspaceId}:${plugin.id}`);
       await context.relay.plugins.remove(connection.id);
       return;
     }
@@ -408,14 +599,8 @@ export async function routeRelayPluginCommand(
         })
       : await context.relay.plugins.authorize(connection.id);
     const action = authorizationAction(context, plugin, result);
-    if (action)
-      context.emit({
-        type: "pluginAuthorization",
-        workspaceId: context.workspaceId,
-        requestId: message.requestId,
-        action,
-      });
+    if (action) emitAction(action);
   } finally {
-    await listPlugins(context, false);
+    await listPlugins(context, false, message.requestId);
   }
 }

@@ -6,6 +6,7 @@ export type {
   AgentPluginStatus,
   AgentPluginSummary,
   AgentPluginTool,
+  AgentPluginToolInput,
   PluginApiOperation,
   PluginApiToolPermission,
   PluginAuthorizationAction,
