@@ -180,9 +180,16 @@ export function PlacesIllustration() {
         </span>
         <span className="ob-places-divider" aria-hidden="true" />
         <span className="ob-places-half">
-          <span className="ob-orbit">
-            <ChiefMark className="size-[25px]" />
-          </span>
+          <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
+            <path
+              d="M52 84H112A21 21 0 0 0 108.6 42.3A27 27 0 0 0 55 48.3A18 18 0 0 0 52 84Z"
+              fill="rgba(255,255,255,.1)"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+            <ChiefMark x="69" y="49" width="26" height="26" />
+          </svg>
         </span>
       </div>
       <figcaption className="ob-places-captions">

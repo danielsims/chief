@@ -433,32 +433,6 @@
   line-height: 1.45;
   color: var(--muted-foreground);
 }
-.ob-orbit {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-}
-.ob-orbit::before,
-.ob-orbit::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-}
-.ob-orbit::before {
-  inset: -19px;
-  background: radial-gradient(closest-side, #ffffff6b, #ffffff00);
-  box-shadow: 0 0 0 1px #ffffff55;
-}
-.ob-orbit::after {
-  inset: -42px;
-  box-shadow: 0 0 0 1px #ffffff30;
-}
-.ob-orbit svg {
-  position: relative;
-  filter: drop-shadow(0 2px 10px #281e6e73);
-}
 .ob-connection {
   display: flex;
   align-items: center;
