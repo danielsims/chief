@@ -39,6 +39,10 @@ import { channelsListMemberUserDirects } from "./queries/channels/list-member-us
 import { channelsListVisibleChannels } from "./queries/channels/list-visible-channels";
 import { channelsUpdateChannelsArchive } from "./queries/channels/update-channels-archive";
 import { channelsUpdateChannelsUpdate } from "./queries/channels/update-channels-update";
+import {
+  ownedAgentChannelsInsert,
+  ownedAgentsFind,
+} from "./queries/owned-agents/agents";
 import { requireWorkspaceAdministrator } from "./workspace-administration";
 import { requireAgentMessageAccess } from "./workspace-agent-messaging";
 import {
@@ -196,13 +200,41 @@ export class WorkspaceChannelService {
         "Choose another workspace member.",
       );
     }
-    this.store.requireWorkspaceMember(target.kind, target.principalId);
-    if (target.kind === "agent")
-      requireAgentMessageAccess(
-        this.store,
-        target.principalId,
-        context.principal,
-      );
+    // An owned agent isn't a workspace member; only its owner may DM it, and
+    // the DM becomes one of its channels so it can read, reply and be woken.
+    const owned =
+      target.kind === "agent"
+        ? ownedAgentsFind(this.store.storage, target.principalId)
+        : undefined;
+    if (owned) {
+      if (
+        owned.status !== "active" ||
+        kind !== "user" ||
+        owned.owner_user_id !== id
+      )
+        throw new HttpError(
+          403,
+          "agent_messaging_private",
+          "This agent only takes direct messages from its owner.",
+        );
+    } else {
+      this.store.requireWorkspaceMember(target.kind, target.principalId);
+      if (target.kind === "agent")
+        requireAgentMessageAccess(
+          this.store,
+          target.principalId,
+          context.principal,
+        );
+    }
+    const admitOwned = (conversationId: string) => {
+      if (owned)
+        ownedAgentChannelsInsert(this.store.storage, {
+          agent_id: owned.agent_id,
+          conversation_id: conversationId,
+          added_by: id,
+          added_at: new Date().toISOString(),
+        });
+    };
 
     const pair = [`${kind}:${id}`, `${target.kind}:${target.principalId}`]
       .sort()
@@ -254,6 +286,7 @@ export class WorkspaceChannelService {
         memberId: creatorIsCaller ? target.principalId : id,
         memberJoinedAt: now,
       });
+      admitOwned(String(existing.conversation_id));
       return json(
         directStartResultSchema.parse({
           conversation: this.directSummary(
@@ -286,6 +319,7 @@ export class WorkspaceChannelService {
         memberId: target.principalId,
         memberJoinedAt: now,
       });
+      admitOwned(conversationId);
       this.store.rewriteSnapshot((conversations) => {
         if (conversations.some((entry) => entry.id === conversationId)) return;
         conversations.push({
@@ -331,7 +365,11 @@ export class WorkspaceChannelService {
 
   principalDisplayName(kind: "user" | "agent", principalId: string) {
     return (
-      this.store.principalNames().get(`${kind}:${principalId}`) ?? principalId
+      this.store.principalNames().get(`${kind}:${principalId}`) ??
+      (kind === "agent"
+        ? ownedAgentDisplayName(this.store.storage, principalId)
+        : undefined) ??
+      principalId
     );
   }
 
@@ -505,4 +543,9 @@ export class WorkspaceChannelService {
     });
     return json(channelActionResultSchema.parse({ ok: true }));
   }
+}
+
+function ownedAgentDisplayName(storage: DurableObjectStorage, agentId: string) {
+  const agent = ownedAgentsFind(storage, agentId);
+  return agent ? (agent.display_name ?? agent.name) : undefined;
 }

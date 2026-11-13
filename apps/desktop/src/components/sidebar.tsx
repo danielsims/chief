@@ -34,11 +34,11 @@ import { useChannelReadState } from "../lib/channel-read-state-context";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
   useLocalChats,
-  useRuntime,
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
 import { useAppUpdate } from "../lib/updater";
+import { useMessageableAgents } from "../lib/use-messageable-agents";
 import { useWorkingAgentIds } from "../lib/use-working-agents";
 import {
   directMessageChatForAgent,
@@ -147,7 +147,7 @@ export function Sidebar({
   const { cloudOrganizationId, organizationRole } = useAuth();
   const workspaceRole = useWorkspaceRole() ?? organizationRole;
   const localChats = useLocalChats(cloudOrganizationId);
-  const { agents: runtimeAgents } = useRuntime();
+  const runtimeAgents = useMessageableAgents();
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts, lastMessageAtByChannel } = useChannelReadState();

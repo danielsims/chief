@@ -5,7 +5,8 @@ import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-const actionClassName =
+/** The raised pill used for a card's one action. */
+export const pluginActionClassName =
   "raised-button relative min-w-[84px] cursor-pointer rounded-full px-4";
 
 /** A state rather than a button, so it never looks clickable. */
@@ -57,7 +58,7 @@ export function PluginAction({
     <Button
       variant="outline"
       size="sm"
-      className={actionClassName}
+      className={pluginActionClassName}
       disabled={busy}
       onClick={
         plugin.status === "available" || plugin.status === "error"

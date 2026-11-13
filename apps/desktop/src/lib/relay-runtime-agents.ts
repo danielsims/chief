@@ -23,6 +23,7 @@ export function relayAgentDefinitions(
       ...definition,
       id: agent.id,
       canMessage: agent.canMessage,
+      connectionKind: agent.connectionKind,
       avatar: agent.avatar,
       provider: agent.provider,
       name: agent.name,

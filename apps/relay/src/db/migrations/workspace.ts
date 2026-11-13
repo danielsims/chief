@@ -196,6 +196,10 @@ export function initializeWorkspaceSchema(
   migrateLegacyChannelSchema(storage);
   migrateExternalAgentSchema(storage);
   addColumns(storage, "members", [["display_name", "TEXT"]]);
+  addColumns(storage, "owned_agents", [
+    ["display_name", "TEXT"],
+    ["avatar_json", "TEXT"],
+  ]);
   addColumns(storage, "workspace_invites", [["label", "TEXT"]]);
   addColumns(storage, "workspace_schedule_webhooks", [
     ["signing_secret", "TEXT"],

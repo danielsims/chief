@@ -6,10 +6,12 @@ import type { RelayClient } from "@chief/relay-client";
 import type { OwnedAgent, OwnedAgentRequest } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
+import { acceptAgentRequest } from "../../lib/agent-join-accept";
 import { agentName } from "../../lib/owned-agent-presentation";
+import { useRuntime } from "../../lib/runtime";
 import { IdentityTile } from "../../pages/onboarding/elements";
 import { setupPrompt } from "../../pages/onboarding/model";
-import { ListRow } from "../list-row";
+import { pluginActionClassName } from "../plugins/plugin-action";
 
 import "../../pages/onboarding/onboarding.css";
 
@@ -64,7 +66,15 @@ export function useOwnedAgents(client: RelayClient | null) {
       setBusy(false);
     }
   };
-  return { client, agents, requests, busy, run };
+  return {
+    client,
+    agents,
+    requests,
+    busy,
+    run,
+    refresh,
+    loading: Boolean(client) && current === null,
+  };
 }
 export type OwnedAgentsState = ReturnType<typeof useOwnedAgents>;
 
@@ -108,121 +118,117 @@ export function CopyInvitePromptButton({
   );
 }
 
-/** Rows that sit in the agents list alongside Chief's team. */
-export function OwnedAgentRows({
-  state: { client, agents, requests, busy, run },
-  channels,
+/** One agent asking to join, exactly as onboarding's approval step shows it. */
+export function AgentJoinRequestRow({
+  request,
+  busy,
+  onDecide,
+}: {
+  request: OwnedAgentRequest;
+  busy: boolean;
+  /** Approval carries the name chosen on the card. */
+  onDecide: (approve: boolean, name: string) => void;
+}) {
+  const [name, setName] = useState(() =>
+    agentName(request.provider, request.name),
+  );
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="ob-person">
+      <IdentityTile provider={request.provider} name={request.name} />
+      <span className="ob-row-text">
+        <strong>
+          {editing ? (
+            <input
+              autoFocus
+              aria-label="Agent name"
+              value={name}
+              maxLength={48}
+              size={Math.max(name.length, 3)}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => setEditing(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "Escape")
+                  setEditing(false);
+              }}
+              className="bg-foreground/[0.06] rounded-[5px] font-medium outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              title="Rename before approving"
+              onClick={() => setEditing(true)}
+              className="hover:bg-foreground/[0.06] -mx-0.5 cursor-text rounded-[5px] px-0.5 font-medium"
+            >
+              {name.trim() || agentName(request.provider, request.name)}
+            </button>
+          )}{" "}
+          requested to join
+        </strong>
+        <code>{request.handle}</code>
+      </span>
+      <span
+        className="bg-background text-foreground mr-1 shrink-0 rounded-lg px-2.5 py-1.5 font-mono text-[13px] font-medium tracking-[0.08em] shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]"
+        title="Check this matches the code your agent shows"
+        aria-label={`Verification code ${request.userCode}`}
+      >
+        {request.userCode}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className={pluginActionClassName}
+        onClick={() => onDecide(true, name)}
+        disabled={busy}
+      >
+        Approve
+      </Button>
+      <button
+        className="ob-icon-button"
+        aria-label={`Decline ${request.name}`}
+        onClick={() => onDecide(false, name)}
+        disabled={busy}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** Requests waiting on you, under the agents already in the workspace. */
+export function AgentJoinRequests({
+  state: { client, requests, busy, run },
 }: {
   state: OwnedAgentsState;
-  channels: { id: string; name: string }[];
 }) {
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const accept = useAcceptAgentRequest();
+  if (requests.length === 0) return null;
   return (
-    <>
-      {requests.map((a) => (
-        <li
-          key={a.id}
-          className="-mx-3 flex w-[calc(100%+24px)] items-center gap-4 rounded-lg px-3 py-2.5"
-        >
-          <IdentityTile provider={a.provider} name={a.name} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium tracking-[-0.01em]">
-              {agentName(a.provider, a.name)} wants to join
-            </span>
-            <span className="text-muted-foreground block truncate text-[12px]">
-              {a.handle} · Code {a.userCode}
-            </span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await client?.decideOwnedAgent(a.id, true);
-                })
-              }
-            >
-              Approve
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={`Decline ${a.name}`}
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await client?.decideOwnedAgent(a.id, false);
-                })
-              }
-            >
-              <X size={14} />
-            </Button>
-          </span>
-        </li>
-      ))}
-      {agents.flatMap((a) => [
-        <ListRow
-          key={a.id}
-          onClick={() => setExpanded(expanded === a.id ? null : a.id)}
-          leading={<IdentityTile provider={a.provider} name={a.name} />}
-          title={agentName(a.provider, a.name)}
-          subtitle={a.handle ?? a.owner.name}
-          trailing={
-            <span className="text-muted-foreground flex w-28 shrink-0 items-center gap-1.5 text-[12px]">
-              <span
-                aria-hidden="true"
-                className="size-1.5 rounded-full bg-emerald-500"
-              />
-              Connected
-            </span>
-          }
-        />,
-        expanded === a.id ? (
-          <li
-            key={`${a.id}:access`}
-            className="bg-muted/30 my-2 space-y-3 rounded-xl border p-4"
-          >
-            <p className="text-muted-foreground text-[13px]">
-              Channels {agentName(a.provider, a.name)} can read and post in.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {channels.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={a.channels.some((channel) => channel.id === c.id)}
-                    disabled={busy}
-                    onChange={(e) =>
-                      void run(async () => {
-                        await client?.setOwnedAgentChannel(
-                          a.id,
-                          c.id,
-                          e.target.checked,
-                        );
-                      })
-                    }
-                  />
-                  <span>#{c.name}</span>
-                </label>
-              ))}
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await client?.revokeOwnedAgent(a.id);
-                })
-              }
-            >
-              Disconnect agent
-            </Button>
-          </li>
-        ) : null,
-      ])}
-    </>
+    <section className="mt-8" aria-label="Agents requesting to join">
+      <h2 className="mb-3 text-sm font-medium">Requests to join</h2>
+      <div className="bg-muted/40 text-foreground rounded-2xl px-4">
+        {requests.map((request) => (
+          <AgentJoinRequestRow
+            key={request.id}
+            request={request}
+            busy={busy}
+            onDecide={(approve, name) =>
+              void run(async () => {
+                if (!client) return;
+                if (approve) await accept(client, request, name);
+                else await client.decideOwnedAgent(request.id, false);
+              })
+            }
+          />
+        ))}
+      </div>
+    </section>
   );
+}
+
+/** Approves a request, as an on-device agent when this computer can run it. */
+export function useAcceptAgentRequest() {
+  const { agents, createNativeAgent } = useRuntime();
+  return (client: RelayClient, request: OwnedAgentRequest, name: string) =>
+    acceptAgentRequest({ client, request, name, agents, createNativeAgent });
 }
