@@ -74,9 +74,12 @@ function connectors(plugins: readonly AgentPluginSummary[] | undefined) {
 
 function PluginRow({
   plugin,
+  onOpen,
   children,
 }: {
   plugin: AgentPluginSummary;
+  /** Shows the app's details, as on the Plugins page. */
+  onOpen?: () => void;
   children?: ReactNode;
 }) {
   const body = (
@@ -97,8 +100,19 @@ function PluginRow({
     </>
   );
   return (
-    <div className="flex min-w-0 items-center gap-3.5 px-2 py-2.5">
-      {body}
+    <div className="ob-plugin-row flex min-w-0 items-center gap-3.5 px-2 py-2.5">
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`${plugin.name} details`}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3.5 text-left"
+        >
+          {body}
+        </button>
+      ) : (
+        body
+      )}
       <div className="shrink-0">{children}</div>
     </div>
   );
@@ -308,7 +322,7 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
         <div className="ob-app-list flex flex-col gap-1.5">
           {rows.map((plugin) => (
             <div key={plugin.id}>
-              <PluginRow plugin={plugin}>
+              <PluginRow plugin={plugin} onOpen={() => connect.open(plugin.id)}>
                 <PluginAction
                   plugin={plugin}
                   busy={plugins.busyPluginId === plugin.id}
