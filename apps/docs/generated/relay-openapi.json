@@ -144,7 +144,6 @@
                         "type": "string",
                         "enum": ["codex", "claude", "opencode"]
                       },
-                      "deferOnboarding": { "type": "boolean" },
                       "agentRuntime": {
                         "type": "string",
                         "enum": ["relay-cell", "vercel-eve"]
@@ -911,12 +910,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -1898,12 +1895,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -10905,12 +10900,10 @@
                           },
                           "canonicalRemoteUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryWebUrl": {
                             "type": "string",
-                            "maxLength": 2048,
                             "format": "uri"
                           },
                           "repositoryFiles": {
@@ -11149,16 +11142,8 @@
                       "bitbucket"
                     ]
                   },
-                  "canonicalRemoteUrl": {
-                    "type": "string",
-                    "maxLength": 2048,
-                    "format": "uri"
-                  },
-                  "repositoryWebUrl": {
-                    "type": "string",
-                    "maxLength": 2048,
-                    "format": "uri"
-                  },
+                  "canonicalRemoteUrl": { "type": "string", "format": "uri" },
+                  "repositoryWebUrl": { "type": "string", "format": "uri" },
                   "repositoryFiles": {
                     "maxItems": 1000,
                     "type": "array",
@@ -11240,16 +11225,8 @@
                         "bitbucket"
                       ]
                     },
-                    "canonicalRemoteUrl": {
-                      "type": "string",
-                      "maxLength": 2048,
-                      "format": "uri"
-                    },
-                    "repositoryWebUrl": {
-                      "type": "string",
-                      "maxLength": 2048,
-                      "format": "uri"
-                    },
+                    "canonicalRemoteUrl": { "type": "string", "format": "uri" },
+                    "repositoryWebUrl": { "type": "string", "format": "uri" },
                     "repositoryFiles": {
                       "maxItems": 1000,
                       "type": "array",
