@@ -285,6 +285,8 @@ export class RelayClient extends RelayOnboardingClient {
   async registerAgentKey(
     agentId: string,
     pubkey: string,
+    // Supplying the expected old key explicitly requests owner-authorized rotation.
+    previousPubkey?: string,
   ): Promise<RegisterAgentKeyResult> {
     return await this.fetchJson(
       this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/keys`),
@@ -293,7 +295,7 @@ export class RelayClient extends RelayOnboardingClient {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId, pubkey }),
+        body: JSON.stringify({ agentId, pubkey, previousPubkey }),
       },
     );
   }

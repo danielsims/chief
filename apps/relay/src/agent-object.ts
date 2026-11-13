@@ -25,6 +25,7 @@ import {
   closeAgentMailboxWebSocket,
   connectAgentMailboxWebSocket,
   createAgentMailboxSocketTicket,
+  deliverAgentMailboxSocketEvent,
 } from "./agent-mailbox";
 import { AGENT_HOST_HEADER, parseStoredJson } from "./agent-object-values";
 import { AgentRuntime } from "./agent-runtime";
@@ -375,14 +376,9 @@ export class AgentObject extends DurableObject<Env> {
   }
 
   private broadcast(event: JsonObject) {
-    const serialized = JSON.stringify(event);
-    for (const socket of this.ctx.getWebSockets()) {
-      try {
-        socket.send(serialized);
-      } catch {
-        socket.close(1011, "Delivery failed");
-      }
-    }
+    this.ctx.waitUntil(
+      deliverAgentMailboxSocketEvent(this.env, this.ctx.getWebSockets(), event),
+    );
   }
 }
 

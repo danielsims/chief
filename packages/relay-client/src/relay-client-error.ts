@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 export class RelayClientError extends Error {
@@ -5,6 +6,7 @@ export class RelayClientError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly details?: JsonObject,
   ) {
     super(message);
   }
@@ -18,6 +20,7 @@ export class RelayClientError extends Error {
         : `Relay request failed with ${response.status}.`,
       response.status,
       isJsonString(details?.code) ? details.code : undefined,
+      parseJsonObject(details?.details) ?? undefined,
     );
   }
 }
