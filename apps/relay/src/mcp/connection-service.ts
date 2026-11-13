@@ -67,6 +67,7 @@ import {
   withoutChiefClient,
   workspaceSignInTag,
 } from "./oauth-support";
+import { PluginAgentAccessService } from "./plugin-agent-access";
 
 const maximumConnections = 100;
 const signInLifetimeMs = 5 * 60_000;
@@ -322,6 +323,7 @@ export class McpConnectionService {
       createdAt: now,
       updatedAt: now,
     });
+    this.grantToOwnAgents(principal, connection.id);
     if (input.auth.kind === "headers") {
       await this.credentials.write(connection.id, connection.url, {
         kind: "headers",
@@ -331,6 +333,21 @@ export class McpConnectionService {
     return input.auth.kind === "oauth"
       ? connection
       : this.refreshTools(connection);
+  }
+
+  /** A plugin you add is on for each of your own agents; untick any later. */
+  private grantToOwnAgents(principal: Principal, connectionId: string) {
+    if (principal.kind !== "user") return;
+    const access = new PluginAgentAccessService(
+      this.storage,
+      this.env,
+      this.workspaceId,
+    );
+    const yours = access
+      .list(principal, connectionId)
+      .agents.filter((agent) => agent.canEdit)
+      .map((agent) => agent.id);
+    if (yours.length > 0) access.update(principal, connectionId, yours, true);
   }
 
   /** Swaps a plugin's key once the new one lists tools, so a typo never breaks it. */
