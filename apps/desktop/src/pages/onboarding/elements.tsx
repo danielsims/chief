@@ -185,14 +185,14 @@ export function PlacesIllustration() {
         <span className="ob-places-half">
           <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
             <path
-              transform="translate(0 -5)"
-              d="M42 92H122A22 22 0 0 0 118.9 48.2A37 37 0 0 0 45 46.2A23 23 0 0 0 42 92Z"
+              transform="translate(16 -25) scale(4)"
+              d="M16 7C13.35 7 11.05 8.24 9.41 10.06 9.27 10.05 9.15 10 9 10 6.8 10 5 11.8 5 14 3.27 15.05 2 16.84 2 19c0 3.3 2.7 6 6 6h16c3.3 0 6-2.7 6-6 0-3.16-2.49-5.68-5.59-5.91C23.18 9.57 19.93 7 16 7Z"
               fill="rgba(255,255,255,.1)"
               stroke="currentColor"
-              strokeWidth="1.5"
+              strokeWidth={1.5 / 4}
               strokeLinejoin="round"
             />
-            <ChiefMark x="65" y="30" width="34" height="34" />
+            <ChiefMark x="64" y="31" width="32" height="32" />
           </svg>
         </span>
       </div>
