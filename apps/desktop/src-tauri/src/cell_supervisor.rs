@@ -95,10 +95,25 @@ pub fn cell_runtime_setup(
         .map_err(|_| "Could not read Codex setup progress.".to_string())
 }
 
+/// Runs off the main thread: the first cell may wait on the runtime download.
 #[tauri::command]
-pub fn start_workspace_cells(
+pub async fn start_workspace_cells(
     app: tauri::AppHandle,
-    supervisor: tauri::State<'_, CellSupervisor>,
+    relay_url: String,
+    workspace_id: String,
+    agents: Vec<AgentCellConfiguration>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let supervisor = app.state::<CellSupervisor>();
+        start_cells(&app, &supervisor, relay_url, workspace_id, agents)
+    })
+    .await
+    .map_err(|_| "Chief's agent setup stopped unexpectedly.".to_string())?
+}
+
+fn start_cells(
+    app: &tauri::AppHandle,
+    supervisor: &CellSupervisor,
     relay_url: String,
     workspace_id: String,
     agents: Vec<AgentCellConfiguration>,
@@ -118,7 +133,7 @@ pub fn start_workspace_cells(
             continue;
         }
         let child = spawn_cell(
-            &app,
+            app,
             &relay_url,
             &workspace_id,
             &agent.agent_id,
@@ -163,6 +178,8 @@ fn cell_directory(
 struct RuntimeRoot {
     path: PathBuf,
     packaged: bool,
+    /// The downloaded runtime's own Node, when the app doesn't bundle one.
+    executable: Option<PathBuf>,
 }
 
 fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
@@ -175,10 +192,17 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
         return Ok(RuntimeRoot {
             path: packaged,
             packaged: true,
+            executable: None,
         });
     }
+    // Release builds fetch the runtime on demand, as the plugin host does.
     if !cfg!(debug_assertions) {
-        return Err("Chief's built-in agent tools are unavailable. Reinstall Chief.".to_string());
+        let installed = crate::plugin_runtime::ensure(app)?;
+        return Ok(RuntimeRoot {
+            path: installed.join("agent-runtime"),
+            packaged: true,
+            executable: Some(installed.join(crate::plugin_runtime::node_name())),
+        });
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../packages/agent-runtime")
@@ -187,6 +211,7 @@ fn runtime_root(app: &tauri::AppHandle) -> Result<RuntimeRoot, String> {
     Ok(RuntimeRoot {
         path,
         packaged: false,
+        executable: None,
     })
 }
 
@@ -198,7 +223,7 @@ fn spawn_cell(
     config: &serde_json::Value,
 ) -> Result<Child, String> {
     let runtime = runtime_root(app)?;
-    let root = runtime.path;
+    let root = runtime.path.clone();
     let cell_root = cell_directory(app, relay_url, workspace_id, agent_id)?;
     std::fs::create_dir_all(&cell_root)
         .map_err(|_| "Chief could not create the agent cell directory.".to_string())?;
@@ -221,15 +246,13 @@ fn spawn_cell(
 
     let secret = agent_private_key_hex(relay_url, workspace_id, agent_id)?;
     let mut command = if runtime.packaged {
-        let executable = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(Path::to_path_buf))
-            .map(|path| {
-                path.join(if cfg!(target_os = "windows") {
-                    "chief-agent-runtime.exe"
-                } else {
-                    "chief-agent-runtime"
-                })
+        let executable = runtime
+            .executable
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|path| path.parent().map(Path::to_path_buf))
+                    .map(|path| path.join(crate::plugin_runtime::node_name()))
             })
             .filter(|path| path.is_file())
             .ok_or_else(|| "Chief's bundled Node runtime is unavailable.".to_string())?;
