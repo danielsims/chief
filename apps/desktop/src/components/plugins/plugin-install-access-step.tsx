@@ -42,14 +42,8 @@ export function PluginInstallAccessStep({
       )
         return;
       if (claim) event.preventDefault();
-      void client.plugins
-        .list()
-        .then(async (connections) => {
-          const found = connections.find(
-            (item) =>
-              (item.catalogId ?? item.id) === input.data.pluginId &&
-              item.status === "connected",
-          );
+      void connectedPlugin(client, input.data.pluginId)
+        .then(async (found) => {
           // A plugin dialog that was already open took over the walkthrough.
           if (!found || (!claim && event.defaultPrevented)) return;
           // Opens with the list in place rather than filling in afterwards.
@@ -101,4 +95,24 @@ export function PluginInstallAccessStep({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * The sign-in finishes on this computer a moment before the relay lists the
+ * plugin as connected, so wait briefly rather than miss the walkthrough.
+ */
+async function connectedPlugin(
+  client: NonNullable<ReturnType<typeof useRelaySession>["client"]>,
+  pluginId: string,
+) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const found = (await client.plugins.list()).find(
+      (item) =>
+        (item.id === pluginId || item.catalogId === pluginId) &&
+        item.status === "connected",
+    );
+    if (found) return found;
+    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+  }
+  return null;
 }
