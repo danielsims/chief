@@ -45,7 +45,11 @@ struct AppRootView: View {
         case .onboarding:
           OnboardingView()
         case .workspace:
-          WorkspaceRootView()
+          if model.appsToConnect.isEmpty {
+            WorkspaceRootView()
+          } else {
+            ConnectAppsView()
+          }
         }
       }
     }

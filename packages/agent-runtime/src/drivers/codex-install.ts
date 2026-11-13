@@ -69,7 +69,7 @@ async function ensureCodexAdapter() {
     /* Not included in the desktop download. */
   }
   const root = join(homedir(), ".chief", "runtimes", "codex-acp");
-  const destination = join(root, "1.6.2");
+  const destination = join(root, "2.6.0");
   const entry = join(destination, "dist", "index.js");
   if (existsSync(entry)) return entry;
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -78,8 +78,8 @@ async function ensureCodexAdapter() {
     const archive = join(staging, "adapter.tgz");
     reportSetup("downloading", "Downloading the Codex adapter", 0);
     await downloadVerified(
-      "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.6.2.tgz",
-      "sha512-2eF1mbs1gTqkZJSLYOun/pFDx37sYa7W63HOPezC37b/R8AYms5O1nfQu8lrqFSGDrwDZkASVORymLcqjCNqyA==",
+      "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-2.6.0.tgz",
+      "sha512-/PBsd0H6URy4bhXhAeXqwb7RqctbXfNceRihAh6nDmn5HJ873uzoHvHxF45YmeWfgOKKRrNRLZjYsket2a7EsQ==",
       archive,
       (percent) =>
         reportSetup("downloading", "Downloading the Codex adapter", percent),
@@ -122,11 +122,60 @@ export function ensureCodexBinary(): Promise<string> {
   return preparing;
 }
 
+function codexVersion(output: string) {
+  const match = /(\d+)\.(\d+)\.(\d+)/u.exec(output);
+  return match ? [match[1], match[2], match[3]].map(Number) : undefined;
+}
+
+function newer(left: number[], right: number[]) {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
+}
+
+/** OpenAI's Apple developer team, which signs the Codex inside ChatGPT.app. */
+const OPENAI_TEAM_ID = "2DC432GLL2";
+const CHATGPT_CODEX =
+  "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+
+/**
+ * The Codex inside the ChatGPT app, so its models match the person's own.
+ * Only a binary signed by OpenAI is trusted: folders like ~/.local/bin are
+ * writable by anything running as the user, including an agent.
+ */
+async function installedCodex() {
+  if (process.platform !== "darwin" || !existsSync(CHATGPT_CODEX))
+    return undefined;
+  const signed = await run(
+    "/usr/bin/codesign",
+    [
+      "--verify",
+      "--strict",
+      `-R=anchor apple generic and certificate leaf[subject.OU] = "${OPENAI_TEAM_ID}"`,
+      CHATGPT_CODEX,
+    ],
+    { timeout: 10_000 },
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!signed) return undefined;
+  const version = await run(CHATGPT_CODEX, ["--version"], { timeout: 10_000 })
+    .then(({ stdout }) => codexVersion(stdout))
+    .catch(() => undefined);
+  // Older releases don't speak the adapter's protocol.
+  const minimum = codexVersion(CODEX_VERSION) ?? [0, 0, 0];
+  return version && !newer(minimum, version) ? CHATGPT_CODEX : undefined;
+}
+
 async function resolveCodexBinary() {
   const override = process.env.CODEX_PATH;
   if (override) return override;
   const packaged = process.env.CHIEF_CODEX_BINARY;
   if (packaged && existsSync(packaged)) return packaged;
+  const installed = await installedCodex();
+  if (installed) return installed;
   const target = `${process.platform}-${process.arch}`;
   const distribution = codexDistributions[target];
   if (!distribution) throw new Error(`Codex is not available for ${target}.`);

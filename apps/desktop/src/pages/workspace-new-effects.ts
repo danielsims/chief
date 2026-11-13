@@ -41,6 +41,7 @@ import {
   pendingCreateDraftKey,
   pendingCreateRelayKey,
 } from "../lib/workspace-entry";
+import { leaveWorkspaceCreate } from "./workspace-apps";
 import { eveDestinationIsReady } from "./workspace-create-draft";
 import { preloadWorkspaceOnboardingApps } from "./workspace-create-options";
 import {
@@ -326,7 +327,7 @@ export async function submitWorkspaceCreate({
     });
     window.localStorage.removeItem(createDraftKey);
     window.sessionStorage.removeItem(activeCreateKey);
-    void navigate("/", { replace: true });
+    leaveWorkspaceCreate(navigate, Array.from(selectedApps));
   } catch (error) {
     recordOnboardingEvent("failed", "workspace-create", {
       agentRuntime,

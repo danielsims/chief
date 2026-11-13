@@ -205,7 +205,6 @@ void test("features the curated product integrations without provider aliases", 
     ),
     [
       "workspace.google.com",
-      "slack.com",
       "notion.com",
       "granola.ai",
       "vercel.com",
@@ -274,11 +273,11 @@ void test("keeps preferred apps first and excludes domainless skill packages", (
 
   assert.deepEqual(
     options.map((candidate) => candidate.id),
-    ["slack", "granola", "figma"],
+    ["granola", "figma", "slack"],
   );
   const first = options[0];
   assert.ok(first);
-  assert.equal(pluginDomain(first), "slack.com");
+  assert.equal(pluginDomain(first), "granola.ai");
 });
 
 void test("uses declared provider domains instead of a git repository host", () => {

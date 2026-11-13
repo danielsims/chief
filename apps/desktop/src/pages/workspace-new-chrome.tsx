@@ -6,6 +6,7 @@ import { TooltipProvider } from "@chief/ui/components/tooltip";
 import type { WorkspaceNewPageModel } from "./workspace-new-state";
 import { USING_CUSTOM_RELAY } from "../lib/config";
 import { UserIndicator } from "./onboarding-presentation";
+import { leaveWorkspaceCreate } from "./workspace-apps";
 import { eveDestinationIsReady } from "./workspace-create-draft";
 import { CreateForm, JoinForm } from "./workspace-new-components";
 import { WorkspaceEveStage } from "./workspace-new-eve-stage";
@@ -364,7 +365,10 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
                           }
                           forgetPendingVercelToken(page.createDraftKey);
                           window.localStorage.removeItem(page.createDraftKey);
-                          void page.navigate("/", { replace: true });
+                          leaveWorkspaceCreate(
+                            page.navigate,
+                            Array.from(page.selectedApps),
+                          );
                         } finally {
                           window.sessionStorage.removeItem(
                             page.activeCreateKey,

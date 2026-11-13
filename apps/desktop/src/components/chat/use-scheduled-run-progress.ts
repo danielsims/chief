@@ -1,14 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 import type { ScheduleRun } from "@chief/relay-contracts";
+import { scheduleRunSchema } from "@chief/relay-contracts";
 
+import { useAuth } from "../../lib/auth/auth-context";
+import { readLocalCache, writeLocalCache } from "../../lib/local-cache";
 import { useRelaySession } from "../../lib/relay-session";
+
+const storedRunLimit = 100;
+const storageKey = (workspaceId: string) =>
+  `chief:schedule-runs:${workspaceId}`;
+
+/** Runs seen before, so a run card paints its status and marks at once. */
+function storedRuns(workspaceId: string | null) {
+  if (!workspaceId) return [];
+  return (
+    readLocalCache(storageKey(workspaceId), z.array(scheduleRunSchema)) ?? []
+  );
+}
+
+function rememberRuns(workspaceId: string, runs: readonly ScheduleRun[]) {
+  const fresh = new Set(runs.map((run) => run.id));
+  writeLocalCache(
+    storageKey(workspaceId),
+    [
+      ...runs,
+      ...storedRuns(workspaceId).filter((run) => !fresh.has(run.id)),
+    ].slice(0, storedRunLimit),
+  );
+}
 
 /** One request per schedule, shared by the transcript, cards and thread composer. */
 export function useScheduledRunProgress(messages: readonly ChiefUIMessage[]) {
   const { client } = useRelaySession();
+  const { cloudOrganizationId: workspaceId } = useAuth();
   const references = JSON.stringify(
     [
       ...new Set(
@@ -51,6 +78,7 @@ export function useScheduledRunProgress(messages: readonly ChiefUIMessage[]) {
           .flat()
           .filter((run) => runIds.has(run.id));
         if (isCancelled()) return;
+        if (workspaceId) rememberRuns(workspaceId, runs);
         setSnapshot({ client, references, runs });
         if (
           (runs.length < runIds.size && ++missingReads <= 10) ||
@@ -79,8 +107,24 @@ export function useScheduledRunProgress(messages: readonly ChiefUIMessage[]) {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [client, references]);
+  }, [client, references, workspaceId]);
+  // Until the relay answers, show what these runs last looked like. A run
+  // that was still going is left out, so no stale working indicator shows.
+  const stored = useMemo(() => {
+    const referenced = new Set(
+      z
+        .array(z.string())
+        .parse(JSON.parse(references))
+        .map((entry) => entry.split("\n")[1]),
+    );
+    return storedRuns(workspaceId).filter(
+      (run) =>
+        referenced.has(run.id) &&
+        run.state !== "running" &&
+        run.state !== "queued",
+    );
+  }, [references, workspaceId]);
   return snapshot.client === client && snapshot.references === references
     ? snapshot.runs
-    : [];
+    : stored;
 }

@@ -12,13 +12,6 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
-import { fenceGuestEvent } from "./channel-guest-fence";
-import {
-  guestListenerTags,
-  isGuestListener,
-  registerGuestListeners,
-} from "./channel-guest-listeners";
-import { ChannelGuestService } from "./channel-guest-service";
 import { attempt, runResponse } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
@@ -51,10 +44,12 @@ import { WorkspaceGitHubService } from "./workspace-github-service";
 import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
+import { replayLiveEvents } from "./workspace-live-replay";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { consumeMachineTicket } from "./workspace-machine-keys";
 import { machineOperation } from "./workspace-machine-operations";
+import { WorkspacePresence } from "./workspace-presence";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
 import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
@@ -63,7 +58,6 @@ import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
 import {
   consumeSocketAllowance,
-  MAX_REPLAY_EVENTS_PER_CONNECTION,
   workspaceDataCapability,
   workspaceSocketAttachment,
 } from "./workspace-socket-state";
@@ -84,9 +78,8 @@ export class WorkspaceObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     meterSql(state.storage);
-    registerGuestListeners(state);
     // Keep-alive pings are answered without waking the object, so idle
-    // connections (members' and guest listeners') cost nothing.
+    // member connections cost nothing.
     state.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong"),
     );
@@ -174,6 +167,7 @@ export class WorkspaceObject extends DurableObject<Env> {
     const routeData = this.routeData.bind(this);
     const publishLiveEvent = this.publishLiveEvent.bind(this);
     const createLiveSocketTicket = this.createLiveSocketTicket.bind(this);
+    const presence = this.presence;
     return Effect.gen(function* () {
       if (operation?.startsWith("webhooks-"))
         return yield* attempt("workspace.webhooks", () =>
@@ -233,14 +227,14 @@ export class WorkspaceObject extends DurableObject<Env> {
         request,
       );
       if (machine) return yield* attempt(machine.span, machine.run);
+      if (operation === "agent-host-presence") {
+        return yield* attempt("workspace.presence.agent_host", () =>
+          presence.receiveHostReport(request),
+        );
+      }
       if (operation === "live-socket-ticket") {
         return yield* attempt("workspace.live.ticket", () =>
           createLiveSocketTicket(request),
-        );
-      }
-      if (operation?.startsWith("guest-")) {
-        return yield* attempt("workspace.channel_guests", () =>
-          new ChannelGuestService(ctx.storage, env).route(request, operation),
         );
       }
       if (operation === "agent-message-dispatch") {
@@ -256,7 +250,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       }
 
       if (workspaceAccessRouter.matches(operation)) {
-        return yield* attempt("workspace.access", () =>
+        const response = yield* attempt("workspace.access", () =>
           workspaceAccessRouter.route(
             ctx.storage,
             env,
@@ -266,6 +260,8 @@ export class WorkspaceObject extends DurableObject<Env> {
               pairedMachines(ctx, agentId, ownerId).length > 0,
           ),
         );
+        presence.afterAccess(operation, response);
+        return response;
       }
 
       const invitations = new WorkspaceInvitationService(ctx.storage, env);
@@ -487,7 +483,12 @@ export class WorkspaceObject extends DurableObject<Env> {
     const live = new WorkspaceLiveStore(this.ctx.storage);
     const event = live.publish(source);
     this.broadcastLiveEvent(event);
+    this.ctx.waitUntil(this.presence.agentActivity(source.payload.message));
     return json({ sequence: event.sequence });
+  }
+
+  private get presence() {
+    return new WorkspacePresence(this.ctx, this.env);
   }
 
   private async createLiveSocketTicket(request: Request) {
@@ -531,14 +532,6 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     const principal = principalSchema.parse(JSON.parse(principalJson));
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    if (principal.kind === "guest") {
-      // A listener only ever hears its own guest's wake-ups. It never
-      // subscribes to the workspace feed below.
-      channels.requireChannelVisible(principal.conversationId, principal);
-      const pair = new WebSocketPair();
-      this.ctx.acceptWebSocket(pair[1], guestListenerTags(principal.guestId));
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
     channels.requirePrincipalMember(principal);
     // A member's desktop lending its connection to this workspace's agents.
     if (new URL(request.url).searchParams.get("role") === webMachineTag) {
@@ -574,14 +567,22 @@ export class WorkspaceObject extends DurableObject<Env> {
     );
   }
 
+  webSocketClose(socket: WebSocket) {
+    return metered("WorkspaceObject", "websocket.close", () =>
+      this.presence.closed(socket),
+    );
+  }
+
+  webSocketError(socket: WebSocket) {
+    return metered("WorkspaceObject", "websocket.error", () =>
+      this.presence.closed(socket),
+    );
+  }
+
   private receiveSocketMessage(
     socket: WebSocket,
     message: string | ArrayBuffer,
   ) {
-    if (isGuestListener(this.ctx, socket)) {
-      socket.close(1008, "Listeners only receive wake-ups");
-      return;
-    }
     if (isWebMachine(this.ctx, socket)) {
       if (isJsonString(message)) receiveWebMachineMessage(socket, message);
       else socket.close(1008, "Invalid machine message");
@@ -643,7 +644,9 @@ export class WorkspaceObject extends DurableObject<Env> {
         subscribed: true,
         typing: input.typing === true,
       });
-      this.replayLiveEvents(
+      this.ctx.waitUntil(this.presence.subscribed(socket, attachment));
+      replayLiveEvents(
+        this.ctx.storage,
         socket,
         attachment.subscribed
           ? Math.max(Number(input.after), attachment.cursor ?? 0)
@@ -655,52 +658,13 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
   }
 
-  private replayLiveEvents(
-    socket: WebSocket,
-    after: number,
-    conversationIds: readonly string[],
-  ) {
-    const live = new WorkspaceLiveStore(this.ctx.storage);
-    let cursor = after;
-    let lastDeliveredCursor = after;
-    let delivered = 0;
-    let hasMore = false;
-    do {
-      const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
-      const page = live.list(cursor, Math.min(200, remaining), conversationIds);
-      const reader = workspaceSocketAttachment(socket).principal;
-      for (const event of page.events) {
-        socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
-        cursor = event.sequence;
-        lastDeliveredCursor = event.sequence;
-        delivered += 1;
-      }
-      hasMore = page.nextSequence !== null;
-      cursor = page.nextSequence ?? 0;
-    } while (cursor > 0 && delivered < MAX_REPLAY_EVENTS_PER_CONNECTION);
-    const attachment = workspaceSocketAttachment(socket);
-    socket.serializeAttachment({
-      ...attachment,
-      cursor: Math.max(
-        attachment.cursor ?? 0,
-        lastDeliveredCursor,
-        live.currentSequence(),
-      ),
-    });
-    if (hasMore) {
-      socket.close(1013, "Catch-up continues on reconnect");
-    }
-  }
-
   private broadcastLiveEvent(event: ConversationEvent) {
     const conversationId = event.payload.message.conversationId;
     const channels = new WorkspaceChannelStore(this.ctx.storage, this.env);
-    // People read guest text as written; every other reader gets it fenced.
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
-      // Guest listeners and lending machines never see the workspace feed.
-      if (isGuestListener(this.ctx, socket) || isWebMachine(this.ctx, socket))
-        continue;
+      // Lending machines never see the workspace feed.
+      if (isWebMachine(this.ctx, socket)) continue;
       try {
         const attachment = workspaceSocketAttachment(socket);
         if (!attachment.subscribed) continue;
@@ -717,11 +681,7 @@ export class WorkspaceObject extends DurableObject<Env> {
           socket.close(1008, "Conversation access revoked");
           continue;
         }
-        socket.send(
-          attachment.principal.kind === "user"
-            ? serialized
-            : JSON.stringify(fenceGuestEvent(attachment.principal, event)),
-        );
+        socket.send(serialized);
       } catch {
         socket.close(1011, "Delivery failed");
       }

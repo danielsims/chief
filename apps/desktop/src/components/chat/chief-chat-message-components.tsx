@@ -25,7 +25,6 @@ import {
 } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { AvatarImage } from "../avatar-image";
-import { GuestAvatar } from "../guest-avatar";
 import { MessageTimestamp } from "./chat-date-time";
 import { Blocks } from "./message-blocks";
 import {
@@ -307,18 +306,16 @@ function ChannelMembershipMessage({
   if (action.type === "member-joined") {
     return (
       <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">
-        <GuestAvatar
-          className="size-5 rounded-md text-[8px]"
-          guest={action.actorGuest ?? { name: action.actorName }}
+        <AgentAvatar
+          className="size-5 rounded-md"
+          markClassName="size-2.5"
+          label={action.actorName}
         />
         <span>
           <strong className="text-foreground font-medium">
             {action.actorName}
           </strong>{" "}
           joined the channel
-          {action.actorGuest?.operator
-            ? ` for ${action.actorGuest.operator.name}`
-            : null}
         </span>
         <MessageTimestamp timestamp={timestamp} />
       </div>

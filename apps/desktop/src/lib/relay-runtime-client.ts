@@ -27,6 +27,7 @@ import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
 import { rememberRelayConversationId } from "./relay-channel-adapter";
 import { relayProjectSnapshots } from "./relay-project-presentation";
 import {
+  nativeAgentIds,
   relayAgentDefinitions,
   relayAgentPreferencesMessage,
   saveRelayAgentPreference,
@@ -59,6 +60,7 @@ import {
 } from "./relay-runtime-mappers";
 import { appendRelayMessage } from "./relay-runtime-messages";
 import { localProjectSnapshots } from "./relay-runtime-project-connect";
+import { environmentMessage, publishLocalModels } from "./relay-runtime-relay";
 import {
   isRelayWorkspaceDataCommand,
   routeRelayWorkspaceDataCommand,
@@ -71,6 +73,7 @@ import {
 export class RelayRuntimeClient implements RuntimeTransport {
   private listeners = new Set<RuntimeMessageListener>();
   private workspaceSubscription: WorkspaceSubscription | null = null;
+  private presence: Extract<ServerMessage, { type: "presence" }> | null = null;
   private pendingWorkspaceSubscription: Promise<WorkspaceSubscription> | null =
     null;
   private subscribedConversationIds = new Set<string>();
@@ -142,6 +145,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
           agents: relayAgentDefinitions(this.snapshot),
         });
         this.statusListener("connected");
+        // Lets phones offer this computer's ChatGPT and Claude Code models.
+        for (const driver of ["codex", "claude"] as const)
+          void hostedProviderModelsMessage(driver).then((listed) =>
+            publishLocalModels(this.relay, listed),
+          );
       })
       .catch((error) => {
         this.statusListener("disconnected");
@@ -252,6 +260,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "startUserDirect":
         await this.startUserDirect(message);
         return;
+      case "getPresence":
+        if (this.presence) this.emit(this.presence);
+        return;
       case "typing":
         this.workspaceSubscription?.sendTyping(
           message.channelId,
@@ -266,9 +277,12 @@ export class RelayRuntimeClient implements RuntimeTransport {
           await relayAgentPreferencesMessage(this.relay, this.snapshot),
         );
         return;
-      case "listModels":
-        this.emit(await hostedProviderModelsMessage(message.driver));
+      case "listModels": {
+        const listed = await hostedProviderModelsMessage(message.driver);
+        this.emit(listed);
+        publishLocalModels(this.relay, listed);
         return;
+      }
       case "saveAgentPreference":
         await saveRelayAgentPreference(
           this.relay,
@@ -354,13 +368,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
   /** Stops every hosted agent working in the chat's conversation. */
   private async stopChat(chatId: string) {
-    const agentIds = this.snapshot.agents
-      .filter((agent) => agent.runtime.kind === "native-cell")
-      .flatMap((agent) => [
-        agent.id,
-        ...agent.subagents.map((child) => child.id),
-      ])
-      .slice(0, 16);
+    const agentIds = nativeAgentIds(this.snapshot).slice(0, 16);
     if (agentIds.length === 0) return;
     await this.relay.stopConversation(
       this.conversationIdForChat(chatId),
@@ -373,16 +381,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
       event: { type: "result", ok: true },
     });
   }
-  /** Workspace secrets by name. Values never leave the relay. */
   private async emitEnvironment() {
-    const secrets = await this.relay.listWorkspaceSecrets();
-    this.emit({
-      type: "workspaceEnvironmentVariables",
-      workspaceId: this.snapshot.id,
-      variables: secrets
-        .filter(({ name }) => !isInternalSecret(name))
-        .map(({ name }) => ({ key: name, sensitive: true })),
-    });
+    this.emit(await environmentMessage(this.relay, this.snapshot.id));
   }
   private async refreshSnapshot() {
     this.snapshot = await this.relay.activeWorkspace();
@@ -471,7 +471,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
                   agent: conversation.directAgentId,
                   title: conversation.name,
                   lastText: conversation.lastMessage ?? "",
-                  lastAt: 0,
+                  lastAt: conversation.lastMessageAt
+                    ? Date.parse(conversation.lastMessageAt)
+                    : 0,
                   running: false,
                 },
               ]
@@ -569,6 +571,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
           userId: event.userId,
           active: event.active,
         }),
+      onPresence: ({ type: _, ...presence }) => {
+        this.presence = {
+          type: "presence",
+          workspaceId: this.snapshot.id,
+          ...presence,
+        };
+        this.emit(this.presence);
+      },
       onError: (error) => this.recordError(parseRelayError(error)),
     });
     this.pendingWorkspaceSubscription = subscriptionPromise;
@@ -736,13 +746,4 @@ export class RelayRuntimeClient implements RuntimeTransport {
       explicitConversationId,
     );
   }
-}
-
-/** Credentials Chief manages itself, never edited as environment. */
-function isInternalSecret(name: string) {
-  return (
-    name === "vercel-deployment" ||
-    name.startsWith("external-agent.") ||
-    name.startsWith("github-")
-  );
 }

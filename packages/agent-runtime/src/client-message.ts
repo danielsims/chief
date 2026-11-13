@@ -362,6 +362,8 @@ export type ClientMessage =
         clientId: string;
         clientSecret?: string;
       };
+      /** A key for a plugin that signs in with one instead of OAuth. */
+      apiKey?: string;
       executorCapability: ExecutorCapability;
     }
   | {

@@ -16,11 +16,6 @@ import {
   reactToMessagePayloadSchema,
 } from "@chief/relay-contracts";
 
-import {
-  fenceGuestEvents,
-  fenceGuestMessage,
-  fenceGuestMessages,
-} from "./channel-guest-fence";
 import { upsertConversationActivity } from "./conversation-activity";
 import { publishConversationWorkspaceEvent } from "./conversation-live";
 import { authorFor, reactorPubkey } from "./conversation-principals";
@@ -142,19 +137,19 @@ export class ConversationObject extends DurableObject<Env> {
           request.headers.get("x-chief-internal-operation") === "agent-history"
         ) {
           return yield* sync("conversation.agent_history", () =>
-            agentHistory(request, context.principal),
+            agentHistory(request),
           );
         }
         const pathname = new URL(request.url).pathname;
         if (pathname.endsWith("/events")) {
           return yield* sync("conversation.events.list", () =>
-            listEvents(request, context.principal),
+            listEvents(request),
           );
         }
         const replies = repliesRoute.exec(pathname);
         if (replies) {
           return yield* sync("conversation.replies.list", () =>
-            listReplies(request, replies[1] ?? "", context.principal),
+            listReplies(request, replies[1] ?? ""),
           );
         }
         const reactions = reactionsRoute.exec(pathname);
@@ -166,11 +161,11 @@ export class ConversationObject extends DurableObject<Env> {
         const message = deleteRoute.exec(pathname);
         if (message) {
           return yield* sync("conversation.messages.get", () =>
-            getMessage(message[1] ?? "", context.principal),
+            getMessage(message[1] ?? ""),
           );
         }
         return yield* sync("conversation.messages.list", () =>
-          listMessages(request, context.principal),
+          listMessages(request),
         );
       }
       if (request.method === "POST" || request.method === "DELETE") {
@@ -295,7 +290,7 @@ export class ConversationObject extends DurableObject<Env> {
     }
     return json({ duplicate: result.duplicate, message: result.message });
   }
-  private getMessage(id: string, reader: Principal) {
+  private getMessage(id: string) {
     const message = this.store.getMessage(messageIdSchema.parse(id));
     if (!message)
       throw new HttpError(
@@ -303,9 +298,9 @@ export class ConversationObject extends DurableObject<Env> {
         "message_not_found",
         "This message is no longer available.",
       );
-    return json({ message: fenceGuestMessage(reader, message) });
+    return json({ message });
   }
-  private listMessages(request: Request, reader: Principal) {
+  private listMessages(request: Request) {
     const url = new URL(request.url);
     const after = parseConversationPageInteger(
       url.searchParams.get("after"),
@@ -325,18 +320,11 @@ export class ConversationObject extends DurableObject<Env> {
         0,
         0,
       );
-      return json(
-        fenceGuestMessages(
-          reader,
-          this.store.recent(limit, before || undefined),
-        ),
-      );
+      return json(this.store.recent(limit, before || undefined));
     }
-    return json(
-      fenceGuestMessages(reader, this.store.list(after, limit, query)),
-    );
+    return json(this.store.list(after, limit, query));
   }
-  private agentHistory(request: Request, reader: Principal) {
+  private agentHistory(request: Request) {
     const url = new URL(request.url);
     const limit = parseConversationPageInteger(
       url.searchParams.get("limit"),
@@ -348,14 +336,12 @@ export class ConversationObject extends DurableObject<Env> {
     const threadRootId = rawThreadRootId
       ? messageIdSchema.parse(rawThreadRootId)
       : undefined;
-    return json(
-      fenceGuestMessages(reader, {
-        messages: this.store.history(threadRootId, limit),
-        nextSequence: null,
-      }),
-    );
+    return json({
+      messages: this.store.history(threadRootId, limit),
+      nextSequence: null,
+    });
   }
-  private replies(request: Request, rootId: string, reader: Principal) {
+  private replies(request: Request, rootId: string) {
     const url = new URL(request.url);
     const after = parseConversationPageInteger(
       url.searchParams.get("after"),
@@ -369,10 +355,7 @@ export class ConversationObject extends DurableObject<Env> {
       200,
     );
     return json(
-      fenceGuestMessages(
-        reader,
-        this.store.replies(messageIdSchema.parse(rootId), after, limit),
-      ),
+      this.store.replies(messageIdSchema.parse(rootId), after, limit),
     );
   }
   private reactions(messageId: string) {
@@ -432,7 +415,7 @@ export class ConversationObject extends DurableObject<Env> {
     return json(result);
   }
 
-  private listEvents(request: Request, reader: Principal) {
+  private listEvents(request: Request) {
     const url = new URL(request.url);
     const after = parseConversationPageInteger(
       url.searchParams.get("after"),
@@ -445,7 +428,7 @@ export class ConversationObject extends DurableObject<Env> {
       1,
       200,
     );
-    return json(fenceGuestEvents(reader, this.store.listEvents(after, limit)));
+    return json(this.store.listEvents(after, limit));
   }
 
   private async edit(

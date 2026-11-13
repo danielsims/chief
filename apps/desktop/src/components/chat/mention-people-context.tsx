@@ -1,14 +1,10 @@
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import type {
-  ChannelGuestSummary,
-  WorkspaceMember,
-} from "@chief/relay-contracts";
+import type { WorkspaceMember } from "@chief/relay-contracts";
 
 import type { MentionAlias } from "./agent-mention-parser";
 import { useAuth } from "../../lib/auth/auth-context";
-import { guestSummaryAppearance } from "../../lib/guest-appearance";
 import { relayAvatarUrl } from "../../lib/relay-avatar";
 import { useRelaySession } from "../../lib/relay-session";
 import { useRuntime } from "../../lib/runtime";
@@ -120,40 +116,6 @@ export function MentionPeopleProvider({ children }: { children: ReactNode }) {
         </MentionAliasesContext.Provider>
       </MentionPeopleContext.Provider>
     </WorkspaceUsersContext.Provider>
-  );
-}
-
-/**
- * Adds a channel's outside guest agents to the mentions everything below can
- * parse, so `@opencode` or `@danielsims:grokbot` render as chips. Guests are
- * per channel, so this wraps one channel's chat rather than the app.
- */
-export function ChannelGuestMentions({
-  children,
-  guests,
-}: {
-  children: ReactNode;
-  guests: readonly ChannelGuestSummary[];
-}) {
-  const parent = useContext(MentionAliasesContext);
-  const aliases = useMemo(
-    () => [
-      ...parent,
-      ...guests.flatMap((guest) => {
-        const appearance = guestSummaryAppearance(guest);
-        const id = `guest:${guest.id}`;
-        return [
-          { id, name: guest.handle, label: guest.name, guest: appearance },
-          { id, name: guest.name, label: guest.name, guest: appearance },
-        ];
-      }),
-    ],
-    [guests, parent],
-  );
-  return (
-    <MentionAliasesContext.Provider value={aliases}>
-      {children}
-    </MentionAliasesContext.Provider>
   );
 }
 

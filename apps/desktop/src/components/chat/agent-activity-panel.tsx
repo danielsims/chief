@@ -120,7 +120,9 @@ export function AgentActivityPanel({
   // A run's failure is shown on the turn it stopped, not repeated up top.
   const failureShownOnTurn = Boolean(
     selected?.turns.some(
-      (turn) => relayJobForTurn(turn, selected.tasks)?.status === "failed",
+      (turn) =>
+        turn.error !== undefined ||
+        relayJobForTurn(turn, selected.tasks)?.status === "failed",
     ),
   );
   return (
@@ -257,6 +259,13 @@ export function AgentActivityPanel({
                           message={
                             job.error ?? "The run ended before it finished."
                           }
+                        />
+                      </div>
+                    ) : turn.error && !working ? (
+                      <div className="px-4 pb-3">
+                        <ActivityNotice
+                          title={turn.error.title}
+                          message={turn.error.message}
                         />
                       </div>
                     ) : working ? (

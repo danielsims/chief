@@ -10,7 +10,11 @@ import type {
   ServerMessage,
 } from "../types.js";
 import type { PluginCatalogSnapshot } from "./types.js";
-import { installCatalogPlugin, pluginCatalog } from "./catalog.js";
+import {
+  discoveredSurface,
+  installCatalogPlugin,
+  pluginCatalog,
+} from "./catalog.js";
 import { PLUGIN_OAUTH_CALLBACK_URL } from "./oauth-provider.js";
 import { PluginOAuthManager } from "./oauth.js";
 import { removePluginInstallation, trustPluginInstallation } from "./store.js";
@@ -119,6 +123,30 @@ export class PluginRuntime {
       (item) => item.id === pluginId,
     );
     if (!plugin) throw new Error(`Plugin ${pluginId} was not found.`);
+    // A key-only server has no sign-in to start; the person pastes the key
+    // into Chief, which keeps it in the workspace.
+    const surface =
+      plugin.source.type === "discovery"
+        ? await discoveredSurface(plugin.source.domain, plugin.name)
+        : undefined;
+    if (surface?.auth === "headers") {
+      if (!surface.apiKey)
+        throw new Error(
+          `${plugin.name} needs an API key. Add it with Add MCP server.`,
+        );
+      return {
+        kind: "plugin_api_key",
+        pluginId,
+        pluginName: plugin.name,
+        description: plugin.description,
+        provider: pluginProvider(plugin),
+        label: surface.apiKey.label,
+        ...(surface.apiKey.docsUrl
+          ? { docsUrl: surface.apiKey.docsUrl }
+          : undefined),
+        status: "api_key_required",
+      };
+    }
     await trustPluginInstallation(workspaceId, pluginId);
     const authorization = await this.oauth.start(workspaceId, pluginId);
     if (authorization.status === "connected") {
@@ -169,6 +197,7 @@ export class PluginRuntime {
     if (message.type === "listPlugins") {
       send({
         type: "plugins",
+        requestId: message.requestId,
         workspaceId: message.workspaceId,
         ...(await this.snapshot(message.workspaceId, message.refresh)),
       });
@@ -178,6 +207,12 @@ export class PluginRuntime {
         message.pluginId,
         message.trusted,
       );
+      send({
+        type: "plugins",
+        requestId: message.requestId,
+        workspaceId: message.workspaceId,
+        ...(await this.snapshot(message.workspaceId)),
+      });
       this.onChange(message.workspaceId);
     } else if (message.type === "authorizePlugin") {
       if (message.oauthClient) {
@@ -191,8 +226,15 @@ export class PluginRuntime {
         message.workspaceId,
         message.pluginId,
       );
-      if (action.status === "connected") this.onChange(message.workspaceId);
-      else {
+      if (action.status === "connected") {
+        send({
+          type: "plugins",
+          requestId: message.requestId,
+          workspaceId: message.workspaceId,
+          ...(await this.snapshot(message.workspaceId)),
+        });
+        this.onChange(message.workspaceId);
+      } else {
         send({
           type: "pluginAuthorization",
           workspaceId: message.workspaceId,
@@ -202,6 +244,12 @@ export class PluginRuntime {
       }
     } else {
       await this.uninstall(message.workspaceId, message.pluginId);
+      send({
+        type: "plugins",
+        requestId: message.requestId,
+        workspaceId: message.workspaceId,
+        ...(await this.snapshot(message.workspaceId)),
+      });
       this.onChange(message.workspaceId);
     }
     return true;

@@ -138,7 +138,8 @@ export function StepPicker({
   connectable: readonly AgentPluginSummary[];
   onPick: (picked: PickedStep) => void;
   onConnect: (pluginId: string) => void;
-  onAddServer: () => void;
+  /** Absent for members: owners and admins add plugins. */
+  onAddServer?: () => void;
   allowStop?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -325,15 +326,17 @@ export function StepPicker({
             ) : page.kind === "connect" ? (
               <>
                 {connectItems}
-                <Item
-                  value="custom mcp server url add"
-                  icon={<Plus size={14} className="text-muted-foreground" />}
-                  label="Add a custom MCP server"
-                  onSelect={() => {
-                    close();
-                    onAddServer();
-                  }}
-                />
+                {onAddServer ? (
+                  <Item
+                    value="custom mcp server url add"
+                    icon={<Plus size={14} className="text-muted-foreground" />}
+                    label="Add a custom MCP server"
+                    onSelect={() => {
+                      close();
+                      onAddServer();
+                    }}
+                  />
+                ) : null}
               </>
             ) : flat ? (
               <>

@@ -546,8 +546,8 @@ importers:
   packages/agent-runtime:
     dependencies:
       "@agentclientprotocol/codex-acp":
-        specifier: 1.6.2
-        version: 1.6.2
+        specifier: 2.6.0
+        version: 2.6.0
       "@anthropic-ai/claude-agent-sdk":
         specifier: ^0.1.5
         version: 0.1.77(zod@4.6.7)
@@ -925,6 +925,9 @@ importers:
       "@fontsource-variable/geist":
         specifier: ^5.2.5
         version: 5.2.9
+      "@fontsource-variable/geist-mono":
+        specifier: ^5.3.0
+        version: 5.3.0
       "@radix-ui/react-context-menu":
         specifier: ^2.3.7
         version: 2.3.7(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -1042,20 +1045,24 @@ importers:
   tooling/typescript: {}
 
 packages:
-  "@agentclientprotocol/codex-acp@1.6.2":
+  "@agentclientprotocol/codex-acp@2.6.0":
     resolution:
       {
-        integrity: sha512-2eF1mbs1gTqkZJSLYOun/pFDx37sYa7W63HOPezC37b/R8AYms5O1nfQu8lrqFSGDrwDZkASVORymLcqjCNqyA==,
+        integrity: sha512-/PBsd0H6URy4bhXhAeXqwb7RqctbXfNceRihAh6nDmn5HJ873uzoHvHxF45YmeWfgOKKRrNRLZjYsket2a7EsQ==,
       }
     hasBin: true
 
-  "@agentclientprotocol/sdk@1.4.0":
+  "@agentclientprotocol/sdk@2.4.0":
     resolution:
       {
-        integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==,
+        integrity: sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg==,
       }
     peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
+      "@modelcontextprotocol/server": ^2.4.0
+      zod: ^3.25.76 || ^4.0.0
+    peerDependenciesMeta:
+      "@modelcontextprotocol/server":
+        optional: true
 
   "@ai-sdk/gateway@4.0.22":
     resolution:
@@ -3231,6 +3238,12 @@ packages:
         integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==,
       }
 
+  "@fontsource-variable/geist-mono@5.3.0":
+    resolution:
+      {
+        integrity: sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==,
+      }
+
   "@fontsource-variable/geist@5.2.9":
     resolution:
       {
@@ -4313,6 +4326,68 @@ packages:
     resolution:
       {
         integrity: sha512-/Jg8eYw0BqTGNUpnrzzWlK2kbu29NWg7t6pnUDEfxqpTUf+mK8r3okXQn60Zjbk9InYZ4d8SwSjrtOa+i5hSPw==,
+      }
+    engines: { node: ">=16" }
+    cpu: [x64]
+    os: [win32]
+
+  "@openai/codex@0.166.0":
+    resolution:
+      {
+        integrity: sha512-2Szlp1l1cz5TX1ccpX4Zok3DZrot9xeZe0km+6/1v8JmqxADwyJxKBJah4dBymkwtS25j/u6dipJusTOI97Z8Q==,
+      }
+    engines: { node: ">=16" }
+    hasBin: true
+
+  "@openai/codex@0.166.0-darwin-arm64":
+    resolution:
+      {
+        integrity: sha512-5fWH6qqUInACcRADIewjlnRxDb4QLe0uriwehiZz0+viuAAB8I+WWefqw4xwHvyKaxeiGX4uK56+vrgfvFk3FQ==,
+      }
+    engines: { node: ">=16" }
+    cpu: [arm64]
+    os: [darwin]
+
+  "@openai/codex@0.166.0-darwin-x64":
+    resolution:
+      {
+        integrity: sha512-Vj5wXJPizKmrzNtnRNQf9PP6FJkG3iJU/UO3NE4WvkENZGoQfmImdwf4MVRI5NgwjSuC6LT0HbBRHPVVnwGHuw==,
+      }
+    engines: { node: ">=16" }
+    cpu: [x64]
+    os: [darwin]
+
+  "@openai/codex@0.166.0-linux-arm64":
+    resolution:
+      {
+        integrity: sha512-w0ScAsBr9aZKtIFrh6HN6KU2yjKKeSCzYfbb7DB0Ccj4BYPzeZtUeQprbycLCwuX3AFQdbdjapmLho2iot74jQ==,
+      }
+    engines: { node: ">=16" }
+    cpu: [arm64]
+    os: [linux]
+
+  "@openai/codex@0.166.0-linux-x64":
+    resolution:
+      {
+        integrity: sha512-CxDm3+D1cpbGJeHrdzINoG+3wn9BVncP4qpZaaNYkxe8iPtRJOYyCJnnPoVjWRIBvI9vPKbRoifsMSA5xDaUpw==,
+      }
+    engines: { node: ">=16" }
+    cpu: [x64]
+    os: [linux]
+
+  "@openai/codex@0.166.0-win32-arm64":
+    resolution:
+      {
+        integrity: sha512-LWO1cyGlxbKgeUM7QJ1a6QMSsJi++3PqgIi6BmIUBoj/kzZqRIR69UDMQgeU/9izzJFYMSbwt++lHnUFyjQXlA==,
+      }
+    engines: { node: ">=16" }
+    cpu: [arm64]
+    os: [win32]
+
+  "@openai/codex@0.166.0-win32-x64":
+    resolution:
+      {
+        integrity: sha512-NS8Ps5oG5r19pCrMCUXwUqOui6odnUIoBlQkrjCJ+h1k6KiwCzC/+mI9d3nSZCqFoVONPBTmqyq8NYq3YaFGyA==,
       }
     engines: { node: ">=16" }
     cpu: [x64]
@@ -15558,16 +15633,19 @@ packages:
       }
 
 snapshots:
-  "@agentclientprotocol/codex-acp@1.6.2":
+  "@agentclientprotocol/codex-acp@2.6.0":
     dependencies:
-      "@agentclientprotocol/sdk": 1.4.0(zod@4.6.7)
-      "@openai/codex": 0.148.0
+      "@agentclientprotocol/sdk": 2.4.0(zod@4.6.7)
+      "@openai/codex": 0.166.0
+      cross-spawn: 7.0.6
       diff: 9.0.0
       open: 11.0.1
       vscode-jsonrpc: 9.0.1
       zod: 4.6.7
+    transitivePeerDependencies:
+      - "@modelcontextprotocol/server"
 
-  "@agentclientprotocol/sdk@1.4.0(zod@4.6.7)":
+  "@agentclientprotocol/sdk@2.4.0(zod@4.6.7)":
     dependencies:
       zod: 4.6.7
 
@@ -16709,6 +16787,8 @@ snapshots:
 
   "@floating-ui/utils@0.2.11": {}
 
+  "@fontsource-variable/geist-mono@5.3.0": {}
+
   "@fontsource-variable/geist@5.2.9": {}
 
   "@giscus/react@3.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
@@ -17373,6 +17453,33 @@ snapshots:
     optional: true
 
   "@openai/codex@0.148.0-win32-x64":
+    optional: true
+
+  "@openai/codex@0.166.0":
+    optionalDependencies:
+      "@openai/codex-darwin-arm64": "@openai/codex@0.166.0-darwin-arm64"
+      "@openai/codex-darwin-x64": "@openai/codex@0.166.0-darwin-x64"
+      "@openai/codex-linux-arm64": "@openai/codex@0.166.0-linux-arm64"
+      "@openai/codex-linux-x64": "@openai/codex@0.166.0-linux-x64"
+      "@openai/codex-win32-arm64": "@openai/codex@0.166.0-win32-arm64"
+      "@openai/codex-win32-x64": "@openai/codex@0.166.0-win32-x64"
+
+  "@openai/codex@0.166.0-darwin-arm64":
+    optional: true
+
+  "@openai/codex@0.166.0-darwin-x64":
+    optional: true
+
+  "@openai/codex@0.166.0-linux-arm64":
+    optional: true
+
+  "@openai/codex@0.166.0-linux-x64":
+    optional: true
+
+  "@openai/codex@0.166.0-win32-arm64":
+    optional: true
+
+  "@openai/codex@0.166.0-win32-x64":
     optional: true
 
   "@opentelemetry/api-logs@0.221.0":

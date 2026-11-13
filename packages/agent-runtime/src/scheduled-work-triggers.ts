@@ -21,8 +21,6 @@ function eventMatchesTrigger(
   trigger: ScheduledWorkTrigger,
   workspaceId: string,
 ) {
-  // Outside guest agents never start workspace work.
-  if (event.actor.type === "guest") return false;
   if (trigger.type === "channel_message") {
     const authorTypes = trigger.authorTypes ?? ["user"];
     return (

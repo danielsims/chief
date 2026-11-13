@@ -17,6 +17,7 @@ import type {
   SidebarPinnedItem,
   WorkspaceAgentId,
 } from "../lib/workspace-channels";
+import type { AgentPresence } from "./chat/agent-profile-panel";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   orderSidebarDirectMessages,
@@ -24,6 +25,7 @@ import {
   readSidebarDirectMessagesCache,
   writeSidebarDirectMessagesCache,
 } from "../lib/sidebar-direct-messages-cache";
+import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
   sidebarPinnedItemKey,
   workspaceAgentIdentity,
@@ -34,8 +36,12 @@ import { AttentionPill } from "./attention-pill";
 import { agentLoaderColor } from "./chat/agent-activity-presence";
 import { useWorkspaceUsers } from "./chat/mention-people-context";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
+import { WithPresence } from "./presence-dot";
 import { UserAvatar } from "./user-avatar";
 import { OPEN_NEW_MESSAGE_EVENT } from "./workspace-search";
+
+/** Sized for the sidebar's 16px avatars and cut out of its background. */
+const SIDEBAR_DOT = "ring-sidebar -right-px -bottom-px size-1.5 ring-[1.5px]";
 
 export function DirectMessageRow({
   active,
@@ -49,6 +55,7 @@ export function DirectMessageRow({
   pinned,
   unreadCount,
   working = false,
+  presence,
   expanded,
   onExpand,
 }: {
@@ -66,6 +73,7 @@ export function DirectMessageRow({
   unreadCount: number;
   /** A run is in progress, so the avatar becomes the working indicator. */
   working?: boolean;
+  presence: AgentPresence;
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
   const identity = workspaceAgentIdentity(
@@ -157,12 +165,14 @@ export function DirectMessageRow({
             size={16}
           />
         ) : (
-          <AgentAvatar
-            agentId={agentId}
-            label={identity.name}
-            className="size-4"
-            markTileClassName="bg-sidebar-foreground text-sidebar dark:bg-white dark:text-black"
-          />
+          <WithPresence presence={presence} dotClassName={SIDEBAR_DOT}>
+            <AgentAvatar
+              agentId={agentId}
+              label={identity.name}
+              className="size-4"
+              markTileClassName="bg-sidebar-foreground text-sidebar dark:bg-white dark:text-black"
+            />
+          </WithPresence>
         )}
         <span className="min-w-0 flex-1 truncate">{identity.name}</span>
         {needsUser || unreadCount > 0 ? (
@@ -294,6 +304,7 @@ export function SidebarDirectMessages({
   }, []);
   const { user, cloudOrganizationId } = useAuth();
   const workspaceUsers = useWorkspaceUsers();
+  const { agentPresence, userOnline } = useWorkspacePresence();
   const { channels } = useWorkspaceChannels();
   // Painted until channels, members and history arrive, so launch shows the
   // same rows in the same order instead of filling in over a few seconds.
@@ -323,8 +334,10 @@ export function SidebarDirectMessages({
         return [
           {
             channelId: channel.id,
+            userId,
             name: person?.name ?? previous?.name ?? channel.name,
             image: person?.image ?? previous?.image,
+            lastMessageAt: channel.lastMessageAt,
           },
         ];
       })
@@ -366,11 +379,16 @@ export function SidebarDirectMessages({
             "text-sidebar-foreground font-semibold",
         )}
       >
-        <UserAvatar
-          name={direct.name}
-          image={direct.image}
-          className="size-4 text-[8px]"
-        />
+        <WithPresence
+          presence={userOnline(direct.userId) ? "online" : "offline"}
+          dotClassName={SIDEBAR_DOT}
+        >
+          <UserAvatar
+            name={direct.name}
+            image={direct.image}
+            className="size-4 text-[8px]"
+          />
+        </WithPresence>
         <span className="min-w-0 flex-1 truncate">{direct.name}</span>
         {unread > 0 ? (
           <span
@@ -404,6 +422,7 @@ export function SidebarDirectMessages({
         pinned={false}
         unreadCount={unreadCounts.get(id) ?? 0}
         working={workingAgentIds.has(id)}
+        presence={agentPresence(id)}
         expanded={expanded}
         onExpand={
           id === agentId && children.length > 0
@@ -440,13 +459,24 @@ export function SidebarDirectMessages({
         kind: "person" as const,
         key: `channel:${direct.channelId}`,
         direct,
-        live: lastMessageAtByChannel.get(direct.channelId) ?? 0,
+        live: Math.max(
+          lastMessageAtByChannel.get(direct.channelId) ?? 0,
+          direct.lastMessageAt ?? 0,
+        ),
       })),
       ...messageableIds.map((agentId) => ({
         kind: "agent" as const,
         key: `agent:${agentId}`,
         agentId,
-        live: lastMessageAtByAgent.get(agentId) ?? 0,
+        // A team moves up with its latest message, a subagent's included.
+        live: Math.max(
+          ...[
+            agentId,
+            ...(
+              agents.find((agent) => agent.id === agentId)?.subagents ?? []
+            ).map((child) => child.id),
+          ].map((id) => lastMessageAtByAgent.get(id) ?? 0),
+        ),
       })),
     ],
     cached.lastMessageAt,

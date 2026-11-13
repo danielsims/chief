@@ -29,6 +29,14 @@ export function canManageChannels(role: OrganizationRole | null): boolean {
   return role === "owner" || role === "admin";
 }
 
+/**
+ * Owners and admins install, reconnect and remove plugins; members use the
+ * ones installed. Unknown while the role loads, the relay enforces it anyway.
+ */
+export function canManagePlugins(role: OrganizationRole | null): boolean {
+  return role !== "member";
+}
+
 export function canDeleteChannels(role: OrganizationRole | null): boolean {
   return role === "owner";
 }
