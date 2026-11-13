@@ -276,7 +276,7 @@ export function AgentsPage() {
                       <TeamAgentRow
                         key={agent.id}
                         agent={agent}
-                        handle={workspaceAgentHandle(username, agent.name)}
+                        handle={workspaceAgentHandle(username, agent.id)}
                         override={preference}
                         onSelect={() => openAgent(rootId, agent.id)}
                       />

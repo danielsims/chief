@@ -656,7 +656,7 @@ export function AutomationBuilderPage() {
                 <AutomationChatPanel
                   chat={chat}
                   sizing={chatSizing}
-                  className="max-w-full shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]"
+                  className="max-w-full shadow-[0_1px_2px_rgba(0,0,0,0.05),0_8px_24px_-6px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-6px_rgba(0,0,0,0.5)]"
                   onClose={() => setChatOpen(false)}
                 />
               </div>
