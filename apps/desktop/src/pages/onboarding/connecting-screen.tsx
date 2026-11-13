@@ -4,7 +4,7 @@ import { Check, X } from "lucide-react";
 import type { WorkspaceSetup } from "./use-setup";
 import { SetupHeading } from "./elements";
 
-type StageState = "pending" | "active" | "done" | "failed";
+export type StageState = "pending" | "active" | "done" | "failed";
 
 /** Long enough to read each stage, short enough never to feel slow. */
 const minimum = (ms: number) =>
@@ -15,18 +15,21 @@ export function ProgressStages({
   stopped,
   stages,
 }: {
-  progress: number;
+  /** Percent for the sky bar; leave out for stages alone. */
+  progress?: number;
   stopped?: boolean;
   stages: { label: string; state: StageState }[];
 }) {
   return (
     <>
-      <div
-        className={stopped ? "ob-sky-bar is-stopped" : "ob-sky-bar"}
-        aria-hidden="true"
-      >
-        <i style={{ width: `${progress}%` }} />
-      </div>
+      {progress === undefined ? null : (
+        <div
+          className={stopped ? "ob-sky-bar is-stopped" : "ob-sky-bar"}
+          aria-hidden="true"
+        >
+          <i style={{ width: `${progress}%` }} />
+        </div>
+      )}
       <ol className="ob-stages">
         {stages.map((stage) => (
           <li key={stage.label} className="ob-stage" data-state={stage.state}>
