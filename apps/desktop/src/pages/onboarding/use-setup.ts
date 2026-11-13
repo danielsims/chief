@@ -19,6 +19,7 @@ import { useAcceptAgentRequest } from "../../components/agents/owned-agents-pane
 import { useAuth } from "../../lib/auth/auth-context";
 import { RELAY_URL } from "../../lib/config";
 import { useRelaySession } from "../../lib/relay-session";
+import { useRuntime } from "../../lib/runtime";
 import {
   activeSetupKey,
   newSetupDraft,
@@ -85,6 +86,12 @@ export function useWorkspaceSetup() {
   } | null>(null);
   const [requests, setRequests] = useState<OwnedAgentRequest[]>([]);
   const accept = useAcceptAgentRequest();
+  // Agents this device runs join as on-device agents, not connections.
+  const { agents: runtimeAgents } = useRuntime();
+  const joined = useMemo(
+    () => runtimeAgents.filter((agent) => agent.connectionKind === "owned"),
+    [runtimeAgents],
+  );
   const [agents, setAgents] = useState<OwnedAgent[]>([]);
   const running = useRef(false);
   const client = useMemo(
@@ -208,8 +215,10 @@ export function useWorkspaceSetup() {
       clearTimeout(timer);
     };
   }, [client, draft.step, auth.user?.id]);
+  // The setup prompt is ready to copy on arrival, on either agent step.
   useEffect(() => {
-    if (!client || draft.step !== "invite" || invite) return;
+    if (!client || !["invite", "approve"].includes(draft.step) || invite)
+      return;
     let stopped = false;
     const timer = setTimeout(() => {
       void client
@@ -370,6 +379,7 @@ export function useWorkspaceSetup() {
     username,
     invite,
     requests,
+    joined,
     agents,
     patch,
     go,

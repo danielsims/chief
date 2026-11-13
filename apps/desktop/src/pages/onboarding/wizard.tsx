@@ -77,7 +77,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
       team: s.draft.selectedApps.length ? "plugins" : "apps",
       invite: "team",
       approve: "invite",
-      success: s.agents.length ? "approve" : "invite",
+      success: s.agents.length || s.joined.length ? "approve" : "invite",
     };
     const step = previous[s.draft.step];
     if (step) s.go(step);
