@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Claude, Grok, OpenAI, OpenCode, Vercel } from "@lobehub/icons";
-import { Building2, Check, UserRound } from "lucide-react";
+import { Building2, Cloud, Laptop, UserRound } from "lucide-react";
 
 import {
   Select,
@@ -135,29 +135,24 @@ export function IconSelect({
     </Select>
   );
 }
+export const locationOptions = [
+  { value: "device", label: "On this device", icon: <Laptop size={17} /> },
+  { value: "cloud", label: "In the cloud", icon: <Cloud size={17} /> },
+];
 export const purposeOptions = [
   { value: "personal", label: "Just me", icon: <UserRound size={18} /> },
   { value: "company", label: "A company", icon: <Building2 size={18} /> },
 ];
-/** Where Chief runs, as two picture cards that are the choice itself. */
-export function PlacePicker({
-  value,
-  onChange,
-}: {
-  value: "device" | "cloud";
-  onChange: (value: "device" | "cloud") => void;
-}) {
+export function PlacesIllustration() {
   return (
-    <div className="ob-places" role="radiogroup" aria-label="Where Chief runs">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={value === "device"}
-        onClick={() => onChange("device")}
+    <div
+      className="ob-places"
+      aria-label="Chief runs on your device or in the cloud"
+    >
+      <div
         className="ob-place ob-device"
         style={{ backgroundImage: `url(${sky})` }}
       >
-        <PlaceCheck />
         <div className="ob-place-art">
           <svg viewBox="0 0 160 104" fill="none" aria-hidden="true">
             <rect
@@ -181,21 +176,13 @@ export function PlacePicker({
         </div>
         <p>
           <strong>On your device</strong>
-          <span>
-            Uses ChatGPT or Claude on this computer. Keep it awake while Chief
-            works.
-          </span>
+          <span>Uses an agent app you already have.</span>
         </p>
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={value === "cloud"}
-        onClick={() => onChange("cloud")}
+      </div>
+      <div
         className="ob-place ob-cloud"
         style={{ backgroundImage: `url(${sky})` }}
       >
-        <PlaceCheck />
         <div className="ob-place-art">
           <span className="ob-orbit">
             <ChiefMark className="size-[25px]" />
@@ -203,17 +190,9 @@ export function PlacePicker({
         </div>
         <p>
           <strong>In the cloud</strong>
-          <span>Runs in the cloud, so it keeps working while you’re away.</span>
+          <span>Keeps working while you’re away.</span>
         </p>
-      </button>
+      </div>
     </div>
-  );
-}
-
-function PlaceCheck() {
-  return (
-    <span className="ob-place-check" aria-hidden="true">
-      <Check size={12} strokeWidth={3} />
-    </span>
   );
 }

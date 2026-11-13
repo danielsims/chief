@@ -14,7 +14,8 @@ import {
   Field,
   IconSelect,
   IdentityTile,
-  PlacePicker,
+  locationOptions,
+  PlacesIllustration,
   ProviderIcon,
   purposeOptions,
   SetupHeading,
@@ -190,7 +191,7 @@ export function WorkspaceScreen({ setup: s }: { setup: WorkspaceSetup }) {
         className="ob-primary"
         disabled={!s.draft.name.trim() || !s.draft.slug}
         onClick={() =>
-          s.go(s.draft.purpose === "company" ? "company" : "chief")
+          s.go(s.draft.purpose === "company" ? "company" : "intro")
         }
       >
         Continue
@@ -227,6 +228,20 @@ export function CompanyScreen({ setup: s }: { setup: WorkspaceSetup }) {
           />
         </Field>
       </div>
+      <button className="ob-primary" onClick={() => s.go("intro")}>
+        Continue
+      </button>
+    </>
+  );
+}
+export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
+  return (
+    <>
+      <SetupHeading title="On your device. Or in the cloud.">
+        Chief is your chief of staff. It works wherever suits you, and you can
+        change your mind later.
+      </SetupHeading>
+      <PlacesIllustration />
       <button className="ob-primary" onClick={() => s.go("chief")}>
         Continue
       </button>
@@ -238,12 +253,25 @@ export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
       <SetupHeading title="Set up Chief">
-        Choose where Chief works. You can change this later.
+        Choose where Chief works and who works alongside it.
       </SetupHeading>
-      <PlacePicker
-        value={s.draft.location}
-        onChange={(location) => s.patch({ location })}
-      />
+      <Field
+        label="Run Chief"
+        hint={
+          s.draft.location === "device"
+            ? "Keep this device awake and online while Chief is working."
+            : "Chief stays available while you’re away from your device."
+        }
+      >
+        <IconSelect
+          label="Run Chief"
+          value={s.draft.location}
+          onChange={(value) =>
+            s.patch({ location: value === "cloud" ? "cloud" : "device" })
+          }
+          options={locationOptions}
+        />
+      </Field>
       <div>
         <div className="ob-field-head">
           <span>Your team</span>
