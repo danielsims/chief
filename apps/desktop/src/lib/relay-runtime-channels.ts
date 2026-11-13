@@ -1,4 +1,7 @@
-import type { WorkspaceChannel } from "@chief/agent-runtime/types";
+import type {
+  ServerMessage,
+  WorkspaceChannel,
+} from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import type { WorkspaceSnapshot } from "@chief/relay-contracts";
 import { RelayClientError } from "@chief/relay-client";
@@ -91,4 +94,51 @@ export async function createRelayWorkspaceChannel(
       (membership) => membership.conversationId === detail.channel.id,
     ),
   );
+}
+
+/** Starts Welcome only once the main workspace's live event stream is attached. */
+export class RelayChannelRoster {
+  private welcomeStarted = false;
+  private welcomeStart: Promise<void> | null = null;
+
+  constructor(
+    private readonly relay: RelayChannelClient &
+      Partial<Pick<RelayClient, "startWorkspaceWelcome">>,
+    private readonly subscribedIds: Set<string>,
+    private readonly emit: (message: ServerMessage) => void,
+    private readonly connect: () => Promise<void>,
+    private readonly canStartWelcome: () => boolean,
+  ) {}
+
+  async list(snapshot: WorkspaceSnapshot) {
+    const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
+      this.relay,
+      snapshot,
+    );
+    this.emit({ type: "channels", workspaceId: snapshot.id, channels });
+    for (const membership of currentMemberships)
+      this.subscribedIds.add(membership.conversationId);
+    for (const conversation of snapshot.conversations) {
+      if (conversation.kind === "direct")
+        this.subscribedIds.add(conversation.id);
+    }
+    await this.connect();
+    if (
+      this.canStartWelcome() &&
+      snapshot.setupComplete === true &&
+      !this.welcomeStarted &&
+      this.relay.startWorkspaceWelcome
+    ) {
+      this.welcomeStart ??= this.relay
+        .startWorkspaceWelcome()
+        .then(() => {
+          this.welcomeStarted = true;
+        })
+        .finally(() => {
+          this.welcomeStart = null;
+        });
+      await this.welcomeStart;
+    }
+    return channels;
+  }
 }

@@ -38,7 +38,7 @@ import {
 } from "./relay-runtime-channel-settings";
 import {
   createRelayWorkspaceChannel,
-  loadRelayWorkspaceChannels,
+  RelayChannelRoster,
 } from "./relay-runtime-channels";
 import {
   parseRelayError,
@@ -77,6 +77,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private pendingWorkspaceSubscription: Promise<WorkspaceSubscription> | null =
     null;
   private subscribedConversationIds = new Set<string>();
+  private readonly channelRoster: RelayChannelRoster;
   private workspaceCursor: number | undefined;
   private conversationIdsByChat = new Map<string, string>();
   private readonly history: HistoryPages;
@@ -128,6 +129,16 @@ export class RelayRuntimeClient implements RuntimeTransport {
   ) {
     this.snapshot = snapshot;
     this.workspaceCursor = loadWorkspaceCursor(snapshot.id);
+    this.channelRoster = new RelayChannelRoster(
+      relay,
+      this.subscribedConversationIds,
+      (message) => this.emit(message),
+      () => this.ensureWorkspaceSubscription(),
+      () =>
+        !this.closed &&
+        !this.loadSnapshot &&
+        Boolean(this.workspaceSubscription),
+    );
     this.history = new HistoryPages(relay, (message) =>
       this.rememberMessage(message),
     );
@@ -411,26 +422,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     });
   }
 
-  private async listChannels() {
-    const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
-      this.relay,
-      this.snapshot,
-    );
-    this.emit({
-      type: "channels",
-      workspaceId: this.snapshot.id,
-      channels,
-    });
-    for (const membership of currentMemberships) {
-      this.subscribedConversationIds.add(membership.conversationId);
-    }
-    for (const conversation of this.snapshot.conversations) {
-      if (conversation.kind === "direct") {
-        this.subscribedConversationIds.add(conversation.id);
-      }
-    }
-    await this.ensureWorkspaceSubscription();
-    return channels;
+  private listChannels() {
+    return this.channelRoster.list(this.snapshot);
   }
 
   private requestChannelRosterRefresh() {

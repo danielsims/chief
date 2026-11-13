@@ -28,6 +28,7 @@ import { computeNostrEventId, sha256PayloadTag } from "../src/nip98";
 import { OwnedAgentService } from "../src/owned-agent-service";
 import { ownedAgentRequestsFind } from "../src/queries/owned-agents/connect";
 import { createManagedWorkspace } from "../src/workspace-authority";
+import { ensureWelcomeChannel } from "../src/workspace-welcome";
 import { relayTestEnv } from "./helpers";
 
 function signingKey() {
@@ -246,7 +247,7 @@ describe("approval-bound onboarding", () => {
         })
       ).status,
     ).toBe(409);
-    const setupStartedAt = Date.now();
+    expect((await ctx.call("/setup/welcome", "POST", {})).status).toBe(409);
     const finished = await ctx.call("/setup/complete", "POST", {
       selectedApps: ["github.com"],
     });
@@ -263,17 +264,44 @@ describe("approval-bound onboarding", () => {
         })
       ).status,
     ).toBe(200);
+    const beforeWelcome = await ctx.call(
+      `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
+    );
+    expect(beforeWelcome.ok).toBe(false);
+    const welcomeStartedAt = Date.now();
+    const starts = await Promise.all([
+      ctx.call("/setup/welcome", "POST", {}),
+      ctx.call("/setup/welcome", "POST", {}),
+    ]);
+    expect(starts.map((response) => response.status)).toEqual([200, 200]);
+    expect((await ctx.call("/setup/welcome", "POST", {})).status).toBe(200);
     const messages = await ctx.call(
       `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
     );
     expect(messages.status).toBe(200);
     const welcomePage = (await messages.json()) as {
-      messages: { createdAt: string }[];
+      messages: {
+        createdAt: string;
+        components: { kind: string; payload: { userIds?: string } }[];
+      }[];
     };
     expect(welcomePage.messages.length).toBeGreaterThan(0);
+    expect(welcomePage.messages[0]?.components[0]).toMatchObject({
+      kind: "channel-action",
+      payload: { userIds: ctx.pubkey },
+    });
+    expect(
+      welcomePage.messages
+        .flatMap((message) => message.components)
+        .some(
+          (component) =>
+            component.kind === "channel-action" &&
+            component.payload.userIds === ctx.pubkey,
+        ),
+    ).toBe(true);
     for (const message of welcomePage.messages) {
       expect(Date.parse(message.createdAt)).toBeGreaterThanOrEqual(
-        setupStartedAt,
+        welcomeStartedAt,
       );
     }
     const content = JSON.stringify(welcomePage);
@@ -284,6 +312,25 @@ describe("approval-bound onboarding", () => {
       (await ctx.call("/setup", "GET", undefined, signingKey())).status,
     ).toBe(403);
   });
+  it("leaves an existing Welcome channel alone when upgrading from the earlier setup flow", async () => {
+    const ctx = await setup();
+    expect((await ctx.call("/setup/complete", "POST", {})).status).toBe(200);
+    const stub = ctx.env.WORKSPACES.get(
+      ctx.env.WORKSPACES.idFromName(ctx.snapshot.id),
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      ensureWelcomeChannel(state.storage, {
+        workspaceId: ctx.snapshot.id,
+        userId: ctx.pubkey,
+        now: new Date().toISOString(),
+      });
+    });
+    expect((await ctx.call("/setup/welcome", "POST", {})).status).toBe(200);
+    const messages = await ctx.call(
+      `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
+    );
+    expect(await messages.json()).toMatchObject({ messages: [] });
+  });
   it("keeps company selections and does not silently restore the old mandatory specialists", async () => {
     const ctx = await setup("company");
     expect(ctx.snapshot.agents[0]?.subagents.map((a) => a.id)).toEqual([
@@ -292,6 +339,7 @@ describe("approval-bound onboarding", () => {
     ]);
     const finished = await ctx.call("/setup/complete", "POST", {});
     expect(finished.status, await finished.clone().text()).toBe(200);
+    expect((await ctx.call("/setup/welcome", "POST", {})).status).toBe(200);
     const messages = await ctx.call(
       `/conversations/${welcomeChannelId(ctx.pubkey)}/messages`,
     );
