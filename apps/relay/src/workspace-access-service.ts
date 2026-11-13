@@ -26,7 +26,6 @@ import { agentKeysInsertRegisterAgentKey } from "./queries/agent-keys/insert-reg
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { channelMembersDeleteRemovePrincipal } from "./queries/channel-members/delete-remove-principal";
 import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
-import { channelMembersInsertRegisterAgentKey } from "./queries/channel-members/insert-register-agent-key";
 import { membersDeleteDisconnect } from "./queries/members/delete-disconnect";
 import { membersDeleteRemove } from "./queries/members/delete-remove";
 import { membersFindAuthorize } from "./queries/members/find-authorize";
@@ -167,9 +166,6 @@ export class WorkspaceAccessService {
         joinedAt: createdAt,
         conversationId: input.agentId,
       });
-      if (input.agentId === "chief") {
-        channelMembersInsertRegisterAgentKey(this.storage, createdAt);
-      }
     });
     recordProductEvents(this.env, ["agent-created"]);
     return json({ agentId: input.agentId, pubkey: input.pubkey });

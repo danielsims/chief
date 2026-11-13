@@ -78,7 +78,7 @@ export async function setupChannelTest(options?: {
   );
   const snapshot = workspaceSnapshotSchema.parse(await created.json());
   const workspaceId = workspaceIdSchema.parse(snapshot.id);
-  return {
+  const ctx: ChannelTestContext = {
     env: relay,
     workspaceId,
     identity,
@@ -90,6 +90,13 @@ export async function setupChannelTest(options?: {
       role: "owner",
     },
   };
+  // A Chief cell is ready at once, so its owner enters the workspace; Eve
+  // tests connect Chief first, as the product does.
+  if (agentRuntime === "relay-cell") {
+    const finished = await channelRpc(ctx, ctx.principal, "finish-setup", {});
+    expect(finished.status, await finished.clone().text()).toBe(200);
+  }
+  return ctx;
 }
 
 export function channelRpc(

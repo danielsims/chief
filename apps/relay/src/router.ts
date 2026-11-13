@@ -334,14 +334,14 @@ function routeWorkspaceRequest(
         provisionWorkspaceCommandSchema.parse(body),
       );
       return yield* attempt("relay.workspace.create", () =>
-        createManagedWorkspace(env, authenticated.identity, command, context),
+        createManagedWorkspace(env, authenticated.identity, command),
       );
     }
     if (url.pathname === "/v1/me/workspace" && request.method === "GET") {
       const authenticated = yield* authenticate(request);
       yield* requireBinding(authenticated.bound);
       return yield* attempt("relay.workspace.active", () =>
-        activeManagedWorkspace(env, authenticated.identity, context),
+        activeManagedWorkspace(env, authenticated.identity),
       );
     }
     const deletion = deleteWorkspaceRoute.exec(url.pathname);

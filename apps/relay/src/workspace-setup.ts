@@ -1,10 +1,12 @@
 import { z } from "zod";
 
+import type { WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
   agentConfigSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
+import type { TrustedRequestContext } from "./internal-context";
 import { HttpError, json, parseJson } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { agentConfigsUpdateEnableHostedSpecialists } from "./queries/agent-configs/update-enable-hosted-specialists";
@@ -15,6 +17,7 @@ import {
   decodeWorkspaceSnapshot,
   workspaceAgentProfiles,
 } from "./workspace-defaults";
+import { enableHostedSpecialists } from "./workspace-hosted-specialists";
 import { ensureWelcomeChannel } from "./workspace-welcome";
 import {
   postAgentMessage,
@@ -22,13 +25,38 @@ import {
   welcomeKickoffTasks,
 } from "./workspace-welcome-kickoff";
 
-/** Human setup is separate from provider deployment or a model turn. */
+/** The owner finishes guided setup and enters their workspace. */
 export async function finishWorkspaceSetup(
   storage: DurableObjectStorage,
   env: Env,
   request: Request,
 ) {
   const context = readTrustedContext(request);
+  const settings = z
+    .object({
+      selectedApps: z
+        .array(z.string().trim().min(1).max(256))
+        .max(40)
+        .optional(),
+    })
+    .strict()
+    .parse(await parseJson(request));
+  return json(
+    await completeWorkspaceSetup(storage, env, context, settings.selectedApps),
+  );
+}
+
+/**
+ * Opens the workspace: the owner's agents are enabled, Chief welcomes them in
+ * their private Welcome channel and each teammate picks up a first task there.
+ * Human setup is separate from provider deployment or a model turn.
+ */
+export async function completeWorkspaceSetup(
+  storage: DurableObjectStorage,
+  env: Env,
+  context: TrustedRequestContext,
+  selectedApps?: readonly string[],
+): Promise<WorkspaceSnapshot> {
   const channels = new WorkspaceChannelStore(storage, env);
   channels.requirePrincipalMember(context.principal);
   const workspace = channels.requireWorkspace(context.workspaceId);
@@ -47,25 +75,17 @@ export async function finishWorkspaceSetup(
       "snapshot_missing",
       "Workspace setup is unavailable.",
     );
-  const settings = z
-    .object({
-      selectedApps: z
-        .array(z.string().trim().min(1).max(256))
-        .max(40)
-        .optional(),
-    })
-    .strict()
-    .parse(await parseJson(request));
+  const stored = decodeWorkspaceSnapshot(workspace.snapshot_json);
+  if (stored.setupComplete === true) return stored;
   const snapshot = {
-    ...decodeWorkspaceSnapshot(workspace.snapshot_json),
-    selectedApps:
-      settings.selectedApps ??
-      decodeWorkspaceSnapshot(workspace.snapshot_json).selectedApps,
+    ...stored,
+    selectedApps: selectedApps ? [...selectedApps] : stored.selectedApps,
   };
-  if (snapshot.setupComplete !== false) return json(snapshot);
   const chief = snapshot.agents.find((a) => a.id === "chief");
+  // Without a Chief cell, Chief runs on Vercel Eve and must be connected.
+  const onEve = snapshot.runtime === null;
   if (
-    snapshot.runtime === null &&
+    onEve &&
     (chief?.runtime.kind !== "external-channel" ||
       chief.runtime.connectionStatus !== "connected")
   )
@@ -75,32 +95,34 @@ export async function finishWorkspaceSetup(
       "Finish connecting Chief before entering your workspace.",
     );
   const now = new Date().toISOString();
+  const tasks = welcomeKickoffTasks(snapshot);
   const welcome = storage.transactionSync(() => {
-    for (const agent of workspaceAgentProfiles(snapshot)) {
-      if (
-        snapshot.agents.some(
-          (parent) =>
-            parent.id === agent.id &&
-            parent.runtime.kind === "external-channel",
-        )
-      )
-        continue;
-      const config = agentConfigSchema.parse({
-        ...channels.agentConfiguration(agent.id),
-        enabled: true,
-      });
-      agentConfigsUpdateEnableHostedSpecialists(storage, {
-        agentId: agent.id,
-        configJson: JSON.stringify(config),
-        updatedAt: now,
-      });
-    }
-    // The owner's private line to Chief; teammates join when work needs them.
-    return ensureWelcomeChannel(storage, {
+    if (onEve) enableHostedSpecialists(storage, channels, "chief", now);
+    else
+      for (const agent of workspaceAgentProfiles(snapshot))
+        agentConfigsUpdateEnableHostedSpecialists(storage, {
+          agentId: agent.id,
+          configJson: JSON.stringify(
+            agentConfigSchema.parse({
+              ...channels.agentConfiguration(agent.id),
+              enabled: true,
+            }),
+          ),
+          updatedAt: now,
+        });
+    // The owner's private line to Chief; each teammate joins for its task.
+    const conversationId = ensureWelcomeChannel(storage, {
       workspaceId: snapshot.id,
       userId: workspace.created_by_user_id,
       now,
     });
+    for (const task of tasks)
+      channelMembersAddAgentToExistingChannel(storage, {
+        conversationId,
+        agentId: task.agentId,
+        joinedAt: now,
+      });
+    return conversationId;
   });
   const opener =
     snapshot.purpose === "personal"
@@ -114,19 +136,7 @@ export async function finishWorkspaceSetup(
     seed: "setup:chief",
     occurredAt: snapshot.createdAt,
   });
-  // Eve runs its own first turn; a Chief cell brings the team in here.
-  if (snapshot.runtime !== null) {
-    const tasks = welcomeKickoffTasks(snapshot);
-    storage.transactionSync(() => {
-      for (const task of tasks)
-        channelMembersAddAgentToExistingChannel(storage, {
-          conversationId: welcome,
-          agentId: task.agentId,
-          joinedAt: now,
-        });
-    });
-    await startWelcomeKickoff(env, context, snapshot, welcome, tasks);
-  }
+  await startWelcomeKickoff(env, context, snapshot, welcome, tasks);
   const completed = workspaceSnapshotSchema.parse({
     ...snapshot,
     setupComplete: true,
@@ -136,8 +146,9 @@ export async function finishWorkspaceSetup(
     ),
   });
   workspaceUpdateVerifyConnection(storage, JSON.stringify(completed));
-  return json(completed);
+  return completed;
 }
+
 export function workspaceSetupSnapshot(
   storage: DurableObjectStorage,
   env: Env,

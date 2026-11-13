@@ -10,12 +10,6 @@ import {
 } from "@chief/relay-contracts";
 
 import {
-  ENGINEERING_KICKOFF_INSTRUCTION,
-  MARKETING_KICKOFF_INSTRUCTION,
-  PROSPECTOR_KICKOFF_INSTRUCTION,
-  SETUP_KICKOFF_INSTRUCTION,
-} from "../src/agent-onboarding";
-import {
   boundedHostedHistory,
   HOSTED_HISTORY_MESSAGE_LIMIT,
   HOSTED_KICKOFF_MAX_INFERENCE_STEPS,
@@ -88,18 +82,18 @@ describe("hosted agent turn context", () => {
     ).toEqual(["channels_create", "channels_members_add"]);
   });
 
-  it("does not require kickoff specialists to recreate channels Chief already prepared", () => {
+  it("does not require a teammate's first task to recreate channels Chief already prepared", () => {
     expect(
       hostedCompletionContract(
         "Create #engineering and invite the owner after the channel already exists.",
         false,
-        "workspace.kickoff.engineering",
+        "workspace.welcome.engineer",
       ).requiredToolNames,
     ).toEqual([]);
   });
 
   it("bounds first-run specialist work before the general conversation limit", () => {
-    expect(hostedInferenceStepBudget("workspace.kickoff.prospecting")).toBe(
+    expect(hostedInferenceStepBudget("workspace.welcome.prospector")).toBe(
       HOSTED_KICKOFF_MAX_INFERENCE_STEPS,
     );
     expect(hostedInferenceStepBudget("conversation.message")).toBeGreaterThan(
@@ -181,35 +175,6 @@ describe("hosted agent turn context", () => {
     expect(prompt).toContain("Status (select: New)");
     expect(prompt).toContain("Board (board by Status)");
     expect(prompt).toContain("databases_rows_save");
-  });
-
-  it("gives Prospector a catalog-backed capability kickoff", () => {
-    expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain(
-      "This automatic kickoff is a capability handoff",
-    );
-    expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain(
-      "do not attempt to discover tools with tools_search",
-    );
-    expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain(
-      "Call plugins_list with a prospecting-related query",
-    );
-    expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain(
-      "then call plugins_recommend once",
-    );
-    expect(PROSPECTOR_KICKOFF_INSTRUCTION).toContain("Prefer Needle");
-  });
-
-  it("does not ask kickoff specialists to recreate channels or re-invite members", () => {
-    for (const instruction of [
-      MARKETING_KICKOFF_INSTRUCTION,
-      PROSPECTOR_KICKOFF_INSTRUCTION,
-      ENGINEERING_KICKOFF_INSTRUCTION,
-      SETUP_KICKOFF_INSTRUCTION,
-    ]) {
-      expect(instruction).toContain("already created");
-      expect(instruction).not.toContain("channels_create");
-      expect(instruction).not.toContain("channels_members_add");
-    }
   });
 
   it("keeps agent tool posts in the originating thread by default", () => {

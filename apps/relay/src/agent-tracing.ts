@@ -59,9 +59,9 @@ export function agentTelemetryAttributes(job: AgentJob) {
     "chief.workflow.id": agentWorkflowId(job),
     "chief.job.id": job.id,
     "gen_ai.agent.name": job.agentId,
-    "gen_ai.conversation.id": isJsonString(job.payload.conversationId)
-      ? job.payload.conversationId
-      : "mission-control",
+    ...(isJsonString(job.payload.conversationId)
+      ? { "gen_ai.conversation.id": job.payload.conversationId }
+      : undefined),
     ...(isJsonString(job.payload.messageId)
       ? { "messaging.message.id": job.payload.messageId }
       : undefined),
