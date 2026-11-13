@@ -49,6 +49,10 @@ export const ownedAgents = sqliteTable("owned_agents", {
   owner_user_id: text("owner_user_id").notNull(),
   name: text("name").notNull(),
   provider: text("provider").notNull(),
+  /** What people call the agent; the handle keeps using name. */
+  display_name: text("display_name"),
+  /** JSON AgentAvatar pointing at this agent's own upload. */
+  avatar_json: text("avatar_json"),
   pubkey: text("pubkey").notNull().unique(),
   status: text("status").notNull(),
   created_at: text("created_at").notNull(),

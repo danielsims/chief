@@ -14,6 +14,7 @@ import {
   addToChannel,
   createConnectCode,
   decide,
+  joinOnDevice,
   list,
   pendingRequests,
   removeFromChannel,
@@ -22,7 +23,9 @@ import {
   revoke,
   revokeAgent,
   route,
+  setAvatar,
   summary,
+  update,
   viewerSees,
 } from "./owned-agent-members";
 import {
@@ -30,6 +33,7 @@ import {
   consumePostAllowance,
   conversation,
   decode,
+  isDirect,
   post,
   principalFor,
   project,
@@ -54,11 +58,14 @@ export class OwnedAgentService {
   createConnectCode = createConnectCode;
   pendingRequests = pendingRequests;
   decide = decide;
+  joinOnDevice = joinOnDevice;
   list = list;
   summary = summary;
   viewerSees = viewerSees;
   requireManagedAgent = requireManagedAgent;
   revoke = revoke;
+  update = update;
+  setAvatar = setAvatar;
   revokeAgent = revokeAgent;
   addToChannel = addToChannel;
   removeFromChannel = removeFromChannel;
@@ -77,6 +84,7 @@ export class OwnedAgentService {
   project = project;
   authorOf = authorOf;
   wakeReason = wakeReason;
+  isDirect = isDirect;
   wake = wake;
   principalFor = principalFor;
   conversation = conversation;
