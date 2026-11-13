@@ -16,6 +16,9 @@ export async function registerWorkspaceOrganization(
     name: string;
     website: string;
     workspaceId: WorkspaceId;
+    slug?: string;
+    purpose?: "personal" | "company";
+    companyName?: string;
   },
 ) {
   if (!usesOrganizationTenancy(env)) return;
@@ -26,6 +29,9 @@ export async function registerWorkspaceOrganization(
     ownerUserId: input.identity.userId,
     website: input.website,
     workspaceId: input.workspaceId,
+    slug: input.slug,
+    purpose: input.purpose,
+    companyName: input.companyName,
   });
 }
 

@@ -87,13 +87,13 @@ export function useOnboardingRecorder(
 export function initialWorkspacePageMode(
   hasInvite: boolean,
   draft: CreateWorkspaceDraft | null,
-  resumesCreate: boolean,
+  _resumesCreate: boolean,
   addWorkspace = false,
 ): WorkspacePageMode {
   if (hasInvite) return "join";
-  if (addWorkspace) return "home";
+  if (addWorkspace) return "create";
   if (draft?.eveAutoDeploy && draft.eveWorkspaceId) return "eve";
-  return draft || resumesCreate ? "create" : "home";
+  return "create";
 }
 
 export function shouldLoadEveDestinations(

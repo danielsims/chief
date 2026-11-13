@@ -122,6 +122,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   constructor(
     private readonly relay: RelayRuntimeRelay,
     snapshot: WorkspaceSnapshot,
+    private readonly loadSnapshot?: () => Promise<WorkspaceSnapshot>,
   ) {
     this.snapshot = snapshot;
     this.workspaceCursor = loadWorkspaceCursor(snapshot.id);
@@ -385,7 +386,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
     });
   }
   private async refreshSnapshot() {
-    this.snapshot = await this.relay.activeWorkspace();
+    const snapshot = await (this.loadSnapshot ? this.loadSnapshot() : this.relay.activeWorkspace());
+    if (snapshot.id !== this.snapshot.id) throw new Error("The workspace connection changed. Reconnect to continue.");
+    this.snapshot = snapshot;
   }
   private async startUserDirect(
     message: Extract<ClientMessage, { type: "startUserDirect" }>,

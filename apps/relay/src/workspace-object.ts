@@ -12,7 +12,7 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
-import { attempt, runResponse } from "./effect";
+import { attempt, runResponse, sync } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
@@ -21,6 +21,7 @@ import {
   trustedTelemetryAttributes,
 } from "./internal-context";
 import { routeMcpConnections } from "./mcp/route";
+import { OwnedAgentService } from "./owned-agent-service";
 import { metered, meterSql, requestOperation } from "./sql-metering";
 import { workspaceAccessRouter } from "./workspace-access-router";
 import { WorkspaceAccessService } from "./workspace-access-service";
@@ -54,6 +55,10 @@ import { ensureWorkspaceAlarm } from "./workspace-schedule-store";
 import { routeScheduleWebhooks } from "./workspace-schedule-webhooks";
 import { initializeWorkspaceSchema } from "./workspace-schema";
 import { WorkspaceSecretService } from "./workspace-secret-service";
+import {
+  finishWorkspaceSetup,
+  workspaceSetupSnapshot,
+} from "./workspace-setup";
 import {
   consumeSocketAllowance,
   MAX_REPLAY_EVENTS_PER_CONNECTION,
@@ -188,6 +193,10 @@ export class WorkspaceObject extends DurableObject<Env> {
           routeWorkspaceSchedule(ctx.storage, env, request, operation),
         );
       }
+      if (operation?.startsWith("owned-agent-"))
+        return yield* attempt("workspace.owned_agents", () =>
+          new OwnedAgentService(ctx.storage, env).route(request, operation),
+        );
       if (operation?.startsWith("channels-")) {
         return yield* attempt("workspace.channels", () =>
           routeWorkspaceChannel(ctx.storage, env, request, operation),
@@ -301,6 +310,14 @@ export class WorkspaceObject extends DurableObject<Env> {
       }
 
       const lifecycle = new WorkspaceLifecycleService(ctx.storage, env);
+      if (operation === "setup-snapshot")
+        return yield* sync("workspace.setup_snapshot", () =>
+          workspaceSetupSnapshot(ctx.storage, env, request),
+        );
+      if (operation === "finish-setup")
+        return yield* attempt("workspace.finish_setup", () =>
+          finishWorkspaceSetup(ctx.storage, env, request),
+        );
       if (operation === "complete-onboarding") {
         return yield* attempt("workspace.onboarding.complete", () =>
           lifecycle.completeOnboarding(request),
@@ -643,9 +660,8 @@ export class WorkspaceObject extends DurableObject<Env> {
     do {
       const remaining = MAX_REPLAY_EVENTS_PER_CONNECTION - delivered;
       const page = live.list(cursor, Math.min(200, remaining), conversationIds);
-      const reader = workspaceSocketAttachment(socket).principal;
       for (const event of page.events) {
-        socket.send(JSON.stringify(fenceGuestEvent(reader, event)));
+        socket.send(JSON.stringify(event));
         cursor = event.sequence;
         lastDeliveredCursor = event.sequence;
         delivered += 1;

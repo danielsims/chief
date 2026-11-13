@@ -25,7 +25,11 @@ export function prepareEveWorkspaceOnboarding(input: {
   workspaceId: string;
   snapshot: WorkspaceSnapshot;
 }) {
-  if (input.snapshot.onboardingComplete) return Promise.resolve();
+  if (
+    input.snapshot.onboardingComplete ||
+    input.snapshot.setupComplete === false
+  )
+    return Promise.resolve();
   enableHostedSpecialists(input);
   return Promise.resolve();
 }
@@ -65,7 +69,11 @@ export async function startEveWorkspaceKickoff(input: {
   snapshot: WorkspaceSnapshot;
   selectedApps?: readonly string[];
 }) {
-  if (input.snapshot.onboardingComplete) return false;
+  if (
+    input.snapshot.onboardingComplete ||
+    input.snapshot.setupComplete === false
+  )
+    return false;
   const chief = input.snapshot.agents.find((agent) => agent.id === "chief");
   if (
     chief?.runtime.kind !== "external-channel" ||

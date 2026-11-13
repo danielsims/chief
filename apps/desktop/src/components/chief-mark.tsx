@@ -1,12 +1,15 @@
+import type { SVGProps } from "react";
+
 import { cn } from "@chief/ui/lib/utils";
 
 export function ChiefMark({
   className,
   title = "Chief",
+  ...props
 }: {
   className?: string;
   title?: string;
-}) {
+} & SVGProps<SVGSVGElement>) {
   return (
     <svg
       aria-label={title}
@@ -15,6 +18,7 @@ export function ChiefMark({
       role="img"
       viewBox="0 0 64 64"
       xmlns="http://www.w3.org/2000/svg"
+      {...props}
     >
       <path
         d="M29 12H19a7 7 0 0 0-7 7v10M35 12h10a7 7 0 0 1 7 7v5M29 52H19a7 7 0 0 1-7-7V35M35 52h10a7 7 0 0 0 7-7v-5"

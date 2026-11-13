@@ -1,6 +1,5 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, lazy, Suspense, useMemo, useState } from "react";
-import { Claude, OpenAI, OpenCode } from "@lobehub/icons";
+import { Component, lazy, Suspense, useState } from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -9,32 +8,41 @@ import {
   Route,
   RouterProvider,
   useLocation,
+  useNavigate,
 } from "react-router";
 import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
+import { DesktopAuthResult } from "@chief/ui/components/desktop-auth-result";
 
-import type { ProviderMark } from "./components/agent-avatar";
-import { AgentAppearanceContext } from "./components/agent-avatar";
+import { AgentAppearanceProvider } from "./components/agent-appearance-provider";
 import { MentionPeopleProvider } from "./components/chat/mention-people-context";
+import { OwnedAgentProvider } from "./components/chat/owned-agent-context";
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
+import { ChiefMark } from "./components/chief-mark";
 import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
 import { EntryState, WorkspaceEntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
+import { PluginDialogHost } from "./components/plugins/plugin-dialog-host";
+import { PluginInstallAccessStep } from "./components/plugins/plugin-install-access-step";
 import { RelayConnectionDialog } from "./components/relay-connection-control";
+import { SidebarProfileMenu } from "./components/sidebar-profile-menu";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
-import { RuntimeProvider, useRuntime } from "./lib/runtime";
+import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
 import {
+  mustResumeWorkspaceSetup,
   pendingCreateRelayKey,
+  pendingWorkspaceEntryIntentKey,
   shouldResumeWorkspaceCreate,
   shouldStayOnWorkspaceCreate,
+  workspaceSetupWasExited,
 } from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
 import { ArtifactDatabasePage } from "./pages/artifact-database";
@@ -89,56 +97,6 @@ const MachinesPage = lazy(() =>
   })),
 );
 
-const openCodeMark: ProviderMark = {
-  Mark: OpenCode,
-  tileClassName: "bg-white text-black",
-};
-
-/** Logos for the providers that run agents on this device, each on its own
- * brand colour, by provider. */
-const LOCAL_PROVIDER_MARKS: Partial<Record<string, ProviderMark>> = {
-  claude: { Mark: Claude, tileClassName: "bg-[#D97757] text-white" },
-  codex: { Mark: OpenAI, tileClassName: "bg-white text-black" },
-  opencode: openCodeMark,
-  openCodeGo: openCodeMark,
-};
-
-/** Supplies every agent's avatar from the live roster, with provider logos for
- * on-device agents that have none. It follows the runtime's roster, which
- * changes as soon as an agent is created or reconfigured. */
-function AgentAppearanceProvider({ children }: { children: ReactNode }) {
-  const { agents } = useRuntime();
-  const value = useMemo(() => {
-    const profiles = agents.flatMap((agent) => [
-      agent,
-      ...(agent.subagents ?? []),
-    ]);
-    return {
-      providerMarks: new Map(
-        profiles.flatMap((agent) => {
-          const mark = agent.provider
-            ? LOCAL_PROVIDER_MARKS[agent.provider]
-            : undefined;
-          return mark ? [[agent.id, mark] as const] : [];
-        }),
-      ),
-      agentIds: new Map(
-        profiles.map((agent) => [agent.name.toLowerCase(), agent.id] as const),
-      ),
-      avatars: new Map(
-        profiles.flatMap((agent) =>
-          agent.avatar ? [[agent.id, agent.avatar] as const] : [],
-        ),
-      ),
-    };
-  }, [agents]);
-  return (
-    <AgentAppearanceContext.Provider value={value}>
-      {children}
-    </AgentAppearanceContext.Provider>
-  );
-}
-
 function ConfigurationRequired() {
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
@@ -163,6 +121,16 @@ function ConfigurationRequired() {
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
   const relay = useRelaySession();
+  const { user } = useAuth();
+  const exitedSetup = Boolean(
+    user &&
+    workspaceSetupWasExited(
+      sessionStorage,
+      RELAY_URL,
+      user.id,
+      relay.snapshot?.id ?? null,
+    ),
+  );
   const resumesWorkspaceCreate = shouldResumeWorkspaceCreate(
     window.sessionStorage.getItem(pendingCreateRelayKey),
     RELAY_URL,
@@ -187,18 +155,34 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     return <RelayUnavailableState />;
   }
 
-  if (resumesWorkspaceCreate && location.pathname !== "/workspaces/new") {
-    return <Navigate to="/workspaces/new?intent=create" replace />;
+  if (
+    resumesWorkspaceCreate &&
+    !exitedSetup &&
+    location.pathname !== "/workspaces/new"
+  ) {
+    const intent =
+      sessionStorage.getItem(pendingWorkspaceEntryIntentKey) === "join"
+        ? "join"
+        : "create";
+    return <Navigate to={`/workspaces/new?intent=${intent}`} replace />;
   }
 
+  if (mustResumeWorkspaceSetup(relay.snapshot, location.pathname))
+    return <Navigate to="/workspaces/new?intent=resume" replace />;
+
   if (location.pathname === "/workspaces/new") {
-    if (relay.snapshot && !staysOnWorkspaceCreate) {
+    if (
+      relay.snapshot &&
+      relay.snapshot.setupComplete !== false &&
+      !staysOnWorkspaceCreate
+    ) {
       return <Navigate to="/" replace />;
     }
     return children;
   }
 
   if (!relay.snapshot) {
+    if (exitedSetup) return <WorkspaceAccountHome />;
     return <Navigate to="/workspaces/new" replace />;
   }
 
@@ -206,6 +190,37 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     <Navigate to="/" replace />
   ) : (
     children
+  );
+}
+
+function WorkspaceAccountHome() {
+  const relay = useRelaySession();
+  const navigate = useNavigate();
+  return (
+    <Layout workspaceNavigationAvailable={false}>
+      <div className="absolute top-12 left-16 z-40 w-60">
+        <SidebarProfileMenu side="bottom" />
+      </div>
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+        <ChiefMark className="text-muted-foreground mb-3 size-10" />
+        <h1 className="text-xl font-medium tracking-tight">
+          {relay.snapshot?.setupComplete === false
+            ? "Your workspace setup is saved"
+            : "No workspace selected"}
+        </h1>
+        <p className="text-muted-foreground max-w-sm text-sm leading-6">
+          Open a workspace from your profile menu to continue.
+        </p>
+        {relay.snapshot?.setupComplete === false ? (
+          <Button
+            className="mt-3"
+            onClick={() => void navigate("/workspaces/new?intent=resume")}
+          >
+            Continue setup
+          </Button>
+        ) : null}
+      </div>
+    </Layout>
   );
 }
 
@@ -331,6 +346,7 @@ function AuthenticatedRouter() {
     createBrowserRouter(
       createRoutesFromElements(
         <Route element={<NavigationProviders />}>
+          <Route path="workspaces" element={<WorkspaceAccountHome />} />
           <Route path="workspaces/new" element={<CreateWorkspacePage />} />
           <Route path="onboarding" element={<OnboardingPage />} />
           <Route element={<Layout />}>
@@ -422,13 +438,15 @@ function NavigationProviders() {
   return (
     <ChiefNavigationProvider>
       <WorkspaceChannelsProvider>
-        <MentionPeopleProvider>
-          <ChannelReadStateProvider>
-            <OnboardingGate>
-              <Outlet />
-            </OnboardingGate>
-          </ChannelReadStateProvider>
-        </MentionPeopleProvider>
+        <OwnedAgentProvider>
+          <MentionPeopleProvider>
+            <ChannelReadStateProvider>
+              <OnboardingGate>
+                <Outlet />
+              </OnboardingGate>
+            </ChannelReadStateProvider>
+          </MentionPeopleProvider>
+        </OwnedAgentProvider>
       </WorkspaceChannelsProvider>
     </ChiefNavigationProvider>
   );
@@ -485,6 +503,8 @@ function AuthenticatedApp() {
       <AgentConfigProvider>
         <AgentAppearanceProvider>
           <AuthenticatedRouter />
+          <PluginInstallAccessStep />
+          <PluginDialogHost />
         </AgentAppearanceProvider>
       </AgentConfigProvider>
     </RuntimeProvider>
@@ -492,6 +512,18 @@ function AuthenticatedApp() {
 }
 
 export default function App() {
+  if (import.meta.env.DEV && window.location.pathname === "/auth/desktop") {
+    return (
+      <div className="dark">
+        <DesktopAuthResult
+          success={
+            new URLSearchParams(window.location.search).get("completed") === "1"
+          }
+          brand={<ChiefMark className="size-8" />}
+        />
+      </div>
+    );
+  }
   if (missingDesktopConfiguration.length > 0) {
     return <ConfigurationRequired />;
   }
