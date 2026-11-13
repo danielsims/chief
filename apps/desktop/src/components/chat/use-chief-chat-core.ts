@@ -110,9 +110,7 @@ export function useChiefChatCore({
     chatId,
     initialExecution,
     selectedExecution ?? undefined,
-    destinationChannelId === workspaceData.waysOfWorking.missionControlChannelId
-      ? "full"
-      : resolved.access,
+    resolved.access,
     {
       channelId: destinationChannelId,
       agentId: directAgent?.id,
@@ -306,12 +304,9 @@ export function useChiefChatCore({
     }
     const routedAgentId = channel
       ? (mentions[0] ??
-        (destinationChannelId ===
-        workspaceData.waysOfWorking.missionControlChannelId
-          ? "chief"
-          : channel.visibility === "private"
-            ? channel.agentIds.find((agentId) => agentId !== "chief")
-            : undefined))
+        (channel.visibility === "private"
+          ? channel.agentIds.find((agentId) => agentId !== "chief")
+          : undefined))
       : (directAgent?.id ?? "chief");
     const messageId = chat.sendMessageWithContext(
       text,

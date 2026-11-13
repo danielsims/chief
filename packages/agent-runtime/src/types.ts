@@ -41,7 +41,6 @@ import type {
   TrendRecord,
   VercelEveDestinationCatalog,
   WorkspaceEnvironmentVariable,
-  WorkspaceWaysOfWorking,
 } from "./runtime-domain-types.js";
 
 export type {
@@ -293,21 +292,6 @@ export type ServerMessage =
       recurringWork: RecurringWorkRecord[];
       activity: SessionRecord[];
       actionItems: ActionItem[];
-      waysOfWorking: WorkspaceWaysOfWorking;
-    }
-  | {
-      type: "workspaceWaysOfWorkingSaved";
-      workspaceId: string;
-      requestId: string;
-      waysOfWorking: WorkspaceWaysOfWorking;
-    }
-  | {
-      type: "missionControlHeartbeatStarted";
-      workspaceId: string;
-      requestId: string;
-      channelId: string;
-      messageId: string;
-      threadRootId: string;
     }
   | {
       type: "recurringWorkSaved";

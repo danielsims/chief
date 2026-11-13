@@ -19,7 +19,6 @@ import type {
   RecurringWorkRecord,
   SlackChannelSettings,
   WorkspaceFileWrite,
-  WorkspaceOperatingMode,
 } from "./types.js";
 
 export type ClientMessage =
@@ -48,21 +47,6 @@ export type ClientMessage =
   | {
       type: "listWorkspaceData";
       workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "saveWorkspaceWaysOfWorking";
-      workspaceId: string;
-      requestId: string;
-      mode: WorkspaceOperatingMode;
-      missionControlChannelId: string;
-      sessionToken: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "runMissionControlHeartbeatNow";
-      workspaceId: string;
-      requestId: string;
       executorCapability: ExecutorCapability;
     }
   | {

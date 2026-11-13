@@ -37,10 +37,8 @@ export type RuntimeCommand = Exclude<
       | "respondPermission"
       | "respondQuestion"
       | "rotateRecurringWorkWebhook"
-      | "runMissionControlHeartbeatNow"
       | "saveCampaign"
       | "saveSlackChannel"
-      | "saveWorkspaceWaysOfWorking"
       | "setChannelPolicy"
       | "storeInput";
   }

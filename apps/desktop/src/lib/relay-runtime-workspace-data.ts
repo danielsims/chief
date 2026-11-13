@@ -223,11 +223,6 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     recurringWork: schedules,
     activity,
     actionItems: [],
-    waysOfWorking: {
-      mode: "mission-control",
-      missionControlChannelId: "mission-control",
-      updatedAt: 0,
-    },
   });
 }
 
