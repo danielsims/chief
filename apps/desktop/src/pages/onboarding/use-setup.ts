@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import type { RelayClient } from "@chief/relay-client";
 import type {
   AccountProfile,
   OwnedAgent,
@@ -244,6 +245,10 @@ export function useWorkspaceSetup() {
     run(
       async () => {
         if (draft.workspaceId) {
+          // Chief already exists: a different agent app just changes what
+          // Chief and its teammates run on.
+          if (draft.location === "device" && client && snapshot)
+            await applyLocalProvider(client, snapshot, draft.localProvider);
           go(
             draft.host === "vercel-eve" && draft.location === "cloud"
               ? "eve"
@@ -367,3 +372,23 @@ export function useWorkspaceSetup() {
   };
 }
 export type WorkspaceSetup = ReturnType<typeof useWorkspaceSetup>;
+
+async function applyLocalProvider(
+  client: NonNullable<ReturnType<RelayClient["forWorkspace"]>>,
+  snapshot: WorkspaceSnapshot,
+  provider: SetupDraft["localProvider"],
+) {
+  const chief = snapshot.agents.find((agent) => agent.id === "chief");
+  const ids = ["chief", ...(chief?.subagents.map((agent) => agent.id) ?? [])];
+  for (const id of ids) {
+    const { config } = await client.loadAgentConfig(id);
+    if (config.inference.provider === provider) continue;
+    await client.saveAgentConfig(id, {
+      ...config,
+      inference:
+        provider === "opencode"
+          ? { provider, model: "auto", secretRef: "opencode" }
+          : { provider, model: "auto" },
+    });
+  }
+}
