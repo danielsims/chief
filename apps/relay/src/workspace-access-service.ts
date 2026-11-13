@@ -23,6 +23,7 @@ import { agentKeysFindAgentKeys } from "./queries/agent-keys/find-agent-keys";
 import { agentKeysFindAuthorize } from "./queries/agent-keys/find-authorize";
 import { agentKeysFindRegisterAgentKey } from "./queries/agent-keys/find-register-agent-key";
 import { agentKeysInsertRegisterAgentKey } from "./queries/agent-keys/insert-register-agent-key";
+import { agentKeysUpdateRotate } from "./queries/agent-keys/update-rotate";
 import { channelMembersAddAgentToExistingChannel } from "./queries/channel-members/add-agent-to-existing-channel";
 import { channelMembersDeleteRemovePrincipal } from "./queries/channel-members/delete-remove-principal";
 import { channelMembersDeleteRemoveRow } from "./queries/channel-members/delete-remove-row";
@@ -137,11 +138,21 @@ export class WorkspaceAccessService {
       agentKeysFindAuthorize(this.storage, input.pubkey),
     );
     if (existingAgent && existingAgent.pubkey !== input.pubkey) {
-      throw new HttpError(
-        409,
-        "agent_key_already_registered",
-        "This agent already has a registered key. Use an explicit key rotation flow.",
-      );
+      if (input.previousPubkey === undefined) {
+        throw new HttpError(
+          409,
+          "agent_key_already_registered",
+          "This agent needs to be reconnected to this computer.",
+          { pubkey: existingAgent.pubkey },
+        );
+      }
+      if (existingAgent.pubkey !== input.previousPubkey) {
+        throw new HttpError(
+          409,
+          "agent_key_changed",
+          "The agent identity changed. Try reconnecting again.",
+        );
+      }
     }
     if (existingKey && existingKey.agent_id !== input.agentId) {
       throw new HttpError(
@@ -151,7 +162,29 @@ export class WorkspaceAccessService {
       );
     }
     if (existingAgent) {
+      if (existingAgent.pubkey !== input.pubkey) {
+        const rotated = agentKeysUpdateRotate(
+          this.storage,
+          input.agentId,
+          input.pubkey,
+          existingAgent.pubkey,
+        );
+        if (rotated.length === 0) {
+          throw new HttpError(
+            409,
+            "agent_key_changed",
+            "The agent identity changed. Try reconnecting again.",
+          );
+        }
+      }
       return json({ agentId: input.agentId, pubkey: input.pubkey });
+    }
+    if (input.previousPubkey !== undefined) {
+      throw new HttpError(
+        409,
+        "agent_key_changed",
+        "The agent identity was removed. Try reconnecting again.",
+      );
     }
     const createdAt = new Date().toISOString();
     this.storage.transactionSync(() => {
