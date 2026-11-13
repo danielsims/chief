@@ -690,9 +690,9 @@
   isolation: isolate;
   clip-path: inset(0 round 17px);
 }
-/* The sky is only for the initial; a logo sits on plain white. */
+/* The sky is only for the initial; a logo shows on its own. */
 .ob-workspace-avatar[data-loaded] {
-  background: #fff !important;
+  background: transparent !important;
 }
 .ob-workspace-avatar > img {
   border-radius: inherit;
