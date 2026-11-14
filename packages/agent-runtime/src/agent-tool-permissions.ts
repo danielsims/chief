@@ -29,13 +29,14 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     {
       id: "workspace.read",
       label: "Read workspace data",
-      description: "Read files, research, analytics and saved work.",
+      description: "Read files, research, analytics, databases and boards.",
       group: "Workspace",
     },
     {
       id: "workspace.write",
       label: "Save workspace data",
-      description: "Save research and manage workspace plans.",
+      description:
+        "Save research, edit database rows and boards, and manage workspace plans.",
       group: "Workspace",
     },
     {
@@ -119,20 +120,20 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
     },
     {
       id: "schedules.read",
-      label: "View scheduled work",
-      description: "Inspect schedules, runs and trigger history.",
+      label: "View automations and schedules",
+      description: "Inspect automations, schedules, runs and trigger history.",
       group: "Scheduled work",
     },
     {
       id: "schedules.manage",
-      label: "Manage scheduled work",
-      description: "Create, update, pause or remove schedules.",
+      label: "Manage automations and schedules",
+      description: "Create, edit, pause or remove automations and schedules.",
       group: "Scheduled work",
     },
     {
       id: "schedules.run",
-      label: "Run scheduled work",
-      description: "Start, retry or cancel scheduled runs.",
+      label: "Run automations and schedules",
+      description: "Start, retry or cancel automation and scheduled runs.",
       group: "Scheduled work",
     },
     {
