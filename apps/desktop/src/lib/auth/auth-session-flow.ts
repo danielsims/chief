@@ -69,7 +69,7 @@ export async function openRelayAuthorization(
   signInUrl.searchParams.set("resource", connection.authBaseUrl);
   // Always land on the sign-in page so an existing browser session is
   // confirmed, or swapped for another account, rather than reused silently.
-  signInUrl.searchParams.set("prompt", "login");
+  signInUrl.searchParams.set("prompt", "select_account");
   await openUrl(signInUrl.toString());
 }
 
