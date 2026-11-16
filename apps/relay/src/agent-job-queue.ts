@@ -8,11 +8,13 @@ import {
   agentJobSchema,
   claimAgentJobSchema,
   completeAgentJobSchema,
+  conversationIdSchema,
   enqueueAgentJobCommandSchema,
   isJsonString,
   messageIdSchema,
   parseJsonObject,
   parseJsonString,
+  reactToMessagePayloadSchema,
   renewAgentJobSchema,
   scheduleRunStepTextLimit,
 } from "@chief/relay-contracts";
@@ -284,6 +286,7 @@ export class AgentJobQueue {
     const conversationId = parseJsonString(job.payload.conversationId);
     if (!conversationId) return;
     const threadRootId = parseJsonString(job.payload.threadRootId);
+    await this.markWorking(job, conversationId, status === "working");
     await publishAgentActivity(this.env, {
       principal: hostedPrincipal(job),
       conversationId,
@@ -295,6 +298,44 @@ export class AgentJobQueue {
         payload: { status, jobId: job.id },
       },
     }).catch(() => undefined);
+  }
+
+  /** Shows 👀 on the message an agent is answering until its run ends. */
+  private async markWorking(
+    job: AgentJob,
+    conversationId: string,
+    working: boolean,
+  ) {
+    const messageId = parseJsonString(job.payload.messageId);
+    if (job.kind !== "conversation.message" || !messageId) return;
+    const principal = hostedPrincipal(job);
+    const response = await this.env.CONVERSATIONS.get(
+      this.env.CONVERSATIONS.idFromName(
+        `${principal.workspaceId}:${conversationId}`,
+      ),
+    )
+      .fetch(
+        withTrustedContext(
+          new Request(
+            `https://conversation.internal/messages/${encodeURIComponent(messageId)}/reactions`,
+            {
+              method: working ? "POST" : "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(
+                reactToMessagePayloadSchema.parse({ messageId, emoji: "👀" }),
+              ),
+            },
+          ),
+          {
+            principal,
+            requestId: crypto.randomUUID(),
+            workspaceId: principal.workspaceId,
+            conversationId: conversationIdSchema.parse(conversationId),
+          },
+        ),
+      )
+      .catch(() => undefined);
+    if (response) await releaseInternalResponse(response);
   }
 
   private async exhaustAutomaticRetries(previous: AgentJob, now: string) {

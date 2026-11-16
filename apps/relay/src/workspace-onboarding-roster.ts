@@ -26,8 +26,7 @@ export function onboardingRoster(
     {
       ...chief,
       instructions: workspaceChiefInstructions(
-        chief.instructions,
-        purpose,
+        { name: input.name, purpose, companyName: input.companyName },
         chosen,
       ),
       subagents: chosen.map((agent) => {

@@ -15,6 +15,8 @@ export interface PromptContext {
   readonly channel?: { readonly isPrivate?: boolean };
   /** Workspace ground truth (name, website, selected apps, brand context). */
   readonly workspaceContext?: string;
+  /** True when no one is watching the run, such as an automation step. */
+  readonly unattended?: boolean;
   /**
    * When true, every part is included regardless of its gate. Used by the
    * legacy `composeWorkspaceInstructions` wrapper so an uncontextualised

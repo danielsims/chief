@@ -54,6 +54,7 @@ export interface HostingContext {
     id: string;
     name: string;
     website: string;
+    purpose?: "personal" | "company";
     selectedApps: string[];
   };
   agent?: { id: string; name: string; role: string; instructions?: string };
@@ -284,6 +285,7 @@ function systemPrompt(
     capabilities: context.config?.capabilities,
     permissions,
     deployment: "cloud",
+    unattended: job.kind === "schedule.step",
     workspaceContext,
   }).text;
 }
@@ -308,15 +310,13 @@ export function hostedWorkspaceContext(
   const website = workspace?.website.trim();
   const selectedApps = workspace?.selectedApps.join(", ");
   const lines = [
-    `Workspace: ${workspace?.name ?? job.workspaceId}.`,
-    `Website: ${nonEmptyOr(website, "not supplied")}.`,
+    `Workspace: ${workspace?.name ?? job.workspaceId}${workspace?.purpose ? ` (${workspace.purpose})` : ""}.`,
+    ...(website ? [`Website: ${website}.`] : []),
     ...(job.agentId === "setup"
       ? [
           `Requested connections: ${nonEmptyOr(selectedApps, "none")}. These are setup requests, not proof of access.`,
         ]
-      : [
-          "Requested integrations are intentionally omitted here. They are setup choices, not evidence about the product, market, or ideal customer.",
-        ]),
+      : []),
     ...peopleContextLines(context.people ?? []),
     ...databaseContextLines(
       context.databases ?? [],
