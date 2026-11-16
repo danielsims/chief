@@ -119,6 +119,26 @@ export function useChiefChatPresentation({
         : undefined)
     );
   };
+  /** Agents working in a thread, by the relay's run rows when there are any. */
+  const workingInThread = (threadRootId: string | undefined) => {
+    if (!threadRootId) return [];
+    const { controls, activeRootTurn } = core;
+    const agentIds = controls.workingAgents.flatMap((agent) =>
+      agent.threadRootId === threadRootId ? [agent.agentId] : [],
+    );
+    if (
+      controls.status === "running" &&
+      controls.workingAgents.length === 0 &&
+      activeRootTurn?.threadRootId === threadRootId
+    )
+      agentIds.push(activeRootTurn.agentId);
+    return [...new Set(agentIds)].map((id) => ({
+      id,
+      label:
+        core.agentRoster.get(id)?.name ??
+        (isWorkspaceAgentId(id) ? WORKSPACE_AGENT_IDENTITIES[id].name : id),
+    }));
+  };
   /** In its own thread panel a message is the root, so it shows no replies line. */
   const controlsForMessage = (
     message: ChiefUIMessage,
@@ -137,6 +157,9 @@ export function useChiefChatPresentation({
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
     const specialist = activeSpecialistByThread.get(message.id);
+    const working = workingInThread(
+      options?.threadRoot ? undefined : message.id,
+    );
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
         if (reply.role === "user") {
@@ -185,6 +208,7 @@ export function useChiefChatPresentation({
           participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
           specialist={specialist}
+          working={working}
           needsUser={
             openActionThreadRootIds.has(message.id) ||
             (specialist

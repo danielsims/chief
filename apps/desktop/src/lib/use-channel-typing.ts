@@ -108,3 +108,71 @@ export function typingLabel(names: readonly string[]) {
   if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
   return "Several people are typing…";
 }
+
+/**
+ * Everyone typing anywhere in the workspace, as `channelId:userId` keys, so
+ * places outside a conversation can show it.
+ */
+export function useWorkspaceTyping(): ReadonlySet<string> {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId } = useWorkspaceCapability();
+  // Keyed by workspace so switching workspaces starts empty.
+  const [state, setState] = useState<{
+    workspaceId: string | null;
+    typing: ReadonlyMap<string, number>;
+  }>({ workspaceId: cloudOrganizationId, typing: emptyTyping });
+  const typing =
+    state.workspaceId === cloudOrganizationId ? state.typing : emptyTyping;
+  const update = useCallback(
+    (
+      change: (
+        current: ReadonlyMap<string, number>,
+      ) => ReadonlyMap<string, number>,
+    ) =>
+      setState((current) => {
+        const base =
+          current.workspaceId === cloudOrganizationId
+            ? current.typing
+            : emptyTyping;
+        const next = change(base);
+        return next === base && current.workspaceId === cloudOrganizationId
+          ? current
+          : { workspaceId: cloudOrganizationId, typing: next };
+      }),
+    [cloudOrganizationId],
+  );
+
+  useEffect(() => {
+    if (!cloudOrganizationId || status !== "connected") return;
+    return client.subscribe((message) => {
+      if (
+        message.type !== "userTyping" ||
+        message.workspaceId !== cloudOrganizationId
+      )
+        return;
+      const key = `${message.channelId}:${message.userId}`;
+      update((current) => {
+        const next = new Map(current);
+        if (message.active) next.set(key, Date.now());
+        else next.delete(key);
+        return next;
+      });
+    });
+  }, [client, cloudOrganizationId, status, update]);
+
+  useEffect(() => {
+    if (typing.size === 0) return;
+    const timer = window.setInterval(() => {
+      update((current) => {
+        const now = Date.now();
+        const next = new Map(
+          [...current].filter(([, at]) => now - at < TYPING_EXPIRY_MS),
+        );
+        return next.size === current.size ? current : next;
+      });
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [typing.size, update]);
+
+  return useMemo(() => new Set(typing.keys()), [typing]);
+}

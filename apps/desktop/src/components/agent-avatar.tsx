@@ -16,6 +16,8 @@ import { ChiefMark } from "./chief-mark";
 export interface ProviderMark {
   Mark: ComponentType<{ className?: string }>;
   tileClassName: string;
+  /** The brand colour, for places that only show a colour. */
+  color?: string;
 }
 
 /**
@@ -44,7 +46,10 @@ type Look =
 
 /** The one place that decides how an agent is drawn: its own avatar, then its
  * provider's logo when it runs on this device, then Chief's mark. */
-function useAgentLook(requestedId: string | undefined, label: string): Look {
+export function useAgentLook(
+  requestedId: string | undefined,
+  label: string,
+): Look {
   const { avatars, agentIds, providerMarks } = useContext(
     AgentAppearanceContext,
   );
