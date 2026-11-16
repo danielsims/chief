@@ -20,6 +20,8 @@ import { integrationSetupChannelPath } from "../../lib/integration-setup";
 import { connectRecommendedPlugin } from "../../lib/plugin-connection";
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
+import { pluginActionClassName } from "../plugins/plugin-action";
+import { usePluginAgentAccess } from "../plugins/plugin-agent-access";
 import { PluginApiKeyDialog } from "../plugins/plugin-api-key-dialog";
 import { openPluginDialog } from "../plugins/plugin-dialog-host";
 import { PluginOAuthClientDialog } from "../plugins/plugin-oauth-client-dialog";
@@ -43,10 +45,12 @@ function PluginRow({
   plugin,
   runtime,
   authorization,
+  agentId,
 }: {
   plugin: AgentPluginSummary;
   runtime: PluginRuntime;
   authorization?: PluginAuthorizationAction;
+  agentId?: string;
 }) {
   const navigate = useNavigate();
   const [oauthClientAction, setOAuthClientAction] =
@@ -56,6 +60,16 @@ function PluginRow({
   );
   const current =
     runtime.plugins?.find((item) => item.id === plugin.id) ?? plugin;
+  const access = usePluginAgentAccess(
+    agentId ? (current.connection?.id ?? "") : "",
+  );
+  const agentAccess =
+    agentId && current.connection && access.editable
+      ? access.assigned(current.connection.id).has(agentId)
+      : plugin.agentAccess;
+  const needsAccess = current.status === "connected" && agentAccess === false;
+  const open = () =>
+    openPluginDialog(current.id, needsAccess ? "agents" : undefined);
   const busy = runtime.busyPluginId === plugin.id;
   const connect = async () => {
     try {
@@ -110,11 +124,11 @@ function PluginRow({
         role="button"
         tabIndex={0}
         aria-label={`Open ${current.name}`}
-        onClick={() => openPluginDialog(current.id)}
+        onClick={open}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            openPluginDialog(current.id);
+            open();
           }
         }}
         className="bg-card/60 hover:bg-card flex min-w-0 cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm transition-colors"
@@ -133,16 +147,17 @@ function PluginRow({
           <span
             className={cn(
               buttonVariants({ variant: "secondary", size: "sm" }),
-              "pointer-events-none rounded-full px-4 text-emerald-500",
+              "pointer-events-none rounded-full px-4",
+              needsAccess ? "text-amber-500" : "text-emerald-500",
             )}
           >
-            Connected
+            {needsAccess ? "Needs access" : "Connected"}
           </span>
         ) : (
           <Button
-            variant="secondary"
+            variant="outline"
             size="sm"
-            className="relative min-w-[84px] cursor-pointer rounded-full px-4"
+            className={pluginActionClassName}
             disabled={busy}
             onClick={(event) => {
               // The card opens the plugin; its button connects it.
@@ -187,18 +202,21 @@ function PluginRecommendationRows({
   plugins,
   runtime,
   authorizations,
+  agentId,
 }: {
   plugins: AgentPluginSummary[];
   runtime: PluginRuntime;
   authorizations?: PluginAuthorizationAction[];
+  agentId?: string;
 }) {
   return (
     <div className="w-[620px] max-w-full space-y-2">
-      {plugins.slice(0, 8).map((plugin) => (
+      {plugins.map((plugin) => (
         <PluginRow
           key={plugin.id}
           plugin={plugin}
           runtime={runtime}
+          agentId={agentId}
           authorization={authorizations?.find(
             (authorization) => authorization.pluginId === plugin.id,
           )}
@@ -211,15 +229,18 @@ function PluginRecommendationRows({
 export function PluginRecommendationCards({
   plugins,
   authorizations,
+  agentId,
 }: {
   plugins: AgentPluginSummary[];
   authorizations?: PluginAuthorizationAction[];
+  agentId?: string;
 }) {
   const runtime = usePlugins();
   return (
     <PluginRecommendationRows
       plugins={plugins}
       runtime={runtime}
+      agentId={agentId}
       authorizations={authorizations}
     />
   );

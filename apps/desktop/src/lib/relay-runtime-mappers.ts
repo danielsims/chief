@@ -369,6 +369,9 @@ function pluginRecommendationParts(
         description: value.description,
         category: value.category,
         status: value.status,
+        ...(value.agentAccess !== undefined
+          ? { agentAccess: value.agentAccess }
+          : undefined),
         enabled: value.enabled,
         trusted: value.trusted,
         source,

@@ -318,6 +318,7 @@ export function Blocks({
             <PluginRecommendationCards
               key={index}
               plugins={data.plugins}
+              agentId={data.agentId}
               authorizations={data.authorizations}
             />
           );

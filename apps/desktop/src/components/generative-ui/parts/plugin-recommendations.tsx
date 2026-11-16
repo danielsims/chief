@@ -12,6 +12,7 @@ function PluginRecommendationsPart({
   return (
     <PluginRecommendationCards
       plugins={data.plugins}
+      agentId={data.agentId}
       authorizations={data.authorizations}
     />
   );

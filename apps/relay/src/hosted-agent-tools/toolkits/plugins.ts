@@ -7,8 +7,14 @@ function pluginTool(
 ) {
   return defineHostedAgentTool(
     operationId,
-    async ({ env, job }, input) =>
-      await executeHostedAgentPluginTool(env, job, operationId, input),
+    async ({ env, job, principal }, input) =>
+      await executeHostedAgentPluginTool(
+        env,
+        job,
+        operationId,
+        input,
+        principal,
+      ),
     { effect },
   );
 }
