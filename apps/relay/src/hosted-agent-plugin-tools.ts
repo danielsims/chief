@@ -1,20 +1,34 @@
 import { z } from "zod";
 
-import type { AgentJob, JsonObject } from "@chief/relay-contracts";
-import { isJsonString } from "@chief/relay-contracts";
+import type {
+  AgentJob,
+  AgentPrincipal,
+  JsonObject,
+} from "@chief/relay-contracts";
+import {
+  PLUGINS_LIST_INSTRUCTION,
+  recommendationPayload,
+  recommendPluginsDefinition,
+  resolvePlugins,
+  workspacePluginCatalog,
+} from "@chief/agent-runtime/local-tools";
+import { isJsonString, mcpConnectionListSchema } from "@chief/relay-contracts";
 
 import { publishAgentMessage } from "./agent-message-publisher";
+import { releaseInternalResponse } from "./internal-response";
+import { workspacePlugins } from "./mcp/agent-plugin-tools";
 
 export async function executeHostedAgentPluginTool(
   env: Env,
   job: AgentJob,
   name: string,
   input: JsonObject,
+  principal: AgentPrincipal,
 ) {
   if (name === "plugins.list") {
     const query = optionalString(input, "query")?.toLowerCase();
     const limit = Math.min(20, Math.max(1, Number(input.limit ?? 8)));
-    const catalog = await hostedPluginCatalog();
+    const catalog = await hostedWorkspacePlugins(env, job, principal);
     const plugins = query
       ? catalog.filter((plugin) =>
           `${plugin.name} ${plugin.description} ${plugin.category} ${plugin.id}`
@@ -26,6 +40,7 @@ export async function executeHostedAgentPluginTool(
       plugins: plugins.slice(0, limit),
       total: plugins.length,
       runtime: "cloudflare-do",
+      instruction: PLUGINS_LIST_INSTRUCTION,
     };
   }
   if (name === "plugins.recommend") {
@@ -34,16 +49,20 @@ export async function executeHostedAgentPluginTool(
       input,
     );
     const idempotencyKey = requiredString(input, "idempotencyKey");
-    const pluginIds = Array.isArray(input.pluginIds)
-      ? [...new Set(input.pluginIds.map(String).filter(Boolean))].slice(0, 8)
-      : [];
-    if (pluginIds.length === 0) throw new Error("pluginIds is required");
-    const catalog = await hostedPluginCatalog();
-    const selected = pluginIds.map((pluginId) => {
-      const plugin = catalog.find((candidate) => candidate.id === pluginId);
-      if (!plugin) throw new Error(`Unknown plugin ID: ${pluginId}`);
-      return plugin;
-    });
+    const {
+      pluginIds = [],
+      services = [],
+      scope,
+    } = recommendPluginsDefinition.inputSchema.parse(input);
+    const catalog = await hostedWorkspacePlugins(env, job, principal);
+    const { plugins: selected, missing } = resolvePlugins(
+      catalog,
+      pluginIds,
+      services,
+      scope,
+    );
+    if (missing.length)
+      throw new Error(`Unknown plugins: ${missing.join(", ")}`);
     await publishAgentMessage(
       env,
       job,
@@ -58,28 +77,22 @@ export async function executeHostedAgentPluginTool(
             ),
             kind: "plugin.recommendation",
             version: 1,
-            payload: {
+            payload: recommendationPayload(plugin, {
               workspaceId: job.workspaceId,
               conversationId,
-              ...(threadRootId ? { threadRootId } : undefined),
+              threadRootId,
               agentId: job.agentId,
-              pluginId: plugin.id,
-              name: plugin.name,
-              description: plugin.description,
-              category: plugin.category,
-              sourceType: "discovery",
-              status: "available",
-              enabled: false,
-              trusted: false,
-              domain: plugin.domain,
-              ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : undefined),
-            },
+            }),
           })),
         ),
       },
       await deterministicUuid(`${job.id}:${name}:${idempotencyKey}`),
     );
-    return { ok: true, conversationId, pluginIds };
+    return {
+      ok: true,
+      conversationId,
+      pluginIds: selected.map((plugin) => plugin.id),
+    };
   }
   throw new Error(`Unsupported plugin tool operation: ${name}`);
 }
@@ -98,15 +111,6 @@ export function hostedPluginPlacement(
   };
 }
 
-interface HostedPlugin {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  domain: string;
-  iconUrl?: string;
-}
-
 const hostedPluginCatalogSchema = z.object({
   data: z
     .array(
@@ -123,7 +127,7 @@ const hostedPluginCatalogSchema = z.object({
     .default([]),
 });
 
-export async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
+export async function hostedPluginCatalog() {
   const response = await fetch("https://integrations.sh/api.json", {
     headers: { accept: "application/json" },
   });
@@ -141,6 +145,15 @@ export async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
           `Connect ${entry.name} to your Chief agents.`,
         category: entry.categories?.[0] ?? "Integration",
         domain: entry.domain,
+        domains: [entry.domain],
+        source: {
+          type: "discovery" as const,
+          registry: "integrations.sh",
+          domain: entry.domain,
+        },
+        status: "available" as const,
+        enabled: false,
+        trusted: false,
         ...(entry.icon ? { iconUrl: entry.icon } : undefined),
       },
     ];
@@ -168,4 +181,21 @@ async function deterministicUuid(value: string) {
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
+async function hostedWorkspacePlugins(
+  env: Env,
+  job: AgentJob,
+  principal: AgentPrincipal,
+) {
+  const [catalog, response] = await Promise.all([
+    hostedPluginCatalog(),
+    workspacePlugins(env, job, principal, "mcp-list"),
+  ]);
+  if (!response.ok) {
+    await releaseInternalResponse(response);
+    throw new Error("Workspace plugin connections are unavailable.");
+  }
+  const { connections } = mcpConnectionListSchema.parse(await response.json());
+  return workspacePluginCatalog(catalog, connections);
 }

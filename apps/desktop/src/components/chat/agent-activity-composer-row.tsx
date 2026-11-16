@@ -1,10 +1,6 @@
-import { MatrixLoader } from "@chief/ui/components/matrix-loader";
-
 import type { AgentActivityPresence } from "./agent-activity-presence";
-import {
-  agentLoaderColor,
-  formatAgentActivityStatus,
-} from "./agent-activity-presence";
+import { AgentMatrixLoader } from "../agent-color";
+import { formatAgentActivityStatus } from "./agent-activity-presence";
 
 export function AgentActivityComposerRow({
   agents,
@@ -63,10 +59,10 @@ export function AgentActivityComposerRow({
       >
         <span className="flex shrink-0 items-center gap-1">
           {visibleAgents.slice(0, 4).map((agent) => (
-            <MatrixLoader
+            <AgentMatrixLoader
               key={agent.id}
+              agentId={agent.id}
               ariaLabel={`${agent.label} is working`}
-              color={agentLoaderColor(agent.id)}
               size={13}
             />
           ))}

@@ -23,9 +23,12 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
+import type { AgentActivityPresence } from "./agent-activity-presence";
 import { AgentAvatar } from "../agent-avatar";
+import { AgentMatrixLoader } from "../agent-color";
 import { AttentionPill } from "../attention-pill";
 import { AvatarImage } from "../avatar-image";
+import { formatAgentActivityStatus } from "./agent-activity-presence";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
 import { relativeActivityTime } from "./relative-activity-time";
 import {
@@ -202,6 +205,7 @@ export function ChannelMessageMeta({
   onOpenThread,
   onToggleReaction,
   specialist,
+  working = [],
   needsUser = false,
 }: {
   replies: readonly {
@@ -215,6 +219,8 @@ export function ChannelMessageMeta({
   onOpenThread: () => void;
   onToggleReaction: (emoji: string) => void;
   specialist?: SessionRecord;
+  /** Agents working in this thread right now. */
+  working?: readonly AgentActivityPresence[];
   needsUser?: boolean;
 }) {
   const specialistWorking = Boolean(
@@ -222,14 +228,34 @@ export function ChannelMessageMeta({
     specialistIsStartingOrWorking(specialist.status) &&
     specialist.status !== "waiting",
   );
-  if (replyCount === 0 && reactions.length === 0) {
+  if (replyCount === 0 && reactions.length === 0 && working.length === 0) {
     return null;
   }
   const lastReply = replies.at(-1);
   const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
-  const uniqueParticipants = participants.filter(
+  const workingIds = new Set(working.map((agent) => agent.id));
+  // An agent starting in a thread shows there before its first reply.
+  const everyone: readonly ThreadParticipant[] = [
+    ...working.flatMap((agent): ThreadParticipant[] =>
+      participants.some(
+        (participant) =>
+          participant.kind === "agent" && participant.agentId === agent.id,
+      )
+        ? []
+        : [
+            {
+              id: `agent:${agent.id}`,
+              kind: "agent",
+              name: agent.label,
+              agentId: agent.id,
+            },
+          ],
+    ),
+    ...participants,
+  ];
+  const uniqueParticipants = everyone.filter(
     (participant, index) =>
-      participants.findIndex((candidate) => candidate.id === participant.id) ===
+      everyone.findIndex((candidate) => candidate.id === participant.id) ===
       index,
   );
 
@@ -261,7 +287,7 @@ export function ChannelMessageMeta({
           ))}
         </div>
       ) : null}
-      {replyCount > 0 ? (
+      {replyCount > 0 || working.length > 0 ? (
         <button
           type="button"
           onClick={onOpenThread}
@@ -280,8 +306,14 @@ export function ChannelMessageMeta({
                   }
                   className="bg-background ring-background grid size-5 place-items-center rounded-md ring-2"
                 >
-                  {specialistWorking &&
-                  participant.agentId === specialist?.agent ? (
+                  {workingIds.has(participant.agentId) ? (
+                    <AgentMatrixLoader
+                      agentId={participant.agentId}
+                      ariaLabel={`${participant.name} is working`}
+                      size={13}
+                    />
+                  ) : specialistWorking &&
+                    participant.agentId === specialist?.agent ? (
                     <SpecialistStatusIndicator
                       agent={specialist.agent}
                       status={specialist.status}
@@ -319,12 +351,20 @@ export function ChannelMessageMeta({
               </span>
             ) : null}
           </span>
-          <span className="text-xs font-medium">
-            {replyCount} {replyCount === 1 ? "reply" : "replies"}
-          </span>
-          <span className="text-muted-foreground text-xs">
-            Last reply {relativeActivityTime(latestReplyAt)}
-          </span>
+          {replyCount > 0 ? (
+            <span className="text-xs font-medium">
+              {replyCount} {replyCount === 1 ? "reply" : "replies"}
+            </span>
+          ) : null}
+          {working.length > 0 ? (
+            <span className="chief-shimmer-text text-muted-foreground text-xs">
+              {formatAgentActivityStatus(working)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-xs">
+              Last reply {relativeActivityTime(latestReplyAt)}
+            </span>
+          )}
           {needsUser ? <AttentionPill /> : null}
         </button>
       ) : null}

@@ -8,6 +8,8 @@ export const listPluginsDefinition = defineAgentTool({
   operation: {
     operationId: "plugins.list",
     summary: "List available and installed plugins",
+    description:
+      "Looks up plugins and their connection state for you. The person never sees this result: to show them plugins, call plugins_recommend.",
   },
   querySchema: z.object({
     query: z.string().trim().max(120).default(""),

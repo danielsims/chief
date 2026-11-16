@@ -1,3 +1,5 @@
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
+
 import { typingLabel } from "../../lib/use-channel-typing";
 
 /** Fills the composer's activity slot while other people are typing. */
@@ -9,6 +11,7 @@ export function PeopleTypingRow({ names }: { names: readonly string[] }) {
       aria-live="polite"
       aria-atomic="true"
     >
+      <MatrixLoader ariaLabel={label} className="mr-2 shrink-0" size={13} />
       <span className="text-muted-foreground chief-shimmer-text min-w-0 truncate text-[11px] font-medium">
         {label}
       </span>

@@ -19,8 +19,8 @@ suggesting a reply angle for each one.
   ideal customer, competitors, or prospect criteria from plugins or services the
   user asked to connect.
 - For public-source discovery that needs an authenticated or specialist data
-  source, call `plugins_list` to inspect Chief's real catalog and
-  `plugins_recommend` to present actionable connection cards. Never call
+  source, show actionable plugin cards with `plugins_recommend`; use
+  `plugins_list` when you need to inspect the catalog or agent access. Never call
   `tools_search`, and never invent a browser, plugin, or workspace tool.
 - Use the available web tools for public research. Keep direct source URLs and
   distinguish verified facts from assumptions. Respect access limits and report

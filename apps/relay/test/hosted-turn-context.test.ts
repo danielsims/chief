@@ -30,8 +30,8 @@ describe("hosted agent turn context", () => {
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain(
       "Use direct workspace tools for workspace operations",
     );
-    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_list");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("plugins_recommend");
+    expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("scope: connected");
     expect(HOSTED_TOOL_SELECTION_GUIDANCE).toContain("projects_create");
   });
 

@@ -76,15 +76,30 @@ function ActivityDetail({
   );
 }
 
+/** Quiet rows sit inside a list that already frames them, such as the
+ * Activity panel: no dividers, tighter rows and rounded hover. */
+const rowStyles = (quiet: boolean) => ({
+  item: quiet ? "" : "border-border/45 border-t first:border-t-0",
+  summary: quiet
+    ? "hover:bg-foreground/[0.04] flex min-h-9 cursor-pointer list-none items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors [&::-webkit-details-marker]:hidden"
+    : "hover:bg-foreground/[0.025] flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2 transition-colors [&::-webkit-details-marker]:hidden",
+  body: quiet
+    ? "space-y-3 px-2 pt-1 pb-3 pl-8"
+    : "space-y-3 px-3.5 pt-1 pb-3.5 pl-10",
+});
+
 function ActivityTool({
   call,
   active,
   at,
+  quiet = false,
 }: {
   call: ActivityToolCall;
   active: boolean;
   at?: number;
+  quiet?: boolean;
 }) {
+  const styles = rowStyles(quiet);
   const { tool, result } = call;
   const running = !result && active;
   const failed = Boolean(result?.is_error);
@@ -108,11 +123,11 @@ function ActivityTool({
 
   return (
     <details
-      className="group/tool border-border/45 border-t first:border-t-0"
+      className={cn("group/tool", styles.item)}
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary className="hover:bg-foreground/[0.025] flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2 transition-colors [&::-webkit-details-marker]:hidden">
+      <summary className={styles.summary}>
         <span
           className={cn(
             "flex size-4 shrink-0 items-center justify-center",
@@ -162,7 +177,7 @@ function ActivityTool({
           className="text-muted-foreground shrink-0 transition-transform group-open/tool:rotate-180"
         />
       </summary>
-      <div className="space-y-3 px-3.5 pt-1 pb-3.5 pl-10">
+      <div className={styles.body}>
         {change ? (
           <ChangeDiff change={change} />
         ) : (
@@ -202,15 +217,22 @@ function ActivityTool({
   );
 }
 
-function ActivityReasoning({ thought }: { thought: string }) {
+function ActivityReasoning({
+  thought,
+  quiet = false,
+}: {
+  thought: string;
+  quiet?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const styles = rowStyles(quiet);
   return (
     <details
-      className="group/reasoning border-border/45 border-t first:border-t-0"
+      className={cn("group/reasoning", styles.item)}
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary className="hover:bg-foreground/[0.025] flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2 transition-colors [&::-webkit-details-marker]:hidden">
+      <summary className={styles.summary}>
         <TextQuote size={14} className="text-muted-foreground shrink-0" />
         <span className="min-w-0 flex-1 text-xs leading-4 font-medium">
           Reasoning
@@ -254,9 +276,10 @@ export function ToolActivityGroup({
         call={entry.call}
         active={active}
         at={toolTimes?.get(entry.call.tool.id)}
+        quiet={flat}
       />
     ) : (
-      <ActivityReasoning key={entry.key} thought={entry.thought} />
+      <ActivityReasoning key={entry.key} thought={entry.thought} quiet={flat} />
     ),
   );
   if (flat) return <div className="w-full">{content}</div>;

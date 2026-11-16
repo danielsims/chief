@@ -31,5 +31,8 @@ export function renderChiefIdentity(
         )
         .join("\n")
     : "You don't have any teammates yet, so handle the work yourself and suggest adding one when it would clearly help.";
-  return template.replace("{{purpose}}", purpose).replace("{{team}}", team);
+  // Replacer functions keep "$&" and similar in names from being expanded.
+  return template
+    .replace("{{purpose}}", () => purpose)
+    .replace("{{team}}", () => team);
 }

@@ -13,9 +13,9 @@ export const pluginApiOperations: readonly PluginApiOperation[] = [
     operationId: "plugins.recommend",
     method: "POST",
     path: "/local-tools/channels/{channelId}/plugins/recommend",
-    summary: "Recommend plugins",
+    summary: "Show plugins",
     description:
-      "Resolves live catalog matches and publishes typed plugin cards into an exact channel, thread, or direct message.",
+      "Publishes clickable plugin cards, connected or not, into an exact channel, thread, or direct message. The only way a person sees plugins.",
     permission: "Channel membership required",
     toolPermission: "messages.send",
     reversible: true,
