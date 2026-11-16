@@ -30,7 +30,8 @@ function regularFiles(root) {
       else if (entry.isFile() && lstatSync(path).isFile()) files.push(path);
     }
   };
-  visit(root);
+  if (lstatSync(root).isFile()) files.push(root);
+  else visit(root);
   return files;
 }
 

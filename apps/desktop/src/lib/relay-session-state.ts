@@ -19,6 +19,7 @@ export interface RelaySessionState {
   workspaces: WorkspaceSummary[];
   loading: boolean;
   error: string | null;
+  errorStatus?: number;
 }
 
 export type RelayConnectionIntent = "foreground" | "background";
@@ -68,6 +69,7 @@ export function beginRelayConnection(
     ...state,
     loading: state.snapshot === null,
     error: null,
+    errorStatus: undefined,
   };
 }
 
@@ -76,6 +78,7 @@ export function failRelayConnection(
   accountId: string,
   error: string,
   intent: RelayConnectionIntent,
+  errorStatus?: number,
 ): RelaySessionState {
   if (intent === "background" && state.accountId === accountId) {
     return state;
@@ -86,6 +89,7 @@ export function failRelayConnection(
     accountId,
     loading: false,
     error,
+    errorStatus,
   };
 }
 

@@ -1,55 +1,90 @@
 #!/usr/bin/env node
-// Builds and signs the desktop DMG.
-//
-// The Developer ID name and team identifier are read from the environment
-// rather than committed, because they identify a real Apple account. Set:
-//
-//   CHIEF_APPLE_SIGNING_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"
-//
-// A build without it still produces an unsigned bundle, which is fine for
-// local testing.
-import { spawnSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+// Local review packages stay lightweight; --offline explicitly embeds a runtime.
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const identity =
-  process.env.CHIEF_APPLE_SIGNING_IDENTITY ||
-  process.env.APPLE_SIGNING_IDENTITY;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const args = process.argv.slice(2);
+if (args.some((arg) => arg !== "--offline"))
+  throw new Error("Usage: pnpm desktop:dmg [--offline]");
+const offline = args.includes("--offline");
+const config = offline
+  ? "src-tauri/tauri.offline.conf.json"
+  : "src-tauri/tauri.local.conf.json";
+const appBundle = join(
+  repoRoot,
+  "apps/desktop/src-tauri/target/release/bundle/macos/Chief.app",
+);
+const dmgDirectory = join(
+  repoRoot,
+  "apps/desktop/src-tauri/target/release/bundle/dmg",
+);
 
-function run(command, env) {
-  const result = spawnSync(command, {
+let identity =
+  process.env.CHIEF_APPLE_SIGNING_IDENTITY?.trim() ||
+  process.env.APPLE_SIGNING_IDENTITY?.trim();
+if (!identity && process.platform === "darwin") {
+  const installed = execFileSync(
+    "security",
+    ["find-identity", "-v", "-p", "codesigning"],
+    { encoding: "utf8" },
+  );
+  const developerIds = [
+    ...installed.matchAll(/\b([A-F0-9]{40}) "Developer ID Application:[^"]+"/g),
+  ];
+  if (developerIds.length === 1) identity = developerIds[0][1];
+}
+if (!identity || identity === "-") {
+  throw new Error(
+    "Set CHIEF_APPLE_SIGNING_IDENTITY to a Developer ID identity. Local DMGs require coherent signing for native runtime libraries; ad-hoc signing is not supported by this packaging command.",
+  );
+}
+const buildEnv = { ...process.env, APPLE_SIGNING_IDENTITY: identity };
+function run(command, commandArgs, env = buildEnv) {
+  const result = spawnSync(command, commandArgs, {
     stdio: "inherit",
-    shell: true,
     cwd: repoRoot,
     env,
   });
+  if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-// Tauri reads APPLE_SIGNING_IDENTITY from the environment itself; it is not a
-// config key. Pass it through so a signed build stays signed.
-const buildEnv = { ...process.env };
-if (identity) {
-  buildEnv.APPLE_SIGNING_IDENTITY = identity;
-} else {
-  console.warn(
-    "[desktop:dmg] CHIEF_APPLE_SIGNING_IDENTITY is unset; the bundle will be unsigned.",
+// Verify the complete signed app before making its installer. Keep the runtime
+// outside a normal DMG and pin the exact published archive the app will install.
+run("pnpm", [
+  "--filter",
+  "@chief/desktop",
+  "tauri",
+  "build",
+  "--config",
+  config,
+  "--bundles",
+  "app",
+]);
+run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appBundle]);
+run("pnpm", ["--filter", "@chief/desktop", "verify:packaged-plugin-host"]);
+if (
+  !offline &&
+  existsSync(join(appBundle, "Contents/MacOS/chief-agent-runtime"))
+) {
+  throw new Error(
+    "Lightweight app unexpectedly embeds Node; refusing to package it.",
   );
 }
-
-// Local DMGs bundle the plugin runtime; only Forge releases host it separately.
-run("pnpm --filter @chief/desktop build:app:offline", buildEnv);
-
-if (identity) {
-  run(
-    'codesign --verify --deep --strict --verbose=2 "apps/desktop/src-tauri/target/release/bundle/macos/Chief.app"',
-    process.env,
-  );
-}
-
-run("pnpm --filter @chief/desktop verify:packaged-plugin-host", process.env);
-run(
-  "open -R apps/desktop/src-tauri/target/release/bundle/dmg/Chief_*.dmg",
-  process.env,
+run("pnpm", [
+  "--filter",
+  "@chief/desktop",
+  "tauri",
+  "bundle",
+  "--config",
+  config,
+  "--bundles",
+  "dmg",
+]);
+const images = readdirSync(dmgDirectory).filter((name) =>
+  /^Chief_.*\.dmg$/.test(name),
 );
+for (const name of images) console.log(`DMG: ${join(dmgDirectory, name)}`);
