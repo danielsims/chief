@@ -65,8 +65,8 @@ every upload succeeds, so an app release never points to a missing runtime.
 
 The native installer checks the digest, rejects unsafe archive entries, and
 installs into a versioned application-data cache. It never runs an unverified
-download. Local and offline builds pin no runtime: offline packages bundle it,
-and development uses the workspace runtime. Only targets listed in the
+download. Local packaged builds pin the existing published runtime for their app version;
+offline packages bundle it, and hot-reload development uses the workspace runtime. Only targets listed in the
 packaging script (currently Apple Silicon) support on-demand installation.
 
 ## Local desktop loop
@@ -87,18 +87,23 @@ pnpm --filter @chief/desktop build:app
 ```
 
 This local packaging command creates the lightweight app and DMG without
-requiring the private updater signing key. It pins no plugin runtime, so use the
-offline build below when you need local plugins. Release automation (Forge) runs
-`tauri build` with its signing credentials, which packages the runtime asset.
+requiring the private updater signing key. It pins the existing published
+runtime by its GitHub release asset SHA-256, so local agents and plugins download
+the same verified runtime as that release. An unpublished version must use the
+explicit offline build. Release automation (Forge) packages a new runtime asset.
 
 On the Chief release Mac, the local development packaging loop is available
 from the repository root. It selects the Developer ID identity, builds the
-app and DMG with the plugin runtime bundled, verifies the app signature and
-packaged plugin host, and reveals the DMG in Finder:
+lightweight app and DMG, verifies the app signature, smoke-loads the signed
+agent worker's database, and checks the plugin host before creating the DMG:
 
 ```bash
 pnpm desktop:dmg
 ```
+
+The command uses `CHIEF_APPLE_SIGNING_IDENTITY` / `APPLE_SIGNING_IDENTITY`, or the
+single installed Developer ID identity. It refuses ad-hoc signing. To embed the
+current checkout's runtime for offline testing, use `pnpm desktop:dmg --offline`.
 
 Tauri writes installers to `src-tauri/target/release/bundle`. Official signing and notarization values are supplied by the private release environment, not stored in this repository.
 

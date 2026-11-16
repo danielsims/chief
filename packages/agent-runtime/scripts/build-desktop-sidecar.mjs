@@ -259,9 +259,19 @@ copyFileSync(nodeBinary, stagedSidecarPath);
 chmodSync(stagedSidecarPath, 0o755);
 renameSync(stagedSidecarPath, sidecarPath);
 
-// Smoke-load the exact packaged worker before Tauri spends time constructing
-// an installer. A disabled config exits after all imports and native bindings
-// have loaded without opening a relay connection.
+signDesktopRuntime(
+  runtimeRoot,
+  process.env.APPLE_SIGNING_IDENTITY?.trim(),
+  macEntitlements,
+);
+signDesktopRuntime(
+  sidecarPath,
+  process.env.APPLE_SIGNING_IDENTITY?.trim(),
+  macEntitlements,
+);
+
+// Validate after signing: signature validity alone does not prove that Node
+// can load its native database binding under macOS library validation.
 const smokeRoot = mkdtempSync(join(tmpdir(), "chief-agent-runtime-"));
 try {
   execFileSync(
@@ -281,12 +291,6 @@ execFileSync(sidecarPath, [join(runtimeRoot, "dist/plugin-host-worker.mjs")], {
   env: { ...process.env, CHIEF_PLUGIN_HOST_SMOKE: "1" },
   stdio: "inherit",
 });
-
-signDesktopRuntime(
-  runtimeRoot,
-  process.env.APPLE_SIGNING_IDENTITY?.trim(),
-  macEntitlements,
-);
 
 const runtimeVersion = (
   await hashFile(join(runtimeRoot, "dist/relay-cell-worker.mjs"))
