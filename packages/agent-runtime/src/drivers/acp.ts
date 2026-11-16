@@ -169,6 +169,8 @@ export class AcpDriver extends BaseDriver {
           0,
         ),
       );
+      const failure = sessionFailure(result);
+      if (failure) throw new Error(failure);
       const content: ContentBlock[] = [];
       if (this.thinking) {
         content.push({ type: "thinking", thinking: this.thinking });
@@ -545,4 +547,18 @@ export class AcpDriver extends BaseDriver {
 function hasToolInput(input: JsonValue | undefined) {
   const object = parseJsonObject(input);
   return input !== undefined && (!object || Object.keys(object).length > 0);
+}
+
+/**
+ * The failure a provider attached to a finished prompt. Clients that declare
+ * typed session failures get them here instead of as assistant text.
+ */
+function sessionFailure(result: JsonObject) {
+  const failure = record(
+    record(record(record(result._meta).jetbrains).air).sessionFailure,
+  );
+  if (failure.severity !== "error" || !isJsonString(failure.title)) return;
+  return failure.category === "limit" && /usage limit/iu.test(failure.title)
+    ? `ChatGPT usage limit reached. ${failure.title}`
+    : failure.title;
 }

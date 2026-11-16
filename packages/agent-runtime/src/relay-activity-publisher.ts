@@ -177,7 +177,7 @@ export class RelayActivityPublisher {
           message.trim() || "The agent run was interrupted.",
           4_000,
         ),
-        retryable: "true",
+        retryable: /usage limit reached/iu.test(message) ? "false" : "true",
         ...this.correlation(),
       },
     });
