@@ -26,6 +26,39 @@ const relayDiscovery = {
   },
 };
 
+void test("activity publication forwards its abort signal to the transport", async () => {
+  const signal = AbortSignal.abort(
+    new DOMException("Activity timed out", "TimeoutError"),
+  );
+  const client = new RelayClient({
+    relayUrl: "https://relay.test",
+    workspaceId: workspaceIdSchema.parse("workspace-a"),
+    getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    fetch: (_url, init) => {
+      assert.equal(init?.signal, signal);
+      return Promise.reject(
+        new DOMException("Activity timed out", "TimeoutError"),
+      );
+    },
+  });
+  await assert.rejects(
+    client.upsertAgentActivity(
+      "general",
+      {
+        messageId: "activity-1",
+        component: {
+          id: "tool-1",
+          kind: "tool",
+          version: 1,
+          payload: { name: "bash", status: "completed" },
+        },
+      },
+      signal,
+    ),
+    { name: "TimeoutError" },
+  );
+});
+
 void test("scopes NIP-98 requests to one workspace and keeps authorization out of socket URLs", async () => {
   const requests: {
     url: string;

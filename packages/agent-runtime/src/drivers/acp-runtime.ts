@@ -1,4 +1,4 @@
-import type { JsonValue } from "@chief/relay-contracts";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 
 import type { StartOptions } from "../types.js";
 
@@ -6,6 +6,7 @@ export interface AcpRuntimeAdapter {
   name: string;
   command: () => string;
   args: string[];
+  clientCapabilities?: JsonObject;
   configureEnvironment?: (
     options: StartOptions,
     environment: NodeJS.ProcessEnv,

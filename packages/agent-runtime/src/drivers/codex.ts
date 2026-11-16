@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { JsonObject } from "@chief/relay-contracts";
-import { isJsonObject } from "@chief/relay-contracts";
+import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
 
 import type { StartOptions } from "../types.js";
 import { AcpDriver } from "./acp.js";
@@ -40,6 +40,16 @@ export function prepareCodexEnvironment(
       // A malformed ambient override must not prevent a cell from starting.
     }
   }
+  // Chief writes the complete policy/tool instructions into this cell's AGENTS.md.
+  // Codex's default 32 KiB limit can silently drop the end of that policy.
+  const inheritedBudget = config.project_doc_max_bytes;
+  config.project_doc_max_bytes = Math.max(
+    65_536,
+    Buffer.byteLength(options.instructions, "utf8"),
+    isJsonNumber(inheritedBudget) && Number.isSafeInteger(inheritedBudget)
+      ? inheritedBudget
+      : 0,
+  );
   const sandbox = record(config.sandbox_workspace_write);
   config.sandbox_workspace_write = { ...sandbox, network_access: true };
   if (options.model) config.model = options.model;
@@ -94,6 +104,7 @@ export class CodexDriver extends AcpDriver {
     let command = process.execPath;
     super({
       name: "codex",
+      clientCapabilities: { session: { notices: {} } },
       command: () => command,
       args,
       configureEnvironment: async (options, environment) => {
