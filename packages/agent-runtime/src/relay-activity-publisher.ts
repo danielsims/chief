@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { RelayClient } from "@chief/relay-client";
 import type { AgentActivityComponent } from "@chief/relay-contracts";
+import { RelayClientError } from "@chief/relay-client";
 import { isJsonString } from "@chief/relay-contracts";
 
 import type { AgentEvent } from "./types.js";
@@ -14,6 +15,7 @@ interface ActivityRelayClient {
   upsertAgentActivity(
     conversationId: string,
     input: Parameters<RelayClient["upsertAgentActivity"]>[1],
+    signal?: AbortSignal,
   ): Promise<ActivityPublishResult>;
 }
 
@@ -23,6 +25,21 @@ interface PendingActivityPublish {
 }
 
 const THINKING_PUBLISH_INTERVAL_MS = 500;
+
+function boundedText(value: string, limit = 100_000) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit - 14)}… [truncated]`;
+}
+
+function retryable(error: Error) {
+  if (error instanceof RelayClientError)
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  return (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      ["TimeoutError", "AbortError"].includes(error.name))
+  );
+}
 
 function textPayload(value: unknown) {
   if (isJsonString(value)) return value;
@@ -90,8 +107,9 @@ export class RelayActivityPublisher {
         this.finishThinking();
         const tool = this.toolMessages.get(block.id) ?? {
           messageId: randomUUID(),
-          name: block.name,
-          input: textPayload(block.input),
+          // ACP titles can contain an entire command; the relay name is bounded.
+          name: boundedText(block.name.trim() || "Tool", 256),
+          input: boundedText(textPayload(block.input)),
         };
         this.toolMessages.set(block.id, tool);
         this.publish(tool.messageId, {
@@ -118,8 +136,8 @@ export class RelayActivityPublisher {
             input: tool.input,
             ...this.correlation(),
             ...(block.is_error
-              ? { error: textPayload(block.content) }
-              : { output: textPayload(block.content) }),
+              ? { error: boundedText(textPayload(block.content)) }
+              : { output: boundedText(textPayload(block.content)) }),
           },
         });
       }
@@ -130,10 +148,19 @@ export class RelayActivityPublisher {
     this.finishThinking();
     while (this.drainPromise) await this.drainPromise;
     if (this.failures.length > 0) {
-      throw new AggregateError(
-        this.failures,
-        "One or more durable activity updates could not be published.",
+      // Activity delivery must never replay a job whose tools already executed.
+      console.warn(
+        "[cell-activity]",
+        JSON.stringify({
+          scope: "cell.activity.delivery",
+          phase: "incomplete",
+          conversationId: this.conversationId,
+          jobId: this.context.jobId,
+          runId: this.context.runId,
+          failedUpdates: this.failures.length,
+        }),
       );
+      this.failures.length = 0;
     }
   }
 
@@ -146,7 +173,10 @@ export class RelayActivityPublisher {
       payload: {
         code: "agent_run_failed",
         title: "Run interrupted",
-        message,
+        message: boundedText(
+          message.trim() || "The agent run was interrupted.",
+          4_000,
+        ),
         retryable: "true",
         ...this.correlation(),
       },
@@ -177,7 +207,11 @@ export class RelayActivityPublisher {
         id: thinking.componentId,
         kind: "thinking",
         version: 1,
-        payload: { text: thinking.text, status, ...this.correlation() },
+        payload: {
+          text: boundedText(thinking.text),
+          status,
+          ...this.correlation(),
+        },
       },
       true,
     );
@@ -215,6 +249,9 @@ export class RelayActivityPublisher {
       messageId,
       kind: component.kind,
       status: component.kind === "error" ? "failed" : component.payload.status,
+      ...(error instanceof RelayClientError
+        ? { httpStatus: error.status, errorCode: error.code }
+        : undefined),
       ...(error
         ? { error: error instanceof Error ? error.message : textPayload(error) }
         : undefined),
@@ -249,13 +286,7 @@ export class RelayActivityPublisher {
         const next = this.pendingPublishes.shift();
         if (!next) continue;
         try {
-          await this.client.upsertAgentActivity(this.conversationId, {
-            messageId: next.messageId,
-            ...(this.threadRootId
-              ? { threadRootId: this.threadRootId }
-              : undefined),
-            component: next.component,
-          });
+          await this.publishWithRetry(next);
           this.diagnostic("persisted", next.messageId, next.component);
         } catch (error) {
           this.failures.push(error);
@@ -265,6 +296,29 @@ export class RelayActivityPublisher {
     } finally {
       this.drainPromise = undefined;
       if (this.pendingPublishes.length > 0) this.drainPromise = this.drain();
+    }
+  }
+
+  private async publishWithRetry(next: PendingActivityPublish) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.client.upsertAgentActivity(
+          this.conversationId,
+          {
+            messageId: next.messageId,
+            ...(this.threadRootId
+              ? { threadRootId: this.threadRootId }
+              : undefined),
+            component: next.component,
+          },
+          AbortSignal.timeout(10_000),
+        );
+        return;
+      } catch (error) {
+        if (attempt >= 2 || !(error instanceof Error) || !retryable(error))
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+      }
     }
   }
 }

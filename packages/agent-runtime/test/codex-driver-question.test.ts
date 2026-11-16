@@ -217,3 +217,79 @@ void test("Codex MCP approval preserves the adapter's server-qualified identity"
     outcome: { outcome: "selected", optionId: "allow_once" },
   });
 });
+
+void test("Codex budgets the full UTF-8 instruction file without reducing explicit larger budgets", () => {
+  const instructions = "界".repeat(30_000);
+  const environment: NodeJS.ProcessEnv = {};
+  prepareCodexEnvironment(
+    { cwd: process.cwd(), instructions, access: "guarded" },
+    environment,
+  );
+  const config = JSON.parse(environment.CODEX_CONFIG ?? "{}") as {
+    project_doc_max_bytes: number;
+  };
+  assert.ok(
+    config.project_doc_max_bytes >= Buffer.byteLength(instructions, "utf8"),
+  );
+  const inherited: NodeJS.ProcessEnv = {
+    CODEX_CONFIG: JSON.stringify({ project_doc_max_bytes: 200_000 }),
+  };
+  prepareCodexEnvironment(
+    { cwd: process.cwd(), instructions: "short", access: "guarded" },
+    inherited,
+  );
+  assert.equal(
+    (
+      JSON.parse(inherited.CODEX_CONFIG ?? "{}") as {
+        project_doc_max_bytes: number;
+      }
+    ).project_doc_max_bytes,
+    200_000,
+  );
+});
+
+void test("Codex diagnostic notices never enter assistant messages or streams", async (t) => {
+  const driver = new TestCodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+  driver.setSessionId("session-notices");
+  const log = t.mock.method(console, "warn", () => undefined);
+  driver.rpcHandler = () => {
+    driver.receive({
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "notice",
+          severity: "warning",
+          title: "Project instructions exceed the budget",
+        },
+      },
+    });
+    driver.receive({
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { text: "Hey!" },
+        },
+      },
+    });
+    return { stopReason: "end_turn" };
+  };
+  await driver.sendPromptOnce("hey");
+  assert.equal(log.mock.callCount(), 1);
+  assert.deepEqual(
+    events.filter((event) => event.type === "stream"),
+    [{ type: "stream", text: "Hey!" }],
+  );
+  assert.deepEqual(
+    events.filter((event) => event.type === "message"),
+    [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "Hey!" }],
+      },
+    ],
+  );
+});

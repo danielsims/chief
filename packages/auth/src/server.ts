@@ -116,6 +116,12 @@ export function createChiefAuth(
         refreshTokenExpiresIn: 30 * 24 * 60 * 60,
         codeExpiresIn: 5 * 60,
         loginPage: `${options.uiOrigin}/sign-in`,
+        selectAccount: {
+          page: `${options.uiOrigin}/sign-in`,
+          // First-party authorization must show the browser account before a
+          // reusable browser session can authorize the desktop or mobile app.
+          shouldRedirect: () => true,
+        },
         consentPage: `${options.uiOrigin}/consent`,
         scopes: [...oauthScopes],
         resources: [options.baseURL],

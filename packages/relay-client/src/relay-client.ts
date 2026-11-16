@@ -497,6 +497,7 @@ export class RelayClient extends RelayOnboardingClient {
       threadRootId?: string;
       component: MessageComponent;
     },
+    signal?: AbortSignal,
   ) {
     return await this.fetchJson(
       this.conversationUrl(
@@ -509,6 +510,7 @@ export class RelayClient extends RelayOnboardingClient {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...input, conversationId }),
+        signal,
       },
     );
   }
