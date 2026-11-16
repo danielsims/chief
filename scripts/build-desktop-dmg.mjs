@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local review packages stay lightweight; --offline explicitly embeds a runtime.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -84,7 +84,10 @@ run("pnpm", [
   "--bundles",
   "dmg",
 ]);
-const images = readdirSync(dmgDirectory).filter((name) =>
-  /^Chief_.*\.dmg$/.test(name),
-);
-for (const name of images) console.log(`DMG: ${join(dmgDirectory, name)}`);
+// Older versions' images stay in this folder, so name only the one just built.
+const [built] = readdirSync(dmgDirectory)
+  .filter((name) => /^Chief_.*\.dmg$/.test(name))
+  .map((name) => join(dmgDirectory, name))
+  .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs);
+if (!built) throw new Error(`No DMG was built in ${dmgDirectory}.`);
+console.log(`DMG: ${built}`);
