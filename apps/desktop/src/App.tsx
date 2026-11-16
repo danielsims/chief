@@ -28,10 +28,14 @@ import { PluginDialogHost } from "./components/plugins/plugin-dialog-host";
 import { PluginInstallAccessStep } from "./components/plugins/plugin-install-access-step";
 import { RelayConnectionDialog } from "./components/relay-connection-control";
 import { SidebarProfileMenu } from "./components/sidebar-profile-menu";
+import { WorkspaceUnavailableCard } from "./components/workspace-unavailable-card";
+import { WorkspaceUnavailablePreview } from "./components/workspace-unavailable-preview";
 import { AgentConfigProvider } from "./lib/agent-config";
+import { connectedRelayIdentities } from "./lib/auth/account-directory";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
+import { knownWorkspacesForRelayIdentities } from "./lib/relay-connection";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -229,44 +233,56 @@ function WorkspaceAccountHome() {
 
 function RelayUnavailableState() {
   const relay = useRelaySession();
-  const { signOut } = useAuth();
+  const { invalidateSession, user } = useAuth();
+  const known = knownWorkspacesForRelayIdentities(connectedRelayIdentities());
+  const workspaces = known.map((location) => ({
+    id: location.summary.id,
+    name: location.summary.name,
+    logo: location.summary.imageURL,
+    website: location.summary.website,
+    relayUrl: location.relayUrl,
+    accountId: location.accountId,
+  }));
+  for (const workspace of relay.workspaces) {
+    if (
+      !user ||
+      workspaces.some(
+        (item) =>
+          item.id === workspace.id &&
+          item.relayUrl === new URL(RELAY_URL).origin &&
+          item.accountId === user.id,
+      )
+    )
+      continue;
+    workspaces.push({
+      id: workspace.id,
+      name: workspace.name,
+      logo: workspace.imageURL,
+      website: workspace.website,
+      relayUrl: new URL(RELAY_URL).origin,
+      accountId: user.id,
+    });
+  }
   return (
     <Layout workspaceNavigationAvailable={false}>
-      <main className="flex min-h-full items-center justify-center px-6 py-12">
-        <section className="w-full max-w-md">
-          <PageTitle>Workspace unavailable</PageTitle>
-          <p className="text-muted-foreground mt-3 text-sm leading-6">
-            {relay.error}
-          </p>
-          <p className="text-muted-foreground mt-3 text-sm leading-6">
-            Choose another relay or try this one again. Your work remains on the
-            relay where it was created.
-          </p>
-          <div className="mt-6 flex gap-2">
-            <RelayConnectionDialog>
-              <Button>Change relay</Button>
-            </RelayConnectionDialog>
+      <WorkspaceUnavailableCard
+        status={relay.errorStatus}
+        loading={relay.loading}
+        workspaces={workspaces}
+        onRetry={relay.refresh}
+        onSelect={(workspace) => relay.switchWorkspace(workspace.id, workspace)}
+        onSignIn={invalidateSession}
+        connectionSettings={
+          <RelayConnectionDialog>
             <Button
-              variant="outline"
-              onClick={() => void relay.refresh()}
-              disabled={relay.loading}
+              variant="ghost"
+              className="mt-3 h-[39px] w-full rounded-lg text-base"
             >
-              {relay.loading ? "Connecting…" : "Try again"}
+              Connect another relay
             </Button>
-            {relay.recoveryWorkspace ? (
-              <Button
-                variant="ghost"
-                onClick={() => void relay.returnToPreviousWorkspace()}
-              >
-                Back
-              </Button>
-            ) : null}
-            <Button variant="ghost" onClick={() => signOut()}>
-              Sign out
-            </Button>
-          </div>
-        </section>
-      </main>
+          </RelayConnectionDialog>
+        }
+      />
     </Layout>
   );
 }
@@ -478,6 +494,14 @@ function AuthenticatedApp() {
     return <PluginToolCardsPreview />;
   }
 
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "workspace-unavailable"
+  ) {
+    return <WorkspaceUnavailablePreview />;
+  }
+
   if (isLoading) {
     return <EntryState />;
   }
@@ -487,30 +511,34 @@ function AuthenticatedApp() {
   }
 
   return (
-    <RuntimeProvider>
-      <Toaster
-        closeButton
-        position="bottom-right"
-        theme={resolved}
-        toastOptions={{
-          classNames: {
-            actionButton: "chief-toast-action",
-            closeButton: "chief-toast-close",
-            description: "chief-toast-description",
-            toast: "chief-toast",
-            title: "chief-toast-title",
-          },
-          style: { borderRadius: 10 },
-        }}
-      />
-      <AgentConfigProvider>
-        <AgentAppearanceProvider>
-          <AuthenticatedRouter />
-          <PluginInstallAccessStep />
-          <PluginDialogHost />
-        </AgentAppearanceProvider>
-      </AgentConfigProvider>
-    </RuntimeProvider>
+    // Mount relay consumers only after the saved OAuth session has finished
+    // validation/refresh. Hydration exposes the old token before it is ready.
+    <RelaySessionProvider>
+      <RuntimeProvider>
+        <Toaster
+          closeButton
+          position="bottom-right"
+          theme={resolved}
+          toastOptions={{
+            classNames: {
+              actionButton: "chief-toast-action",
+              closeButton: "chief-toast-close",
+              description: "chief-toast-description",
+              toast: "chief-toast",
+              title: "chief-toast-title",
+            },
+            style: { borderRadius: 10 },
+          }}
+        />
+        <AgentConfigProvider>
+          <AgentAppearanceProvider>
+            <AuthenticatedRouter />
+            <PluginInstallAccessStep />
+            <PluginDialogHost />
+          </AgentAppearanceProvider>
+        </AgentConfigProvider>
+      </RuntimeProvider>
+    </RelaySessionProvider>
   );
 }
 
@@ -537,9 +565,7 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <AuthSessionBoundary>
-            <RelaySessionProvider>
-              <AuthenticatedApp />
-            </RelaySessionProvider>
+            <AuthenticatedApp />
           </AuthSessionBoundary>
         </AuthProvider>
       </ThemeProvider>

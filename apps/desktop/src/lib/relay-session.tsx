@@ -24,6 +24,7 @@ import {
   resolveRelayConnection,
   workspaceForRelayIdentities,
 } from "./relay-connection";
+import { RelaySessionError } from "./relay-response-error";
 import {
   activeRelayWorkspace,
   connectBoundRelayDevice,
@@ -220,6 +221,10 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
               accountId,
               error instanceof Error ? error.message : String(error),
               intent,
+              error instanceof RelaySessionError ||
+                error instanceof RelayClientError
+                ? error.status
+                : undefined,
             );
             if (next === current) return current;
             return {
