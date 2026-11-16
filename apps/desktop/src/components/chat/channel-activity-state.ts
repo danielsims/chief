@@ -47,6 +47,6 @@ export function channelActivityState(
         ? `${agentLabel}: ${toolPresentation(activeTool.name, activeTool.input)}`
         : hasAgentOutput
           ? `${agentLabel} is typing…`
-          : `${agentLabel} is getting started…`,
+          : `${agentLabel} is working…`,
   };
 }
