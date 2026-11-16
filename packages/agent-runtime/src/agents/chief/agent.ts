@@ -15,10 +15,4 @@ export const chief = {
     "engineer",
     "setup",
   ],
-  capabilities: [
-    "trend-memory",
-    "content-calendar",
-    "campaign-memory",
-    "schedule-manager",
-  ],
 } satisfies AgentManifest;

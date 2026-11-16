@@ -50,7 +50,7 @@ void test("packages declared specialists as native Eve subagents", () => {
   for (const file of files.filter((file) =>
     file.path.endsWith("instructions.md"),
   )) {
-    assert.ok(file.contents.includes("files.write"), file.path);
+    assert.ok(file.contents.includes("as an artifact"), file.path);
     assert.ok(file.contents.includes("artifactIds"), file.path);
   }
   const paths = files.map((file) => file.path);

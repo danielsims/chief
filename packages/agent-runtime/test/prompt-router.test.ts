@@ -13,11 +13,8 @@ void test("a hosted cloud agent gets the full persona and the em-dash ban", () =
     deployment: "cloud",
   });
   assert.match(prompt.text, /small, durable code changes/u);
-  assert.match(prompt.text, /Never use em dashes/u);
-  assert.match(
-    prompt.text,
-    /Treat an agent's subject channel as where its work lives/u,
-  );
+  assert.match(prompt.text, /Don't use em dashes/u);
+  assert.match(prompt.text, /Channels are where work lives/u);
 });
 
 void test("browser and projects rules are trimmed when unlicensed", () => {
@@ -28,8 +25,8 @@ void test("browser and projects rules are trimmed when unlicensed", () => {
     permissions: ["channels.read", "messages.send"],
     deployment: "cloud",
   });
-  assert.doesNotMatch(prompt.text, /localTools\.browserOpen/u);
-  assert.doesNotMatch(prompt.text, /projectsCreateCheckout/u);
+  assert.doesNotMatch(prompt.text, /Use the browser for live web pages/u);
+  assert.doesNotMatch(prompt.text, /## Repository work/u);
 });
 
 void test("browser and projects rules appear when licensed", () => {
@@ -48,9 +45,8 @@ void test("browser and projects rules appear when licensed", () => {
   });
   // A cloud agent works in the workspace Git host, not local checkouts.
   assert.match(prompt.text, /projects_create/u);
-  assert.doesNotMatch(prompt.text, /projectsCreateCheckout/u);
-  assert.match(prompt.text, /Use the visible browser only/u);
-  assert.match(prompt.text, /owning conversation/u);
+  assert.doesNotMatch(prompt.text, /projects_create_checkout/u);
+  assert.match(prompt.text, /Use the browser for live web pages/u);
 });
 
 void test("the router reports the included parts for diagnostics", () => {
@@ -61,6 +57,6 @@ void test("the router reports the included parts for diagnostics", () => {
   });
   assert.ok(prompt.parts.length > 0);
   const ids = prompt.parts.map((part) => part.id);
-  assert.ok(ids.includes("tone.teammate"));
-  assert.ok(ids.includes("subject.channel"));
+  assert.ok(ids.includes("voice"));
+  assert.ok(ids.includes("channels-and-files"));
 });

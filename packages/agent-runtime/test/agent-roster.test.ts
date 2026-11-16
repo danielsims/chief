@@ -27,32 +27,19 @@ void test("the default Chief team includes a delegated product engineer", () => 
   );
 });
 
-void test("every agent receives the subject-channel operating model", () => {
+void test("every agent receives the shared operating model", () => {
   for (const agent of defaultAgents) {
     const instructions = composeWorkspaceInstructions(agent.instructions);
-    assert.match(instructions, /subject channel as where its work lives/u);
-    assert.match(instructions, /private channels such as `#welcome`/u);
-    assert.match(
-      instructions,
-      /always write a known workspace channel as its/u,
-    );
+    assert.match(instructions, /Begin on the request immediately/u);
     assert.match(instructions, /#channel-slug/u);
-    assert.match(instructions, /plugin tools\s+available in its runtime/u);
+    assert.match(instructions, /plugins_recommend/u);
     assert.match(
       instructions,
-      /MUST use the available channel\s+reaction tool to add 👀 before the first work tool/u,
+      /Chief adds 👀 to the message you're working on/u,
     );
     assert.match(
       instructions,
-      /first send one short message that\s+acknowledges it/u,
-    );
-    assert.doesNotMatch(instructions, /send the confirmation/u);
-    assert.doesNotMatch(instructions, /localTools\.pluginsList/u);
-    assert.match(instructions, /primary job is to advance the user's outcome/u);
-    assert.match(instructions, /last-resort handoff/u);
-    assert.match(
-      instructions,
-      /If nothing genuinely needs the user, raise no action/u,
+      /say in one specific line what you're about to do/u,
     );
   }
 });

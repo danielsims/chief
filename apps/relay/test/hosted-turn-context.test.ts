@@ -121,9 +121,6 @@ describe("hosted agent turn context", () => {
 
     expect(prospector).not.toContain("granola.ai");
     expect(prospector).not.toContain("notion.com");
-    expect(prospector).toContain(
-      "setup choices, not evidence about the product, market, or ideal customer",
-    );
     expect(setup).toContain("Requested connections: granola.ai, notion.com");
   });
 

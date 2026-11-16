@@ -40,6 +40,7 @@ import {
   parseChannelId,
   WorkspaceChannelStore,
 } from "./workspace-channel-store";
+import { workspaceChiefInstructions } from "./workspace-chief-instructions";
 import { databasesForConversation } from "./workspace-databases";
 import {
   decodeWorkspaceSnapshot,
@@ -486,7 +487,18 @@ export class WorkspaceAgentAccessService {
       return json({ runtime: null, managed: false });
     }
     const snapshot = decodeWorkspaceSnapshot(workspace.snapshot_json);
-    const agent = workspaceAgent(this.storage, agentId);
+    const stored = workspaceAgent(this.storage, agentId);
+    // Chief's identity follows the workspace's current kind and team.
+    const agent =
+      agentId === "chief"
+        ? {
+            ...stored,
+            instructions: workspaceChiefInstructions(
+              snapshot,
+              stored.subagents,
+            ),
+          }
+        : stored;
     await refreshMemberDisplayNames(this.storage, this.env);
     return json({
       managed: true,
@@ -495,6 +507,7 @@ export class WorkspaceAgentAccessService {
         id: snapshot.id,
         name: snapshot.name,
         website: snapshot.website,
+        purpose: snapshot.purpose,
         selectedApps: snapshot.selectedApps,
       },
       agent,

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 
@@ -26,11 +26,7 @@ import { DesktopAgentCell } from "./cells/desktop-cell.js";
 import { ensureCodexSetup } from "./drivers/codex-install.js";
 import { LocalStore } from "./local-store.js";
 import { PluginRuntime } from "./plugins/runtime.js";
-import {
-  localCellExecutionContext,
-  localCellInstructions,
-} from "./prompts/local-cell.js";
-import { relayCellHostInstructions } from "./prompts/relay-cell-tool-binding.js";
+import { localCellInstructions } from "./prompts/local-cell.js";
 import {
   activeSkillInstructions,
   relayCellFinalReply,
@@ -229,6 +225,9 @@ async function executeJob(
       workingDirectory: cellDirectory,
       homeDirectory: homedir(),
       project,
+      operatingSystem: operatingSystemName(),
+      provider: providerLabel(config.inference),
+      approvals: config.approvals,
     };
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
@@ -246,7 +245,6 @@ async function executeJob(
         instructions: localCellInstructions({
           identity: [
             definition.instructions,
-            relayCellHostInstructions,
             activeSkill
               ? activeSkillInstructions(activeSkill.instructions)
               : undefined,
@@ -258,6 +256,7 @@ async function executeJob(
             ? "direct"
             : "channel",
           workspaceContext: relayCellWorkspaceContext(job.payload, agentId),
+          unattended: job.kind === "schedule.step",
           ...executionContext,
         }),
       },
@@ -357,15 +356,12 @@ async function executeJob(
     );
     const promptContext = {
       threadRootId: activityContext.threadRootId,
-      privateInstructions: [
-        relayCellWorkspaceContext(job.payload, agentId),
-        localCellExecutionContext(executionContext),
+      // Workspace and execution facts are in the system prompt, which every
+      // provider re-applies when a job starts.
+      privateInstructions:
         job.kind === "conversation.message" || job.kind === "schedule.step"
           ? relayCellFinalReply(conversationId, activityContext.threadRootId)
-          : undefined,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
+          : "",
     };
     if (job.kind === "conversation.message") {
       steering = new RunSteering(
@@ -504,6 +500,26 @@ function normalizeDriver(driver: string): DriverType {
     return driver;
   }
   throw new Error(`The ${driver} provider cannot run in a desktop cell.`);
+}
+
+function operatingSystemName() {
+  const name = platform();
+  if (name === "darwin") return "macOS";
+  if (name === "win32") return "Windows";
+  if (name === "linux") return "Linux";
+  return name;
+}
+
+function providerLabel(inference: AgentConfig["inference"]) {
+  const name = {
+    claude: "Claude",
+    codex: "Codex",
+    opencode: "OpenCode",
+    "vercel-ai-gateway": "Vercel AI Gateway",
+  }[inference.provider];
+  return inference.model.toLowerCase() === "auto"
+    ? name
+    : `${name} (${inference.model})`;
 }
 
 async function drainMailbox(
