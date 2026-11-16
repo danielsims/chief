@@ -248,3 +248,24 @@ void test("full OpenCode sessions recover from malformed ambient config", () => 
   assert.equal(config.model, "model-id");
   assert.deepEqual(config.permission, { external_directory: "allow" });
 });
+
+void test("ACP advertises structured diagnostics when a harness supports notices", async () => {
+  let advertised: unknown;
+  await initializeOpenCodeSession(
+    { cwd: "/tmp", instructions: "Test", access: "guarded" },
+    undefined,
+    (method, params) => {
+      if (method === "initialize") {
+        advertised = params.clientCapabilities;
+        return Promise.resolve({ agentCapabilities: {} });
+      }
+      return Promise.resolve({ sessionId: "session-notices" });
+    },
+    { session: { notices: {} } },
+  );
+  assert.deepEqual(advertised, {
+    fs: { readTextFile: true, writeTextFile: true },
+    terminal: true,
+    session: { notices: {} },
+  });
+});

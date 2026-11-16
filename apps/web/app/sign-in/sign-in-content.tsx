@@ -107,7 +107,9 @@ export function SignInContent({ initial }: { initial: SignInContext }) {
     setSigningOut(true);
     setError(null);
     try {
-      await authClient.signOut();
+      const result = await authClient.signOut();
+      if (result.error)
+        throw new Error(result.error.message ?? "Sign out failed.");
     } catch (caught) {
       console.error("[SignIn] Sign out failed:", caught);
       setError("Chief could not sign you out. Try again.");
@@ -164,18 +166,46 @@ export function SignInContent({ initial }: { initial: SignInContext }) {
     return <main className="bg-background min-h-screen" />;
   }
 
+  const continueWithAccount = async () => {
+    if (!isNativeOAuthFlow) {
+      router.replace(callbackUrl);
+      return;
+    }
+    if (signingOut || loadingProvider) return;
+    setLoadingProvider("account");
+    setError(null);
+    try {
+      // Older native clients requested fresh authentication rather than account
+      // selection. Honor that request; only a new sign-in may clear prompt=login.
+      if (searchParams.get("prompt")?.split(" ").includes("login")) {
+        const result = await authClient.signOut();
+        if (result.error)
+          throw new Error(result.error.message ?? "Sign out failed.");
+        return;
+      }
+      const result = await authClient.oauth2.continue({ selected: true });
+      if (result.error)
+        throw new Error(result.error.message ?? "Sign-in could not continue.");
+    } catch {
+      setError("Sign-in could not continue. Try again.");
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
   // An existing browser session never signs the app in silently. The person
   // confirms the account, or signs out and picks another one.
-  if (account && !isAddingAccount && !loadingProvider) {
+  if (
+    account &&
+    !isAddingAccount &&
+    (!loadingProvider || loadingProvider === "account")
+  ) {
     return (
       <AccountChooser
         account={account}
         error={error}
-        onContinue={() =>
-          isNativeOAuthFlow
-            ? window.location.assign(authorizationCallback)
-            : router.replace(callbackUrl)
-        }
+        onContinue={() => void continueWithAccount()}
+        continuing={loadingProvider === "account"}
         onSignOut={() => void signOut()}
         signOutLabel={
           isNativeOAuthFlow ? "Use a different account" : "Sign out"
@@ -216,7 +246,9 @@ export function SignInContent({ initial }: { initial: SignInContext }) {
         setLoadingProvider(null);
         return;
       }
-      router.replace(authorizationCallback);
+      // The OAuth client continues signed native authorization when sign-in
+      // creates the session. Do not race it with another authorize request.
+      if (!isNativeOAuthFlow) router.replace(callbackUrl);
     } catch (caught) {
       console.error("[SignIn] Email authentication failed:", caught);
       setError(
@@ -361,6 +393,6 @@ function safeLocalPath(value: string | null) {
 
 function nativeAuthorizationCallback(searchParams: URLSearchParams) {
   const authorizationParams = new URLSearchParams(searchParams);
-  authorizationParams.delete("prompt");
+  // Signed OAuth parameters must survive unchanged until Better Auth consumes them.
   return `/api/auth/oauth2/authorize?${authorizationParams.toString()}`;
 }

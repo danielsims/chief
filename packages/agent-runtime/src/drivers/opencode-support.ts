@@ -92,6 +92,7 @@ export async function initializeOpenCodeSession(
   options: StartOptions,
   resumeSessionId: string | undefined,
   rpc: (method: string, params: JsonObject) => Promise<JsonValue | undefined>,
+  clientCapabilities: JsonObject = {},
 ) {
   const initialized = openCodeRecord(
     await rpc("initialize", {
@@ -99,6 +100,7 @@ export async function initializeOpenCodeSession(
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
+        ...clientCapabilities,
       },
       clientInfo: { name: "chief", version: "0.1.0" },
     }),

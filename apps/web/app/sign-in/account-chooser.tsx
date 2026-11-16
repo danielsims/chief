@@ -23,6 +23,7 @@ export function AccountChooser({
   onSignOut,
   signOutLabel,
   signingOut,
+  continuing = false,
   workspace,
 }: {
   account: SignInAccount;
@@ -31,6 +32,7 @@ export function AccountChooser({
   onSignOut: () => void;
   signOutLabel: string;
   signingOut: boolean;
+  continuing?: boolean;
   workspace: SignInWorkspace | null;
 }) {
   return (
@@ -65,13 +67,14 @@ export function AccountChooser({
         type="button"
         className={handoffPrimaryClassName}
         onClick={onContinue}
+        disabled={continuing || signingOut}
       >
-        Continue as {account.name}
+        {continuing ? "Continuing…" : `Continue as ${account.name}`}
       </button>
       <button
         type="button"
         className={handoffSecondaryClassName}
-        disabled={signingOut}
+        disabled={signingOut || continuing}
         onClick={onSignOut}
       >
         {signOutLabel}

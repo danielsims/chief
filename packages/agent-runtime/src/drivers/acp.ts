@@ -136,6 +136,7 @@ export class AcpDriver extends BaseDriver {
           params,
           method.startsWith("session/") ? SESSION_OPEN_TIMEOUT_MS : undefined,
         ),
+      this.runtime.clientCapabilities,
     );
     this.sessionId = initialized.sessionId;
     this.emitEvent({
@@ -326,6 +327,13 @@ export class AcpDriver extends BaseDriver {
   private sessionUpdate(params: JsonObject) {
     const update = record(params.update ?? params);
     const type = update.type ?? update.sessionUpdate;
+    if (type === "notice") {
+      // Provider diagnostics are operational logs, never assistant messages.
+      console.warn(
+        `[${this.runtime.name}] ${text([update.title], "Runtime notice")}${isJsonString(update.description) ? `: ${update.description}` : ""}`,
+      );
+      return;
+    }
     if (type === "usage_update") {
       if (isJsonNumber(update.used))
         this.recordContextUsage(
