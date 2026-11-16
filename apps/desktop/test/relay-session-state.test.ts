@@ -186,3 +186,33 @@ void test("refocus refresh preserves the live client but workspace/account chang
     next.client,
   );
 });
+
+void test("recovery retains HTTP failures and clears them on a new attempt", () => {
+  const initial = {
+    accountId: "account-one",
+    client: null,
+    snapshot: null,
+    workspaces: [],
+    loading: true,
+    error: null,
+  };
+  const rejected = failRelayConnection(
+    initial,
+    "account-one",
+    "Rejected",
+    "foreground",
+    401,
+  );
+  assert.equal(rejected.errorStatus, 401);
+  const retry = beginRelayConnection(rejected, "account-one");
+  assert.equal(retry.errorStatus, undefined);
+  assert.equal(retry.error, null);
+  assert.equal(retry.loading, true);
+  const unavailable = failRelayConnection(
+    rejected,
+    "account-one",
+    "Timed out",
+    "foreground",
+  );
+  assert.equal(unavailable.errorStatus, undefined);
+});

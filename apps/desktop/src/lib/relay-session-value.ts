@@ -13,6 +13,7 @@ export interface RelaySessionValue {
   workspaces: WorkspaceSummary[];
   loading: boolean;
   error: string | null;
+  errorStatus?: number;
   recoveryWorkspace: WorkspaceSummary | null;
   refresh: () => Promise<void>;
   returnToPreviousWorkspace: () => Promise<void>;

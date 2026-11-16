@@ -18,12 +18,19 @@ export const handoffSecondaryClassName =
 export function HandoffCard({
   brand,
   children,
+  className,
 }: {
   brand: ReactNode;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <main className="bg-background text-foreground flex min-h-screen w-full items-center justify-center px-4 py-16">
+    <main
+      className={cn(
+        "bg-background text-foreground flex min-h-screen w-full items-center justify-center px-4 py-16",
+        className,
+      )}
+    >
       <div className="bg-card w-full max-w-[420px] rounded-2xl p-8 shadow-[0_0_0_1px_var(--border),0_12px_32px_-16px_rgba(0,0,0,0.35)]">
         <div className="mb-9 [&>*]:size-6">{brand}</div>
         {children}
