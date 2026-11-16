@@ -8,8 +8,13 @@ export function useRunningChats(): Record<string, boolean> {
   const [running, setRunning] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    // A reaction or edit resends a message that is already here; only a new
+    // message starts work.
+    const seen = new Set<string>();
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "message" && message.message.role === "user") {
+        if (seen.has(message.message.id)) return;
+        seen.add(message.message.id);
         setRunning((current) => ({
           ...current,
           [message.chatId]: true,

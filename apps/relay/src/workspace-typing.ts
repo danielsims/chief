@@ -7,7 +7,7 @@ import { workspaceSocketAttachment } from "./workspace-socket-state";
 import { isWebMachine } from "./workspace-web-machine";
 
 /**
- * Fans a person's typing signal out to the other people watching that
+ * Fans a person's typing signal out to the other people who can read that
  * conversation. Nothing is stored; receivers expire it on their own.
  */
 export function relayConversationTyping(
@@ -35,12 +35,15 @@ export function relayConversationTyping(
     if (peer === socket || isWebMachine(ctx, peer)) continue;
     try {
       const reader = workspaceSocketAttachment(peer);
+      // Anyone who can read the conversation hears it, so a sidebar can show
+      // typing in a conversation that is not open.
       if (
         !reader.subscribed ||
         !reader.typing ||
         reader.principal.kind !== "user" ||
         reader.principal.userId === userId ||
-        !reader.conversationIds.includes(conversationId)
+        (!reader.conversationIds.includes(conversationId) &&
+          !channels.canReadConversation(conversationId, reader.principal))
       )
         continue;
       peer.send(event);

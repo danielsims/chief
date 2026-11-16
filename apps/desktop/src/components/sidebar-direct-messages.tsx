@@ -35,6 +35,7 @@ import {
   readSidebarDirectMessagesCache,
   writeSidebarDirectMessagesCache,
 } from "../lib/sidebar-direct-messages-cache";
+import { useWorkspaceTyping } from "../lib/use-channel-typing";
 import { useIsOwnAgent } from "../lib/use-messageable-agents";
 import { useWorkspacePresence } from "../lib/use-workspace-presence";
 import {
@@ -43,8 +44,8 @@ import {
 } from "../lib/workspace-channels";
 import { useWorkspaceChannels } from "../lib/workspace-channels-context";
 import { AgentAvatar } from "./agent-avatar";
+import { AgentMatrixLoader } from "./agent-color";
 import { AttentionPill } from "./attention-pill";
-import { agentLoaderColor } from "./chat/agent-activity-presence";
 import { useWorkspaceUsers } from "./chat/mention-people-context";
 import { NewDirectMessageDialog } from "./new-direct-message-dialog";
 import { WithPresence } from "./presence-dot";
@@ -171,10 +172,10 @@ export function DirectMessageRow({
         )}
       >
         {working ? (
-          <MatrixLoader
+          <AgentMatrixLoader
+            agentId={agentId}
             ariaLabel={`${identity.name} is working`}
             className="text-sidebar-foreground [&_.matrix-loader-cell]:rounded-[24%]"
-            color={agentLoaderColor(agentId)}
             size={16}
           />
         ) : (
@@ -368,6 +369,7 @@ export function SidebarDirectMessages({
   const { user, cloudOrganizationId } = useAuth();
   const workspaceUsers = useWorkspaceUsers();
   const { agentPresence, userOnline } = useWorkspacePresence();
+  const typing = useWorkspaceTyping();
   const { channels } = useWorkspaceChannels();
   // Painted until channels, members and history arrive, so launch shows the
   // same rows in the same order instead of filling in over a few seconds.
@@ -444,16 +446,24 @@ export function SidebarDirectMessages({
               "text-sidebar-foreground font-semibold",
           )}
         >
-          <WithPresence
-            presence={userOnline(direct.userId) ? "online" : "offline"}
-            dotClassName={SIDEBAR_DOT}
-          >
-            <UserAvatar
-              name={direct.name}
-              image={direct.image}
-              className="size-4 text-[8px]"
+          {typing.has(`${direct.channelId}:${direct.userId}`) ? (
+            <MatrixLoader
+              ariaLabel={`${direct.name} is typing`}
+              className="text-sidebar-foreground [&_.matrix-loader-cell]:rounded-[24%]"
+              size={16}
             />
-          </WithPresence>
+          ) : (
+            <WithPresence
+              presence={userOnline(direct.userId) ? "online" : "offline"}
+              dotClassName={SIDEBAR_DOT}
+            >
+              <UserAvatar
+                name={direct.name}
+                image={direct.image}
+                className="size-4 text-[8px]"
+              />
+            </WithPresence>
+          )}
           <span className="min-w-0 flex-1 truncate">{direct.name}</span>
           {unread > 0 ? (
             <span

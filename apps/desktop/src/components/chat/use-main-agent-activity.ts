@@ -41,18 +41,20 @@ export function useMainAgentActivity({
       (channelAgentIds?.length === 1 ? channelAgentIds[0] : undefined) ??
       (!channelAgentIds ? "chief" : undefined);
     const rootAgentId = activeRootTurn?.agentId ?? fallbackRootAgentId;
-    // An agent DM answers every message in its own thread, so its working
-    // state belongs under the main composer, not on the thread.
-    const includeThreads = Boolean(directAgentId);
+    // Work in a thread shows on that thread, so the main composer only shows
+    // work on the conversation itself. The relay's run rows say exactly where
+    // an agent works; the conversation-wide guess is only for agents without
+    // them.
     const root =
       running &&
-      (includeThreads || !activeRootTurn?.threadRootId) &&
+      workingAgents.length === 0 &&
+      !activeRootTurn?.threadRootId &&
       rootAgentId
         ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
         : undefined;
     return mergeAgentActivityPresence(root, [
       ...workingAgents
-        .filter((agent) => includeThreads || !agent.threadRootId)
+        .filter((agent) => !agent.threadRootId)
         .map((agent) => ({
           id: agent.agentId,
           label: activityAgentName(agent.agentId),

@@ -10,6 +10,7 @@ import type { ConversationActivityTurn } from "./conversation-activity-history";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import { useRuntime } from "../../lib/runtime";
 import { AgentAvatar } from "../agent-avatar";
+import { ActivityTurnRow } from "./activity-turn-row";
 import {
   ConversationAuxiliaryPanel,
   ConversationAuxiliaryPanelBody,
@@ -17,7 +18,6 @@ import {
 } from "./conversation-auxiliary-panel";
 import { relativeActivityTime } from "./relative-activity-time";
 import { taskAgentLabel } from "./specialist-task-card";
-import { ToolActivityGroup } from "./tool-activity-group";
 
 interface AgentActivity {
   id: string;
@@ -64,6 +64,9 @@ export function AgentActivityPanel({
   const { agents } = useRuntime();
   const roster = agents.flatMap((agent) => [agent, ...(agent.subagents ?? [])]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedTurns, setExpandedTurns] = useState<
+    ReadonlyMap<string, boolean>
+  >(new Map());
   const groups = new Map<string, AgentActivity>();
   const groupFor = (id: string) => {
     let group = groups.get(id);
@@ -234,51 +237,43 @@ export function AgentActivityPanel({
                 const working = job
                   ? job.status === "running" || job.status === "waiting"
                   : selected.running && index === 0;
+                const failed = job?.status === "failed" || Boolean(turn.error);
                 return (
-                  <section key={turn.id} className="border-border border-b">
-                    <div className="flex items-start gap-3 px-4 pt-3 pb-2">
-                      <p className="min-w-0 flex-1 text-sm leading-5">
-                        {turn.prompt || "Agent activity"}
-                      </p>
-                      <time className="text-muted-foreground shrink-0 pt-0.5 text-xs">
-                        {relativeActivityTime(turn.updatedAt ?? turn.startedAt)}
-                      </time>
-                    </div>
-                    {turn.blocks.length > 0 ? (
-                      <ToolActivityGroup
-                        flat
-                        blocks={turn.blocks}
-                        toolTimes={turn.toolTimes}
-                        active={working}
-                      />
-                    ) : null}
-                    {job?.status === "failed" ? (
-                      <div className="px-4 pb-3">
+                  <ActivityTurnRow
+                    key={turn.id}
+                    prompt={turn.prompt}
+                    at={turn.updatedAt ?? turn.startedAt}
+                    blocks={turn.blocks}
+                    toolTimes={turn.toolTimes}
+                    working={working}
+                    failed={failed && !working}
+                    // A run in progress opens by itself; the person can still
+                    // close it, and any other run opens when chosen.
+                    expanded={expandedTurns.get(turn.id) ?? working}
+                    onToggle={() =>
+                      setExpandedTurns((current) =>
+                        new Map(current).set(
+                          turn.id,
+                          !(current.get(turn.id) ?? working),
+                        ),
+                      )
+                    }
+                    notice={
+                      job?.status === "failed" ? (
                         <ActivityNotice
                           title="Run stopped"
                           message={
                             job.error ?? "The run ended before it finished."
                           }
                         />
-                      </div>
-                    ) : turn.error && !working ? (
-                      <div className="px-4 pb-3">
+                      ) : turn.error && !working ? (
                         <ActivityNotice
                           title={turn.error.title}
                           message={turn.error.message}
                         />
-                      </div>
-                    ) : working ? (
-                      <p className="text-muted-foreground flex items-center gap-2 px-4 pb-3 text-xs">
-                        <LoaderCircle size={12} className="animate-spin" />
-                        Working…
-                      </p>
-                    ) : turn.blocks.length === 0 ? (
-                      <p className="text-muted-foreground px-4 pb-3 text-xs">
-                        Answered without using tools.
-                      </p>
-                    ) : null}
-                  </section>
+                      ) : undefined
+                    }
+                  />
                 );
               })}
             {!localTasks(selected.tasks).length && !selected.turns.length ? (

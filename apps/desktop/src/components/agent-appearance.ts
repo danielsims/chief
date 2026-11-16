@@ -4,13 +4,18 @@ import type { AgentAvatar as Avatar } from "@chief/relay-contracts";
 
 import type { AgentAppearance, ProviderMark } from "./agent-avatar";
 import { agentProviderBrand } from "../lib/agent-provider-brand";
+import { providerBrandColors } from "./agent-color";
 
 const openCode: ProviderMark = {
   Mark: OpenCode,
   tileClassName: "bg-white text-black",
 };
 const providerMarks: Partial<Record<string, ProviderMark>> = {
-  claude: { Mark: Claude, tileClassName: "bg-[#D97757] text-white" },
+  claude: {
+    Mark: Claude,
+    tileClassName: "bg-[#D97757] text-white",
+    color: providerBrandColors.claude,
+  },
   codex: { Mark: OpenAI, tileClassName: "bg-white text-black" },
   opencode: openCode,
 };
