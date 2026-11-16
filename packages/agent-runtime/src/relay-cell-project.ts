@@ -24,11 +24,11 @@ export async function localJobProject(
   const connected = bindings.filter((entry) =>
     projects.some((project) => project.id === entry.projectId),
   );
+  // Only work assigned to a project runs in a checkout. Agents create one
+  // themselves when a conversation turns into repository work.
   const selected = explicitProjectId
     ? connected.find((entry) => entry.projectId === explicitProjectId)
-    : connected.length === 1
-      ? connected[0]
-      : undefined;
+    : undefined;
   if (explicitProjectId && !selected)
     throw new LocalJobBlockedError(
       "Connect this project's repository on this Mac in Projects before assigning local engineering work.",
