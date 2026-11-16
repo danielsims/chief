@@ -64,7 +64,7 @@ export async function connectAgentMailboxWebSocket(
       "The socket ticket does not belong to this agent.",
     );
   }
-  if (!(await currentAgentIdentity(env, principal))) {
+  if ((await currentAgentIdentity(env, principal)) !== "authorized") {
     return relayError(
       403,
       "agent_revoked",
@@ -81,7 +81,7 @@ export async function connectAgentMailboxWebSocket(
 }
 
 async function currentAgentIdentity(env: Env, principal: Principal) {
-  if (principal.kind !== "agent") return false;
+  if (principal.kind !== "agent") return "revoked";
   const response = await workspaceStub(env, principal.workspaceId).fetch(
     withTrustedContext(
       new Request("https://workspace.internal", {
@@ -95,9 +95,10 @@ async function currentAgentIdentity(env: Env, principal: Principal) {
       },
     ),
   );
-  const authorized = response.ok;
   await releaseInternalResponse(response);
-  return authorized;
+  if (response.ok) return "authorized";
+  // Only a refusal is a revocation. A failed check proves nothing either way.
+  return [401, 403, 404].includes(response.status) ? "revoked" : "unknown";
 }
 
 /** Revalidate saved socket identities, including tickets issued before rotation. */
@@ -112,18 +113,20 @@ export async function deliverAgentMailboxSocketEvent(
   const serialized = JSON.stringify(event);
   await Promise.all(
     sockets.map(async (socket) => {
-      try {
-        const principal = principalSchema.parse(
-          parseJsonObject(socket.deserializeAttachment())?.principal,
-        );
-        if (!(await currentAgentIdentity(env, principal))) {
-          socket.close(1008, "Agent identity revoked");
-          return;
-        }
-        socket.send(serialized);
-      } catch {
+      const principal = principalSchema.safeParse(
+        parseJsonObject(socket.deserializeAttachment())?.principal,
+      );
+      if (!principal.success) {
         socket.close(1008, "Agent access must be renewed");
+        return;
       }
+      // The mailbox keeps the event, so skipping a notice while the identity
+      // check is unavailable loses nothing and keeps a healthy agent online.
+      const identity = await currentAgentIdentity(env, principal.data).catch(
+        () => "unknown" as const,
+      );
+      if (identity === "revoked") socket.close(1008, "Agent identity revoked");
+      else if (identity === "authorized") socket.send(serialized);
     }),
   );
 }
