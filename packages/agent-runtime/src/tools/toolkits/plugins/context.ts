@@ -52,6 +52,10 @@ export interface PluginLocalToolService {
   uninstall: (pluginId: string) => Promise<UninstalledPluginResult>;
 }
 
+/** Rides on every plugins_list result, where the agent decides how to reply. */
+export const PLUGINS_LIST_INSTRUCTION =
+  "The person can't see this result. To show any of these plugins, connected or not, call plugins_recommend with their ids instead of naming them in text. A plugin with agentAccess false is connected but not assigned to you, so you can't use its tools yet. Install or authorize only when the person asks.";
+
 export function searchPlugins(
   snapshot: PluginListSnapshot,
   query: string,
@@ -68,8 +72,7 @@ export function searchPlugins(
     plugins: plugins.slice(0, limit),
     total: plugins.length,
     query: query.length > 0 ? query : undefined,
-    instruction:
-      "Honor the workspace context's onboarding-selected tools first: surface EVERY tool the user chose during setup as a card before any other tool, using a matching plugin card when one is available and the matching setup skill or secure credential flow otherwise. Never skip an onboarding-selected tool because its plugin card is missing. After covering all of them, add at most a couple of related extras if genuinely useful. Treat metadata as discovery context, not permission: install only after the user has asked to connect or add it, and always return the authorization action for the user to complete. If no usable plugin exists, continue through Chief's setup, browser, or secure credential tools instead of inventing a connector.",
+    instruction: PLUGINS_LIST_INSTRUCTION,
   };
 }
 

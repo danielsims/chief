@@ -52,6 +52,7 @@ export const pluginRecommendationPayloadSchema = z
     status: pluginStatusSchema,
     enabled: z.boolean(),
     trusted: z.boolean(),
+    agentAccess: z.boolean().optional(),
     homepage: z.url().max(2_048).optional(),
     iconUrl: z.url().max(2_048).optional(),
     domain: z.string().trim().min(1).max(253).optional(),

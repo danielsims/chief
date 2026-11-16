@@ -60,6 +60,8 @@ export interface AgentPluginToolInput {
 
 export interface AgentPluginSummary extends AgentPluginCatalogEntry {
   status: AgentPluginStatus;
+  /** Whether the authoring agent is assigned to this workspace connection. */
+  agentAccess?: boolean;
   installedAt?: number;
   enabled: boolean;
   trusted: boolean;

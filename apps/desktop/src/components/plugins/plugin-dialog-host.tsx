@@ -5,12 +5,15 @@ import { usePlugins } from "../../lib/runtime-plugins";
 import { usePluginConnectFlow } from "./plugin-connect-flow";
 
 const OPEN_PLUGIN_EVENT = "chief:open-plugin";
-const openPluginSchema = z.object({ pluginId: z.string() });
+const openPluginSchema = z.object({
+  pluginId: z.string(),
+  step: z.literal("agents").optional(),
+});
 
 /** Opens a plugin's dialog over whatever screen is showing, without navigating. */
-export function openPluginDialog(pluginId: string) {
+export function openPluginDialog(pluginId: string, step?: "agents") {
   window.dispatchEvent(
-    new CustomEvent(OPEN_PLUGIN_EVENT, { detail: { pluginId } }),
+    new CustomEvent(OPEN_PLUGIN_EVENT, { detail: { pluginId, step } }),
   );
 }
 
@@ -23,7 +26,7 @@ export function PluginDialogHost() {
     const opened = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
       const input = openPluginSchema.safeParse(event.detail);
-      if (input.success) open(input.data.pluginId);
+      if (input.success) open(input.data.pluginId, input.data.step);
     };
     window.addEventListener(OPEN_PLUGIN_EVENT, opened);
     return () => window.removeEventListener(OPEN_PLUGIN_EVENT, opened);

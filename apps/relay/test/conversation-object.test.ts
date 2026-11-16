@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { JsonObject } from "@chief/relay-contracts";
+import { recommendationPayload } from "@chief/agent-runtime/local-tools";
 import {
   agentIdSchema,
   appendMessageCommandSchema,
@@ -20,6 +21,54 @@ const conversationId = "general";
 const agentId = agentIdSchema.parse("advertising");
 
 describe("ConversationObject", () => {
+  it.each([true, false])(
+    "accepts a connected plugin card with agentAccess %s",
+    async (agentAccess) => {
+      const payload = recommendationPayload(
+        {
+          id: "notion-com",
+          name: "Notion",
+          description: "Pages and databases.",
+          category: "Productivity",
+          source: {
+            type: "discovery",
+            registry: "integrations.sh",
+            domain: "notion.so",
+          },
+          status: "connected",
+          enabled: true,
+          trusted: true,
+          agentAccess,
+        },
+        { workspaceId, conversationId, agentId },
+      );
+      const response = await post(
+        conversationStub(`plugin-access-${agentAccess}`),
+        appendCommand({
+          commandId: crypto.randomUUID(),
+          messageId: crypto.randomUUID(),
+          components: [
+            {
+              id: crypto.randomUUID(),
+              kind: "plugin.recommendation",
+              version: 1,
+              payload,
+            },
+          ],
+        }),
+        true,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        message: {
+          components: [
+            { kind: "plugin.recommendation", payload: { agentAccess } },
+          ],
+        },
+      });
+    },
+  );
+
   it("loads a notification thread root directly and returns 404 for a missing root", async () => {
     const stub = conversationStub("notification-root");
     await post(
