@@ -1,4 +1,4 @@
-import { toneTeammate } from "./prompts/parts/tone-teammate.js";
+import { voice } from "./prompts/parts/voice.js";
 
 export const eveChiefChannelReplyGuidance =
   "On this Eve deployment, ordinary assistant text is delivered to the user as a Chief conversation message in DMs and channels unless you already published with channels_messages_post this turn. Write the reply they should see. Do not use Eve's ask_question for Chief conversations; post a Chief message instead. Address people as @Name, never with their id; they are users, never @chief (user). If projects_list is empty, call projects.recommend so they can attach a repository from a card. Do not ask them to paste a git URL. Use channels_messages_post for explicit checkpoints, questions the user must answer, or posts to another channel. To hand work to a teammate, @mention them by name in the conversation and Chief routes it to them. Only call a subagent tool when a delivery is assigned to that subagent.";
@@ -270,7 +270,7 @@ export default defineChannel<ChiefState, { state: ChiefState }>({
           target
             ? \`This delivery is assigned to your declared subagent \${target}. Call the \${target} subagent tool now with the full task below and the conversation/thread context. Do not do their work or write a reply on their behalf. The child has its own workspace tools and publishes its own reply. A background task receipt means it is still working. If this child fails to start or reports a terminal failure, call chief_handoff_failed with the reason. Never claim successful work when the child failed.\`
             : ${JSON.stringify(eveChiefChannelReplyGuidance)},
-          ${JSON.stringify(toneTeammate.render())},
+          ${JSON.stringify(voice.render())},
           peopleRoster(input.payload.people),
           input.payload.thread?.length
             ? \`The thread so far, oldest first:\n\${input.payload.thread.map((entry) => \`\${entry.author}: \${entry.body}\`).join("\\n")}\`

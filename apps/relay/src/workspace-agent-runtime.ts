@@ -6,6 +6,20 @@ import { workspaceFindWorkspaceAgent } from "./queries/workspace/find-workspace-
 import { firstRow } from "./workspace-channel-store";
 import { decodeWorkspaceSnapshot } from "./workspace-defaults";
 
+/** The facts every agent run is told about its workspace. */
+export function workspaceRunFacts(storage: DurableObjectStorage) {
+  const row = firstRow<
+    { snapshot_json: string | null } & Record<string, SqlStorageValue>
+  >(workspaceFindWorkspaceAgent(storage));
+  if (!row?.snapshot_json) return {};
+  const snapshot = decodeWorkspaceSnapshot(row.snapshot_json);
+  return {
+    name: snapshot.name,
+    ...(snapshot.purpose ? { purpose: snapshot.purpose } : undefined),
+    ...(snapshot.website ? { website: snapshot.website } : undefined),
+  };
+}
+
 export function workspaceAgent(
   storage: DurableObjectStorage,
   agentId: string,

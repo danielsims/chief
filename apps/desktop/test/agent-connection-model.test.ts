@@ -55,7 +55,7 @@ void test("Eve deployment restores the canonical repository instructions for bun
 
   assert.match(
     instructions,
-    /You are Chief, this workspace's lead operator\./u,
+    /You are Chief, the lead agent in this workspace\./u,
   );
   assert.match(instructions, /## Your team/u);
 });

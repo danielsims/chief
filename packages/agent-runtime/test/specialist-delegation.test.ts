@@ -70,8 +70,7 @@ void test("an initial review creates one Marketer despite rewritten concurrent c
     value(this: AgentSession, text: string) {
       prompts += 1;
       assert.equal(
-        this.agent.instructions.match(/Reactions are real agent actions/gu)
-          ?.length,
+        this.agent.instructions.match(/Chief adds 👀 to the message/gu)?.length,
         1,
       );
       this.recordUserMessage(text);
