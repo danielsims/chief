@@ -1,22 +1,48 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { verificationRuntime } from "./verification-runtime.mjs";
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appBundle = resolve(
   process.env.CHIEF_APP_BUNDLE_PATH ??
     join(desktopRoot, "src-tauri/target/release/bundle/macos/Chief.app"),
 );
-const appRoot = join(appBundle, "Contents");
-const runtimeRoot = join(appRoot, "Resources/agent-runtime");
-const executable = join(appRoot, "MacOS/chief-agent-runtime");
+const runtime = await verificationRuntime(
+  appBundle,
+  join(desktopRoot, "src-tauri"),
+);
+const runtimeRoot = runtime.root;
+const executable = runtime.executable;
 const worker = join(runtimeRoot, "dist/plugin-host-worker.mjs");
+const cellWorker = join(runtimeRoot, "dist/relay-cell-worker.mjs");
 
-if (!existsSync(executable) || !existsSync(worker)) {
-  throw new Error("The packaged Chief plugin runtime is missing.");
+if (!existsSync(executable) || !existsSync(worker) || !existsSync(cellWorker)) {
+  runtime.cleanup();
+  throw new Error("The packaged Chief runtime is missing.");
+}
+
+// Test actual native imports after final signing, with an isolated database and
+// no relay connection or account credentials. The plugin host alone misses this.
+const cellRoot = mkdtempSync(join(tmpdir(), "chief-packaged-cell-"));
+try {
+  execFileSync(executable, [cellWorker, "smoke"], {
+    cwd: runtimeRoot,
+    env: { ...process.env, CHIEF_CELL_ROOT: cellRoot },
+    stdio: "inherit",
+    timeout: 30_000,
+  });
+  console.log("Signed agent worker loaded its native database successfully.");
+} catch (error) {
+  runtime.cleanup();
+  throw error;
+} finally {
+  rmSync(cellRoot, { recursive: true, force: true });
 }
 
 const port = await availablePort();
@@ -45,6 +71,7 @@ try {
   console.log("Packaged Chief plugin host passed its signed runtime check.");
 } finally {
   await stopChild(child);
+  runtime.cleanup();
 }
 
 function availablePort() {
