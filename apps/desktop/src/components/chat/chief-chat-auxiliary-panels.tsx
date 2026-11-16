@@ -187,8 +187,11 @@ export function ChiefChatAuxiliaryPanels({
   const threadActivityAgents = useMemo(() => {
     const activityAgentName = (agentId: string) =>
       workspaceAgentName(agentId, roster) ?? agentId;
+    // The relay's run rows say exactly which thread an agent works in; the
+    // conversation-wide guess is only for agents without them.
     const root =
       controls.status === "running" &&
+      controls.workingAgents.length === 0 &&
       activeRootTurn?.threadRootId === threadRootId
         ? {
             id: activeRootTurn.agentId,
@@ -228,7 +231,7 @@ export function ChiefChatAuxiliaryPanels({
       threadRootId
         ? activityTurns.filter((turn) => turn.threadRootId === threadRootId)
         : [],
-    [activityTurns, threadAgent, threadRootId],
+    [activityTurns, threadRootId],
   );
   const threadActivitySteps = threadActivityTurns.reduce(
     (count, turn) =>

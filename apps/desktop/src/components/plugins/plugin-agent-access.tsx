@@ -16,6 +16,7 @@ export interface PluginAccessAgent {
   disabledReason?: string;
 }
 
+const accessChanged = "chief:plugin-access-changed";
 const accessCache = new WeakMap<
   RelayClient,
   Map<string, McpConnectionAccess>
@@ -34,6 +35,7 @@ function rememberAccess(
     accessCache.set(client, values);
   }
   values.set(id, value);
+  window.dispatchEvent(new Event(accessChanged));
 }
 
 /** Uses the narrowly scoped API so members can manage their own agents. */
@@ -54,6 +56,11 @@ export function usePluginAgentAccess(connectionId: string) {
   const pending = useRef(0);
   useEffect(() => {
     let active = true;
+    const changed = () => {
+      const data = cachedAccess(client, connectionId);
+      if (data) setResult({ client, connectionId, data, error: "" });
+    };
+    window.addEventListener(accessChanged, changed);
     if (client && connectionId)
       void client.plugins
         .access(connectionId)
@@ -75,6 +82,7 @@ export function usePluginAgentAccess(connectionId: string) {
         });
     return () => {
       active = false;
+      window.removeEventListener(accessChanged, changed);
     };
   }, [client, connectionId]);
   const agents: PluginAccessAgent[] = (data?.agents ?? []).map((agent) => ({

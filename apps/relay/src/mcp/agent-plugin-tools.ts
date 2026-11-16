@@ -17,7 +17,7 @@ import { releaseInternalResponse } from "../internal-response";
 
 const maximumBoundTools = 96;
 
-async function workspacePlugins(
+export async function workspacePlugins(
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,

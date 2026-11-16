@@ -47,6 +47,7 @@ export function usePluginConnectFlow(
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailStep, setDetailStep] = useState<"agents" | undefined>();
   const [addingServer, setAddingServer] = useState(false);
   const detail = detailId
     ? (plugins.plugins?.find((plugin) => plugin.id === detailId) ?? null)
@@ -128,6 +129,7 @@ export function usePluginConnectFlow(
     <>
       <PluginDetailDialog
         plugin={detail}
+        initialStep={detailStep}
         busy={Boolean(detail && plugins.busyPluginId === detail.id)}
         error={detail ? errors[detail.id] : undefined}
         onClose={() => setDetailId(null)}
@@ -210,7 +212,10 @@ export function usePluginConnectFlow(
   );
 
   return {
-    open: setDetailId,
+    open: useCallback((pluginId: string, step?: "agents") => {
+      setDetailStep(step);
+      setDetailId(pluginId);
+    }, []),
     addServer: () => setAddingServer(true),
     install,
     authorize,

@@ -4,8 +4,8 @@ import { definePromptPart } from "./define.js";
 export const unattendedRuns = definePromptPart({
   id: "unattended-runs",
   summary: "Unattended runs can end with one machine-readable question.",
-  when: (ctx: PromptContext) =>
-    ctx.unattended === true || ctx.includeAll === true,
+  // Only a run nobody is watching, even when every other part is included.
+  when: (ctx: PromptContext) => ctx.unattended === true,
   render: () => `## Unattended runs
 
 No one is watching this run, so complete as much as you can on your own.

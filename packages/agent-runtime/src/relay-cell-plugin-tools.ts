@@ -1,40 +1,23 @@
-import type { AgentPluginSummary } from "@chief/plugin-api";
 import type { RelayClient } from "@chief/relay-client";
-import type { JsonObject, McpConnection } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   parseJsonString,
 } from "@chief/relay-contracts";
 
+import {
+  recommendationPayload,
+  resolvePlugins,
+  workspacePluginCatalog,
+} from "./plugin-recommendation.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { deterministicUuid } from "./relay-cell-ids.js";
 import { searchPlugins } from "./tools/toolkits/plugins/context.js";
 import { listPluginsDefinition } from "./tools/toolkits/plugins/list-plugins.js";
+import { recommendPluginsDefinition } from "./tools/toolkits/plugins/recommend-plugins.js";
 
 /** The catalog, for finding plugins nobody has installed yet. */
 const plugins = new PluginRuntime(() => undefined);
-
-type WorkspacePlugin = AgentPluginSummary & {
-  /** Set once the workspace has connected it in the relay. */
-  connectionId?: string;
-  toolCount?: number;
-  /** Whether this agent may use it; connected alone isn't enough. */
-  agentAccess?: boolean;
-};
-
-function connectionStatus(connection: McpConnection) {
-  return connection.status === "connected"
-    ? ("connected" as const)
-    : connection.status === "needs_auth"
-      ? ("authorization_required" as const)
-      : ("error" as const);
-}
-
-function catalogDomain(plugin: AgentPluginSummary) {
-  return plugin.source.type === "discovery" || plugin.source.type === "setup"
-    ? plugin.source.domain
-    : plugin.domains?.[0];
-}
 
 /**
  * The workspace's plugins as the relay holds them, over the catalog. The
@@ -49,48 +32,9 @@ async function workspacePlugins(
     plugins.snapshot(context.workspaceId, refresh),
     context.client.plugins.list(),
   ]);
-  const workspaceEntry = (connection: McpConnection) => ({
-    status: connectionStatus(connection),
-    connectionId: connection.id,
-    toolCount: connection.tools.length,
-    agentAccess: connection.assignedToYou === true,
-  });
-  const matched = new Set<string>();
-  const catalog: WorkspacePlugin[] = snapshot.plugins.map((plugin) => {
-    const domain = catalogDomain(plugin)?.toLowerCase();
-    const connection = connections.find(
-      (item) =>
-        item.catalogId === plugin.id ||
-        (domain !== undefined && item.domain?.toLowerCase() === domain),
-    );
-    if (!connection) return { ...plugin, status: "available" };
-    matched.add(connection.id);
-    return { ...plugin, ...workspaceEntry(connection) };
-  });
-  const custom: WorkspacePlugin[] = connections
-    .filter((connection) => !matched.has(connection.id))
-    .map((connection) => ({
-      id: connection.catalogId ?? connection.id,
-      name: connection.name,
-      description: connection.description,
-      category: "Other",
-      source: {
-        type: "setup",
-        domain: connection.domain ?? new URL(connection.url).hostname,
-      },
-      enabled: true,
-      trusted: true,
-      ...workspaceEntry(connection),
-    }));
-  const installed = [...custom, ...catalog].filter(
-    (plugin) => plugin.connectionId,
-  );
   return {
     ...snapshot,
-    plugins: [
-      ...installed,
-      ...catalog.filter((plugin) => !plugin.connectionId),
-    ],
+    plugins: workspacePluginCatalog(snapshot.plugins, connections),
   };
 }
 
@@ -107,36 +51,6 @@ function optionalString(input: JsonObject, key: string) {
   const value = input[key];
   const parsed = parseJsonString(value)?.trim();
   return parsed === "" ? undefined : parsed;
-}
-
-function recommendationPayload(
-  plugin: AgentPluginSummary,
-  placement: {
-    workspaceId: string;
-    conversationId: string;
-    threadRootId?: string;
-    agentId: string;
-    rationale?: string;
-  },
-) {
-  const domain =
-    plugin.source.type === "discovery" || plugin.source.type === "setup"
-      ? plugin.source.domain
-      : plugin.domains?.[0];
-  return {
-    ...placement,
-    pluginId: plugin.id,
-    name: plugin.name,
-    description: plugin.description,
-    category: plugin.category,
-    sourceType: plugin.source.type,
-    status: plugin.status,
-    enabled: plugin.enabled,
-    trusted: plugin.trusted,
-    homepage: plugin.homepage,
-    iconUrl: plugin.iconUrl,
-    domain,
-  };
 }
 
 export async function callPluginTool(
@@ -168,24 +82,17 @@ export async function callPluginTool(
     const threadRootId = optionalString(input, "threadRootId");
     const rationale = requiredString(input, "content");
     const idempotencyKey = requiredString(input, "idempotencyKey");
-    const requested = Array.isArray(input.pluginIds)
-      ? [
-          ...new Set(
-            input.pluginIds.flatMap((value) => {
-              const pluginId = parseJsonString(value)?.trim();
-              return pluginId ? [pluginId] : [];
-            }),
-          ),
-        ].slice(0, 8)
-      : [];
-    if (requested.length === 0) throw new Error("pluginIds is required.");
+    const {
+      pluginIds = [],
+      services = [],
+      scope,
+    } = recommendPluginsDefinition.inputSchema.parse(input);
     const snapshot = await workspacePlugins(context);
-    const selected = requested.flatMap((pluginId) => {
-      const plugin = snapshot.plugins.find((item) => item.id === pluginId);
-      return plugin ? [plugin] : [];
-    });
-    const missing = requested.filter(
-      (pluginId) => !selected.some((plugin) => plugin.id === pluginId),
+    const { plugins: selected, missing } = resolvePlugins(
+      snapshot.plugins,
+      pluginIds,
+      services,
+      scope,
     );
     if (missing.length > 0) {
       throw new Error(`Unknown plugin IDs: ${missing.join(", ")}.`);
@@ -205,7 +112,6 @@ export async function callPluginTool(
           conversationId,
           threadRootId,
           agentId,
-          rationale,
         };
         return {
           id: deterministicUuid(`${commandId}:${plugin.id}`),

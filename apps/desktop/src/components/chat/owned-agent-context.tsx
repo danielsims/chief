@@ -9,6 +9,7 @@ import { ownedAgentLabel } from "../../lib/owned-agent-presentation";
 import { useRelaySession } from "../../lib/relay-session";
 import { agentBrand, ProviderIcon } from "../../pages/onboarding/elements";
 import { AgentAppearanceContext } from "../agent-avatar";
+import { providerBrandColors } from "../agent-color";
 import { OwnedAgentsContext } from "./owned-agents-value";
 
 export function OwnedAgentProvider({ children }: { children: ReactNode }) {
@@ -83,6 +84,7 @@ function withOwnedAgents(
       providerMarks.set(agent.id, {
         Mark,
         tileClassName: "bg-[#f4f4f4] text-[#171717]",
+        color: providerBrandColors[brand],
       });
     }
     if (agent.handle) agentIds.set(agent.handle.toLowerCase(), agent.id);

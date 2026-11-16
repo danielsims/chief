@@ -272,6 +272,7 @@ export function PluginWalkthrough({
   placeholder,
   error,
   justConnected = false,
+  initialStep,
   onDone,
 }: {
   name: string;
@@ -290,9 +291,12 @@ export function PluginWalkthrough({
   error?: string;
   /** Walks from a success message through tools to agent access. */
   justConnected?: boolean;
+  initialStep?: "agents";
   onDone: () => void;
 }) {
-  const [step, setStep] = useState<Step>(justConnected ? "connected" : "tools");
+  const [step, setStep] = useState<Step>(
+    initialStep ?? (justConnected ? "connected" : "tools"),
+  );
   const access = usePluginAgentAccess(connectionId ?? "");
   const [expanded, setExpanded] = useState(false);
   const pages: Step[] = [
@@ -484,6 +488,7 @@ function useCatalogTools(plugin: AgentPluginSummary | null) {
 
 export function PluginDetailDialog({
   plugin,
+  initialStep,
   busy,
   error,
   onClose,
@@ -493,6 +498,7 @@ export function PluginDetailDialog({
   onRemove,
 }: {
   plugin: AgentPluginSummary | null;
+  initialStep?: "agents";
   busy: boolean;
   /** The last action's failure, such as the relay refusing a member. */
   error?: string;
@@ -535,6 +541,7 @@ export function PluginDetailDialog({
       <DialogContent className="border-border/80 w-[calc(100%-32px)] max-w-[800px] gap-0 overflow-hidden rounded-2xl p-0 shadow-[0_16px_64px_-12px_rgb(0_0_0/0.45)]">
         {plugin ? (
           <PluginWalkthrough
+            initialStep={initialStep}
             key={`${plugin.id}:${run}`}
             name={plugin.name}
             domain={pluginDomain(plugin)}

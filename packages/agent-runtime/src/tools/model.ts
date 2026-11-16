@@ -14,6 +14,13 @@ import type { AgentToolDefinition } from "./definition.js";
 import { hostedAgentToolDefinitions } from "./hosted.js";
 
 export { hostedAgentToolDefinitions };
+export { recommendPluginsDefinition } from "./toolkits/plugins/recommend-plugins.js";
+export {
+  resolvePlugins,
+  workspacePluginCatalog,
+  recommendationPayload,
+} from "../plugin-recommendation.js";
+export { PLUGINS_LIST_INSTRUCTION } from "./toolkits/plugins/context.js";
 export type { AgentToolDefinition } from "./definition.js";
 
 export function agentToolName(operationId: string) {
