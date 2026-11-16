@@ -5,7 +5,9 @@ import {
   isValidElement,
   lazy,
   Suspense,
+  useLayoutEffect,
   useMemo,
+  useRef,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -105,6 +107,21 @@ function flattenAdjacentText(children: ReactNode): ReactNode[] {
   return flattened;
 }
 
+/** Handlers that call the latest ones, so their identity never matters. */
+function referenceHandlers(latest: {
+  readonly current: {
+    onOpenChannel?: (channelId: string) => void;
+    onOpenMention?: (agentId: WorkspaceAgentId) => void;
+  };
+}) {
+  const { onOpenChannel, onOpenMention } = latest.current;
+  return [
+    onOpenChannel && ((id: string) => latest.current.onOpenChannel?.(id)),
+    onOpenMention &&
+      ((id: WorkspaceAgentId) => latest.current.onOpenMention?.(id)),
+  ] as const;
+}
+
 function highlightReferences(
   children: ReactNode,
   channels: readonly ChannelReferenceTarget[],
@@ -164,13 +181,39 @@ export function StreamingMarkdown({
   onRepoPath?: (path: string) => void;
 }) {
   const { inlineText } = messageSkill(children);
+  // Renderers are component types: replacing them remounts every paragraph,
+  // which discards the text under a selection. Keep them stable and read the
+  // latest handlers when they run.
+  const latest = useRef({
+    onOpenChannel,
+    onOpenMention,
+    onRepoPath,
+    resolveImageSrc,
+  });
+  useLayoutEffect(() => {
+    latest.current = {
+      onOpenChannel,
+      onOpenMention,
+      onRepoPath,
+      resolveImageSrc,
+    };
+  });
+  const channelKey = channels.map((channel) => channel.id).join("\0");
   const components = useMemo(
     () => ({
       a: (props: ComponentPropsWithoutRef<"a">) => (
-        <MarkdownLink {...props} onRepoPath={onRepoPath} />
+        <MarkdownLink
+          {...props}
+          onRepoPath={(path) => latest.current.onRepoPath?.(path)}
+        />
       ),
       img: (props: ComponentPropsWithoutRef<"img">) => (
-        <MarkdownImage {...props} resolveImageSrc={resolveImageSrc} />
+        <MarkdownImage
+          {...props}
+          resolveImageSrc={(src) =>
+            latest.current.resolveImageSrc?.(src) ?? src
+          }
+        />
       ),
       p: ({
         children: paragraphChildren,
@@ -180,8 +223,7 @@ export function StreamingMarkdown({
           {highlightReferences(
             paragraphChildren,
             channels,
-            onOpenChannel,
-            onOpenMention,
+            ...referenceHandlers(latest),
           )}
         </p>
       ),
@@ -193,13 +235,14 @@ export function StreamingMarkdown({
           {highlightReferences(
             itemChildren,
             channels,
-            onOpenChannel,
-            onOpenMention,
+            ...referenceHandlers(latest),
           )}
         </li>
       ),
     }),
-    [channels, onOpenChannel, onOpenMention, onRepoPath, resolveImageSrc],
+    // The channel list is compared by content, not identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [channelKey],
   );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">

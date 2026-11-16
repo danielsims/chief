@@ -1,6 +1,6 @@
 import type { EveAgentProvisioningInput } from "./types.js";
-import { filesEditable } from "./prompts/parts/files-editable.js";
-import { toneTeammate } from "./prompts/parts/tone-teammate.js";
+import { channelsAndFiles } from "./prompts/parts/channels-and-files.js";
+import { voice } from "./prompts/parts/voice.js";
 import {
   chiefChannelSource,
   eveChiefChannelReplyGuidance,
@@ -77,7 +77,7 @@ export function eveProjectFiles(
       },
       {
         path: `agent/subagents/${directory}/instructions.md`,
-        contents: `${subagent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n\n${eveMemoryInstructions}\n`,
+        contents: `${subagent.instructions.trim()}\n\n${voice.render()}\n\n${channelsAndFiles.render()}\n\n${eveMemoryInstructions}\n`,
       },
     ];
   });
@@ -158,7 +158,7 @@ export function eveProjectFiles(
     },
     {
       path: "agent/instructions.md",
-      contents: `${input.agent.instructions.trim()}\n\n${toneTeammate.render()}\n\n${filesEditable.render()}\n\n${eveMemoryInstructions}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
+      contents: `${input.agent.instructions.trim()}\n\n${voice.render()}\n\n${channelsAndFiles.render()}\n\n${eveMemoryInstructions}\n\n## Chief channel replies\n\n${eveChiefChannelReplyGuidance}\n`,
     },
     { path: "agent/channels/chief.ts", contents: chiefChannelSource },
     {

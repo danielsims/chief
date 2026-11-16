@@ -104,7 +104,14 @@ export class CodexDriver extends AcpDriver {
     let command = process.execPath;
     super({
       name: "codex",
-      clientCapabilities: { session: { notices: {} } },
+      clientCapabilities: {
+        session: { notices: {} },
+        // Report failures, such as usage limits, as data rather than as text
+        // in the agent's reply.
+        _meta: {
+          jetbrains: { air: { version: 1, capabilities: ["sessionFailure"] } },
+        },
+      },
       command: () => command,
       args,
       configureEnvironment: async (options, environment) => {

@@ -134,13 +134,27 @@ export function cachedChannelEvents(workspaceId: string, channelId: string) {
 /**
  * Reconciles a relay snapshot with events already observed on the live stream.
  * Relay snapshots are bounded and can finish after a newer subscription event,
- * so absence from a snapshot is not evidence that an event was deleted.
+ * so absence from a snapshot is not evidence that an event was deleted. The
+ * exception is reactions: a message in the snapshot carries all of its current
+ * reactions, so its reactions missing from the snapshot have been removed.
  */
 export function reconcileChannelEvents(
   current: readonly ChannelEvent[],
   snapshot: readonly ChannelEvent[],
 ) {
-  const eventsById = new Map(current.map((event) => [event.id, event]));
+  const snapshotIds = new Set(snapshot.map((event) => event.id));
+  const messageIds = new Set(
+    snapshot.filter((event) => event.kind !== 7).map((event) => event.id),
+  );
+  const removed = (event: ChannelEvent) =>
+    event.kind === 7 &&
+    !snapshotIds.has(event.id) &&
+    messageIds.has(event.tags.find((tag) => tag[0] === "e")?.[1] ?? "");
+  const eventsById = new Map(
+    current
+      .filter((event) => !removed(event))
+      .map((event) => [event.id, event]),
+  );
   for (const event of snapshot) eventsById.set(event.id, event);
   return [...eventsById.values()].sort(
     (left, right) =>

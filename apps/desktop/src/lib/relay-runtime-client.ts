@@ -627,32 +627,33 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const knownConversation = this.snapshot.conversations.find(
       (conversation) => conversation.id === message.conversationId,
     );
+    const subscribed =
+      this.subscribedConversationIds.has(message.conversationId) ||
+      isChannelMembershipMessage(message);
     const revised =
-      event.type === "conversation.message.reacted" ||
       event.type === "conversation.message.edited" ||
       event.type === "conversation.message.deleted";
-    if (!isActivity && revised && knownConversation?.kind === "direct") {
+    if (!isActivity && event.type === "conversation.message.reacted") {
+      // The event carries the whole updated message, which replaces the one
+      // on screen. Reloading would re-render every message under a selection.
+      void this.emitChannelEvents(message.conversationId, [message]).catch(
+        (error) => this.recordError(parseRelayError(error)),
+      );
+    } else if (
+      !isActivity &&
+      revised &&
+      (subscribed || knownConversation?.kind === "direct")
+    ) {
+      // Re-read folded reactions so removals replace synthetic NIP-25 events.
       void this.openChannelEvents(message.conversationId).catch((error) =>
         this.recordError(parseRelayError(error)),
       );
-    }
-    if (
-      !isActivity &&
-      (this.subscribedConversationIds.has(message.conversationId) ||
-        isChannelMembershipMessage(message))
-    ) {
-      // Re-read folded reactions so removals replace synthetic NIP-25 events.
-      if (revised) {
-        void this.openChannelEvents(message.conversationId).catch((error) =>
-          this.recordError(parseRelayError(error)),
-        );
-      } else {
-        this.emit({
-          type: "channelEvent",
-          workspaceId: this.snapshot.id,
-          event: toChannelMessageEvent(message, this.snapshot),
-        });
-      }
+    } else if (!isActivity && subscribed) {
+      this.emit({
+        type: "channelEvent",
+        workspaceId: this.snapshot.id,
+        event: toChannelMessageEvent(message, this.snapshot),
+      });
     }
     for (const [chatId, conversationId] of this.conversationIdsByChat) {
       if (conversationId !== message.conversationId) continue;

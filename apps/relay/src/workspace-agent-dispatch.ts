@@ -26,7 +26,10 @@ import {
   deviceHostedAgent,
   requireAgentMessageAccess,
 } from "./workspace-agent-messaging";
-import { workspaceAgentNames } from "./workspace-agent-runtime";
+import {
+  workspaceAgentNames,
+  workspaceRunFacts,
+} from "./workspace-agent-runtime";
 import { requireAutomationTester } from "./workspace-automation-agent";
 import { automationChatBrief } from "./workspace-automation-chat";
 import { WorkspaceChannelMembership } from "./workspace-channel-membership";
@@ -224,6 +227,7 @@ export async function dispatchWorkspaceMessage(
           agentId,
           kind: scheduleRunId ? "schedule.step" : "conversation.message",
           payload: {
+            ...workspaceRunFacts(storage),
             conversationId: message.conversationId,
             messageId: message.id,
             workflowId,

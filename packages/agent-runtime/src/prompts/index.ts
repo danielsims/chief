@@ -11,6 +11,8 @@ import type { PromptContext } from "./types.js";
 import { promptParts } from "./parts/index.js";
 
 export type { PromptContext } from "./types.js";
+export type { ChiefIdentityContext } from "./chief-identity.js";
+export { renderChiefIdentity } from "./chief-identity.js";
 
 export interface AssembledPrompt {
   /** Ordered list of included parts, for diagnostics and tests. */
@@ -44,6 +46,7 @@ export function composeAgentPrompt(
     conversationKind?: PromptContext["conversationKind"];
     channel?: PromptContext["channel"];
     workspaceContext?: string;
+    unattended?: boolean;
   },
 ): string {
   return assembleAgentPrompt({ identity, ...context }).text;
