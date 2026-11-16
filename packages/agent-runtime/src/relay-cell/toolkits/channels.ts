@@ -174,23 +174,46 @@ export const relayCellChannelTools = [
   defineRelayCellTool(
     "channels.reactions.add",
     "messages.send",
-    async ({ client }, input) =>
-      await client.reactToMessage(
+    async ({ client }, input) => {
+      const emoji = requiredString(input, "emoji");
+      const { message } = await client.reactToMessage(
         requiredString(input, "channelId"),
         requiredString(input, "messageId"),
-        requiredString(input, "emoji"),
+        emoji,
         true,
-      ),
+      );
+      return reactionResult(emoji, true, message.reactions);
+    },
   ),
   defineRelayCellTool(
     "channels.reactions.remove",
     "messages.send",
-    async ({ client }, input) =>
-      await client.reactToMessage(
+    async ({ client }, input) => {
+      const emoji = requiredString(input, "emoji");
+      const { message } = await client.reactToMessage(
         requiredString(input, "channelId"),
         requiredString(input, "messageId"),
-        requiredString(input, "emoji"),
+        emoji,
         false,
-      ),
+      );
+      return reactionResult(emoji, false, message.reactions);
+    },
   ),
 ];
+
+/** Says plainly where the reaction stands, so a repeated call reads as done. */
+function reactionResult(
+  emoji: string,
+  added: boolean,
+  reactions: readonly { emoji: string; pubkeys: readonly string[] }[],
+) {
+  return {
+    done: added
+      ? `Your ${emoji} is on the message.`
+      : `Your ${emoji} is no longer on the message.`,
+    reactions: reactions.map((reaction) => ({
+      emoji: reaction.emoji,
+      count: reaction.pubkeys.length,
+    })),
+  };
+}
