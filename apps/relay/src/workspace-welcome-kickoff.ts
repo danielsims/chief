@@ -39,18 +39,35 @@ Your final response is only a short question asking which they'd like to connect
   };
 }
 
+/**
+ * The Marketer still starts the brand profile on day one. It is the one first
+ * job that earned its place; everything else is only an introduction.
+ */
+function brandTask(website: string): FirstTask {
+  return {
+    ask: "use [chief-skill:build-brand-profile] to create a useful working profile from our first-party evidence. Ask one focused question here only if a missing preference materially changes it.",
+    skillId: "build-brand-profile",
+    work: website
+      ? `Read ${website} and its most relevant pages with web_read, then save an evidence-backed Markdown profile with brand_profile_save, citing the exact URLs you read. Summarise the profile naturally, label assumptions, and ask at most one question that would change it. Never claim a source you couldn't read.`
+      : "There's no website yet. Ask for the website or a short description of the brand, and say what you'll build from it.",
+  };
+}
+
 /** The teammates that get a first message, in the order Chief asks them. */
 export function welcomeKickoffTasks(snapshot: WorkspaceSnapshot) {
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
   return (chief?.subagents ?? []).flatMap((teammate) => {
     const card = onboardingAgents.find((agent) => agent.id === teammate.id);
     if (!card) return [];
-    const task = introductionTask({
-      name: teammate.name,
-      role: card.role,
-      description: card.description,
-      apps: card.apps.map((app) => app.name),
-    });
+    const task =
+      card.id === "brand"
+        ? brandTask(snapshot.website.trim())
+        : introductionTask({
+            name: teammate.name,
+            role: card.role,
+            description: card.description,
+            apps: card.apps.map((app) => app.name),
+          });
     // Chief addresses each teammate by the name it was given.
     return [
       {
