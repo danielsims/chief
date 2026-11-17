@@ -21,3 +21,11 @@ export type WorkspacePresenceEvent = z.infer<
 
 /** An agent's relay object telling its workspace about the agent's host. */
 export const agentHostPresenceSchema = z.object({ online: z.boolean() });
+
+/**
+ * Sent on the workspace socket when agents or their join requests change. It
+ * carries nothing: each member re-reads the lists they are allowed to see.
+ */
+export const workspaceAgentsChangedEventSchema = z
+  .object({ type: z.literal("workspace.agents.changed") })
+  .strict();

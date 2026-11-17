@@ -15,7 +15,6 @@ import {
   CopyInvitePromptButton,
   useOwnedAgents,
 } from "../components/agents/owned-agents-panel";
-import { OwnedAgentAppearance } from "../components/chat/owned-agent-context";
 import { listColumnClass } from "../components/list-row";
 import { PageHeader } from "../components/page-header";
 import { executionPreferencesForTeam } from "../lib/agent-execution-preferences";
@@ -37,7 +36,7 @@ import { TeamAgentRow } from "./agents-components";
 
 export function AgentsPage() {
   const relay = useRelaySession();
-  const ownedAgents = useOwnedAgents(relay.client);
+  const ownedAgents = useOwnedAgents();
   const [username, setUsername] = useState<string | null>(null);
   useEffect(() => {
     if (!relay.client) return;
@@ -159,188 +158,185 @@ export function AgentsPage() {
         />
       ) : null}
 
-      <OwnedAgentAppearance agents={ownedAgents.agents}>
-        <div className="flex min-h-0 flex-1">
-          <main className="min-w-0 flex-1 overflow-y-auto">
-            {selectedOwned ? (
-              <section className="mx-auto w-full max-w-6xl p-6">
-                <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={closeDetail}
-                    className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
-                  >
-                    Agents
-                  </button>
-                  <ChevronRight size={11} />
-                  <span className="text-foreground font-medium">
-                    {ownedAgentDefinition(selectedOwned).name}
-                  </span>
-                </nav>
-                <OwnedAgentDetail
-                  key={selectedOwned.id}
-                  agent={selectedOwned}
-                  state={ownedAgents}
-                  workspaceId={cloudOrganizationId}
-                  channels={workspaceChannels.channels}
-                  ready={ready}
-                  onClose={closeDetail}
-                />
-              </section>
-            ) : selectedAgent ? (
-              <section className="mx-auto w-full max-w-6xl p-6">
-                <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={closeDetail}
-                    className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
-                  >
-                    Agents
-                  </button>
-                  <ChevronRight size={11} />
-                  <span className="text-foreground font-medium">
-                    {selectedAgent.name}
-                  </span>
-                </nav>
-                <AgentDetail
-                  key={selectedAgent.id}
-                  agent={selectedAgent}
-                  selectedProfileId={
-                    profileId &&
-                    selectedAgent.subagents?.some(
-                      (subagent) => subagent.id === profileId,
-                    )
-                      ? profileId
-                      : agentId && agentId !== selectedAgent.id
-                        ? agentId
-                        : selectedAgent.id
-                  }
-                  onSelectProfile={(nextId) => {
-                    setSearchParams((current) => {
-                      const params = new URLSearchParams(current);
-                      params.set("agent", selectedAgent.id);
-                      if (nextId === selectedAgent.id) params.delete("profile");
-                      else params.set("profile", nextId);
-                      return params;
-                    });
-                  }}
-                  workspaceId={cloudOrganizationId}
-                  preferences={overrides}
-                  channels={workspaceChannels.channels}
-                  ready={ready}
-                  saving={agentPreferences.saving}
-                  preferenceError={agentPreferences.error}
-                  relayClient={relay.client}
-                  onAgentChanged={relay.refresh}
-                  onSave={agentPreferences.save}
-                  onApplyExecutionToTeam={applyExecutionToTeam}
-                  onUpdateChannelAgents={workspaceChannels.updateChannelAgents}
-                  onRemove={async (removedAgentId) => {
-                    await removeAgent(removedAgentId);
-                    closeDetail();
-                  }}
-                />
-              </section>
-            ) : (
-              <section className="px-6 pb-6">
-                <div className={listColumnClass}>
-                  <div
-                    className="mb-3 flex flex-wrap gap-1"
-                    aria-label="Agent locations"
-                  >
-                    {(["all", "local", "cloud"] as const).map((location) => (
-                      <button
-                        key={location}
-                        type="button"
-                        aria-pressed={filter === location}
-                        onClick={() =>
-                          setSearchParams((current) => {
-                            const params = new URLSearchParams(current);
-                            if (location === "all") params.delete("location");
-                            else params.set("location", location);
-                            return params;
-                          })
-                        }
-                        className={cn(
-                          "text-muted-foreground hover:text-foreground h-7 cursor-pointer rounded-full px-3 text-[12px] capitalize transition-colors",
-                          filter === location &&
-                            "bg-foreground/[0.06] text-foreground",
-                        )}
-                      >
-                        {location}
-                      </button>
-                    ))}
-                  </div>
-                  <ul>
-                    {entries.map(({ rootId, agent, preference }) => (
-                      <TeamAgentRow
-                        key={agent.id}
-                        agent={agent}
-                        handle={workspaceAgentHandle(username, agent.id)}
-                        override={preference}
-                        onSelect={() => openAgent(rootId, agent.id)}
-                      />
-                    ))}
-                    {filter === "all"
-                      ? ownedAgents.agents.map((owned) => (
-                          <TeamAgentRow
-                            key={owned.id}
-                            agent={ownedAgentDefinition(owned)}
-                            handle={owned.handle}
-                            override={undefined}
-                            status={{
-                              on: owned.online,
-                              label: owned.online ? "Online" : "Offline",
-                            }}
-                            onSelect={() => openAgent(owned.id)}
-                          />
-                        ))
-                      : null}
-                  </ul>
-                  {filter !== "all" && ownedAgents.agents.length > 0 ? (
-                    <p className="text-muted-foreground mt-3 text-xs">
-                      Externally managed agents appear under All.
-                    </p>
-                  ) : null}
-                  {agentsLoaded &&
-                  ready &&
-                  entries.length === 0 &&
-                  (filter !== "all" ||
-                    (!ownedAgents.loading &&
-                      ownedAgents.agents.length === 0)) ? (
-                    <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed text-center">
-                      <p className="text-sm font-medium">
-                        {filter === "all"
-                          ? "No agents yet"
-                          : `No ${filter} agents`}
-                      </p>
-                      <p className="text-muted-foreground mt-1 max-w-sm text-[13px] leading-5">
-                        {filter === "all"
-                          ? "Add an agent when you are ready. This workspace can stay empty."
-                          : "Choose another filter or add an agent to get started."}
-                      </p>
-                      <Button
-                        className="mt-4"
-                        size="sm"
-                        onClick={() => setConnectOpen(true)}
-                      >
-                        <Plus size={14} />
-                        Add agent
-                      </Button>
-                    </div>
-                  ) : null}
-                  <AgentJoinRequests state={ownedAgents} />
+      <div className="flex min-h-0 flex-1">
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          {selectedOwned ? (
+            <section className="mx-auto w-full max-w-6xl p-6">
+              <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={closeDetail}
+                  className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
+                >
+                  Agents
+                </button>
+                <ChevronRight size={11} />
+                <span className="text-foreground font-medium">
+                  {ownedAgentDefinition(selectedOwned).name}
+                </span>
+              </nav>
+              <OwnedAgentDetail
+                key={selectedOwned.id}
+                agent={selectedOwned}
+                state={ownedAgents}
+                workspaceId={cloudOrganizationId}
+                channels={workspaceChannels.channels}
+                ready={ready}
+                onClose={closeDetail}
+              />
+            </section>
+          ) : selectedAgent ? (
+            <section className="mx-auto w-full max-w-6xl p-6">
+              <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={closeDetail}
+                  className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
+                >
+                  Agents
+                </button>
+                <ChevronRight size={11} />
+                <span className="text-foreground font-medium">
+                  {selectedAgent.name}
+                </span>
+              </nav>
+              <AgentDetail
+                key={selectedAgent.id}
+                agent={selectedAgent}
+                selectedProfileId={
+                  profileId &&
+                  selectedAgent.subagents?.some(
+                    (subagent) => subagent.id === profileId,
+                  )
+                    ? profileId
+                    : agentId && agentId !== selectedAgent.id
+                      ? agentId
+                      : selectedAgent.id
+                }
+                onSelectProfile={(nextId) => {
+                  setSearchParams((current) => {
+                    const params = new URLSearchParams(current);
+                    params.set("agent", selectedAgent.id);
+                    if (nextId === selectedAgent.id) params.delete("profile");
+                    else params.set("profile", nextId);
+                    return params;
+                  });
+                }}
+                workspaceId={cloudOrganizationId}
+                preferences={overrides}
+                channels={workspaceChannels.channels}
+                ready={ready}
+                saving={agentPreferences.saving}
+                preferenceError={agentPreferences.error}
+                relayClient={relay.client}
+                onAgentChanged={relay.refresh}
+                onSave={agentPreferences.save}
+                onApplyExecutionToTeam={applyExecutionToTeam}
+                onUpdateChannelAgents={workspaceChannels.updateChannelAgents}
+                onRemove={async (removedAgentId) => {
+                  await removeAgent(removedAgentId);
+                  closeDetail();
+                }}
+              />
+            </section>
+          ) : (
+            <section className="px-6 pb-6">
+              <div className={listColumnClass}>
+                <div
+                  className="mb-3 flex flex-wrap gap-1"
+                  aria-label="Agent locations"
+                >
+                  {(["all", "local", "cloud"] as const).map((location) => (
+                    <button
+                      key={location}
+                      type="button"
+                      aria-pressed={filter === location}
+                      onClick={() =>
+                        setSearchParams((current) => {
+                          const params = new URLSearchParams(current);
+                          if (location === "all") params.delete("location");
+                          else params.set("location", location);
+                          return params;
+                        })
+                      }
+                      className={cn(
+                        "text-muted-foreground hover:text-foreground h-7 cursor-pointer rounded-full px-3 text-[12px] capitalize transition-colors",
+                        filter === location &&
+                          "bg-foreground/[0.06] text-foreground",
+                      )}
+                    >
+                      {location}
+                    </button>
+                  ))}
                 </div>
-                {!ready ? (
-                  <p className="text-muted-foreground mt-4 text-xs">
-                    Connecting to your workspace…
+                <ul>
+                  {entries.map(({ rootId, agent, preference }) => (
+                    <TeamAgentRow
+                      key={agent.id}
+                      agent={agent}
+                      handle={workspaceAgentHandle(username, agent.id)}
+                      override={preference}
+                      onSelect={() => openAgent(rootId, agent.id)}
+                    />
+                  ))}
+                  {filter === "all"
+                    ? ownedAgents.agents.map((owned) => (
+                        <TeamAgentRow
+                          key={owned.id}
+                          agent={ownedAgentDefinition(owned)}
+                          handle={owned.handle}
+                          override={undefined}
+                          status={{
+                            on: owned.online,
+                            label: owned.online ? "Online" : "Offline",
+                          }}
+                          onSelect={() => openAgent(owned.id)}
+                        />
+                      ))
+                    : null}
+                </ul>
+                {filter !== "all" && ownedAgents.agents.length > 0 ? (
+                  <p className="text-muted-foreground mt-3 text-xs">
+                    Externally managed agents appear under All.
                   </p>
                 ) : null}
-              </section>
-            )}
-          </main>
-        </div>
-      </OwnedAgentAppearance>
+                {agentsLoaded &&
+                ready &&
+                entries.length === 0 &&
+                (filter !== "all" ||
+                  (!ownedAgents.loading && ownedAgents.agents.length === 0)) ? (
+                  <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed text-center">
+                    <p className="text-sm font-medium">
+                      {filter === "all"
+                        ? "No agents yet"
+                        : `No ${filter} agents`}
+                    </p>
+                    <p className="text-muted-foreground mt-1 max-w-sm text-[13px] leading-5">
+                      {filter === "all"
+                        ? "Add an agent when you are ready. This workspace can stay empty."
+                        : "Choose another filter or add an agent to get started."}
+                    </p>
+                    <Button
+                      className="mt-4"
+                      size="sm"
+                      onClick={() => setConnectOpen(true)}
+                    >
+                      <Plus size={14} />
+                      Add agent
+                    </Button>
+                  </div>
+                ) : null}
+                <AgentJoinRequests state={ownedAgents} />
+              </div>
+              {!ready ? (
+                <p className="text-muted-foreground mt-4 text-xs">
+                  Connecting to your workspace…
+                </p>
+              ) : null}
+            </section>
+          )}
+        </main>
+      </div>
       <ConnectAgentDialog
         open={connectOpen}
         onOpenChange={setConnectOpen}

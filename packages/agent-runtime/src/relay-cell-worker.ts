@@ -612,19 +612,25 @@ async function listenForJobs() {
           void drain().catch((error) => console.error("[cell] job:", error));
         });
         // The relay pushes every job that becomes claimable, including delayed
-        // jobs and expired leases, so claims follow socket messages. The slow
-        // drain only covers a push lost on a socket that died silently.
-        const keepAlive = setInterval(() => {
-          if (socket.readyState === WebSocket.OPEN) socket.ping();
+        // jobs and expired leases, and retries a push it had to hold back, so
+        // claims only ever follow socket messages. A socket that dies silently
+        // misses a pong and is reopened, and every open drains the mailbox.
+        // The relay answers pings without waking, so this costs it nothing.
+        let alive = true;
+        socket.on("pong", () => {
+          alive = true;
+        });
+        const heartbeat = setInterval(() => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+          if (!alive) {
+            socket.terminate();
+            return;
+          }
+          alive = false;
+          socket.ping();
         }, 30_000);
-        const fallback = setInterval(() => {
-          void drain().catch((error) =>
-            console.error("[cell] mailbox poll:", error),
-          );
-        }, 300_000);
         socket.on("close", () => {
-          clearInterval(keepAlive);
-          clearInterval(fallback);
+          clearInterval(heartbeat);
           resolve();
         });
         socket.on("error", (error) => {

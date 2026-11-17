@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo } from "react";
 
 import type { OwnedAgent } from "@chief/relay-contracts";
 
@@ -7,61 +7,33 @@ import type { AgentAppearance, ProviderMark } from "../agent-avatar";
 import { notifyAgentJoinRequests } from "../../lib/agent-join-notifications";
 import { ownedAgentLabel } from "../../lib/owned-agent-presentation";
 import { useRelaySession } from "../../lib/relay-session";
+import { useAgentRoster } from "../../lib/use-agent-roster";
 import { agentBrand, ProviderIcon } from "../../pages/onboarding/elements";
 import { AgentAppearanceContext } from "../agent-avatar";
 import { providerBrandColors } from "../agent-color";
-import { OwnedAgentsContext } from "./owned-agents-value";
+import { AgentRosterContext, OwnedAgentsContext } from "./owned-agents-value";
 
 export function OwnedAgentProvider({ children }: { children: ReactNode }) {
   const { client } = useRelaySession();
   const appearance = useContext(AgentAppearanceContext);
-  const [result, setResult] = useState<{
-    client: typeof client;
-    agents: OwnedAgent[];
-  }>({ client: null, agents: [] });
+  const roster = useAgentRoster(client);
+  const { agents, requests } = roster;
   useEffect(() => {
-    if (!client) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
-      try {
-        const [value, pending] = await Promise.all([
-          client.ownedAgents(),
-          client.ownedAgentRequests().catch(() => ({ requests: [] })),
-        ]);
-        if (!stopped) {
-          setResult({ client, agents: value.agents });
-          notifyAgentJoinRequests(
-            client.workspaceId ?? "workspace",
-            pending.requests,
-          );
-        }
-      } catch {
-        /* Keep the last roster during a transient reconnect. */
-      } finally {
-        if (!stopped) timer = setTimeout(() => void refresh(), 10000);
-      }
-    };
-    void refresh();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [client]);
-  const agents = useMemo(
-    () => (result.client === client ? result.agents : []),
-    [client, result],
-  );
+    if (client)
+      notifyAgentJoinRequests(client.workspaceId ?? "workspace", requests);
+  }, [client, requests]);
   const value = useMemo(
     () => withOwnedAgents(appearance, agents),
     [agents, appearance],
   );
   return (
-    <OwnedAgentsContext.Provider value={agents}>
-      <AgentAppearanceContext.Provider value={value}>
-        {children}
-      </AgentAppearanceContext.Provider>
-    </OwnedAgentsContext.Provider>
+    <AgentRosterContext.Provider value={roster}>
+      <OwnedAgentsContext.Provider value={agents}>
+        <AgentAppearanceContext.Provider value={value}>
+          {children}
+        </AgentAppearanceContext.Provider>
+      </OwnedAgentsContext.Provider>
+    </AgentRosterContext.Provider>
   );
 }
 
@@ -91,25 +63,4 @@ function withOwnedAgents(
     agentIds.set(ownedAgentLabel(agent).toLowerCase(), agent.id);
   }
   return { ...appearance, avatars, providerMarks, agentIds };
-}
-
-/** Draws owned agents from a roster fresher than the app-wide poll, such as
- * the Agents page's right after an approval or avatar change. */
-export function OwnedAgentAppearance({
-  agents,
-  children,
-}: {
-  agents: readonly OwnedAgent[];
-  children: ReactNode;
-}) {
-  const appearance = useContext(AgentAppearanceContext);
-  const value = useMemo(
-    () => withOwnedAgents(appearance, agents),
-    [agents, appearance],
-  );
-  return (
-    <AgentAppearanceContext.Provider value={value}>
-      {children}
-    </AgentAppearanceContext.Provider>
-  );
 }

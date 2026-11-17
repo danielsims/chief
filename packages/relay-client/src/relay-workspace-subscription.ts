@@ -7,6 +7,7 @@ import type {
 import {
   conversationEventSchema,
   conversationTypingEventSchema,
+  workspaceAgentsChangedEventSchema,
   workspacePresenceEventSchema,
 } from "@chief/relay-contracts";
 
@@ -38,6 +39,13 @@ export async function openRelayWorkspaceSubscription(input: {
   onEvent: (event: ConversationEvent) => void;
   onTyping?: (event: RelayTypingEvent) => void;
   onPresence?: (event: WorkspacePresenceEvent) => void;
+  /** Agents or their join requests changed; re-read them. */
+  onAgentsChanged?: () => void;
+  /**
+   * The socket came back after a gap. Signals sent meanwhile were lost, so
+   * state kept fresh by signals should be re-read once.
+   */
+  onResubscribed?: () => void;
   onError?: (error: Error) => void;
 }): Promise<RelayWorkspaceSubscription> {
   let cursor = input.after;
@@ -115,6 +123,10 @@ export async function openRelayWorkspaceSubscription(input: {
           input.onPresence?.(presence.data);
           return;
         }
+        if (workspaceAgentsChangedEventSchema.safeParse(data).success) {
+          input.onAgentsChanged?.();
+          return;
+        }
         const event = conversationEventSchema.parse(data);
         if (event.sequence <= (cursor ?? 0)) return;
         cursor = event.sequence;
@@ -141,6 +153,7 @@ export async function openRelayWorkspaceSubscription(input: {
       return;
     }
     sendSubscription(socket);
+    if (started) input.onResubscribed?.();
     clearStabilityTimer();
     stabilityTimer = setTimeout(() => {
       if (!closed && connection === generation && activeSocket === socket) {
