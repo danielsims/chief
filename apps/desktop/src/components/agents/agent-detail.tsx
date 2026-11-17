@@ -423,13 +423,14 @@ export function AgentDetail({
                         {agent.instructions}
                       </pre>
                     </section>
-                  ) : (
+                  ) : agent.id !== "chief" ? (
+                    // Chief leads the workspace, so it can't be removed.
                     <AgentDangerZone
                       agent={agent}
                       ready={ready}
                       onRemove={onRemove}
                     />
-                  )}
+                  ) : null}
                 </div>
               ) : null}
 

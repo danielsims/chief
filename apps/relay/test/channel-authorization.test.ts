@@ -161,7 +161,7 @@ describe("channel authorization", () => {
     await expect(projects.json()).resolves.toEqual({ projects: [] });
   });
 
-  it("lets an owner remove and restore Chief without rebuilding the workspace", async () => {
+  it("keeps Chief on the team even when an owner asks to remove it", async () => {
     const ctx = await setup();
     const removed = await rpc(
       ctx,
@@ -170,22 +170,20 @@ describe("channel authorization", () => {
       undefined,
       "agentId=chief",
     );
-    expect(removed.status).toBe(200);
+    expect(removed.status).toBe(409);
+    await expect(removed.json()).resolves.toMatchObject({
+      error: { code: "chief_required" },
+    });
 
-    const restored = await rpc(ctx, ctx.principal, "agent-create", {
-      agentId: "chief",
-      name: "Chief",
-      role: "Chief of staff",
-      description: "Leads the workspace and coordinates focused work.",
-      instructions: "Lead the workspace and coordinate focused work.",
-    });
-    expect(restored.status).toBe(200);
-    await expect(restored.json()).resolves.toMatchObject({
-      agent: {
-        id: "chief",
-        runtime: { kind: "native-cell" },
-      },
-    });
+    const members = await rpc(ctx, ctx.principal, "members-list");
+    const body = (await members.json()) as {
+      members: Array<{ kind: string; principalId: string }>;
+    };
+    expect(
+      body.members.some(
+        (member) => member.kind === "agent" && member.principalId === "chief",
+      ),
+    ).toBe(true);
   });
 
   it("enforces an owner policy change on agent relay capabilities", async () => {

@@ -303,6 +303,12 @@ export class WorkspaceAgentAccessService {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, true);
     const agentId = requestedAgentId(request);
+    if (agentId === "chief")
+      throw new HttpError(
+        409,
+        "chief_required",
+        "Chief leads this workspace and can’t be removed.",
+      );
     if (this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud")
       requirePersonalAgentOwner(this.channels, agentId, context.principal);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
