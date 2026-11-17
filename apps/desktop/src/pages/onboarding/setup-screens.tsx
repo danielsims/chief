@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { ArrowRight, Cloud, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Upload } from "lucide-react";
 
 import {
   onboardingAgents,
@@ -8,24 +8,32 @@ import {
 } from "@chief/relay-contracts";
 
 import type { WorkspaceSetup } from "./use-setup";
+import { InlineAgentName } from "../../components/agents/inline-agent-name";
 import { ChiefMark } from "../../components/chief-mark";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import {
+  loadRelayPluginCatalog,
+  peekRelayPluginCatalog,
+} from "../../lib/relay-plugin-catalog";
 import { useProviderModels } from "../../lib/runtime";
 import {
   Field,
   IconSelect,
   IdentityTile,
-  locationOptions,
-  PlacesIllustration,
+  placeNote,
+  PlacesPicker,
   ProviderIcon,
   purposeOptions,
   SetupHeading,
 } from "./elements";
 import { localProviderName } from "./model";
+import { ScrollList } from "./scroll-list";
+import { useUsernameCheck } from "./username-check";
 
 export function ProfileScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const input = useRef<HTMLInputElement>(null);
   const issue = usernameIssue(s.username);
+  const check = useUsernameCheck(s.relay.client, s.username);
   const upload = (file: File | undefined) => {
     if (!file) return;
     void s.run(async () => {
@@ -84,25 +92,66 @@ export function ProfileScreen({ setup: s }: { setup: WorkspaceSetup }) {
           }}
         />
       </div>
-      <Field
-        label="Username"
-        hint="3–24 lowercase letters, numbers or hyphens."
-      >
-        <input
-          className="ob-input"
-          value={s.username}
-          onChange={(e) => s.setUsername(e.target.value.toLowerCase())}
-          autoComplete="username"
-          autoCapitalize="none"
-          spellCheck={false}
-          maxLength={24}
-          required
-          aria-invalid={s.username.length > 0 && !issue.ok}
-        />
-      </Field>
+      <div className="ob-fields">
+        <Field label="Name" hint="The name people see in your workspace.">
+          <input
+            className="ob-input"
+            value={s.name}
+            onChange={(e) => s.setName(e.target.value)}
+            autoComplete="name"
+            maxLength={80}
+            required
+          />
+        </Field>
+        <Field
+          label="Username"
+          hint={
+            s.username && !issue.ok
+              ? issue.message
+              : check.state === "taken"
+                ? check.message
+                : "A short, unique identifier for your account."
+          }
+        >
+          <input
+            className="ob-input"
+            value={s.username}
+            // Only what a username can hold gets typed or pasted in.
+            onChange={(e) =>
+              s.setUsername(
+                e.target.value.toLowerCase().replace(/[^a-z0-9-]/gu, ""),
+              )
+            }
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={24}
+            required
+            aria-invalid={
+              (s.username.length > 0 && !issue.ok) || check.state === "taken"
+            }
+          />
+        </Field>
+        {check.state === "taken" && check.suggestions.length ? (
+          <div className="ob-username-suggestions">
+            <span>Try</span>
+            {check.suggestions.map((suggestion) => (
+              <button
+                type="button"
+                key={suggestion}
+                onClick={() => s.setUsername(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <button
         className="ob-primary"
-        disabled={s.busy || !issue.ok}
+        disabled={
+          s.busy || !issue.ok || check.state === "taken" || !s.name.trim()
+        }
         onClick={() => void s.saveProfile()}
       >
         Continue
@@ -164,36 +213,11 @@ export function WorkspaceScreen({ setup: s }: { setup: WorkspaceSetup }) {
             </button>
           </div>
         </Field>
-        <fieldset>
-          <legend className="ob-field-label">Who is it for?</legend>
-          <div className="ob-choices">
-            {purposeOptions.map((o) => (
-              <button
-                type="button"
-                key={o.value}
-                role="radio"
-                aria-checked={s.draft.purpose === o.value}
-                onClick={() =>
-                  s.setPurpose(o.value === "company" ? "company" : "personal")
-                }
-                className="ob-choice"
-              >
-                {o.icon}
-                <span>{o.label}</span>
-                <span className="ob-radio">
-                  {s.draft.purpose === o.value ? <span /> : null}
-                </span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
       </div>
       <button
         className="ob-primary"
         disabled={!s.draft.name.trim() || !s.draft.slug}
-        onClick={() =>
-          s.go(s.draft.purpose === "company" ? "company" : "intro")
-        }
+        onClick={() => s.go("chief")}
       >
         Continue
       </button>
@@ -235,83 +259,169 @@ export function CompanyScreen({ setup: s }: { setup: WorkspaceSetup }) {
     </>
   );
 }
+/** Where agents run, picked from two cards that say what each means. */
 export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
-      <SetupHeading title="On your device. Or in the cloud.">
-        Chief can work from this computer or the cloud.
+      <SetupHeading title="Where will your agents run?">
+        You can change this later.
       </SetupHeading>
-      <PlacesIllustration />
-      <button className="ob-primary" onClick={() => s.go("chief")}>
-        Continue
-      </button>
-    </>
-  );
-}
-export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
-  const team = onboardingAgents.filter((a) => a.purpose === s.draft.purpose);
-  return (
-    <>
-      <SetupHeading title="Set up Chief">
-        Choose where Chief works and who works alongside it.
-      </SetupHeading>
-      <Field
-        label="Run Chief"
-        hint={
-          s.draft.location === "device"
-            ? "Keep this device awake and online while Chief is working."
-            : "Chief stays available while you’re away from your device."
-        }
-      >
-        <IconSelect
-          label="Run Chief"
-          value={s.draft.location}
-          onChange={(value) =>
-            s.patch({ location: value === "cloud" ? "cloud" : "device" })
-          }
-          options={locationOptions}
-        />
-      </Field>
-      <div>
-        <div className="ob-field-head">
-          <span>Your team</span>
-          <span>Chief + {s.draft.selectedAgentIds.length} teammates</span>
-        </div>
-        <div
-          className="ob-team-list"
-          tabIndex={0}
-          aria-label="Choose Chief’s teammates"
-        >
-          {team.map((a) => (
-            <label key={a.id} className="ob-team-row">
-              <IdentityTile color={a.color} name={a.name} />
-              <span className="ob-row-text">
-                <strong>{a.name}</strong>
-                <span>{a.description}</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={s.draft.selectedAgentIds.includes(a.id)}
-                onChange={(e) =>
-                  s.patch({
-                    selectedAgentIds: e.target.checked
-                      ? [...s.draft.selectedAgentIds, a.id]
-                      : s.draft.selectedAgentIds.filter((id) => id !== a.id),
-                  })
-                }
-              />
-            </label>
-          ))}
-        </div>
-      </div>
+      <PlacesPicker
+        value={s.draft.location}
+        onChange={(location) => s.patch({ location })}
+      />
+      <p className="ob-hint">{placeNote(s.draft.location)}</p>
       <button className="ob-primary" onClick={() => s.go("connect")}>
         Continue
       </button>
     </>
   );
 }
+/**
+ * The team Chief starts with: one list to tick, this kind of workspace's
+ * teammates first and ticked. Personal or Company resets the ticks; any
+ * teammate can be renamed, and shows the apps it works best with.
+ */
+export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
+  const icons = usePluginIcons();
+  const team = [...onboardingAgents].sort(
+    (left, right) =>
+      Number(right.purpose === s.draft.purpose) -
+      Number(left.purpose === s.draft.purpose),
+  );
+  const toggle = (id: string, on: boolean) =>
+    s.patch({
+      selectedAgentIds: on
+        ? [...s.draft.selectedAgentIds, id]
+        : s.draft.selectedAgentIds.filter((entry) => entry !== id),
+    });
+  const rename = (id: string, name: string) =>
+    s.patch({ agentNames: { ...s.draft.agentNames, [id]: name } });
+  return (
+    <>
+      <SetupHeading title="Choose your team">
+        Teammates who work alongside Chief. Change them anytime.
+      </SetupHeading>
+      <div className="ob-segmented" role="radiogroup" aria-label="Workspace">
+        {purposeOptions.map((o) => (
+          <button
+            type="button"
+            key={o.value}
+            role="radio"
+            aria-checked={s.draft.purpose === o.value}
+            onClick={() =>
+              s.setPurpose(o.value === "company" ? "company" : "personal")
+            }
+          >
+            {o.icon}
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <ScrollList className="ob-team" label="Your team">
+        <div className="ob-team-rows">
+          {/* Chief leads every workspace, so it's always on the team. */}
+          <div className="ob-team-row" data-checked="true">
+            <IdentityTile
+              color="var(--foreground)"
+              name="Chief"
+              className="ob-avatar-chief"
+            />
+            <span className="ob-row-text">
+              <strong>Chief</strong>
+              <span>Your primary workspace agent.</span>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="Chief is always on your team"
+              title="Chief is always on your team"
+              checked
+              disabled
+              readOnly
+            />
+          </div>
+          {team.map((agent) => {
+            const name = s.draft.agentNames[agent.id] ?? agent.name;
+            const checked = s.draft.selectedAgentIds.includes(agent.id);
+            return (
+              <div
+                key={agent.id}
+                className="ob-team-row"
+                data-checked={checked}
+              >
+                <IdentityTile color={agent.color} name={agent.name} />
+                <span className="ob-row-text">
+                  <strong>
+                    <InlineAgentName
+                      value={name}
+                      fallback={agent.name}
+                      onChange={(next) => rename(agent.id, next)}
+                    />
+                  </strong>
+                  <span>{agent.description}</span>
+                  <span className="ob-app-chips">
+                    {agent.apps.map((app) => (
+                      <span key={app.slug} className="ob-app-chip">
+                        {icons.get(app.slug) ? (
+                          <img src={icons.get(app.slug)} alt="" />
+                        ) : null}
+                        {app.name}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label={`Add ${name}`}
+                  checked={checked}
+                  onChange={(event) => toggle(agent.id, event.target.checked)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </ScrollList>
+      <button
+        className="ob-primary"
+        onClick={() =>
+          s.go(s.draft.purpose === "company" ? "company" : "intro")
+        }
+      >
+        Continue
+      </button>
+    </>
+  );
+}
+
+/** App icons from the plugin catalog, painted from the saved copy at once. */
+function usePluginIcons() {
+  const [catalog, setCatalog] = useState(peekRelayPluginCatalog);
+  useEffect(() => {
+    if (catalog) return;
+    let stopped = false;
+    void loadRelayPluginCatalog(false).then(
+      (loaded) => {
+        if (!stopped) setCatalog(loaded.plugins);
+      },
+      () => undefined,
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [catalog]);
+  return useMemo(
+    () =>
+      new Map(
+        (catalog ?? []).flatMap((plugin) =>
+          plugin.iconUrl ? [[plugin.id, plugin.iconUrl] as const] : [],
+        ),
+      ),
+    [catalog],
+  );
+}
 export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const local = s.draft.location === "device";
+  const eve = !local && s.draft.host === "vercel-eve";
   const provider = local ? s.draft.localProvider : s.draft.service;
   const options = local
     ? Object.entries(localProviderName).map(([value, label]) => ({
@@ -332,7 +442,10 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
         },
       ];
   // The app's own list leads with Auto, stored as "auto" in Chief's config.
-  const listed = useProviderModels(local ? s.draft.localProvider : null).models;
+  const providerModels = useProviderModels(
+    local ? s.draft.localProvider : null,
+  );
+  const listed = providerModels.models;
   const modelOptions = [
     { value: "auto", label: "Auto", icon: null },
     ...listed
@@ -344,7 +457,7 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
       <SetupHeading title="Connect Chief">
         {local
           ? "Use an agent app you already have on this device."
-          : "Cloud agents need an AI service to do its work. Paste the key for yours."}
+          : "Choose where Chief runs and the AI it uses."}
       </SetupHeading>
       <div className="ob-connection" aria-hidden="true">
         <span className="ob-connection-tile">
@@ -357,9 +470,38 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
           <ProviderIcon provider={provider} className="size-7" />
         </span>
       </div>
-      <Field label={local ? "Agent app" : "AI service"}>
+      {!local ? (
+        <Field label="Deploy to">
+          <IconSelect
+            label="Deployment host"
+            value={s.draft.host}
+            disabled={s.busy}
+            onChange={(value) => {
+              s.setApiKey("");
+              s.patch({
+                host: value === "vercel-eve" ? "vercel-eve" : "relay-cell",
+                service:
+                  value === "vercel-eve" ? "vercelAiGateway" : s.draft.service,
+              });
+            }}
+            options={[
+              {
+                value: "relay-cell",
+                label: "Chief Cloud",
+                icon: <ChiefMark className="size-5" />,
+              },
+              {
+                value: "vercel-eve",
+                label: "Vercel Eve",
+                icon: <ProviderIcon provider="vercelAiGateway" />,
+              },
+            ]}
+          />
+        </Field>
+      ) : null}
+      <Field label={local ? "Agent app" : "Inference provider"}>
         <IconSelect
-          label={local ? "Agent app" : "AI service"}
+          label={local ? "Agent app" : "Inference provider"}
           value={provider}
           onChange={(value) => {
             s.setApiKey("");
@@ -374,16 +516,19 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
               s.patch({ service: value });
           }}
           options={options}
-          disabled={
-            (!local && !!s.draft.workspaceId) ||
-            s.busy ||
-            (!local && s.draft.host === "vercel-eve")
-          }
+          disabled={s.busy || eve}
         />
       </Field>
       {local ? (
         <>
-          <Field label="Model">
+          <Field
+            label="Model"
+            hint={
+              providerModels.loading
+                ? `Finding your ${s.providerName} models…`
+                : undefined
+            }
+          >
             <IconSelect
               label="Model"
               value={s.draft.localModel}
@@ -392,88 +537,63 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
               disabled={s.busy}
             />
           </Field>
-          <p className="ob-hint">
-            Keep this device awake and online while Chief is working.
-          </p>
+          {providerModels.error ? (
+            <p className="ob-hint">
+              Couldn’t load your {s.providerName} models.{" "}
+              <button
+                type="button"
+                className="ob-inline-action"
+                onClick={providerModels.retry}
+              >
+                Try again
+              </button>
+            </p>
+          ) : null}
+          <p className="ob-hint">{placeNote("device")}</p>
         </>
       ) : (
         <>
-          {s.draft.host === "relay-cell" ? (
-            <>
-              <Field
-                label={
-                  s.draft.service === "vercelAiGateway"
-                    ? "Vercel AI Gateway key"
-                    : "OpenCode API key"
-                }
-              >
-                <input
-                  className="ob-input"
-                  type="password"
-                  autoComplete="off"
-                  placeholder={
-                    s.draft.workspaceId
-                      ? "Key saved securely"
-                      : "Paste your key"
-                  }
-                  value={s.apiKey}
-                  disabled={!!s.draft.workspaceId || s.busy}
-                  onChange={(e) => s.setApiKey(e.target.value)}
-                />
-              </Field>
-              {!s.draft.workspaceId ? (
-                <a
-                  className="ob-link"
-                  target="_blank"
-                  rel="noreferrer"
-                  href={
-                    s.draft.service === "vercelAiGateway"
-                      ? "https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys"
-                      : "https://opencode.ai/auth"
-                  }
-                >
-                  Get an API key ↗
-                </a>
-              ) : null}
-            </>
-          ) : (
-            <p className="ob-hint">
-              Connect your Vercel account on the next screen. Chief will use
-              your project’s AI Gateway.
+          <Field
+            label={
+              s.draft.service === "vercelAiGateway"
+                ? "Vercel AI Gateway key"
+                : "OpenCode API key"
+            }
+          >
+            <input
+              className="ob-input"
+              type="password"
+              autoComplete="off"
+              placeholder={
+                eve
+                  ? "Provided by Vercel during setup"
+                  : s.hasSavedKey
+                    ? "Key saved securely · paste to replace"
+                    : "Paste your key"
+              }
+              value={eve ? "" : s.apiKey}
+              disabled={s.busy || eve}
+              onChange={(e) => s.setApiKey(e.target.value)}
+            />
+          </Field>
+          {eve ? (
+            <p className="ob-link">
+              You’ll connect AI Gateway through Vercel next.
             </p>
+          ) : (
+            <a
+              className="ob-link"
+              target="_blank"
+              rel="noreferrer"
+              href={
+                s.draft.service === "vercelAiGateway"
+                  ? "https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys"
+                  : "https://opencode.ai/auth"
+              }
+            >
+              Get an API key ↗
+            </a>
           )}
-          <details className="ob-advanced">
-            <summary>Other cloud options</summary>
-            <Field label="Deploy to">
-              <IconSelect
-                label="Cloud host"
-                value={s.draft.host}
-                disabled={!!s.draft.workspaceId || s.busy}
-                onChange={(value) => {
-                  s.setApiKey("");
-                  s.patch({
-                    host: value === "vercel-eve" ? "vercel-eve" : "relay-cell",
-                    service:
-                      value === "vercel-eve"
-                        ? "vercelAiGateway"
-                        : s.draft.service,
-                  });
-                }}
-                options={[
-                  {
-                    value: "relay-cell",
-                    label: "Chief Cloud",
-                    icon: <Cloud size={17} />,
-                  },
-                  {
-                    value: "vercel-eve",
-                    label: "Vercel Eve",
-                    icon: <ProviderIcon provider="vercelAiGateway" />,
-                  },
-                ]}
-              />
-            </Field>
-          </details>
         </>
       )}
       {s.activity ? (
@@ -488,7 +608,7 @@ export function ConnectScreen({ setup: s }: { setup: WorkspaceSetup }) {
           s.busy ||
           !s.relay.client ||
           (!local &&
-            !s.draft.workspaceId &&
+            !s.hasSavedKey &&
             s.draft.host !== "vercel-eve" &&
             !s.apiKey.trim())
         }

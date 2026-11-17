@@ -1,7 +1,12 @@
-import type { WorkspaceId, WorkspaceSnapshot } from "@chief/relay-contracts";
+import type {
+  OnboardingAgentId,
+  WorkspaceId,
+  WorkspaceSnapshot,
+} from "@chief/relay-contracts";
 import {
   agentIdSchema,
   appendMessageCommandSchema,
+  onboardingAgents,
 } from "@chief/relay-contracts";
 
 import type { TrustedRequestContext } from "./internal-context";
@@ -11,7 +16,7 @@ import { withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 
 interface FirstTask {
-  /** Chief's message in Welcome that brings the teammate in. */
+  /** Chief's request in Welcome, after the teammate's @mention. */
   ask: string;
   /** What the teammate does, answering in that message's thread. */
   work: string;
@@ -22,85 +27,63 @@ interface KickoffInput {
   name: string;
   website: string;
   companyName?: string;
-  selectedApps: readonly string[];
 }
 
 /**
- * Each teammate's first task, by workspace purpose. Personal teammates help
- * one person; company teammates work from the business's own evidence. A
- * teammate with no first task here waits until Chief needs them.
+ * A teammate's default first task: a one-line hello, then the apps that would
+ * help most in its role, shown as cards the person can connect from. It never
+ * installs or authorises anything itself.
  */
-const firstTasks: Record<
-  "personal" | "company",
-  Record<string, (input: KickoffInput) => FirstTask | null>
+function suggestApps(role: string, apps: readonly string[]): FirstTask {
+  return {
+    ask: "could you say hello and suggest the apps that would help you most?",
+    work: `Introduce yourself in one line as this workspace's ${role.toLowerCase()} teammate. Then call plugins_recommend exactly once with services ${JSON.stringify(apps)} and a short content line that says, for each, what it would let you do for them. Don't install or authorise anything, and don't list the apps in text. Finish by asking which they'd like to connect first.`,
+  };
+}
+
+/**
+ * Teammates whose first task is more than suggesting apps. Any other
+ * teammate suggests the apps from its onboarding card.
+ */
+const firstTasks: Partial<
+  Record<OnboardingAgentId, (input: KickoffInput) => FirstTask | null>
 > = {
-  personal: {
-    researcher: () => ({
-      ask: "@Researcher, could you say hello and suggest a few things worth looking into?",
-      work: "Introduce yourself in one line. Offer three concrete things you could research for this person, like comparing options for a purchase, getting up to speed on a topic, or checking facts, and ask which they'd like first. Don't start researching yet.",
-    }),
-    planner: () => ({
-      ask: "@Planner, could you help get a first plan going?",
-      work: "Introduce yourself in one line. Offer to turn one current priority into a short, practical plan, give two quick examples of plans you could make, and ask what's on their plate this week.",
-    }),
-    writer: () => ({
-      ask: "@Writer, could you say hello and offer a hand with writing?",
-      work: "Introduce yourself in one line. Offer three everyday things you could draft or polish, like emails, messages or documents, and ask what they're writing at the moment.",
-    }),
-  },
-  company: {
-    brand: ({ website }) => ({
-      ask: "@Marketer, could you build a first brand profile from what we already have?",
-      skillId: "build-brand-profile",
-      work: website
-        ? `Read ${website} and its most relevant pages with web_read, then save an evidence-backed Markdown profile with brand_profile_save, citing the exact URLs you read. Summarise the profile naturally, label assumptions, and ask at most one question that would change it. Never claim a source you couldn't read.`
-        : "There's no website yet. Ask for the website or a short description of the brand, and say what you'll build from it.",
-    }),
-    content: ({ website }) => ({
-      ask: "@Content Writer, could you suggest a first piece of content?",
-      work: website
-        ? `Read ${website} with web_read and propose three specific first content ideas grounded in what you found, then ask which to draft. Don't publish anything.`
-        : "Propose three kinds of first content you could draft and ask what the company wants to say first. Don't publish anything.",
-    }),
-    analyst: () => ({
-      ask: "@Analyst, could you check what we can measure today?",
-      work: "Use plugins_list to see which analytics sources are connected; don't install anything. Say what you can report on right now, or which one connection would unlock the most useful first report, and ask which metric matters most.",
-    }),
-    prospector: () => ({
-      ask: "@Prospector, could you recommend where to find our first customers?",
-      work: "Call plugins_list with a prospecting-related query, choose only relevant plugins it genuinely returns, and call plugins_recommend once with no more than three cards. Prefer Needle for public buying signals and Apollo.io for people and company data when present. Don't install or authorise anything. Briefly say what each card unlocks and ask which source to start with.",
-    }),
-    ads: () => ({
-      ask: "@Ads Manager, could you see what we can review on paid acquisition?",
-      work: "Use plugins_list to see whether an ad platform is connected; don't install anything or spend. Say what you'd review first, or which connection you'd need, and ask which campaigns matter most.",
-    }),
-    engineer: () => ({
-      ask: "@Engineer, could you get oriented on the product work?",
-      work: "Summarise the engineering context you actually have, call out what's unknown, and propose one concrete read-only first pass. Don't change code, access repositories you weren't given, or deploy anything.",
-    }),
-    setup: ({ selectedApps }) =>
-      selectedApps.length
-        ? {
-            ask: `@Setup, could you check the apps we picked: ${[...selectedApps].sort().join(", ")}?`,
-            work: "Treat the picked apps as requests, never as proof they're connected. Check each with the integration tools you have and report only verified state, plus the single next step a person must take, if any. Never ask for secrets in a normal message.",
-          }
-        : null,
-  },
+  brand: ({ website }) =>
+    website
+      ? {
+          ask: "could you build a first brand profile from what we already have?",
+          skillId: "build-brand-profile",
+          work: `Read ${website} and its most relevant pages with web_read, then save an evidence-backed Markdown profile with brand_profile_save, citing the exact URLs you read. Summarise the profile naturally, label assumptions, and ask at most one question that would change it. Never claim a source you couldn't read.`,
+        }
+      : null,
 };
 
 /** The teammates that get a first task, in the order Chief asks them. */
 export function welcomeKickoffTasks(snapshot: WorkspaceSnapshot) {
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
-  const tasks = firstTasks[snapshot.purpose ?? "company"];
   const input: KickoffInput = {
     name: snapshot.name,
     website: snapshot.website.trim(),
     companyName: snapshot.companyName ?? undefined,
-    selectedApps: snapshot.selectedApps,
   };
   return (chief?.subagents ?? []).flatMap((teammate) => {
-    const task = tasks[teammate.id]?.(input);
-    return task ? [{ agentId: teammate.id, name: teammate.name, ...task }] : [];
+    const card = onboardingAgents.find((agent) => agent.id === teammate.id);
+    if (!card) return [];
+    const task =
+      firstTasks[card.id]?.(input) ??
+      suggestApps(
+        card.role,
+        card.apps.map((app) => app.name),
+      );
+    // Chief addresses each teammate by the name it was given.
+    return [
+      {
+        agentId: teammate.id,
+        name: teammate.name,
+        ...task,
+        ask: `@${teammate.name}, ${task.ask}`,
+      },
+    ];
   });
 }
 
