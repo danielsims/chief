@@ -12,6 +12,7 @@ import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
 } from "./channel-reactions";
+import { loadLocalProviderModels } from "./hosted-provider-models";
 import {
   readCachedProviderModels,
   retainUsefulProviderModels,
@@ -219,44 +220,64 @@ function cachedProviderModels(driver: DriverType) {
   return stored;
 }
 
+/**
+ * An agent app's models, asked of the app on this device. Setup lists them
+ * before any workspace exists; once connected, the runtime also shares them
+ * with the workspace. A failed lookup says so and can be retried.
+ */
 export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();
-  // Cached across mounts and runtime reconnects: the picker renders the last
-  // known list immediately and refreshes in place.
+  // Cached across mounts: the picker renders the last known list immediately
+  // and refreshes in place.
   const [loaded, setLoaded] = useState<{
     driver: DriverType;
     models: ProviderModelOption[];
-  } | null>(() =>
-    driver ? { driver, models: cachedProviderModels(driver) } : null,
-  );
+    error: string | null;
+  } | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const cached = driver ? cachedProviderModels(driver) : [];
     if (!driver) return;
-    const unsubscribe = client.subscribe((message) => {
-      if (message.type === "models" && message.driver === driver) {
-        const next = retainUsefulProviderModels(cached, message.models);
+    let stopped = false;
+    const cached = cachedProviderModels(driver);
+    loadLocalProviderModels(driver).then(
+      (listed) => {
+        if (stopped) return;
+        const next = retainUsefulProviderModels(cached, [
+          { value: "", label: "Auto" },
+          ...listed,
+        ]);
         providerModelsCache.set(driver, next);
         writeCachedProviderModels(driver, next);
-        setLoaded({ driver, models: next });
-      }
-    });
-    // RuntimeClient queues this request while its socket reconnects. Keeping
-    // the subscription alive lets onboarding retain the last useful list and
-    // refresh it as soon as the bundled runtime is ready.
-    client.send({ type: "listModels", driver });
+        setLoaded({ driver, models: next, error: null });
+      },
+      (cause: Error) => {
+        if (!stopped)
+          setLoaded({ driver, models: cached, error: cause.message });
+      },
+    );
     return () => {
-      unsubscribe();
+      stopped = true;
     };
+  }, [driver, attempt]);
+
+  // Device models are shared with the workspace so its members see them.
+  useEffect(() => {
+    if (status !== "connected" || (driver !== "codex" && driver !== "claude"))
+      return;
+    client.send({ type: "listModels", driver });
   }, [client, driver, status]);
 
+  const current = driver && loaded?.driver === driver ? loaded : null;
   const models =
-    driver && loaded?.driver === driver
-      ? loaded.models
-      : driver
-        ? cachedProviderModels(driver)
-        : [];
-  return { models, loading: driver !== null && models.length === 0 };
+    current?.models ?? (driver ? cachedProviderModels(driver) : []);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  return {
+    models,
+    loading: driver !== null && current === null && models.length === 0,
+    error: current?.error ?? null,
+    retry,
+  };
 }
 
 export const workspaceDataCache = new Map<string, WorkspaceDataState>();

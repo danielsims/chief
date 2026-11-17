@@ -19,6 +19,8 @@ export type DriverType = "claude" | "codex" | "opencode" | "remote";
 export interface ProviderModelOption {
   value: string;
   label: string;
+  /** The model the agent app picks for this account when asked for none. */
+  isDefault?: boolean;
   description?: string;
   contextWindow?: number;
   tags?: string[];

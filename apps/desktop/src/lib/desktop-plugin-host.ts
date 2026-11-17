@@ -44,6 +44,7 @@ type PluginHostRequest =
     }
   | { workspaceId: string; connectionId: string; projectId: string }
   | { workspaceId: string; refresh: boolean }
+  | { model: string }
   | { workspaceId: string; pluginId: string; trusted: boolean }
   | {
       workspaceId: string;

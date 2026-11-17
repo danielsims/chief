@@ -18,9 +18,11 @@ export function onboardingRoster(
     input.selectedAgentIds ??
       onboardingAgents.filter((a) => a.purpose === purpose).map((a) => a.id),
   );
-  const chosen = onboardingAgents.filter(
-    (a) => requested.has(a.id) && a.purpose === purpose,
-  );
+  // Suggestions from either kind of workspace can join, under any name the
+  // person gave them during setup.
+  const chosen = onboardingAgents
+    .filter((a) => requested.has(a.id))
+    .map((a) => ({ ...a, name: input.agentNames?.[a.id] ?? a.name }));
   const chief = structuredClone(defaultWorkspaceAgents[0]);
   return [
     {

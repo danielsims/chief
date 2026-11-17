@@ -6,6 +6,8 @@ import type { AccountProfile, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
   createWorkspaceCommandSchema,
   suggestedAgentIds,
+  USERNAME_MAX_LENGTH,
+  USERNAME_MIN_LENGTH,
   welcomeChannelId,
 } from "@chief/relay-contracts";
 
@@ -14,6 +16,7 @@ import { useAcceptAgentRequest } from "../../components/agents/owned-agents-pane
 import { useAgentRosterContext } from "../../components/chat/owned-agents-value";
 import { useAuth } from "../../lib/auth/auth-context";
 import { RELAY_URL } from "../../lib/config";
+import { loadLocalProviderModels } from "../../lib/hosted-provider-models";
 import { useRelaySession } from "../../lib/relay-session";
 import { useRuntime } from "../../lib/runtime";
 import { useAgentRoster } from "../../lib/use-agent-roster";
@@ -29,6 +32,7 @@ import {
   loadSetupProfile,
   rememberSetupProfile,
 } from "./profile-cache";
+import { applySetupConnection, setupSecretName } from "./setup-connection";
 
 export function useWorkspaceSetup() {
   const auth = useAuth();
@@ -75,7 +79,15 @@ export function useWorkspaceSetup() {
   const [activity, setActivity] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [savedKeys, setSavedKeys] = useState<{
+    workspaceId: string;
+    names: string[];
+  } | null>(null);
   const [username, setUsername] = useState(cachedProfile?.username ?? "");
+  // Starts as the name the sign-in provider gave, which people can change.
+  const [name, setName] = useState(
+    cachedProfile?.name ?? auth.user?.name ?? "",
+  );
   const [invite, setInvite] = useState<{
     link: string;
     expiresAt: string;
@@ -96,6 +108,31 @@ export function useWorkspaceSetup() {
         : null,
     [draft.workspaceId, relay.client],
   );
+  // A workspace can exist after an on-device check failed, with no cloud key.
+  // Read secret names only; never infer credentials from a workspace ID.
+  useEffect(() => {
+    const workspaceId = draft.workspaceId;
+    if (!client || !workspaceId || draft.step !== "connect") return;
+    let active = true;
+    void client.listWorkspaceSecrets().then(
+      (secrets) => {
+        if (active)
+          setSavedKeys({
+            workspaceId,
+            names: secrets.map((secret) => secret.name),
+          });
+      },
+      () => {
+        if (active) setSavedKeys(null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [client, draft.step, draft.workspaceId]);
+  const hasSavedKey =
+    savedKeys?.workspaceId === draft.workspaceId &&
+    savedKeys.names.includes(setupSecretName(draft.service));
   // Agents asking to join arrive as relay signals. Setting up the workspace
   // already open shares the app's roster; a new one listens for itself.
   const agentStep = ["invite", "approve", "success"].includes(draft.step);
@@ -120,6 +157,12 @@ export function useWorkspaceSetup() {
         : draft,
     [draft, hasRequests],
   );
+  // An agent app can be slow to answer the first time (starting up, or
+  // fetching Codex), so its models are asked for while earlier steps fill in.
+  useEffect(() => {
+    if (draft.location === "device")
+      void loadLocalProviderModels(draft.localProvider).catch(() => undefined);
+  }, [draft.location, draft.localProvider]);
   const patch = (value: Partial<SetupDraft>) =>
     setDraft((current) => ({ ...current, ...value }));
   const go = (step: SetupStep) => {
@@ -149,6 +192,16 @@ export function useWorkspaceSetup() {
         setError(null);
         setProfile(account);
         setUsername(account.username ?? "");
+        setName((current) => current || account.name);
+        // A first username is offered from their name; they can change it.
+        if (!account.username && relay.client)
+          void suggestUsername(relay.client, account.name).then(
+            (suggested) => {
+              if (!stopped && suggested)
+                setUsername((current) => current || suggested);
+            },
+            () => undefined,
+          );
         setSnapshot(workspace);
         setLoading(false);
         setDraft((current) => ({
@@ -214,11 +267,20 @@ export function useWorkspaceSetup() {
     run(async () => {
       if (!relay.client)
         throw new Error("Chief is reconnecting. Please try again.");
+      const named = name.trim();
+      if (named && named !== profile?.name) {
+        await relay.client.setAccountName(named);
+        auth.updateProfileName(named);
+      }
       const saved = await relay.client.setUsername(username);
       setUsername(saved.username);
       setProfile((current) => {
         if (!current) return current;
-        const next = { ...current, username: saved.username };
+        const next = {
+          ...current,
+          name: named || current.name,
+          username: saved.username,
+        };
         rememberSetupProfile(key, next);
         return next;
       });
@@ -235,15 +297,10 @@ export function useWorkspaceSetup() {
   /** Creates the workspace with Chief, or points an existing Chief at the chosen app. */
   const prepareChief = async (): Promise<string> => {
     if (draft.workspaceId) {
-      // Chief already exists: a different agent app just changes what
-      // Chief and its teammates run on.
-      if (draft.location === "device" && client && snapshot)
-        await applyLocalProvider(
-          client,
-          snapshot,
-          draft.localProvider,
-          draft.localModel,
-        );
+      if (!client || !snapshot)
+        throw new Error("Chief is reconnecting. Please try again.");
+      await applySetupConnection(client, snapshot, draft, apiKey);
+      setApiKey("");
       return draft.workspaceId;
     }
     const command = createWorkspaceCommandSchema.parse({
@@ -260,6 +317,12 @@ export function useWorkspaceSetup() {
       localProvider: draft.localProvider,
       inferenceModel: draft.location === "device" ? draft.localModel : "auto",
       selectedAgentIds: draft.selectedAgentIds,
+      agentNames: Object.fromEntries(
+        draft.selectedAgentIds.flatMap((id) => {
+          const name = draft.agentNames[id]?.trim();
+          return name ? [[id, name]] : [];
+        }),
+      ),
       selectedApps: draft.selectedApps,
     });
     const created = await relay.createWorkspace(command, apiKey, {
@@ -363,7 +426,9 @@ export function useWorkspaceSetup() {
     error: error ?? (agentStep ? roster.error : null),
     activity,
     apiKey,
+    hasSavedKey,
     username,
+    name,
     invite,
     requests: requests.filter((request) => !answered.has(request.id)),
     joined,
@@ -376,6 +441,7 @@ export function useWorkspaceSetup() {
     verifyChief,
     setApiKey,
     setUsername,
+    setName,
     setError,
     saveProfile,
     connect,
@@ -392,28 +458,24 @@ export function useWorkspaceSetup() {
 }
 export type WorkspaceSetup = ReturnType<typeof useWorkspaceSetup>;
 
-async function applyLocalProvider(
-  client: NonNullable<ReturnType<RelayClient["forWorkspace"]>>,
-  snapshot: WorkspaceSnapshot,
-  provider: SetupDraft["localProvider"],
-  model: string,
-) {
-  const chief = snapshot.agents.find((agent) => agent.id === "chief");
-  const ids = ["chief", ...(chief?.subagents.map((agent) => agent.id) ?? [])];
-  for (const id of ids) {
-    const { config } = await client.loadAgentConfig(id);
-    if (
-      config.inference.provider === provider &&
-      "model" in config.inference &&
-      config.inference.model === model
-    )
-      continue;
-    await client.saveAgentConfig(id, {
-      ...config,
-      inference:
-        provider === "opencode"
-          ? { provider, model, secretRef: "opencode" }
-          : { provider, model },
-    });
+const SUGGESTION_ATTEMPTS = 10;
+
+/**
+ * Their name, lowercased with spaces and symbols dropped ("Ana María" becomes
+ * "anamaria"), numbered from 2 when it's taken. Null when the name gives too
+ * little to work with or nothing nearby is free.
+ */
+async function suggestUsername(client: RelayClient, name: string) {
+  const base = name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gu, "")
+    .slice(0, USERNAME_MAX_LENGTH - 2);
+  if (base.length < USERNAME_MIN_LENGTH) return null;
+  for (let attempt = 1; attempt <= SUGGESTION_ATTEMPTS; attempt += 1) {
+    const candidate = attempt === 1 ? base : `${base}${attempt}`;
+    const result = await client.usernameAvailability(candidate);
+    if (result.available) return result.username;
   }
+  return null;
 }

@@ -215,44 +215,45 @@
 .ob-link:hover {
   text-decoration: underline;
 }
-.ob-choices {
+.ob-inline-action {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ob-segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 9px;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--muted);
 }
-.ob-choice {
+.ob-segmented button {
   display: flex;
   align-items: center;
-  gap: 10px;
-  border-radius: 10px;
-  padding: 13px;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+.ob-segmented button:hover {
+  color: var(--foreground);
+}
+.ob-segmented button[aria-checked="true"] {
+  color: var(--foreground);
+  background: var(--background);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent),
-    0 1px 2px #00000005;
-  text-align: left;
+    0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+    0 1px 2px #0000000f;
 }
-.ob-choice[aria-checked="true"] {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--foreground) 55%, transparent),
-    0 1px 3px #0000000a;
-}
-.ob-choice > span:first-of-type {
-  flex: 1;
-}
-.ob-radio {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 25%, transparent);
-  display: grid;
-  place-items: center;
-}
-.ob-radio > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--foreground);
+.ob-segmented svg {
+  width: 16px;
+  height: 16px;
 }
 .ob-avatar {
   display: inline-flex;
@@ -323,30 +324,73 @@
   font-weight: 400;
   font-size: 13px;
 }
-.ob-team-list {
-  max-height: 290px;
-  overflow: auto;
-  padding: 0 2px;
+/* Scrolls inside itself so the page never does, whatever the window size. */
+.ob-team {
+  max-height: clamp(200px, calc(100dvh - 540px), 430px);
+  overflow-y: auto;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   scrollbar-width: thin;
+}
+.ob-team[data-more="true"],
+.ob-app-list[data-more="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent);
+}
+/* Keep the grid unconstrained inside the scroll viewport so 1fr uses the
+   tallest row, rather than shrinking Chief to fit the viewport. */
+.ob-team-rows {
+  display: grid;
+  grid-auto-rows: 1fr;
 }
 .ob-team-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 72px;
-  padding: 11px 0;
-  cursor: pointer;
+  padding: 13px 2px;
 }
 .ob-team-row + .ob-team-row {
   border-top: 1px solid color-mix(in srgb, var(--foreground) 6%, transparent);
 }
-.ob-team-row input {
+.ob-avatar-chief {
+  color: var(--background);
+}
+.ob-team-row > input:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.ob-team-row > input {
+  flex: none;
   width: 15px;
   height: 15px;
+  margin: 0 4px 0 0;
   accent-color: var(--foreground);
-  margin: 0 2px 0 6px;
+  cursor: pointer;
+}
+.ob-team-row[data-checked="false"] > .ob-avatar,
+.ob-team-row[data-checked="false"] .ob-row-text {
+  opacity: 0.6;
+}
+.ob-app-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.ob-app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--foreground);
+  background: var(--muted);
+}
+.ob-app-chip img {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  object-fit: contain;
 }
 .ob-row-text {
   display: flex;
@@ -371,66 +415,98 @@
   overflow-wrap: anywhere;
 }
 .ob-places {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ob-place {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin: 0;
-}
-.ob-places-art {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  height: 196px;
   overflow: hidden;
-  border-radius: 15px;
-  background: #3b2a3a no-repeat;
-  background-size: 940px auto;
-  background-position: 30% 38%;
-  color: #fff;
-  cursor: default;
-  user-select: none;
+  border-radius: 14px;
+  text-align: left;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+  transition: box-shadow 200ms ease;
 }
-.ob-places-art::after {
+.ob-place:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 28%, transparent);
+}
+.ob-place::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, #100c1c14, #100c1c59);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in srgb, var(--foreground) 70%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
 }
-.ob-places-half {
+.ob-place[aria-checked="true"]::after {
+  opacity: 1;
+}
+.ob-place-art {
   position: relative;
-  z-index: 1;
   display: grid;
   place-items: center;
+  height: 132px;
+  color: #fff;
+  background: #3b2a3a no-repeat;
+  background-size: 780px auto;
 }
-.ob-places-half > svg {
+.ob-place-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, #100c1c0d, #100c1c4d);
+}
+.ob-place-art > svg {
+  position: relative;
+  z-index: 1;
   height: auto;
   filter: drop-shadow(0 6px 18px #00000059);
 }
-.ob-places-divider {
-  position: relative;
-  z-index: 1;
-  width: 1px;
-  height: 52%;
-  background: #ffffff2e;
+.ob-place-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 14px 15px;
 }
-.ob-places-captions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  padding: 0 4px;
+.ob-place-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-.ob-places-captions strong {
-  display: block;
-  font-size: 13.5px;
+.ob-place-title strong {
+  font-size: 14px;
   font-weight: 550;
 }
-.ob-places-captions span {
-  display: block;
-  margin-top: 2px;
+.ob-place-text > span:not(.ob-place-title) {
   font-size: 13px;
   line-height: 1.45;
   color: var(--muted-foreground);
+}
+.ob-radio {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 30%, transparent);
+}
+.ob-radio > span {
+  opacity: 0;
+  transition: opacity 200ms ease;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--foreground);
+}
+.ob-place[aria-checked="true"] .ob-radio > span {
+  opacity: 1;
 }
 .ob-connection {
   display: flex;
@@ -456,14 +532,6 @@
   justify-content: center;
   width: 68px;
   color: var(--muted-foreground);
-}
-.ob-advanced {
-  color: var(--muted-foreground);
-  font-size: 13px;
-}
-.ob-advanced summary {
-  cursor: pointer;
-  margin-bottom: 10px;
 }
 .ob-search {
   display: flex;
@@ -879,6 +947,32 @@
     animation: none;
   }
   .ob-sky-bar i {
+    transition: none;
+  }
+}
+.ob-username-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: -6px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.ob-username-suggestions button {
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--muted);
+}
+.ob-username-suggestions button:hover {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-place,
+  .ob-place::after,
+  .ob-radio > span {
     transition: none;
   }
 }

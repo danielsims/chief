@@ -128,3 +128,14 @@ export const accountProfileSchema = z
   })
   .strict();
 export type AccountProfile = z.infer<typeof accountProfileSchema>;
+
+/** The name a person goes by: any characters, spaces included. */
+export const accountNameSchema = z.string().trim().min(1).max(80);
+
+export const accountNameSetCommandSchema = z
+  .object({ name: accountNameSchema })
+  .strict();
+
+export const accountNameSetResultSchema = z
+  .object({ name: accountNameSchema })
+  .strict();

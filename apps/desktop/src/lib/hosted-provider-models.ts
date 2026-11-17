@@ -93,6 +93,24 @@ async function codexModels(): Promise<ProviderModelOption[]> {
   return claudeCodeCatalogSchema.parse(response).models;
 }
 
+const loading = new Map<DriverType, Promise<ProviderModelOption[]>>();
+
+/**
+ * The models an agent app offers on this device, asked of the app itself. It
+ * needs no workspace, so setup can list them before one exists. Rejects when
+ * the app can't be asked, rather than pretending it offers nothing.
+ */
+export function loadLocalProviderModels(driver: DriverType) {
+  let pending = loading.get(driver);
+  if (!pending) {
+    pending = listHostedProviderModels(driver).finally(() =>
+      loading.delete(driver),
+    );
+    loading.set(driver, pending);
+  }
+  return pending;
+}
+
 export async function hostedProviderModelsMessage(
   driver: DriverType,
 ): Promise<Extract<ServerMessage, { type: "models" }>> {
@@ -101,7 +119,7 @@ export async function hostedProviderModelsMessage(
     return {
       type: "models",
       driver,
-      models: [auto, ...(await listHostedProviderModels(driver))],
+      models: [auto, ...(await loadLocalProviderModels(driver))],
     };
   } catch {
     return { type: "models", driver, models: [auto] };
