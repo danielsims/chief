@@ -78,7 +78,7 @@ export function ConnectAgentDialog({
   const models = providerModels.models.filter(
     (item) => provider !== "remote" || item.value !== "",
   );
-  const [model, setModel] = useState("deepseek/deepseek-v4-flash");
+  const [model, setModel] = useState("openai/gpt-6-luna");
   const [vercelCatalog, setVercelCatalog] =
     useState<VercelEveDestinationCatalog>({ teams: [], projects: [] });
   const [vercelLoading, setVercelLoading] = useState(false);

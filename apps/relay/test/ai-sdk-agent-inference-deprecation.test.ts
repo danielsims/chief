@@ -42,7 +42,9 @@ describe("provider deprecation fallback", () => {
     ).resolves.toMatchObject({
       content: "Ready.",
     });
-    expect(models).toEqual(["deepseek-v4.1-flash"]);
+    expect(models).toEqual([
+      defaultAgentConfig.inference.model.replace(/^opencode-go\//u, ""),
+    ]);
     expect(inference.model.id).toBe(defaultAgentConfig.inference.model);
   });
   it.each([true, false])(

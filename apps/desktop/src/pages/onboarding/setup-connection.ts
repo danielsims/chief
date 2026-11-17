@@ -43,12 +43,12 @@ export async function applySetupConnection(
     : draft.service === "opencode"
       ? {
           provider: "opencode",
-          model: "opencode-go/deepseek-v4.1-flash",
+          model: "opencode-go/gpt-6-luna",
           secretRef,
         }
       : {
           provider: "vercel-ai-gateway",
-          model: "deepseek/deepseek-v4.1-flash",
+          model: "openai/gpt-6-luna",
           secretRef,
         };
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
