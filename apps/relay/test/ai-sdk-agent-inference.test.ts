@@ -4,12 +4,19 @@ import { z } from "zod";
 
 import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
+import { defaultModels } from "@chief/relay-contracts";
 
 import {
   AiSdkAgentInference,
   retryModelAdmission,
 } from "../src/ai-sdk-agent-inference";
-import { traceContext } from "./ai-sdk-agent-inference-harness";
+import {
+  openCodeChatModel,
+  requestUrl,
+  responsesJson,
+  responsesSse,
+  traceContext,
+} from "./ai-sdk-agent-inference-harness";
 
 const requestSchema = z.object({
   model: z.string(),
@@ -24,20 +31,20 @@ describe("AiSdkAgentInference", () => {
     .object({ OPENCODE_API_KEY: z.string().optional() })
     .parse(env).OPENCODE_API_KEY;
 
-  it("sends GPT-6 Luna through the OpenCode Go API", async () => {
+  it("sends the default GPT-6 Luna through the OpenCode Go Responses API", async () => {
+    let url = "";
     let requestBody: unknown;
     let requestSignal: AbortSignal | null | undefined;
     const request = async function (
       this: void,
-      _input: string | URL | Request,
+      input: string | URL | Request,
       init?: RequestInit,
     ) {
       expect(this).toBeUndefined();
+      url = requestUrl(input);
       requestBody = JSON.parse(z.string().parse(init?.body));
       requestSignal = init?.signal;
-      return Response.json({
-        choices: [{ message: { content: "ready", tool_calls: [] } }],
-      });
+      return responsesJson({ text: "ready" });
     };
     const inference = new AiSdkAgentInference(
       "test-key",
@@ -61,13 +68,121 @@ describe("AiSdkAgentInference", () => {
       temperature: 0,
     });
 
-    expect(requestSchema.parse(requestBody)).toMatchObject({
+    expect(url).toBe("https://opencode.ai/zen/go/v1/responses");
+    expect(requestBody).toMatchObject({
       model: "gpt-6-luna",
-      messages: [{ role: "system" }, { role: "user" }],
+      input: [{ role: "developer" }, { role: "user" }],
+      tools: [{ type: "function", name: "read_status" }],
+      reasoning: { summary: "auto" },
     });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
     expect(requestSignal?.aborted).toBe(false);
-    expect(result).toEqual({ content: "ready", toolCalls: [] });
+    expect(result).toMatchObject({ content: "ready", toolCalls: [] });
+  });
+
+  it("keeps non-GPT OpenCode Go models on Chat Completions", async () => {
+    let url = "";
+    const request = async (input: string | URL | Request) => {
+      url = requestUrl(input);
+      return Response.json({
+        choices: [{ message: { content: "ready", tool_calls: [] } }],
+      });
+    };
+    await new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+      openCodeChatModel,
+    ).complete({
+      messages: [{ role: "user", content: "Say ready." }],
+      tools: [],
+      temperature: 0,
+    });
+    expect(url).toBe("https://opencode.ai/zen/go/v1/chat/completions");
+  });
+
+  it("returns Responses tool calls and sends their results back as function call outputs", async () => {
+    const bodies: unknown[] = [];
+    const request = async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      bodies.push(JSON.parse(z.string().parse(init?.body)));
+      return bodies.length === 1
+        ? responsesJson({
+            toolCalls: [
+              { id: "call_status", name: "read_status", arguments: {} },
+            ],
+          })
+        : responsesJson({ text: "All clear." });
+    };
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      request,
+    );
+    const tools = [
+      {
+        name: "read_status",
+        description: "Read the current status.",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+    const first = await inference.complete({
+      messages: [{ role: "user", content: "Check the status." }],
+      tools,
+      temperature: 0,
+    });
+    expect(first.toolCalls).toEqual([
+      { id: "call_status", name: "read_status", arguments: {} },
+    ]);
+
+    const second = await inference.complete({
+      messages: [
+        { role: "user", content: "Check the status." },
+        { role: "assistant", content: "", toolCalls: first.toolCalls },
+        {
+          role: "tool",
+          toolCallId: "call_status",
+          name: "read_status",
+          content: "ok",
+        },
+      ],
+      tools,
+      temperature: 0,
+    });
+    expect(second.content).toBe("All clear.");
+    expect(bodies[1]).toMatchObject({
+      input: [
+        { role: "user" },
+        { type: "function_call", call_id: "call_status", name: "read_status" },
+        { type: "function_call_output", call_id: "call_status", output: "ok" },
+      ],
+    });
+  });
+
+  it("streams Responses reasoning into the hosted activity observer", async () => {
+    const inference = new AiSdkAgentInference(
+      "test-key",
+      traceContext(),
+      async () => responsesSse("Checking the plan.", "Ready."),
+    );
+    const progress: string[] = [];
+    const result = await inference.complete(
+      {
+        messages: [{ role: "user", content: "Hello" }],
+        tools: [],
+        temperature: 0,
+      },
+      (event) => {
+        progress.push(event.text);
+      },
+    );
+    expect(progress.at(-1)).toBe("Checking the plan.");
+    expect(result).toMatchObject({
+      content: "Ready.",
+      reasoning: "Checking the plan.",
+    });
   });
 
   it("identifies hosted OpenCode traffic with a coding-agent user agent and session", async () => {
@@ -87,6 +202,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await inference.complete({
@@ -114,6 +230,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await expect(
@@ -145,6 +262,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await expect(
@@ -168,6 +286,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await expect(
@@ -213,14 +332,14 @@ describe("AiSdkAgentInference", () => {
     expect(requestSchema.parse(requestBody).model).toBe("glm-5.3");
   });
 
-  it("sends DeepSeek V4 Flash through the native Vercel AI Gateway provider", async () => {
-    let requestUrl = "";
+  it("sends the default GPT-6 Luna through the native Vercel AI Gateway provider", async () => {
+    let url = "";
     let requestHeaders = new Headers();
     const request = async (
       input: string | URL | Request,
       init?: RequestInit,
     ) => {
-      requestUrl = input instanceof Request ? input.url : input.toString();
+      url = requestUrl(input);
       requestHeaders = new Headers(init?.headers);
       return Response.json({
         content: [{ type: "text", text: "ready" }],
@@ -237,7 +356,7 @@ describe("AiSdkAgentInference", () => {
       request,
       {
         provider: "vercel-ai-gateway",
-        model: "deepseek/deepseek-v4-flash",
+        model: defaultModels["vercel-ai-gateway"],
         secretRef: "vercel-ai-gateway",
       },
     );
@@ -249,12 +368,10 @@ describe("AiSdkAgentInference", () => {
       temperature: 0,
     });
 
-    expect(requestUrl).toBe(
-      "https://ai-gateway.vercel.sh/v4/ai/language-model",
-    );
+    expect(url).toBe("https://ai-gateway.vercel.sh/v4/ai/language-model");
     expect(requestHeaders.get("authorization")).toBe("Bearer test-vercel-key");
     expect(requestHeaders.get("ai-language-model-id")).toBe(
-      "deepseek/deepseek-v4-flash",
+      defaultModels["vercel-ai-gateway"],
     );
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });
@@ -276,6 +393,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await inference.complete({
@@ -311,6 +429,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     const result = await inference.complete({
@@ -358,6 +477,7 @@ describe("AiSdkAgentInference", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
     const first = await inference.complete({
       messages: [{ role: "user", content: "Read the status." }],
