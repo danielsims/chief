@@ -92,9 +92,9 @@ export function modelForProvider(
 ) {
   if (provider === previousProvider) return previousModel;
   return provider === "remote"
-    ? "deepseek/deepseek-v4-flash"
+    ? "openai/gpt-6-luna"
     : provider === "opencode"
-      ? "opencode-go/deepseek-v4-flash"
+      ? "opencode-go/gpt-6-luna"
       : "auto";
 }
 

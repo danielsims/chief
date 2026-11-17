@@ -1,4 +1,5 @@
 import {
+  accountNameSetResultSchema,
   accountProfileSchema,
   ownedAgentChannelResultSchema,
   ownedAgentConnectCodeSchema,
@@ -134,6 +135,18 @@ export class RelayOnboardingClient extends RelayVercelProvisioning {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username }),
+      },
+    );
+  }
+  setAccountName(name: string) {
+    return this.fetchJson(
+      new URL("/v1/me/name", this.relayUrl),
+      accountNameSetResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
       },
     );
   }

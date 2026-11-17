@@ -17,7 +17,7 @@ enum OpenCodeModelCatalog {
     let data: [Model]
   }
 
-  static let recommendedFreeModelID = "deepseek-v4-flash-free"
+  static let recommendedFreeModelID = "deepseek-v4.1-flash-free"
 
   static let fallback: [OpenCodeModelOption] = [
     option(recommendedFreeModelID, access: .free),
@@ -25,7 +25,7 @@ enum OpenCodeModelCatalog {
     option("nemotron-3-ultra-free", access: .free),
     option("nemotron-3.5-lightning-free", access: .free),
     option("laguna-s-2.1-free", access: .free),
-    option("deepseek-v4-flash", access: .go),
+    option("deepseek-v4.1-flash", access: .go),
     option("deepseek-v4-pro", access: .go),
     option("glm-5.2", access: .go),
     option("kimi-k3", access: .go),
@@ -94,8 +94,8 @@ enum OpenCodeModelCatalog {
   }
 
   private static func displayName(_ id: String) -> String {
-    if id == "deepseek-v4-flash-free" { return "DeepSeek V4 Flash" }
-    if id == "deepseek-v4-flash" { return "DeepSeek V4 Flash" }
+    if id == "deepseek-v4.1-flash-free" { return "DeepSeek V4.1 Flash" }
+    if id == "deepseek-v4.1-flash" { return "DeepSeek V4.1 Flash" }
     if id == "deepseek-v4-pro" { return "DeepSeek V4 Pro" }
     return id.split(separator: "-")
       .filter { $0.lowercased() != "free" }

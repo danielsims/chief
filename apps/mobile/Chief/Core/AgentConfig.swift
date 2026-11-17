@@ -14,7 +14,7 @@ struct AgentConfig: Codable, Equatable, Sendable {
   var messageAccess: String? = nil
   var inference = AgentInferenceConfig(
     provider: "opencode",
-    model: "opencode-go/deepseek-v4-flash",
+    model: "opencode-go/gpt-6-luna",
     secretRef: "opencode"
   )
   var approvals: String = "auto"  // auto | ask

@@ -1,11 +1,18 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
+
+import type { AgentPluginSummary } from "@chief/agent-runtime/types";
 
 import type { SetupStep } from "./model";
 import { AgentEveDeploymentPanel } from "../../components/agents/agent-eve-deployment-panel";
 import { ChiefMark } from "../../components/chief-mark";
+import { ProviderLogo } from "../../components/provider-logo";
 import { WorkspaceSetupChrome } from "../../components/workspace-setup-chrome";
+import {
+  featuredPluginOptions,
+  pluginDomain,
+} from "../../lib/plugin-presentation";
 import { loadRelayPluginCatalog } from "../../lib/relay-plugin-catalog";
 import { relayAgentDefinitions } from "../../lib/relay-runtime-agents";
 import {
@@ -36,9 +43,9 @@ import "./onboarding.css";
 const screenSteps: Record<SetupStep, number> = {
   profile: 0,
   workspace: 0,
-  company: 0,
-  intro: 1,
   chief: 1,
+  company: 1,
+  intro: 2,
   connect: 2,
   connecting: 2,
   eve: 2,
@@ -53,9 +60,19 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
   const s = useWorkspaceSetup();
   const reduced = useReducedMotion();
   const main = useRef<HTMLDivElement>(null);
-  // Ready long before the apps step, so its list paints at once.
+  const [logoPlugins, setLogoPlugins] = useState<AgentPluginSummary[]>([]);
+  // Load the plugin catalog before the apps step so its list renders immediately.
   useEffect(() => {
-    void loadRelayPluginCatalog(false).catch(() => undefined);
+    let active = true;
+    void loadRelayPluginCatalog(false).then(
+      (catalog) => {
+        if (active) setLogoPlugins(featuredPluginOptions(catalog.plugins, 24));
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
   }, []);
   useEffect(() => {
     main.current?.scrollTo(0, 0);
@@ -66,10 +83,10 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
   const back = () => {
     const previous: Partial<Record<SetupStep, SetupStep>> = {
       workspace: s.profile?.username ? undefined : "profile",
-      company: "workspace",
-      intro: s.draft.purpose === "company" ? "company" : "workspace",
-      chief: "intro",
-      connect: "chief",
+      chief: "workspace",
+      company: "chief",
+      intro: s.draft.purpose === "company" ? "company" : "chief",
+      connect: "intro",
       eve: "connect",
       connecting: "connect",
       apps: "connect",
@@ -112,6 +129,15 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
     <div className="ob-shell">
       <div data-tauri-drag-region className="ob-drag" />
       <WorkspaceSetupChrome onExit={onCancel} />
+      <div className="sr-only" aria-hidden="true">
+        {logoPlugins.map((plugin) => (
+          <ProviderLogo
+            key={plugin.id}
+            domain={pluginDomain(plugin)}
+            label={plugin.name}
+          />
+        ))}
+      </div>
       {/* Loads the workspace logo before You're in, so it shows at once. */}
       {s.profile && ["team", "invite", "approve"].includes(s.draft.step) ? (
         <div className="sr-only" aria-hidden="true">

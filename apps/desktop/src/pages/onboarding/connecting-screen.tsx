@@ -59,20 +59,22 @@ function probeMessage(name: string, probe: LocalProviderProbe) {
   if (probe.reason === "usage") {
     const reset = /try again at ([^.]+)\./iu.exec(probe.detail)?.[1];
     return reset
-      ? `${name} is out of usage until ${reset}. Choose another app, or try again then.`
-      : `${name} is out of usage right now. Choose another app, or try again later.`;
+      ? `${name} is out of usage until ${reset}. Change settings, or try again then.`
+      : `${name} is out of usage right now. Change settings, or try again later.`;
   }
   if (probe.reason === "signed_out")
     return `${name} isn’t signed in on this computer. Sign in, then try again.`;
   if (probe.reason === "missing")
-    return `${name} isn’t installed on this computer. Choose another app.`;
+    return `${name} isn’t installed on this computer. Change settings to use another app.`;
+  if (probe.reason === "model")
+    return `Your ${name} account can’t use that model. Change settings to pick another.`;
   return `${name} didn’t answer. ${probe.detail}`.trim();
 }
 
 /**
- * Checks the agent app answers on this computer while Chief joins the
- * workspace, then confirms Chief is in it. Both run at once so the wait is
- * barely longer than the check; the bar creeps while it works.
+ * Checks the agent app before creating a workspace, then confirms Chief is in
+ * it. A failed app check leaves setup editable without creating a partial
+ * workspace.
  */
 export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const [stages, setStages] = useState<[StageState, StageState]>([
@@ -107,7 +109,10 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
       const check = async (): Promise<LocalProviderProbe> => {
         if (!local) return { ok: true };
         try {
-          return await probeLocalProvider(setup.draft.localProvider);
+          return await probeLocalProvider(
+            setup.draft.localProvider,
+            setup.draft.localModel,
+          );
         } catch (cause) {
           return {
             ok: false,
@@ -127,8 +132,6 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
         }
       };
       const probe = check();
-      // Joining the workspace starts straight away, alongside the check.
-      const prepared = join();
       const [checked] = await Promise.all([probe, minimum(700)]);
       clearInterval(creep);
       if (!checked.ok) {
@@ -141,7 +144,7 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
       }
       setStages(["done", "active"]);
       setProgress(68);
-      const joined = await prepared;
+      const joined = await join();
       try {
         if (!joined.ok) throw new Error(joined.message);
         await Promise.all([
@@ -187,7 +190,7 @@ export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
       {error?.app ? (
         <>
           <button className="ob-primary" onClick={() => s.go("connect")}>
-            Choose another app
+            Change settings
           </button>
           <button className="ob-back" onClick={retry}>
             Try again

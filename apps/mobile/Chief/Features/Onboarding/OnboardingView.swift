@@ -276,7 +276,7 @@ private struct InferenceStep: View {
         ) {
           credential = ""
           draft.inferenceProvider = .vercelAiGateway
-          draft.inferenceModel = "deepseek/deepseek-v4-flash"
+          draft.inferenceModel = "openai/gpt-6-luna"
         }
         Divider().overlay(ChiefTheme.line)
         OptionRow(
@@ -287,7 +287,7 @@ private struct InferenceStep: View {
         ) {
           credential = ""
           draft.inferenceProvider = .openCodeGo
-          draft.inferenceModel = "opencode-go/deepseek-v4-flash"
+          draft.inferenceModel = "opencode-go/gpt-6-luna"
         }
         VStack(alignment: .leading, spacing: 10) {
           SecureField(
@@ -324,7 +324,7 @@ private struct InferenceStep: View {
         ) {
           credential = ""
           draft.inferenceProvider = .vercelAiGateway
-          draft.inferenceModel = "deepseek/deepseek-v4-flash"
+          draft.inferenceModel = "openai/gpt-6-luna"
           draft.deviceModelID = nil
         }
         Divider().overlay(ChiefTheme.line)

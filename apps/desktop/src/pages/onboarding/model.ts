@@ -35,6 +35,8 @@ export const setupDraftSchema = z.object({
   service: z.enum(["vercelAiGateway", "opencode"]),
   host: z.enum(["relay-cell", "vercel-eve"]),
   selectedAgentIds: z.array(z.string()).max(10),
+  /** Names given to teammates during setup, by teammate. */
+  agentNames: z.record(z.string(), z.string().max(40)).default({}),
   selectedApps: z.array(z.string()).max(40),
   emails: z.array(z.email()).max(50),
   workspaceId: z.string().nullable(),
@@ -75,6 +77,7 @@ export const newSetupDraft = (): SetupDraft => ({
   service: "vercelAiGateway",
   host: "relay-cell",
   selectedAgentIds: suggestedAgentIds("personal"),
+  agentNames: {},
   selectedApps: [],
   emails: [],
   workspaceId: null,
@@ -138,6 +141,7 @@ export function resumeSetupDraft(
         : chief?.provider === "opencode"
           ? "opencode"
           : "codex",
+    service: chief?.provider === "opencode" ? "opencode" : "vercelAiGateway",
     selectedApps: workspace.selectedApps,
     selectedAgentIds: chief?.subagents.map((a) => a.id) ?? [],
     step:
