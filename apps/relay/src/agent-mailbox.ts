@@ -101,7 +101,11 @@ async function currentAgentIdentity(env: Env, principal: Principal) {
   return [401, 403, 404].includes(response.status) ? "revoked" : "unknown";
 }
 
-/** Revalidate saved socket identities, including tickets issued before rotation. */
+/**
+ * Revalidate saved socket identities, including tickets issued before
+ * rotation. Resolves true when a notice was held back because the identity
+ * check was unavailable, so the caller can send it again.
+ */
 export async function deliverAgentMailboxSocketEvent(
   env: Env,
   sockets: readonly Pick<
@@ -111,6 +115,7 @@ export async function deliverAgentMailboxSocketEvent(
   event: JsonObject,
 ) {
   const serialized = JSON.stringify(event);
+  let held = false;
   await Promise.all(
     sockets.map(async (socket) => {
       const principal = principalSchema.safeParse(
@@ -120,15 +125,29 @@ export async function deliverAgentMailboxSocketEvent(
         socket.close(1008, "Agent access must be renewed");
         return;
       }
-      // The mailbox keeps the event, so skipping a notice while the identity
-      // check is unavailable loses nothing and keeps a healthy agent online.
+      // An unverified socket never gets a notice. The job stays queued and the
+      // notice is retried, so a healthy agent stays online and loses nothing.
       const identity = await currentAgentIdentity(env, principal.data).catch(
         () => "unknown" as const,
       );
       if (identity === "revoked") socket.close(1008, "Agent identity revoked");
       else if (identity === "authorized") socket.send(serialized);
+      else held = true;
     }),
   );
+  return held;
+}
+
+const HELD_NOTICE_RETRY_MS = 30_000;
+
+/**
+ * Wakes the agent's object again soon; its alarm re-announces the oldest due
+ * job. The relay retries, so hosts never poll for a notice that was held.
+ */
+export async function retryHeldMailboxNotice(storage: DurableObjectStorage) {
+  const at = Date.now() + HELD_NOTICE_RETRY_MS;
+  const current = await storage.getAlarm();
+  if (current === null || current > at) await storage.setAlarm(at);
 }
 
 /** The host is offline once its last mailbox socket is gone. */
