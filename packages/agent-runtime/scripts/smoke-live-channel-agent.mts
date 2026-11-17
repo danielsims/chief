@@ -28,7 +28,7 @@ import { AgentSession } from "../src/session.js";
 const databaseKey = "chief-live-channel-smoke-test-key";
 const token = "chief-live-channel-smoke-capability";
 const workspaceId = "live-smoke-workspace";
-const liveModel = "opencode-go/deepseek-v4.1-flash";
+const liveModel = "opencode-go/gpt-6-luna";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY = databaseKey;
 const startedAt = Date.now();
 const runId = new Date(startedAt).toISOString().replace(/[:.]/gu, "-");

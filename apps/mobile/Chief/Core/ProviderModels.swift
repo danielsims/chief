@@ -68,9 +68,9 @@ enum AgentProviderOption: String, CaseIterable, Identifiable {
   var defaultInference: AgentInferenceConfig {
     switch self {
     case .vercelAIGateway:
-      AgentInferenceConfig(provider: rawValue, model: "deepseek/deepseek-v4-flash", secretRef: secretRef)
+      AgentInferenceConfig(provider: rawValue, model: "openai/gpt-6-luna", secretRef: secretRef)
     case .openCode:
-      AgentInferenceConfig(provider: rawValue, model: "opencode-go/deepseek-v4-flash", secretRef: secretRef)
+      AgentInferenceConfig(provider: rawValue, model: "opencode-go/gpt-6-luna", secretRef: secretRef)
     case .chatGPT, .claude:
       AgentInferenceConfig(provider: rawValue, model: "auto", secretRef: nil)
     }

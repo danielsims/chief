@@ -98,7 +98,7 @@ export const defaultAgentConfig = agentConfigSchema.parse({
   deploymentTarget: "cloud",
   inference: {
     provider: "opencode",
-    model: "opencode-go/deepseek-v4.1-flash",
+    model: "opencode-go/gpt-6-luna",
     secretRef: "opencode",
   },
   approvals: "auto",

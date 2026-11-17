@@ -24,7 +24,7 @@ describe("AiSdkAgentInference", () => {
     .object({ OPENCODE_API_KEY: z.string().optional() })
     .parse(env).OPENCODE_API_KEY;
 
-  it("sends DeepSeek V4.1 Flash through the OpenCode Go API", async () => {
+  it("sends GPT-6 Luna through the OpenCode Go API", async () => {
     let requestBody: unknown;
     let requestSignal: AbortSignal | null | undefined;
     const request = async function (
@@ -62,7 +62,7 @@ describe("AiSdkAgentInference", () => {
     });
 
     expect(requestSchema.parse(requestBody)).toMatchObject({
-      model: "deepseek-v4.1-flash",
+      model: "gpt-6-luna",
       messages: [{ role: "system" }, { role: "user" }],
     });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
