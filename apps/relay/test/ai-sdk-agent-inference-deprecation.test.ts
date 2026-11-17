@@ -6,6 +6,7 @@ import { defaultAgentConfig } from "@chief/relay-contracts";
 import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
 import {
   openCodeSse,
+  requestUrl,
   responsesJson,
   responsesSse,
   traceContext,
@@ -18,9 +19,7 @@ const input = {
 };
 /** A successful reply in the wire format the request was sent with. */
 const success = (url: string | URL | Request, streaming = true) => {
-  if (
-    (url instanceof Request ? url.url : url.toString()).endsWith("/responses")
-  )
+  if (requestUrl(url).endsWith("/responses"))
     return streaming
       ? responsesSse("Checking.", "Ready.")
       : responsesJson({ text: "Ready." });

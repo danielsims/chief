@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { MemoryCellPersistence } from "@chief/agent-runtime/cells/memory";
 import { DurableTurnRunner } from "@chief/agent-runtime/durable-turn";
+import { defaultModels } from "@chief/relay-contracts";
 
 import {
   AiSdkAgentInference,
@@ -11,6 +12,7 @@ import {
 } from "../src/ai-sdk-agent-inference";
 import {
   openCodeChatModel,
+  requestUrl,
   responsesJson,
   responsesSse,
   traceContext,
@@ -30,7 +32,7 @@ describe("AiSdkAgentInference", () => {
     .parse(env).OPENCODE_API_KEY;
 
   it("sends the default GPT-6 Luna through the OpenCode Go Responses API", async () => {
-    let requestUrl = "";
+    let url = "";
     let requestBody: unknown;
     let requestSignal: AbortSignal | null | undefined;
     const request = async function (
@@ -39,7 +41,7 @@ describe("AiSdkAgentInference", () => {
       init?: RequestInit,
     ) {
       expect(this).toBeUndefined();
-      requestUrl = input instanceof Request ? input.url : input.toString();
+      url = requestUrl(input);
       requestBody = JSON.parse(z.string().parse(init?.body));
       requestSignal = init?.signal;
       return responsesJson({ text: "ready" });
@@ -66,11 +68,12 @@ describe("AiSdkAgentInference", () => {
       temperature: 0,
     });
 
-    expect(requestUrl).toBe("https://opencode.ai/zen/go/v1/responses");
+    expect(url).toBe("https://opencode.ai/zen/go/v1/responses");
     expect(requestBody).toMatchObject({
       model: "gpt-6-luna",
       input: [{ role: "developer" }, { role: "user" }],
       tools: [{ type: "function", name: "read_status" }],
+      reasoning: { summary: "auto" },
     });
     expect(requestSignal).toBeInstanceOf(AbortSignal);
     expect(requestSignal?.aborted).toBe(false);
@@ -78,9 +81,9 @@ describe("AiSdkAgentInference", () => {
   });
 
   it("keeps non-GPT OpenCode Go models on Chat Completions", async () => {
-    let requestUrl = "";
+    let url = "";
     const request = async (input: string | URL | Request) => {
-      requestUrl = input instanceof Request ? input.url : input.toString();
+      url = requestUrl(input);
       return Response.json({
         choices: [{ message: { content: "ready", tool_calls: [] } }],
       });
@@ -95,7 +98,7 @@ describe("AiSdkAgentInference", () => {
       tools: [],
       temperature: 0,
     });
-    expect(requestUrl).toBe("https://opencode.ai/zen/go/v1/chat/completions");
+    expect(url).toBe("https://opencode.ai/zen/go/v1/chat/completions");
   });
 
   it("returns Responses tool calls and sends their results back as function call outputs", async () => {
@@ -329,14 +332,14 @@ describe("AiSdkAgentInference", () => {
     expect(requestSchema.parse(requestBody).model).toBe("glm-5.3");
   });
 
-  it("sends DeepSeek V4 Flash through the native Vercel AI Gateway provider", async () => {
-    let requestUrl = "";
+  it("sends the default GPT-6 Luna through the native Vercel AI Gateway provider", async () => {
+    let url = "";
     let requestHeaders = new Headers();
     const request = async (
       input: string | URL | Request,
       init?: RequestInit,
     ) => {
-      requestUrl = input instanceof Request ? input.url : input.toString();
+      url = requestUrl(input);
       requestHeaders = new Headers(init?.headers);
       return Response.json({
         content: [{ type: "text", text: "ready" }],
@@ -353,7 +356,7 @@ describe("AiSdkAgentInference", () => {
       request,
       {
         provider: "vercel-ai-gateway",
-        model: "deepseek/deepseek-v4-flash",
+        model: defaultModels["vercel-ai-gateway"],
         secretRef: "vercel-ai-gateway",
       },
     );
@@ -365,12 +368,10 @@ describe("AiSdkAgentInference", () => {
       temperature: 0,
     });
 
-    expect(requestUrl).toBe(
-      "https://ai-gateway.vercel.sh/v4/ai/language-model",
-    );
+    expect(url).toBe("https://ai-gateway.vercel.sh/v4/ai/language-model");
     expect(requestHeaders.get("authorization")).toBe("Bearer test-vercel-key");
     expect(requestHeaders.get("ai-language-model-id")).toBe(
-      "deepseek/deepseek-v4-flash",
+      defaultModels["vercel-ai-gateway"],
     );
     expect(result).toEqual({ content: "ready", toolCalls: [] });
   });

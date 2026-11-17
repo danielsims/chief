@@ -14,19 +14,21 @@ const responsesUsage = {
   output_tokens_details: { reasoning_tokens: 0 },
 };
 
-/** A finished Responses API reply: optional reasoning, text and tool calls. */
-export function responsesJson(
-  output: {
-    text?: string;
-    toolCalls?: { id: string; name: string; arguments: JsonObject }[];
-  },
-  model = "gpt-6-luna",
-) {
+/** The URL a stubbed fetch was called with. */
+export function requestUrl(input: string | URL | Request) {
+  return input instanceof Request ? input.url : input.toString();
+}
+
+/** A finished Responses API reply with text, tool calls or both. */
+export function responsesJson(output: {
+  text?: string;
+  toolCalls?: { id: string; name: string; arguments: JsonObject }[];
+}) {
   return Response.json({
     id: "resp_test",
     object: "response",
     created_at: 0,
-    model,
+    model: "gpt-6-luna",
     status: "completed",
     incomplete_details: null,
     output: [
