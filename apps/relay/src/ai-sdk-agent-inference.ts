@@ -99,6 +99,9 @@ export class AiSdkAgentInference implements AgentInference {
         ? undefined
         : { maxOutputTokens: input.maxTokens }),
       temperature: input.temperature,
+      // OpenAI models only return their reasoning as a summary on request.
+      // Other providers ignore this.
+      providerOptions: { openai: { reasoningSummary: "auto" } },
       maxRetries: 0,
       timeout: HOSTED_INFERENCE_TIMEOUT_MS,
       runtimeContext: {
