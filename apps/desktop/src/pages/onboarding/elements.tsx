@@ -152,9 +152,9 @@ const places: {
   value: Place;
   title: string;
   text: string;
-  /** What the person has to know once it's chosen. */
+  /** What the person needs to know once this place is chosen. */
   note: string;
-  /** Where this card's crop of the hero sky sits, so the two look apart. */
+  /** Background position for this card's crop of the hero image. */
   crop: string;
 }[] = [
   {
@@ -173,12 +173,12 @@ const places: {
   },
 ];
 
-/** Two cards, one per place agents can run, each with its own picture. */
 /** The one thing to know about where agents run, for the chosen place. */
 export function placeNote(value: Place) {
   return places.find((place) => place.value === value)?.note ?? "";
 }
 
+/** Two cards, one per place agents can run, each with its own picture. */
 export function PlacesPicker({
   value,
   onChange,

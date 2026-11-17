@@ -72,8 +72,9 @@ function probeMessage(name: string, probe: LocalProviderProbe) {
 }
 
 /**
- * Checks the agent app before creating a workspace, then confirms Chief is
- * in it. Failed app checks leave setup editable without a partial workspace.
+ * Checks the agent app before creating a workspace, then confirms Chief is in
+ * it. A failed app check leaves setup editable without creating a partial
+ * workspace.
  */
 export function ConnectingScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const [stages, setStages] = useState<[StageState, StageState]>([

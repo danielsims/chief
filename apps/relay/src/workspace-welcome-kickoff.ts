@@ -20,8 +20,8 @@ interface FirstTask {
 }
 
 /**
- * A teammate's first message is an introduction and the apps it would want
- * connected. Nothing else starts, so there is nothing to get wrong.
+ * Introduces a teammate and the apps it would want connected, without
+ * starting any work.
  */
 function introductionTask(input: {
   name: string;
@@ -39,10 +39,7 @@ Your final response is only a short question asking which they'd like to connect
   };
 }
 
-/**
- * The Marketer still starts the brand profile on day one. It is the one first
- * job that earned its place; everything else is only an introduction.
- */
+/** The Marketer builds the workspace's brand profile as its first task. */
 function brandTask(website: string): FirstTask {
   return {
     ask: "use [chief-skill:build-brand-profile] to create a useful working profile from our first-party evidence. Ask one focused question here only if a missing preference materially changes it.",

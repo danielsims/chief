@@ -96,9 +96,9 @@ async function codexModels(): Promise<ProviderModelOption[]> {
 const loading = new Map<DriverType, Promise<ProviderModelOption[]>>();
 
 /**
- * The models an agent app offers on this device, asked of the app itself. It
- * needs no workspace, so setup can list them before one exists. Rejects when
- * the app can't be asked, rather than pretending it offers nothing.
+ * The models an agent app offers on this device, read from the app itself.
+ * Requires no workspace, so setup can list them before one exists. Rejects
+ * when the app cannot be queried instead of returning an empty list.
  */
 export function loadLocalProviderModels(driver: DriverType) {
   let pending = loading.get(driver);

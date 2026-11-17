@@ -116,7 +116,7 @@ export function ProfileScreen({ setup: s }: { setup: WorkspaceSetup }) {
           <input
             className="ob-input"
             value={s.username}
-            // Only what a username can hold gets typed or pasted in.
+            // Strip characters a username cannot contain.
             onChange={(e) =>
               s.setUsername(
                 e.target.value.toLowerCase().replace(/[^a-z0-9-]/gu, ""),
@@ -259,7 +259,7 @@ export function CompanyScreen({ setup: s }: { setup: WorkspaceSetup }) {
     </>
   );
 }
-/** Where agents run, picked from two cards that say what each means. */
+/** Where agents run, chosen from two cards that explain each option. */
 export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
   return (
     <>
@@ -278,9 +278,9 @@ export function IntroScreen({ setup: s }: { setup: WorkspaceSetup }) {
   );
 }
 /**
- * The team Chief starts with: one list to tick, this kind of workspace's
- * teammates first and ticked. Personal or Company resets the ticks; any
- * teammate can be renamed, and shows the apps it works best with.
+ * The team Chief starts with. The workspace's suggested teammates are listed
+ * first and selected by default; any teammate can be renamed and shows its
+ * recommended apps.
  */
 export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
   const icons = usePluginIcons();
@@ -320,7 +320,7 @@ export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
       </div>
       <ScrollList className="ob-team" label="Your team">
         <div className="ob-team-rows">
-          {/* Chief leads every workspace, so it's always on the team. */}
+          {/* Chief is always on the team during setup. */}
           <div className="ob-team-row" data-checked="true">
             <IdentityTile
               color="var(--foreground)"
@@ -393,7 +393,7 @@ export function ChiefScreen({ setup: s }: { setup: WorkspaceSetup }) {
   );
 }
 
-/** App icons from the plugin catalog, painted from the saved copy at once. */
+/** App icons from the plugin catalog, using the cached catalog when available. */
 function usePluginIcons() {
   const [catalog, setCatalog] = useState(peekRelayPluginCatalog);
   useEffect(() => {

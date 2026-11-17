@@ -84,7 +84,7 @@ export function useWorkspaceSetup() {
     names: string[];
   } | null>(null);
   const [username, setUsername] = useState(cachedProfile?.username ?? "");
-  // Starts as the name the sign-in provider gave, which people can change.
+  // Defaults to the name from the sign-in provider; people can change it.
   const [name, setName] = useState(
     cachedProfile?.name ?? auth.user?.name ?? "",
   );
@@ -108,7 +108,7 @@ export function useWorkspaceSetup() {
         : null,
     [draft.workspaceId, relay.client],
   );
-  // A workspace can exist after an on-device check failed, with no cloud key.
+  // A workspace can exist after an on-device check fails, without a cloud key.
   // Read secret names only; never infer credentials from a workspace ID.
   useEffect(() => {
     const workspaceId = draft.workspaceId;
@@ -157,8 +157,8 @@ export function useWorkspaceSetup() {
         : draft,
     [draft, hasRequests],
   );
-  // An agent app can be slow to answer the first time (starting up, or
-  // fetching Codex), so its models are asked for while earlier steps fill in.
+  // Fetch the agent app's models early, since it can be slow to start or fetch
+  // Codex.
   useEffect(() => {
     if (draft.location === "device")
       void loadLocalProviderModels(draft.localProvider).catch(() => undefined);
@@ -193,7 +193,7 @@ export function useWorkspaceSetup() {
         setProfile(account);
         setUsername(account.username ?? "");
         setName((current) => current || account.name);
-        // A first username is offered from their name; they can change it.
+        // Suggest a username from their name; they can change it.
         if (!account.username && relay.client)
           void suggestUsername(relay.client, account.name).then(
             (suggested) => {
@@ -461,9 +461,9 @@ export type WorkspaceSetup = ReturnType<typeof useWorkspaceSetup>;
 const SUGGESTION_ATTEMPTS = 10;
 
 /**
- * Their name, lowercased with spaces and symbols dropped ("Ana María" becomes
- * "anamaria"), numbered from 2 when it's taken. Null when the name gives too
- * little to work with or nothing nearby is free.
+ * Build a username from their name by lowercasing and dropping spaces and
+ * symbols, then append a number if it is taken. Returns null when the name is
+ * too short or no nearby name is free.
  */
 async function suggestUsername(client: RelayClient, name: string) {
   const base = name

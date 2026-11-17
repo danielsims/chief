@@ -221,9 +221,9 @@ function cachedProviderModels(driver: DriverType) {
 }
 
 /**
- * An agent app's models, asked of the app on this device. Setup lists them
+ * An agent app's models, read from the app on this device. Setup lists them
  * before any workspace exists; once connected, the runtime also shares them
- * with the workspace. A failed lookup says so and can be retried.
+ * with the workspace. Failed lookups surface an error that can be retried.
  */
 export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();

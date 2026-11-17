@@ -13,8 +13,8 @@ const probeSchema = z.discriminatedUnion("ok", [
 export type LocalProviderProbe = z.infer<typeof probeSchema>;
 
 /**
- * Sends the agent app on this computer one tiny message, on the model Chief
- * will run, to check it answers.
+ * Sends the agent app one short message on the model Chief will run to confirm
+ * it responds.
  */
 export async function probeLocalProvider(
   provider: "codex" | "claude" | "opencode",

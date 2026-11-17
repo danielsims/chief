@@ -12,8 +12,8 @@ export type UsernameCheck =
   | { state: "taken"; message: string; suggestions: string[] };
 
 /**
- * Asks the relay whether a username is free once typing pauses, and offers a
- * few free alternatives when it isn't. The relay's unique index still has the
+ * Asks the relay whether a username is free once typing pauses and offers a
+ * few free alternatives when it is not. The relay's unique index still has the
  * final say when the profile is saved.
  */
 export function useUsernameCheck(
@@ -28,7 +28,8 @@ export function useUsernameCheck(
   useEffect(() => {
     if (!client || !valid) return;
     let stopped = false;
-    // Read through a call: the answer can change while a request is out.
+    // Re-check the flag after each await, since the answer can change while a
+    // request is out.
     const current = () => !stopped;
     const look = async () => {
       const result = await client.usernameAvailability(username);
@@ -46,7 +47,8 @@ export function useUsernameCheck(
     };
     const timer = setTimeout(() => {
       look().catch(() => {
-        // Unchecked is fine: saving still enforces uniqueness.
+        // An unchecked name is acceptable because saving still enforces
+        // uniqueness.
         if (current()) setCheck({ username, result: { state: "idle" } });
       });
     }, CHECK_DELAY_MS);
@@ -59,7 +61,7 @@ export function useUsernameCheck(
   return check?.username === username ? check.result : { state: "checking" };
 }
 
-/** The username with a short number on the end, keeping only free ones. */
+/** Append a short number to the username and keep the first free options. */
 async function freeAlternatives(client: RelayClient, username: string) {
   const base = username.slice(0, USERNAME_MAX_LENGTH - 3);
   const tried = new Set<string>();

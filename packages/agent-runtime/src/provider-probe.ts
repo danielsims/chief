@@ -24,9 +24,8 @@ const TIMEOUT_MS = 45_000;
 const MODEL_PATTERN = /^[\w.:/@[\]-]{1,128}$/u;
 
 /**
- * Sends the agent app one tiny message on the model Chief will run, and checks
- * it answers, so setup knows Chief can actually run here: installed, signed
- * in, not out of usage, and allowed that model.
+ * Sends the agent app one short message on the model Chief will run to confirm
+ * it is installed, signed in, within usage limits, and allowed that model.
  */
 export async function probeProvider(
   provider: ProbedProvider,
