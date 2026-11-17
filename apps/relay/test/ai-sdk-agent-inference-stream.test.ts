@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
-import { openCodeSse, traceContext } from "./ai-sdk-agent-inference-harness";
+import {
+  openCodeChatModel,
+  openCodeSse,
+  traceContext,
+} from "./ai-sdk-agent-inference-harness";
 
 describe("AiSdkAgentInference streaming", () => {
   it("streams OpenCode reasoning into the hosted activity observer", async () => {
@@ -43,6 +47,7 @@ describe("AiSdkAgentInference streaming", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
     const progress: string[] = [];
 
@@ -92,6 +97,7 @@ describe("AiSdkAgentInference streaming", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await expect(
@@ -116,6 +122,7 @@ describe("AiSdkAgentInference streaming", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await expect(
@@ -157,6 +164,7 @@ describe("AiSdkAgentInference streaming", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
 
     await inference.complete(
@@ -248,6 +256,7 @@ describe("AiSdkAgentInference streaming", () => {
       "test-key",
       traceContext(),
       request,
+      openCodeChatModel,
     );
     const first = await inference.complete(
       {

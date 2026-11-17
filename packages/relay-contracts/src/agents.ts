@@ -93,12 +93,21 @@ export const agentConfigSchema = z
   })
   .strict();
 
+/** The model hosted agents run on unless someone chooses another. */
+export const DEFAULT_MODEL = "gpt-6-luna";
+
+/** The default model as each hosted inference service names it. */
+export const defaultModels = {
+  "vercel-ai-gateway": `openai/${DEFAULT_MODEL}`,
+  opencode: `opencode-go/${DEFAULT_MODEL}`,
+} as const;
+
 export const defaultAgentConfig = agentConfigSchema.parse({
   enabled: true,
   deploymentTarget: "cloud",
   inference: {
     provider: "opencode",
-    model: "opencode-go/gpt-6-luna",
+    model: defaultModels.opencode,
     secretRef: "opencode",
   },
   approvals: "auto",
