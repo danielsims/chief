@@ -2,6 +2,7 @@ import { Vercel } from "@lobehub/icons";
 import { CircleAlert, Laptop } from "lucide-react";
 
 import type { DriverType } from "@chief/agent-runtime/types";
+import { defaultModels } from "@chief/relay-contracts";
 
 import type {
   AgentDeployment,
@@ -92,9 +93,9 @@ export function modelForProvider(
 ) {
   if (provider === previousProvider) return previousModel;
   return provider === "remote"
-    ? "openai/gpt-6-luna"
+    ? defaultModels["vercel-ai-gateway"]
     : provider === "opencode"
-      ? "opencode-go/gpt-6-luna"
+      ? defaultModels.opencode
       : "auto";
 }
 

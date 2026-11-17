@@ -9,7 +9,7 @@ import type {
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
 import type { CreateNativeAgentCommand } from "@chief/relay-contracts";
-import { agentIdSchema } from "@chief/relay-contracts";
+import { agentIdSchema, defaultModels } from "@chief/relay-contracts";
 import {
   Dialog,
   DialogContent,
@@ -78,7 +78,9 @@ export function ConnectAgentDialog({
   const models = providerModels.models.filter(
     (item) => provider !== "remote" || item.value !== "",
   );
-  const [model, setModel] = useState("openai/gpt-6-luna");
+  const [model, setModel] = useState<string>(
+    defaultModels["vercel-ai-gateway"],
+  );
   const [vercelCatalog, setVercelCatalog] =
     useState<VercelEveDestinationCatalog>({ teams: [], projects: [] });
   const [vercelLoading, setVercelLoading] = useState(false);

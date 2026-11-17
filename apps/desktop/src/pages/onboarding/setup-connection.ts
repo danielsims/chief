@@ -3,6 +3,7 @@ import type {
   AgentInferenceConfig,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
+import { defaultModels } from "@chief/relay-contracts";
 
 import type { SetupDraft } from "./model";
 
@@ -43,12 +44,12 @@ export async function applySetupConnection(
     : draft.service === "opencode"
       ? {
           provider: "opencode",
-          model: "opencode-go/gpt-6-luna",
+          model: defaultModels.opencode,
           secretRef,
         }
       : {
           provider: "vercel-ai-gateway",
-          model: "openai/gpt-6-luna",
+          model: defaultModels["vercel-ai-gateway"],
           secretRef,
         };
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
