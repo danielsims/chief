@@ -303,18 +303,20 @@ export class WorkspaceAgentAccessService {
     const context = readTrustedContext(request);
     this.requireConfigAccess(context.principal, true);
     const agentId = requestedAgentId(request);
-    if (agentId === "chief")
-      throw new HttpError(
-        409,
-        "chief_required",
-        "Chief leads this workspace and can’t be removed.",
-      );
     if (this.channels.agentConfiguration(agentId).deploymentTarget !== "cloud")
       requirePersonalAgentOwner(this.channels, agentId, context.principal);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
     const snapshot = workspace.snapshot_json
       ? decodeWorkspaceSnapshot(workspace.snapshot_json)
       : null;
+    // Chief has to be on the team while setup is underway. Once the workspace
+    // is in use, it can be removed like any other agent.
+    if (agentId === "chief" && snapshot?.setupComplete === false)
+      throw new HttpError(
+        409,
+        "chief_required",
+        "Chief can’t be removed while you’re setting up the workspace.",
+      );
     const rootAgent = snapshot?.agents.find((agent) => agent.id === agentId);
     const nestedAgent = snapshot?.agents
       .flatMap((agent) => agent.subagents)
