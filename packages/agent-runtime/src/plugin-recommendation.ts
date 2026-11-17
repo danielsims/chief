@@ -1,8 +1,6 @@
 import type { AgentPluginSummary } from "@chief/plugin-api";
 import type { McpConnection } from "@chief/relay-contracts";
 
-const DOMAIN_IN_SERVICE = /\(([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)\)\s*$/i;
-
 function normalized(value: string) {
   return value
     .toLowerCase()
@@ -52,26 +50,6 @@ function matchScore(plugin: AgentPluginSummary, query: string) {
     : 0;
 }
 
-function setupFallback(service: string): AgentPluginSummary | undefined {
-  const match = DOMAIN_IN_SERVICE.exec(service);
-  const domain = match?.[1]?.toLowerCase();
-  if (!match || !domain?.includes(".")) return undefined;
-  const name = service.slice(0, match.index).trim();
-  if (!name) return undefined;
-  return {
-    id: `setup-${domain.replace(/[^a-z0-9]+/g, "-")}`,
-    name,
-    description: `Connect ${name} through Chief's secure setup flow.`,
-    category: "Productivity",
-    homepage: `https://${domain}`,
-    domains: [domain],
-    source: { type: "setup", domain },
-    status: "available",
-    enabled: false,
-    trusted: false,
-  };
-}
-
 export function resolvePlugins(
   plugins: AgentPluginSummary[],
   pluginIds: string[],
@@ -107,7 +85,9 @@ export function resolvePlugins(
       .map((plugin) => ({ plugin, score: matchScore(plugin, service) }))
       .filter(({ score }) => score > 0)
       .sort((left, right) => right.score - left.score);
-    add(ranked[0]?.plugin ?? setupFallback(service), service);
+    // A service outside the catalog is reported missing rather than shown as a
+    // card nobody can install.
+    add(ranked[0]?.plugin, service);
   }
   return { plugins: selected, missing };
 }

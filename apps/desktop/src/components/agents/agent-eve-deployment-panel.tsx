@@ -6,6 +6,7 @@ import type {
   EveAgentProvisioningResult,
 } from "@chief/agent-runtime/types";
 import type { RelayClient } from "@chief/relay-client";
+import { defaultModels } from "@chief/relay-contracts";
 
 import type { EveConnectionPhase } from "./eve-provisioning-dialog";
 import { useProviderModels } from "../../lib/runtime";
@@ -119,7 +120,7 @@ export function AgentEveDeploymentPanel({
     ),
   );
   const [model, setModel] = useState(
-    persistedDraft?.model ?? "openai/gpt-6-luna",
+    persistedDraft?.model ?? defaultModels["vercel-ai-gateway"],
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(

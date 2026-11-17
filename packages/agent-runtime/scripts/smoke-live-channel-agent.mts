@@ -13,6 +13,8 @@ import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { defaultModels } from "@chief/relay-contracts";
+
 import type { AgentEvent } from "../src/types.js";
 import {
   agentLocalToolServer,
@@ -28,7 +30,7 @@ import { AgentSession } from "../src/session.js";
 const databaseKey = "chief-live-channel-smoke-test-key";
 const token = "chief-live-channel-smoke-capability";
 const workspaceId = "live-smoke-workspace";
-const liveModel = "opencode-go/gpt-6-luna";
+const liveModel = process.env.CHIEF_LIVE_MODEL ?? defaultModels.opencode;
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY = databaseKey;
 const startedAt = Date.now();
 const runId = new Date(startedAt).toISOString().replace(/[:.]/gu, "-");

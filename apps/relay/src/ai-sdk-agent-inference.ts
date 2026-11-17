@@ -1,5 +1,6 @@
 import type { LanguageModel, ModelMessage, ToolSet } from "ai";
 import { createGateway } from "@ai-sdk/gateway";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapAISDK } from "agents/observability/ai";
 import * as aiSdk from "ai";
@@ -98,6 +99,9 @@ export class AiSdkAgentInference implements AgentInference {
         ? undefined
         : { maxOutputTokens: input.maxTokens }),
       temperature: input.temperature,
+      // OpenAI models only return their reasoning as a summary on request.
+      // Other providers ignore this.
+      providerOptions: { openai: { reasoningSummary: "auto" } },
       maxRetries: 0,
       timeout: HOSTED_INFERENCE_TIMEOUT_MS,
       runtimeContext: {
@@ -322,14 +326,20 @@ function languageModel(
   context: HostedAgentTraceContext,
 ): LanguageModel {
   switch (inference.provider) {
-    case "opencode":
-      return createOpenAICompatible({
+    case "opencode": {
+      const model = openCodeGoModel(inference.model);
+      const settings = {
         name: "opencode",
         baseURL: OPEN_CODE_GO_BASE_URL,
         apiKey,
         headers: openCodeRequestHeaders(context),
-        fetch: (input, init) => fetchOpenCode(request, context, input, init),
-      }).chatModel(openCodeGoModel(inference.model));
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetchOpenCode(request, context, input, init),
+      };
+      return openCodeUsesResponses(model)
+        ? createOpenAI(settings).responses(model)
+        : createOpenAICompatible(settings).chatModel(model);
+    }
     case "vercel-ai-gateway":
       return createGateway({
         apiKey,
@@ -407,6 +417,14 @@ function openCodeGoModel(model: string) {
   return model.startsWith("opencode-go/")
     ? model.slice("opencode-go/".length)
     : model;
+}
+
+/**
+ * OpenCode Go serves OpenAI's GPT models only through the Responses API and
+ * every other model through Chat Completions.
+ */
+export function openCodeUsesResponses(model: string) {
+  return model.startsWith("gpt-");
 }
 
 function openCodeSessionId(context: HostedAgentTraceContext) {

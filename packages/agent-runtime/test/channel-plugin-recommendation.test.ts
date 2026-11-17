@@ -110,21 +110,12 @@ void test("plugin recommendations publish durable typed cards into an exact thre
     };
     assert.deepEqual(
       result.plugins.map((item) => item.id),
-      ["vercel", "setup-github-com"],
+      ["vercel"],
     );
-    assert.deepEqual(result.missingServices, ["Missing service"]);
-    assert.deepEqual(result.plugins[1], {
-      id: "setup-github-com",
-      name: "GitHub",
-      description: "Connect GitHub through Chief's secure setup flow.",
-      category: "Productivity",
-      homepage: "https://github.com",
-      domains: ["github.com"],
-      source: { type: "setup", domain: "github.com" },
-      status: "available",
-      enabled: false,
-      trusted: false,
-    });
+    assert.deepEqual(result.missingServices, [
+      "GitHub (github.com)",
+      "Missing service",
+    ]);
     assert.deepEqual(result.event.parts, [
       {
         type: "data-plugin-recommendations",
