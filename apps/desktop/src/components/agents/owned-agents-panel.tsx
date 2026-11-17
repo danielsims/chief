@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { RelayClient } from "@chief/relay-client";
-import type { OwnedAgent, OwnedAgentRequest } from "@chief/relay-contracts";
+import type { OwnedAgentRequest } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
 import { acceptAgentRequest } from "../../lib/agent-join-accept";
@@ -11,26 +11,23 @@ import { agentName } from "../../lib/owned-agent-presentation";
 import { useRuntime } from "../../lib/runtime";
 import { IdentityTile } from "../../pages/onboarding/elements";
 import { setupPrompt } from "../../pages/onboarding/model";
+import { useAgentRosterContext } from "../chat/owned-agents-value";
 import { pluginActionClassName } from "../plugins/plugin-action";
 
 import "../../pages/onboarding/onboarding.css";
 
 /** Agents people connected themselves, and requests waiting for approval. */
-export function useOwnedAgents(client: RelayClient | null) {
-  // Kept with the client it came from, so another workspace's agents never
-  // linger while this one loads.
-  const [loaded, setLoaded] = useState<{
-    client: RelayClient;
-    agents: OwnedAgent[];
-    requests: OwnedAgentRequest[];
-  } | null>(null);
-  const current = loaded?.client === client ? loaded : null;
-  const agents = current?.agents ?? [];
+export function useOwnedAgents() {
+  const {
+    client,
+    agents,
+    requests: open,
+    loading,
+    refresh,
+  } = useAgentRosterContext();
   // Answered requests leave at once, so one never shows beside its agent.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
-  const requests = (current?.requests ?? []).filter(
-    (request) => !answered.has(request.id),
-  );
+  const requests = open.filter((request) => !answered.has(request.id));
   const answer = (id: string, answering: boolean) =>
     setAnswered((value) => {
       const next = new Set(value);
@@ -39,32 +36,6 @@ export function useOwnedAgents(client: RelayClient | null) {
       return next;
     });
   const [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    const [connected, pending] = await Promise.all([
-      client.ownedAgents(),
-      client.ownedAgentRequests(),
-    ]);
-    setLoaded({
-      client,
-      agents: connected.agents,
-      requests: pending.requests,
-    });
-  }, [client]);
-  useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      // A failed poll just tries again; the list keeps what it last showed.
-      await refresh().catch(() => undefined);
-      if (!stopped) timer = setTimeout(() => void poll(), 8000);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [refresh]);
   const run = async (action: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
@@ -77,16 +48,7 @@ export function useOwnedAgents(client: RelayClient | null) {
       setBusy(false);
     }
   };
-  return {
-    client,
-    agents,
-    requests,
-    busy,
-    run,
-    refresh,
-    answer,
-    loading: Boolean(client) && current === null,
-  };
+  return { client, agents, requests, busy, run, refresh, answer, loading };
 }
 export type OwnedAgentsState = ReturnType<typeof useOwnedAgents>;
 

@@ -5,6 +5,7 @@ import { shouldInvalidateOAuthSession } from "./oauth-token-error";
 
 /** Refresh before the 15-minute access token dies, without waiting for focus. */
 export const ACCESS_TOKEN_REFRESH_LEAD_MS = 120_000;
+const SESSION_RECHECK_GRACE_MS = 60_000;
 
 export function sessionNeedsAccessTokenRefresh(
   session: Pick<StoredSession, "refreshToken" | "expiresAt"> | null | undefined,
@@ -96,6 +97,8 @@ export async function resolveStoredOAuthSession(
         : session;
     }
   }
+  // A refresh or sign-in checked this token with the server moments ago.
+  if (now() - session.lastValidated < SESSION_RECHECK_GRACE_MS) return session;
   const validation = await input.validate(session.token);
   if (validation.status === "valid") {
     return {

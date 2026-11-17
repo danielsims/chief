@@ -26,6 +26,7 @@ import {
   connectAgentMailboxWebSocket,
   createAgentMailboxSocketTicket,
   deliverAgentMailboxSocketEvent,
+  retryHeldMailboxNotice,
 } from "./agent-mailbox";
 import { AGENT_HOST_HEADER, parseStoredJson } from "./agent-object-values";
 import { AgentRuntime } from "./agent-runtime";
@@ -377,7 +378,13 @@ export class AgentObject extends DurableObject<Env> {
 
   private broadcast(event: JsonObject) {
     this.ctx.waitUntil(
-      deliverAgentMailboxSocketEvent(this.env, this.ctx.getWebSockets(), event),
+      deliverAgentMailboxSocketEvent(
+        this.env,
+        this.ctx.getWebSockets(),
+        event,
+      ).then(async (held) => {
+        if (held) await retryHeldMailboxNotice(this.ctx.storage);
+      }),
     );
   }
 }

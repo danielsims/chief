@@ -2,12 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { RelayClient } from "@chief/relay-client";
-import type {
-  AccountProfile,
-  OwnedAgent,
-  OwnedAgentRequest,
-  WorkspaceSnapshot,
-} from "@chief/relay-contracts";
+import type { AccountProfile, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
   createWorkspaceCommandSchema,
   suggestedAgentIds,
@@ -16,10 +11,12 @@ import {
 
 import type { SetupDraft, SetupStep } from "./model";
 import { useAcceptAgentRequest } from "../../components/agents/owned-agents-panel";
+import { useAgentRosterContext } from "../../components/chat/owned-agents-value";
 import { useAuth } from "../../lib/auth/auth-context";
 import { RELAY_URL } from "../../lib/config";
 import { useRelaySession } from "../../lib/relay-session";
 import { useRuntime } from "../../lib/runtime";
+import { useAgentRoster } from "../../lib/use-agent-roster";
 import {
   activeSetupKey,
   newSetupDraft,
@@ -77,14 +74,12 @@ export function useWorkspaceSetup() {
   const [busy, setBusy] = useState(false);
   const [activity, setActivity] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [username, setUsername] = useState(cachedProfile?.username ?? "");
   const [invite, setInvite] = useState<{
     link: string;
     expiresAt: string;
   } | null>(null);
-  const [requests, setRequests] = useState<OwnedAgentRequest[]>([]);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const accept = useAcceptAgentRequest();
   // Agents this device runs join as on-device agents, not connections.
@@ -93,7 +88,6 @@ export function useWorkspaceSetup() {
     () => runtimeAgents.filter((agent) => agent.connectionKind === "owned"),
     [runtimeAgents],
   );
-  const [agents, setAgents] = useState<OwnedAgent[]>([]);
   const running = useRef(false);
   const client = useMemo(
     () =>
@@ -101,6 +95,30 @@ export function useWorkspaceSetup() {
         ? (relay.client?.forWorkspace(draft.workspaceId) ?? null)
         : null,
     [draft.workspaceId, relay.client],
+  );
+  // Agents asking to join arrive as relay signals. Setting up the workspace
+  // already open shares the app's roster; a new one listens for itself.
+  const agentStep = ["invite", "approve", "success"].includes(draft.step);
+  const shared = useAgentRosterContext();
+  const sharesActive =
+    Boolean(draft.workspaceId) &&
+    shared.client?.workspaceId === draft.workspaceId;
+  const own = useAgentRoster(client, agentStep && !sharesActive);
+  const roster = sharesActive ? shared : own;
+  const userId = auth.user?.id;
+  const agents = useMemo(
+    () => roster.agents.filter((agent) => agent.owner.userId === userId),
+    [roster.agents, userId],
+  );
+  const requests = roster.requests;
+  const hasRequests = agentStep && requests.length > 0;
+  // An agent asking to join moves the invite step on to approval.
+  const shownDraft = useMemo(
+    () =>
+      hasRequests && draft.step === "invite"
+        ? { ...draft, step: "approve" as const }
+        : draft,
+    [draft, hasRequests],
   );
   const patch = (value: Partial<SetupDraft>) =>
     setDraft((current) => ({ ...current, ...value }));
@@ -168,54 +186,6 @@ export function useWorkspaceSetup() {
       setActivity("");
     }
   };
-  const refreshAgents = async () => {
-    if (!client) return;
-    const [pending, connected] = await Promise.all([
-      client.ownedAgentRequests(),
-      client.ownedAgents(),
-    ]);
-    setRequests(pending.requests);
-    setAgents(connected.agents.filter((a) => a.owner.userId === auth.user?.id));
-    if (pending.requests.length)
-      setDraft((current) =>
-        current.step === "invite" ? { ...current, step: "approve" } : current,
-      );
-  };
-  useEffect(() => {
-    if (!client || !["invite", "approve", "success"].includes(draft.step))
-      return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const [pending, connected] = await Promise.all([
-          client.ownedAgentRequests(),
-          client.ownedAgents(),
-        ]);
-        if (stopped) return;
-        setRequests(pending.requests);
-        setAgents(
-          connected.agents.filter((a) => a.owner.userId === auth.user?.id),
-        );
-        if (pending.requests.length)
-          setDraft((current) =>
-            current.step === "invite"
-              ? { ...current, step: "approve" }
-              : current,
-          );
-        setPollError(null);
-      } catch (e) {
-        if (!stopped) setPollError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!stopped) timer = setTimeout(() => void poll(), 4000);
-      }
-    };
-    void poll();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [client, draft.step, auth.user?.id]);
   // The setup prompt is ready to copy on arrival, on either agent step.
   useEffect(() => {
     if (!client || !["invite", "approve"].includes(draft.step) || invite)
@@ -341,7 +311,7 @@ export function useWorkspaceSetup() {
         });
         throw error;
       }
-      await refreshAgents();
+      await roster.refresh();
     });
   const enter = () =>
     run(async () => {
@@ -385,12 +355,12 @@ export function useWorkspaceSetup() {
     auth,
     relay,
     client,
-    draft,
+    draft: shownDraft,
     profile,
     snapshot,
     loading,
     busy,
-    error: error ?? pollError,
+    error: error ?? (agentStep ? roster.error : null),
     activity,
     apiKey,
     username,
