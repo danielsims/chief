@@ -4,22 +4,48 @@ import { z } from "zod";
 import { defaultAgentConfig } from "@chief/relay-contracts";
 
 import { AiSdkAgentInference } from "../src/ai-sdk-agent-inference";
-import { openCodeSse, traceContext } from "./ai-sdk-agent-inference-harness";
+import {
+  openCodeSse,
+  responsesJson,
+  responsesSse,
+  traceContext,
+} from "./ai-sdk-agent-inference-harness";
 
 const input = {
   messages: [{ role: "user" as const, content: "Hello" }],
   tools: [],
   temperature: 0,
 };
-const success = () =>
-  openCodeSse([
-    {
-      id: "response",
-      choices: [
-        { index: 0, delta: { content: "Ready." }, finish_reason: "stop" },
-      ],
-    },
-  ]);
+/** A successful reply in the wire format the request was sent with. */
+const success = (url: string | URL | Request, streaming = true) => {
+  if (
+    (url instanceof Request ? url.url : url.toString()).endsWith("/responses")
+  )
+    return streaming
+      ? responsesSse("Checking.", "Ready.")
+      : responsesJson({ text: "Ready." });
+  return streaming
+    ? openCodeSse([
+        {
+          id: "response",
+          choices: [
+            { index: 0, delta: { content: "Ready." }, finish_reason: "stop" },
+          ],
+        },
+      ])
+    : Response.json({
+        id: "response",
+        object: "chat.completion",
+        created: 0,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "Ready." },
+            finish_reason: "stop",
+          },
+        ],
+      });
+};
 
 describe("provider deprecation fallback", () => {
   it("migrates a persisted retired DeepSeek alias before making a provider request", async () => {
@@ -27,13 +53,13 @@ describe("provider deprecation fallback", () => {
     const inference = new AiSdkAgentInference(
       "key",
       traceContext(),
-      async (_url, init) => {
+      async (url, init) => {
         models.push(
           z
             .object({ model: z.string() })
             .parse(JSON.parse(z.string().parse(init?.body))).model,
         );
-        return success();
+        return success(url);
       },
       { provider: "opencode", model: "opencode-go/deepseek-v4-flash" },
     );
@@ -54,7 +80,7 @@ describe("provider deprecation fallback", () => {
       const inference = new AiSdkAgentInference(
         "key",
         traceContext(),
-        async (_url, init) => {
+        async (url, init) => {
           models.push(
             z
               .object({ model: z.string() })
@@ -69,21 +95,7 @@ describe("provider deprecation fallback", () => {
                 },
                 { status: 400 },
               )
-            : streaming
-              ? success()
-              : Response.json({
-                  id: "response",
-                  object: "chat.completion",
-                  created: 0,
-                  model: models.at(-1),
-                  choices: [
-                    {
-                      index: 0,
-                      message: { role: "assistant", content: "Ready." },
-                      finish_reason: "stop",
-                    },
-                  ],
-                });
+            : success(url, streaming);
         },
         {
           provider: "opencode",
