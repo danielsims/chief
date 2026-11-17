@@ -2,13 +2,13 @@ export function workspaceInference(provider: string) {
   if (provider === "vercelAiGateway") {
     return {
       provider: "vercel-ai-gateway" as const,
-      model: "deepseek/deepseek-v4-flash" as const,
+      model: "deepseek/deepseek-v4.1-flash" as const,
       secretRef: "vercel-ai-gateway" as const,
     };
   }
   return {
     provider: "opencode" as const,
-    model: "opencode-go/deepseek-v4-flash" as const,
+    model: "opencode-go/deepseek-v4.1-flash" as const,
     secretRef: "opencode" as const,
   };
 }
