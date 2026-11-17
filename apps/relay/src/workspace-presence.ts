@@ -9,6 +9,11 @@ import { HttpError, parseJson } from "./http";
 import { readTrustedContext, withTrustedContext } from "./internal-context";
 import { releaseInternalResponse } from "./internal-response";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
+import {
+  peopleSockets,
+  sendToPeople,
+  sendToSocket,
+} from "./workspace-people-sockets";
 import { workspaceSocketAttachment } from "./workspace-socket-state";
 import { isWebMachine } from "./workspace-web-machine";
 
@@ -36,13 +41,13 @@ export class WorkspacePresence {
     const principal = previous.principal;
     // Later subscribes only change conversations; the socket is caught up.
     if (principal.kind !== "user" || previous.subscribed) return;
-    const arrived = !this.peopleSockets(socket).some(
+    const arrived = !peopleSockets(this.ctx, socket).some(
       ({ attachment }) =>
         attachment.principal.kind === "user" &&
         attachment.principal.userId === principal.userId,
     );
     if (arrived) await this.broadcast();
-    else this.send(socket, await this.event());
+    else sendToSocket(socket, await this.event());
   }
 
   /** A socket closed. Announce it if that was the person's last one. */
@@ -56,7 +61,7 @@ export class WorkspacePresence {
     }
     const principal = attachment.principal;
     if (principal.kind !== "user" || !attachment.subscribed) return;
-    const stillHere = this.peopleSockets(socket).some(
+    const stillHere = peopleSockets(this.ctx, socket).some(
       (peer) =>
         peer.attachment.principal.kind === "user" &&
         peer.attachment.principal.userId === principal.userId,
@@ -138,7 +143,7 @@ export class WorkspacePresence {
       prefix: agentErrorPrefix,
     });
     const userIds = new Set<string>();
-    for (const { attachment } of this.peopleSockets()) {
+    for (const { attachment } of peopleSockets(this.ctx)) {
       if (attachment.principal.kind === "user")
         userIds.add(attachment.principal.userId);
     }
@@ -154,36 +159,7 @@ export class WorkspacePresence {
 
   /** Sends everyone the current presence, e.g. after an agent moves host. */
   async broadcast(except?: WebSocket) {
-    const event = await this.event();
-    for (const { socket } of this.peopleSockets(except))
-      this.send(socket, event);
-  }
-
-  private send(socket: WebSocket, event: string) {
-    try {
-      socket.send(event);
-    } catch {
-      // Presence is best-effort; real deliveries handle a bad socket.
-    }
-  }
-
-  /** Subscribed sockets of people, never agents or lending machines. */
-  private peopleSockets(except?: WebSocket) {
-    const sockets: {
-      socket: WebSocket;
-      attachment: WorkspaceSocketAttachment;
-    }[] = [];
-    for (const socket of this.ctx.getWebSockets()) {
-      if (socket === except || isWebMachine(this.ctx, socket)) continue;
-      try {
-        const attachment = workspaceSocketAttachment(socket);
-        if (attachment.subscribed && attachment.principal.kind === "user")
-          sockets.push({ socket, attachment });
-      } catch {
-        // A socket without a workspace attachment isn't a member's feed.
-      }
-    }
-    return sockets;
+    sendToPeople(this.ctx, await this.event(), except);
   }
 }
 

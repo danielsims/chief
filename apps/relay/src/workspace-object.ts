@@ -12,6 +12,7 @@ import {
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
 
+import { signalAgentRoster } from "./agent-roster-signal";
 import { attempt, runResponse, sync } from "./effect";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
@@ -196,9 +197,14 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
       if (operation?.startsWith("owned-agent-"))
-        return yield* attempt("workspace.owned_agents", () =>
-          new OwnedAgentService(ctx.storage, env).route(request, operation),
-        );
+        return yield* attempt("workspace.owned_agents", async () => {
+          const response = await new OwnedAgentService(ctx.storage, env).route(
+            request,
+            operation,
+          );
+          signalAgentRoster(ctx, operation, response);
+          return response;
+        });
       if (operation?.startsWith("channels-")) {
         return yield* attempt("workspace.channels", () =>
           routeWorkspaceChannel(ctx.storage, env, request, operation),
@@ -270,6 +276,7 @@ export class WorkspaceObject extends DurableObject<Env> {
           ),
         );
         presence.afterAccess(operation, response);
+        signalAgentRoster(ctx, operation, response);
         return response;
       }
 
