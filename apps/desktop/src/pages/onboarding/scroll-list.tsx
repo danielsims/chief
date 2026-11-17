@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 
-/** Fade the foot only while there is more content below the viewport. */
+/** Fade the bottom edge only while more content is below the viewport. */
 export function ScrollList({
   children,
   className,

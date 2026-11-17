@@ -1,9 +1,8 @@
 import { useState } from "react";
 
 /**
- * An agent's name that reads as plain text and becomes an input on click, so
- * people can rename an agent wherever they choose one: picking a team during
- * setup or approving an agent that asked to join.
+ * An agent name that renders as text and becomes an input on click, so it can
+ * be renamed during setup or approval.
  */
 export function InlineAgentName({
   value,

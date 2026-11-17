@@ -324,7 +324,7 @@
   font-weight: 400;
   font-size: 13px;
 }
-/* Scrolls inside itself so the page never does, whatever the window size. */
+/* Scroll inside the list so the page never scrolls, at any window size. */
 .ob-team {
   max-height: clamp(200px, calc(100dvh - 540px), 430px);
   overflow-y: auto;
@@ -336,8 +336,8 @@
 .ob-app-list[data-more="true"] {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent);
 }
-/* Keep the grid unconstrained inside the scroll viewport so 1fr uses the
-   tallest row, rather than shrinking Chief to fit the viewport. */
+/* Keep the grid unconstrained inside the scroll viewport so each row uses the
+   tallest row's height. */
 .ob-team-rows {
   display: grid;
   grid-auto-rows: 1fr;

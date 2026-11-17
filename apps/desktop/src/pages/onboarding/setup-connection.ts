@@ -9,7 +9,7 @@ import type { SetupDraft } from "./model";
 export const setupSecretName = (service: SetupDraft["service"]) =>
   service === "vercelAiGateway" ? "vercel-ai-gateway" : "opencode";
 
-/** Reconfigure the existing team when someone goes back and changes connection. */
+/** Reconfigure the existing team when connection settings change. */
 export async function applySetupConnection(
   client: Pick<
     RelayClient,

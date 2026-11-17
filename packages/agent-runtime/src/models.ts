@@ -439,15 +439,15 @@ export async function listModels(
     console.error(`[models] ${driver}:`, error);
   }
   const models = [{ value: "", label: "Auto" }, ...discovered];
-  // A failed lookup is retried on the next ask, never remembered as "none".
+  // Retry a failed lookup on the next request instead of caching an empty result.
   if (discovered.length > 0) cache.set(driver, { at: Date.now(), models });
   return models;
 }
 
 /**
- * The model Codex itself names as this account's default. Auto means this,
- * never "no model": left unset, Codex falls back to whatever the person's own
- * Codex config names, which their account may no longer offer.
+ * The model Codex names as this account's default. Leaving Auto unset would
+ * fall back to the person's local Codex config, which the account may no
+ * longer offer.
  */
 export async function codexDefaultModel() {
   const models = await listModels("codex");

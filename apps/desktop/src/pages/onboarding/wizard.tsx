@@ -61,7 +61,7 @@ export function WorkspaceSetupWizard({ onCancel }: { onCancel: () => void }) {
   const reduced = useReducedMotion();
   const main = useRef<HTMLDivElement>(null);
   const [logoPlugins, setLogoPlugins] = useState<AgentPluginSummary[]>([]);
-  // Ready long before the apps step, so its list paints at once.
+  // Load the plugin catalog before the apps step so its list renders immediately.
   useEffect(() => {
     let active = true;
     void loadRelayPluginCatalog(false).then(
