@@ -1,8 +1,4 @@
-import type {
-  OnboardingAgentId,
-  WorkspaceId,
-  WorkspaceSnapshot,
-} from "@chief/relay-contracts";
+import type { WorkspaceId, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   appendMessageCommandSchema,
@@ -23,65 +19,45 @@ interface FirstTask {
   skillId?: string;
 }
 
-interface KickoffInput {
-  name: string;
-  website: string;
-  companyName?: string;
-}
-
 /**
- * A teammate's default first task: a one-line hello, then the apps that would
- * help most in its role, shown as cards the person can connect from. It never
- * installs or authorises anything itself.
+ * A teammate's first message is an introduction and the apps it would want
+ * connected. Nothing else starts, so there is nothing to get wrong.
  */
-function suggestApps(role: string, apps: readonly string[]): FirstTask {
+function introductionTask(input: {
+  name: string;
+  role: string;
+  description: string;
+  apps: readonly string[];
+}): FirstTask {
+  const apps = JSON.stringify(input.apps);
   return {
-    ask: "could you say hello and suggest the apps that would help you most?",
-    work: `Introduce yourself in one line as this workspace's ${role.toLowerCase()} teammate. Then call plugins_recommend exactly once with services ${JSON.stringify(apps)} and a short content line that says, for each, what it would let you do for them. Don't install or authorise anything, and don't list the apps in text. Finish by asking which they'd like to connect first.`,
+    ask: "introduce yourself, what you can help with, and suggest any apps that would make you more useful.",
+    work: `You are ${input.name}, this workspace's ${input.role.toLowerCase()} teammate. ${input.description}
+Write a short greeting that starts with "Hey", then one line about who you are and how you help. Then name the one or two apps from ${apps} you would actually want first and why. Show all of them as cards by calling plugins_recommend exactly once with services ${apps}, and use that greeting, introduction and app line as the content so it appears above the cards.
+Don't list every app or explain each one separately, and don't install or authorise anything. Don't start any work.
+Your final response is only a short question asking which they'd like to connect first. Don't repeat the introduction.`,
   };
 }
 
-/**
- * Teammates whose first task is more than suggesting apps. Any other
- * teammate suggests the apps from its onboarding card.
- */
-const firstTasks: Partial<
-  Record<OnboardingAgentId, (input: KickoffInput) => FirstTask | null>
-> = {
-  brand: ({ website }) =>
-    website
-      ? {
-          ask: "could you build a first brand profile from what we already have?",
-          skillId: "build-brand-profile",
-          work: `Read ${website} and its most relevant pages with web_read, then save an evidence-backed Markdown profile with brand_profile_save, citing the exact URLs you read. Summarise the profile naturally, label assumptions, and ask at most one question that would change it. Never claim a source you couldn't read.`,
-        }
-      : null,
-};
-
-/** The teammates that get a first task, in the order Chief asks them. */
+/** The teammates that get a first message, in the order Chief asks them. */
 export function welcomeKickoffTasks(snapshot: WorkspaceSnapshot) {
   const chief = snapshot.agents.find((agent) => agent.id === "chief");
-  const input: KickoffInput = {
-    name: snapshot.name,
-    website: snapshot.website.trim(),
-    companyName: snapshot.companyName ?? undefined,
-  };
   return (chief?.subagents ?? []).flatMap((teammate) => {
     const card = onboardingAgents.find((agent) => agent.id === teammate.id);
     if (!card) return [];
-    const task =
-      firstTasks[card.id]?.(input) ??
-      suggestApps(
-        card.role,
-        card.apps.map((app) => app.name),
-      );
+    const task = introductionTask({
+      name: teammate.name,
+      role: card.role,
+      description: card.description,
+      apps: card.apps.map((app) => app.name),
+    });
     // Chief addresses each teammate by the name it was given.
     return [
       {
         agentId: teammate.id,
         name: teammate.name,
         ...task,
-        ask: `@${teammate.name}, ${task.ask}`,
+        ask: `Hey @${teammate.name}, ${task.ask}`,
       },
     ];
   });
