@@ -35,7 +35,7 @@
     "generate:agent-instructions": "tsx scripts/generate-agent-instructions.mts",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint packages/agent-runtime",
-    "smoke:agent-live": "CHIEF_LIVE_MODEL=opencode-go/gpt-6-luna tsx scripts/smoke-live-channel-agent.mts",
+    "smoke:agent-live": "tsx scripts/smoke-live-channel-agent.mts",
     "audit:plugin-catalog": "tsx scripts/audit-plugin-catalog.mts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",

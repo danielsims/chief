@@ -1,14 +1,16 @@
+import { defaultModels } from "@chief/relay-contracts";
+
 export function workspaceInference(provider: string) {
   if (provider === "vercelAiGateway") {
     return {
       provider: "vercel-ai-gateway" as const,
-      model: "openai/gpt-6-luna" as const,
+      model: defaultModels["vercel-ai-gateway"],
       secretRef: "vercel-ai-gateway" as const,
     };
   }
   return {
     provider: "opencode" as const,
-    model: "opencode-go/gpt-6-luna" as const,
+    model: defaultModels.opencode,
     secretRef: "opencode" as const,
   };
 }
