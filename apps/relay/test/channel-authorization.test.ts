@@ -161,7 +161,7 @@ describe("channel authorization", () => {
     await expect(projects.json()).resolves.toEqual({ projects: [] });
   });
 
-  it("keeps Chief on the team even when an owner asks to remove it", async () => {
+  it("lets an owner remove and restore Chief without rebuilding the workspace", async () => {
     const ctx = await setup();
     const removed = await rpc(
       ctx,
@@ -170,20 +170,48 @@ describe("channel authorization", () => {
       undefined,
       "agentId=chief",
     );
-    expect(removed.status).toBe(409);
-    await expect(removed.json()).resolves.toMatchObject({
+    expect(removed.status).toBe(200);
+
+    const restored = await rpc(ctx, ctx.principal, "agent-create", {
+      agentId: "chief",
+      name: "Chief",
+      role: "Chief of staff",
+      description: "Leads the workspace and coordinates focused work.",
+      instructions: "Lead the workspace and coordinate focused work.",
+    });
+    expect(restored.status).toBe(200);
+    await expect(restored.json()).resolves.toMatchObject({
+      agent: {
+        id: "chief",
+        runtime: { kind: "native-cell" },
+      },
+    });
+  });
+
+  it("keeps Chief on the team while setup is unfinished", async () => {
+    const ctx = await setup({ finishSetup: false });
+    const blocked = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      "agentId=chief",
+    );
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({
       error: { code: "chief_required" },
     });
 
-    const members = await rpc(ctx, ctx.principal, "members-list");
-    const body = (await members.json()) as {
-      members: Array<{ kind: string; principalId: string }>;
-    };
-    expect(
-      body.members.some(
-        (member) => member.kind === "agent" && member.principalId === "chief",
-      ),
-    ).toBe(true);
+    const finished = await rpc(ctx, ctx.principal, "finish-setup", {});
+    expect(finished.status).toBe(200);
+    const removed = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      "agentId=chief",
+    );
+    expect(removed.status).toBe(200);
   });
 
   it("enforces an owner policy change on agent relay capabilities", async () => {
