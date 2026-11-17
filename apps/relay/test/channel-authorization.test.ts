@@ -188,6 +188,32 @@ describe("channel authorization", () => {
     });
   });
 
+  it("keeps Chief on the team while setup is unfinished", async () => {
+    const ctx = await setup({ finishSetup: false });
+    const blocked = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      "agentId=chief",
+    );
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({
+      error: { code: "chief_required" },
+    });
+
+    const finished = await rpc(ctx, ctx.principal, "finish-setup", {});
+    expect(finished.status).toBe(200);
+    const removed = await rpc(
+      ctx,
+      ctx.principal,
+      "agent-remove",
+      undefined,
+      "agentId=chief",
+    );
+    expect(removed.status).toBe(200);
+  });
+
   it("enforces an owner policy change on agent relay capabilities", async () => {
     const ctx = await setup();
     const pubkey = hexKey(String(agentId));

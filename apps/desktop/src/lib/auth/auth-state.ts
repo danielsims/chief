@@ -21,4 +21,6 @@ export interface AuthState {
   signOut: (relayUrl?: string) => void;
   invalidateSession: () => void;
   updateProfileImage: (image: string | null) => Promise<void>;
+  /** Shows a newly saved display name without waiting for a sign-in. */
+  updateProfileName: (name: string) => void;
 }

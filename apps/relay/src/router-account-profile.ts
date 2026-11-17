@@ -2,8 +2,10 @@ import {
   claimUsername,
   findUsernameOwner,
   getChiefProfile,
+  updateChiefUserName,
 } from "@chief/auth/d1-users";
 import {
+  accountNameSetCommandSchema,
   usernameIssue,
   usernameSetCommandSchema,
 } from "@chief/relay-contracts";
@@ -13,7 +15,9 @@ import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 
 export async function routeAccountProfile(env: Env, request: Request) {
   const url = new URL(request.url);
-  if (!["/v1/me/profile", "/v1/me/username"].includes(url.pathname))
+  if (
+    !["/v1/me/profile", "/v1/me/username", "/v1/me/name"].includes(url.pathname)
+  )
     return null;
   const auth = await authenticateRelayRequest(request, env);
   requireAccountBinding(env, auth.bound);
@@ -62,6 +66,18 @@ export async function routeAccountProfile(env: Env, request: Request) {
           : "Your account is no longer available.",
       );
     return json({ username: issue.username });
+  }
+  if (request.method === "POST" && url.pathname === "/v1/me/name") {
+    const { name } = accountNameSetCommandSchema.parse(
+      await parseJson(auth.request),
+    );
+    if (!(await updateChiefUserName(env.AUTH_DB, { userId, name })))
+      throw new HttpError(
+        404,
+        "account_not_found",
+        "Your account is no longer available.",
+      );
+    return json({ name });
   }
   throw new HttpError(405, "method_not_allowed", "Method not allowed.");
 }

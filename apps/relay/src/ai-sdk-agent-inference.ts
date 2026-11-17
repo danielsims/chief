@@ -76,7 +76,7 @@ export class AiSdkAgentInference implements AgentInference {
     this.model = {
       id: inference.model,
       contextWindowTokens: 1_000_000,
-      maxOutputTokens: 384_000,
+      maxOutputTokens: 128_000,
       limitSource: "model_catalog" as const,
     };
     this.languageModel = languageModel(inference, apiKey, request, context);

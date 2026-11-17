@@ -24,6 +24,7 @@ import { RelaySessionContext } from "../../lib/relay-session-context";
 import { usePlugins } from "../../lib/runtime-plugins";
 import { RuntimeCoreProvider } from "../../lib/runtime-provider";
 import { SetupHeading } from "./elements";
+import { ScrollList } from "./scroll-list";
 
 /**
  * The app's real plugin runtime, scoped to the workspace being created, so
@@ -243,7 +244,7 @@ export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
       ) : !source ? (
         <Loading label="Loading apps" height={APP_LIST_HEIGHT} />
       ) : (
-        <div className="ob-app-list" aria-label="Apps">
+        <ScrollList className="ob-app-list" label="Apps">
           <div className="grid grid-cols-2 gap-2">
             {shown.map((plugin) => (
               <AppChoice
@@ -257,7 +258,7 @@ export function AppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
           {shown.length === 0 ? (
             <p className="ob-empty">No apps match that search.</p>
           ) : null}
-        </div>
+        </ScrollList>
       )}
       <button
         className="ob-primary"
@@ -319,7 +320,10 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
           )}
         />
       ) : (
-        <div className="ob-app-list flex flex-col gap-1.5">
+        <ScrollList
+          className="ob-app-list flex flex-col gap-1.5"
+          label="App connections"
+        >
           {rows.map((plugin) => (
             <div key={plugin.id}>
               <PluginRow plugin={plugin} onOpen={() => connect.open(plugin.id)}>
@@ -347,7 +351,7 @@ export function ConnectAppsScreen({ setup: s }: { setup: WorkspaceSetup }) {
               None of these apps can be connected directly yet.
             </p>
           ) : null}
-        </div>
+        </ScrollList>
       )}
       <button
         className="ob-primary"

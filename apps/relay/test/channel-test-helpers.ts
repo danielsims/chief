@@ -38,6 +38,7 @@ export interface ChannelTestContext {
 
 export async function setupChannelTest(options?: {
   agentRuntime?: "relay-cell" | "vercel-eve";
+  finishSetup?: boolean;
 }): Promise<ChannelTestContext> {
   const agentRuntime = options?.agentRuntime ?? "relay-cell";
   const relay: Parameters<typeof createManagedWorkspace>[0] = {
@@ -92,7 +93,7 @@ export async function setupChannelTest(options?: {
   };
   // A Chief cell is ready at once, so its owner enters the workspace; Eve
   // tests connect Chief first, as the product does.
-  if (agentRuntime === "relay-cell") {
+  if (agentRuntime === "relay-cell" && options?.finishSetup !== false) {
     const finished = await channelRpc(ctx, ctx.principal, "finish-setup", {});
     expect(finished.status, await finished.clone().text()).toBe(200);
   }

@@ -402,6 +402,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const updateProfileName = useCallback((name: string) => {
+    setStoredSessionState((current) => {
+      if (!current) return current;
+      const next: StoredSession = {
+        ...current,
+        user: { ...current.user, name },
+        lastValidated: Date.now(),
+      };
+      setStoredSession(next);
+      return next;
+    });
+  }, []);
+
   const updateProfileImage = useCallback((image: string | null) => {
     setStoredSessionState((current) => {
       if (!current) return current;
@@ -451,6 +464,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       invalidateSession,
       updateProfileImage,
+      updateProfileName,
     }),
     [
       authError,
@@ -463,6 +477,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       storedSession,
       updateProfileImage,
+      updateProfileName,
       user,
     ],
   );
@@ -488,6 +503,7 @@ export function useAuth(): AuthState {
       signOut: noAuthAction,
       invalidateSession: noAuthAction,
       updateProfileImage: noAsyncAuthAction,
+      updateProfileName: noAuthAction,
     };
   }
   return relayWorkspaceId

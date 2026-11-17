@@ -13,6 +13,10 @@ import {
   userPrincipalSchema,
   workspaceRoleSchema,
 } from "./identity";
+import {
+  onboardingAgentIds,
+  onboardingAgentNameSchema,
+} from "./onboarding-roster";
 import { relayProjectSchema } from "./projects";
 
 export const claimWorkspaceCommandSchema = z
@@ -242,22 +246,10 @@ export const createWorkspaceCommandSchema = z
       .optional(),
     purpose: z.enum(["personal", "company"]).optional(),
     companyName: z.string().trim().max(120).optional(),
-    selectedAgentIds: z
-      .array(
-        z.enum([
-          "researcher",
-          "planner",
-          "writer",
-          "brand",
-          "content",
-          "analyst",
-          "prospector",
-          "ads",
-          "engineer",
-          "setup",
-        ]),
-      )
-      .max(10)
+    selectedAgentIds: z.array(z.enum(onboardingAgentIds)).max(10).optional(),
+    /** Names people gave teammates during setup, by teammate. */
+    agentNames: z
+      .partialRecord(z.enum(onboardingAgentIds), onboardingAgentNameSchema)
       .optional(),
     localProvider: z.enum(["codex", "claude", "opencode"]).optional(),
     agentRuntime: z.enum(["relay-cell", "vercel-eve"]),

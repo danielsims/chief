@@ -119,7 +119,7 @@ export function AgentEveDeploymentPanel({
     ),
   );
   const [model, setModel] = useState(
-    persistedDraft?.model ?? "deepseek/deepseek-v4-flash",
+    persistedDraft?.model ?? "openai/gpt-6-luna",
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(

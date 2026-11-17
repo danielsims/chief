@@ -108,15 +108,23 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
         url.pathname,
       )?.[1];
       if (probed === "codex" || probed === "claude" || probed === "opencode") {
-        sendJson(response, 200, await probeProvider(probed));
+        const input = await readJson(request);
+        const model = isJsonString(input.model) ? input.model : "auto";
+        sendJson(response, 200, await probeProvider(probed, model));
         return;
       }
       if (url.pathname === "/models/codex") {
         // Auto is the picker's own first option.
-        const models = await listModels("codex");
-        sendJson(response, 200, {
-          models: models.filter((model) => model.value !== ""),
-        });
+        const models = (await listModels("codex")).filter(
+          (model) => model.value !== "",
+        );
+        if (models.length === 0) {
+          sendJson(response, 502, {
+            error: "ChatGPT didn't share its models. Try again.",
+          });
+          return;
+        }
+        sendJson(response, 200, { models });
         return;
       }
       const input = await readJson(request);
