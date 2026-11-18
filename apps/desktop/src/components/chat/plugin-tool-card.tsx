@@ -135,15 +135,15 @@ function PluginRow({
             open();
           }
         }}
-        className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[16px] bg-[color-mix(in_srgb,var(--foreground)_4%,var(--background))] py-2 pr-2 pl-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,var(--background))]"
+        className="flex min-w-0 cursor-pointer items-center gap-3 rounded-2xl bg-[color-mix(in_srgb,var(--foreground)_4%,var(--background))] px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,var(--background))]"
       >
         <ProviderLogo
           domain={pluginDomain(current)}
           label={current.name}
-          className="size-8 overflow-hidden rounded-lg"
+          className="size-10 overflow-hidden rounded-xl"
         />
         <span className="min-w-0 flex-1">
-          <strong className="block truncate text-[13px] font-medium">
+          <strong className="block truncate text-sm font-medium">
             {current.name}
           </strong>
         </span>
