@@ -5,6 +5,8 @@ import type {
 } from "@chief/agent-runtime/types";
 
 import type { MessageSource } from "./message-sources";
+import type { SessionChange } from "./session-work";
+import { messageFileEdits } from "./message-changes";
 import { mergeSources, messagePageReads } from "./message-sources";
 
 export type TimelineEntry =
@@ -13,6 +15,8 @@ export type TimelineEntry =
       message: ChiefUIMessage;
       /** Pages the agent read on its way to this reply. */
       sources?: readonly MessageSource[];
+      /** File edits the agent made on its way to this reply. */
+      changes?: readonly SessionChange[];
     }
   | { type: "browser"; key: string; run: BrowserRunRecord }
   | { type: "specialist"; task: SessionRecord };
@@ -41,8 +45,10 @@ export function conversationTimelineEntries(
 ): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   const placed = new Set<string>();
-  // Pages each agent has read since its last reply, credited to the next one.
+  // Pages read and files edited by each agent since its last reply, credited
+  // to the next one.
   const reading = new Map<string, readonly MessageSource[]>();
+  const editing = new Map<string, readonly SessionChange[]>();
   for (const message of messages) {
     if ((message.metadata?.threadRootId ?? null) !== threadRootId) continue;
     const agentId = message.metadata?.agentId ?? "";
@@ -50,9 +56,18 @@ export function conversationTimelineEntries(
       const reads = messagePageReads(message);
       if (reads.length > 0)
         reading.set(agentId, mergeSources(reading.get(agentId) ?? [], reads));
-    } else if (message.role === "assistant" && reading.has(agentId)) {
-      entries.push({ type: "message", message, sources: reading.get(agentId) });
+      const edits = messageFileEdits(message);
+      if (edits.length > 0)
+        editing.set(agentId, [...(editing.get(agentId) ?? []), ...edits]);
+    } else if (message.role === "assistant") {
+      entries.push({
+        type: "message",
+        message,
+        sources: reading.get(agentId),
+        changes: editing.get(agentId),
+      });
       reading.delete(agentId);
+      editing.delete(agentId);
     } else {
       entries.push({ type: "message", message });
     }

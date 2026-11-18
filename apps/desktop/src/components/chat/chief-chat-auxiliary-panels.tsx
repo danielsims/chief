@@ -31,6 +31,7 @@ import {
   ChiefMessage,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
+import { CodeChangesCard } from "./code-changes-card";
 import {
   ConversationAuxiliaryBreadcrumb,
   ConversationAuxiliaryPanel,
@@ -458,6 +459,9 @@ export function ChiefChatAuxiliaryPanels({
                       />
                       {entry.sources ? (
                         <MessageSourcesPill sources={entry.sources} />
+                      ) : null}
+                      {entry.changes ? (
+                        <CodeChangesCard edits={entry.changes} />
                       ) : null}
                     </ChiefMessage>
                   );

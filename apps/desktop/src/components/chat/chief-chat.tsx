@@ -21,6 +21,7 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
+import { CodeChangesCard } from "./code-changes-card";
 import { continuedMessageIds } from "./conversation-timeline-entries";
 import { MessageSourcesPill } from "./message-sources-pill";
 import { PeopleTypingRow } from "./people-typing-row";
@@ -365,6 +366,9 @@ export function ChiefChat({
                             />
                             {entry.sources ? (
                               <MessageSourcesPill sources={entry.sources} />
+                            ) : null}
+                            {entry.changes ? (
+                              <CodeChangesCard edits={entry.changes} />
                             ) : null}
                           </ChiefMessage>
                         );
