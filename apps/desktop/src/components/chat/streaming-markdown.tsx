@@ -29,9 +29,26 @@ import {
   splitSkillReferences,
 } from "./message-skill-chip";
 
-const Streamdown = lazy(() =>
-  import("streamdown").then((module) => ({ default: module.Streamdown })),
-);
+// Streamdown and its Shiki highlighter load with the first message, and code
+// blocks use Chief's own light and dark theme.
+const Streamdown = lazy(async () => {
+  const [{ Streamdown: Markdown }, { createCodePlugin }, themes] =
+    await Promise.all([
+      import("streamdown"),
+      import("@streamdown/code"),
+      import("@chief/ui/lib/code-theme"),
+    ]);
+  const plugins = {
+    code: createCodePlugin({
+      themes: [themes.chiefLightCodeTheme, themes.chiefDarkCodeTheme],
+    }),
+  };
+  return {
+    default: (props: ComponentPropsWithoutRef<typeof Markdown>) => (
+      <Markdown {...props} plugins={plugins} />
+    ),
+  };
+});
 
 function MarkdownLink({
   href,
