@@ -94,6 +94,7 @@ function postedFinalToOrigin(
   events: readonly AgentEvent[],
   conversationId: string,
   threadRootId?: string,
+  reply?: string,
 ) {
   return events.some((event) =>
     event.type === "message" && event.role === "assistant"
@@ -115,14 +116,23 @@ function postedFinalToOrigin(
               ),
           );
           if (!posted) return false;
-          const input = parseJsonObject(block.input);
+          // MCP clients such as Codex wrap the call as { server, tool, arguments }.
+          const call = parseJsonObject(block.input);
+          const input = parseJsonObject(call?.arguments) ?? call;
           if (
             input?.channelId !== conversationId ||
             (parseJsonString(input.threadRootId) ?? undefined) !== threadRootId
           )
             return false;
           const key = parseJsonString(input.idempotencyKey) ?? "";
-          return key.includes("result") || key.includes("handoff");
+          // The agent already posted its answer here when the post says what
+          // its reply says, so the reply isn't posted a second time.
+          const content = parseJsonString(input.content)?.trim();
+          return (
+            key.includes("result") ||
+            key.includes("handoff") ||
+            (Boolean(reply) && content === reply)
+          );
         })
       : false,
   );
@@ -417,6 +427,7 @@ async function executeJob(
       turnEvents,
       conversationId,
       activityContext.threadRootId,
+      reply,
     );
     // A run that ends without a word hasn't done what was asked; it fails
     // and says why rather than claiming it finished.
