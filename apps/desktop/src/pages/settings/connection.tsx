@@ -11,10 +11,12 @@ import {
   CardTitle,
 } from "@chief/ui/components/card";
 
+import { RelayConnectionDialog } from "../../components/relay-connection-control";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../../lib/config";
 
 export function ConnectionSettings() {
   const [copied, setCopied] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const relayUrl = new URL(RELAY_URL).origin;
   const chiefHosted = relayUrl === new URL(CHIEF_CLOUD_RELAY_URL).origin;
 
@@ -67,6 +69,21 @@ export function ConnectionSettings() {
           </ConnectionRow>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-6 space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>Other relays</CardTitle>
+            <CardDescription>
+              Connect a self-hosted relay, or another Chief account, to use its
+              workspaces here too.
+            </CardDescription>
+          </div>
+          <Button variant="outline" onClick={() => setConnecting(true)}>
+            Connect a relay
+          </Button>
+        </CardHeader>
+      </Card>
+      <RelayConnectionDialog open={connecting} onOpenChange={setConnecting} />
     </div>
   );
 }
