@@ -25,14 +25,8 @@ export function relayCellWorkspaceContext(
     .join("\n");
 }
 
-export function relayCellFinalReply(
-  conversationId: string,
-  threadRootId: string | undefined,
-) {
-  const where = threadRootId
-    ? `channelId ${conversationId} and threadRootId ${threadRootId}`
-    : `channelId ${conversationId}`;
-  return `Chief posts your returned reply to the conversation for you, so return exactly one reply and don't post it yourself. For a quick answer, a reaction or small talk, the returned reply is the only message you send. If the work will take more than a few seconds, first post one short message with channels_messages_post (${where}) saying what you're about to do, then return the result.`;
+export function relayCellFinalReply() {
+  return "Chief posts your returned reply to the conversation for you, so return exactly one reply and don't post it yourself.";
 }
 
 export function activeSkillInstructions(instructions: string) {

@@ -90,54 +90,6 @@ function finalAssistantText(events: readonly AgentEvent[]) {
     .at(-1);
 }
 
-function postedFinalToOrigin(
-  events: readonly AgentEvent[],
-  conversationId: string,
-  threadRootId?: string,
-  reply?: string,
-) {
-  return events.some((event) =>
-    event.type === "message" && event.role === "assistant"
-      ? event.content.some((block) => {
-          if (
-            block.type !== "tool_use" ||
-            !block.name.includes("channels_messages_post")
-          ) {
-            return false;
-          }
-          const posted = events.some(
-            (candidate) =>
-              candidate.type === "message" &&
-              candidate.content.some(
-                (result) =>
-                  result.type === "tool_result" &&
-                  result.tool_use_id === block.id &&
-                  !result.is_error,
-              ),
-          );
-          if (!posted) return false;
-          // MCP clients such as Codex wrap the call as { server, tool, arguments }.
-          const call = parseJsonObject(block.input);
-          const input = parseJsonObject(call?.arguments) ?? call;
-          if (
-            input?.channelId !== conversationId ||
-            (parseJsonString(input.threadRootId) ?? undefined) !== threadRootId
-          )
-            return false;
-          const key = parseJsonString(input.idempotencyKey) ?? "";
-          // The agent already posted its answer here when the post says what
-          // its reply says, so the reply isn't posted a second time.
-          const content = parseJsonString(input.content)?.trim();
-          return (
-            key.includes("result") ||
-            key.includes("handoff") ||
-            (Boolean(reply) && content === reply)
-          );
-        })
-      : false,
-  );
-}
-
 function socketEvent(data: Buffer) {
   try {
     return parseJsonObject(JSON.parse(String(data)));
@@ -382,7 +334,7 @@ async function executeJob(
       // provider re-applies when a job starts.
       privateInstructions:
         job.kind === "conversation.message" || job.kind === "schedule.step"
-          ? relayCellFinalReply(conversationId, activityContext.threadRootId)
+          ? relayCellFinalReply()
           : "",
     };
     if (job.kind === "conversation.message") {
@@ -423,15 +375,9 @@ async function executeJob(
       agentSession.events.slice(-500),
     );
     const reply = finalAssistantText(turnEvents);
-    const posted = postedFinalToOrigin(
-      turnEvents,
-      conversationId,
-      activityContext.threadRootId,
-      reply,
-    );
     // A run that ends without a word hasn't done what was asked; it fails
     // and says why rather than claiming it finished.
-    if (!reply && !posted)
+    if (!reply)
       throw new LocalJobBlockedError(
         refused.length
           ? `Stopped without finishing: it wasn't allowed to ${[...new Set(refused)].join(", ")}.`
@@ -443,19 +389,16 @@ async function executeJob(
       leaseToken: lease.leaseToken,
       outcome: {
         status: "completed",
-        result:
-          posted || !reply
-            ? {}
-            : {
-                publishedMessage: {
-                  conversationId,
-                  ...(activityContext.threadRootId
-                    ? { threadRootId: activityContext.threadRootId }
-                    : undefined),
-                  body: reply,
-                  components: [],
-                },
-              },
+        result: {
+          publishedMessage: {
+            conversationId,
+            ...(activityContext.threadRootId
+              ? { threadRootId: activityContext.threadRootId }
+              : undefined),
+            body: reply,
+            components: [],
+          },
+        },
       },
     });
     await folded?.settle();
