@@ -98,6 +98,12 @@ export const machineClaimSchema = z.object({
 
 export const pairedMachineRemovedSchema = z.object({ ok: z.literal(true) });
 
+/** Where to watch a machine's browser session, with its one-time ticket. */
+export const machineViewerTicketSchema = z.object({
+  url: z.url().refine((url) => url.startsWith("wss://")),
+  protocols: z.array(z.string().min(1).max(2_000)).min(1).max(4),
+});
+
 /** Bounded, browser-only commands. Paths, scripts, CDP endpoints and executable
  * configuration are deliberately absent from the remote protocol. */
 export const machineBrowserCommandSchema = z

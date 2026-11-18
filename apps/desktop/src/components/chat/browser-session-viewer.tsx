@@ -7,6 +7,7 @@ import { Maximize2, Minimize2, X } from "lucide-react";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import { useRelaySession } from "../../lib/relay-session-context";
 import { useRuntime } from "../../lib/runtime";
 import { useTheme } from "../../lib/theme";
 
@@ -30,6 +31,7 @@ function BrowserSessionViewerImpl({
     takeBrowserControl,
   } = useRuntime();
   const { resolved } = useTheme();
+  const { client: relay } = useRelaySession();
   const [displayOverride, setDisplayOverride] = useState<{
     mode: BrowserDisplayMode;
     presentationRevision: number;
@@ -43,6 +45,18 @@ function BrowserSessionViewerImpl({
     displayOverride?.presentationRevision === session.presentationRevision
       ? displayOverride.mode
       : session.presentation;
+
+  // A machine's browser streams through its own tunnel; each connection
+  // takes a fresh one-time ticket from the relay.
+  const machineAgent =
+    session.agentId &&
+    /^wss:\/\/m-[0-9a-f-]{36}\./u.test(session.streamUrl ?? "")
+      ? session.agentId
+      : undefined;
+  const resolveConnection =
+    machineAgent && relay
+      ? () => relay.createMachineViewerTicket(machineAgent, runId)
+      : undefined;
 
   if (!session.streamUrl) {
     return (
@@ -114,6 +128,7 @@ function BrowserSessionViewerImpl({
           : undefined
       }
       streamUrl={session.streamUrl}
+      resolveConnection={resolveConnection}
       url={session.url}
       variant="framed"
       viewportSize={{ width: 1280, height: 800 }}

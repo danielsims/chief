@@ -74,6 +74,7 @@ export function browserRuntimeEvent(
     browserRunId,
     workspaceId: message.workspaceId,
     conversationId: message.conversationId,
+    agentId: message.author.id,
     anchorMessageId: message.id,
     url,
     streamUrl,

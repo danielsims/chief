@@ -50,6 +50,7 @@ import {
   machineSchema,
   machinesResultSchema,
   machineUpdateSchema,
+  machineViewerTicketSchema,
   messagePageSchema,
   pairedMachineRemovedSchema,
   pairedMachinesSchema,
@@ -574,6 +575,23 @@ export class RelayClient extends RelayOnboardingClient {
       machinePairingSchema,
       true,
       { method: "POST" },
+    );
+  }
+
+  /**
+   * A one-time ticket to watch an agent's browser session live on its
+   * machine: the address to open and the protocols that carry the ticket.
+   */
+  async createMachineViewerTicket(agentId: string, sessionId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl("machines/viewer-tickets"),
+      machineViewerTicketSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, sessionId }),
+      },
     );
   }
 
