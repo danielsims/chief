@@ -21,6 +21,10 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import {
+  signalMachineList,
+  signalMachineListAfter,
+} from "./machine-list-signal";
 import { routeMcpConnections } from "./mcp/route";
 import { OwnedAgentService } from "./owned-agent-service";
 import { metered, meterSql, requestOperation } from "./sql-metering";
@@ -242,7 +246,12 @@ export class WorkspaceObject extends DurableObject<Env> {
         operation,
         request,
       );
-      if (machine) return yield* attempt(machine.span, machine.run);
+      if (machine)
+        return yield* attempt(machine.span, async () => {
+          const response = await machine.run();
+          signalMachineListAfter(ctx, operation, response);
+          return response;
+        });
       if (operation === "agent-host-presence") {
         return yield* attempt("workspace.presence.agent_host", () =>
           presence.receiveHostReport(request),
@@ -534,11 +543,14 @@ export class WorkspaceObject extends DurableObject<Env> {
         this.ctx.storage,
         context.ticket,
       );
-      if (machine)
-        return acceptWebMachine(this.ctx, {
+      if (machine) {
+        const accepted = acceptWebMachine(this.ctx, {
           ownerUserId: machine.ownerUserId,
           machineId: machine.machineId,
         });
+        signalMachineList(this.ctx);
+        return accepted;
+      }
     }
     const live = new WorkspaceLiveStore(this.ctx.storage);
     const principalJson = await live.consumeSocketTicket(context.ticket);
@@ -587,12 +599,14 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketClose(socket: WebSocket) {
+    if (isWebMachine(this.ctx, socket)) signalMachineList(this.ctx);
     return metered("WorkspaceObject", "websocket.close", () =>
       this.presence.closed(socket),
     );
   }
 
   webSocketError(socket: WebSocket) {
+    if (isWebMachine(this.ctx, socket)) signalMachineList(this.ctx);
     return metered("WorkspaceObject", "websocket.error", () =>
       this.presence.closed(socket),
     );
