@@ -79,7 +79,24 @@ export function useRuntimeWorkspaceSource(workspaceId: string | null) {
     }
     // Runtime revisions restart from one after a process reconnect.
     workspaceRevisionRef.current = 0;
+    const read = () =>
+      client.send({
+        type: "listWorkspaceData",
+        workspaceId,
+        executorCapability: capability,
+      });
+    // A run starting or ending changes the work listed here, so it's read
+    // again on that signal; signals close together share one read.
+    let pending: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "agentWorking" &&
+        message.workspaceId === workspaceId
+      ) {
+        clearTimeout(pending);
+        pending = setTimeout(read, 750);
+        return;
+      }
       if (
         message.type === "workspaceData" &&
         message.workspaceId === workspaceId
@@ -92,12 +109,11 @@ export function useRuntimeWorkspaceSource(workspaceId: string | null) {
         setLoading(false);
       }
     });
-    client.send({
-      type: "listWorkspaceData",
-      workspaceId,
-      executorCapability: capability,
-    });
-    return unsubscribe;
+    read();
+    return () => {
+      clearTimeout(pending);
+      unsubscribe();
+    };
   }, [capability, client, cloudOrganizationId, status, workspaceId]);
 
   return {
