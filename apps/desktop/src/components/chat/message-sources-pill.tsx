@@ -24,7 +24,7 @@ export function MessageSourcesPill({
   const [open, setOpen] = useState(false);
   if (sources.length === 0) return null;
   return (
-    <div className="mt-2 max-w-xl">
+    <div className="mt-2 max-w-lg">
       <button
         type="button"
         aria-expanded={open}

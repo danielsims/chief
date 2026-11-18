@@ -43,7 +43,7 @@ export function DraftCard({ data }: { data: GenerativeDraftData }) {
   return (
     <section
       aria-label={email ? "Email draft" : "Message draft"}
-      className={`${insetBandClass} block w-full max-w-2xl text-left`}
+      className={`${insetBandClass} block w-full max-w-lg text-left`}
     >
       <span className="text-muted-foreground flex h-8 items-center gap-1 pr-1 pl-2.5 text-[12px]">
         <span className="min-w-0 flex-1 truncate">

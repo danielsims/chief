@@ -153,7 +153,7 @@ export function ScheduledRunMessage({
   return (
     <section
       aria-label={`Automation run: ${run.title}`}
-      className={cn(insetBandClass, "block w-full max-w-md text-left")}
+      className={cn(insetBandClass, "block w-full max-w-lg text-left")}
     >
       <span className="text-muted-foreground flex h-7 items-center gap-2 px-2.5 text-[12px]">
         <span className="min-w-0 flex-1 truncate">{run.title}</span>

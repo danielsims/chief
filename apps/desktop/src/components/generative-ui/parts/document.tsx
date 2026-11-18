@@ -36,7 +36,7 @@ function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
       }
       className={cn(
         insetBandClass,
-        "block w-full max-w-md text-left transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_14%,transparent)]",
+        "block w-full max-w-lg text-left transition-shadow hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--foreground)_14%,transparent)]",
       )}
     >
       <span className="text-muted-foreground flex h-7 items-center gap-2 px-2.5 text-[12px]">
