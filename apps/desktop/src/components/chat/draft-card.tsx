@@ -1,12 +1,6 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  ArrowUpRight,
-  Check,
-  Copy,
-  FileText,
-  MessageSquare,
-} from "lucide-react";
+import { ArrowUpRight, Check, Copy } from "lucide-react";
 
 import type { GenerativeDraftData } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
@@ -49,11 +43,21 @@ export function DraftCard({ data }: { data: GenerativeDraftData }) {
   return (
     <section
       aria-label={email ? "Email draft" : "Message draft"}
-      className={`${insetBandClass} block w-full max-w-md text-left`}
+      className={`${insetBandClass} block w-full max-w-2xl text-left`}
     >
-      <span className="text-muted-foreground flex h-7 items-center gap-1.5 px-2.5 text-[12px]">
-        {email ? <FileText size={12} /> : <MessageSquare size={12} />}
-        {email ? "Email draft" : "Message draft"}
+      <span className="text-muted-foreground flex h-8 items-center gap-1 pr-1 pl-2.5 text-[12px]">
+        <span className="min-w-0 flex-1 truncate">
+          {email ? "Email draft" : "Message draft"}
+        </span>
+        {email ? (
+          <Button size="xs" variant="ghost" onClick={openMail}>
+            Open in Mail <ArrowUpRight size={12} />
+          </Button>
+        ) : null}
+        <Button size="xs" variant="ghost" onClick={copy}>
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
       </span>
       <div className={insetCardClass}>
         {email && (data.to || data.subject) ? (
@@ -74,22 +78,6 @@ export function DraftCard({ data }: { data: GenerativeDraftData }) {
           className="w-full resize-none bg-transparent text-[13px] leading-5 outline-none"
         />
       </div>
-      <span className="flex min-h-9 items-center gap-1.5 px-2.5 pt-1 text-[12px]">
-        <span className="flex-1" />
-        {email ? (
-          <Button size="xs" variant="outline" onClick={openMail}>
-            Open in Mail <ArrowUpRight size={12} />
-          </Button>
-        ) : null}
-        <Button
-          size="xs"
-          variant={email ? "outline" : "default"}
-          onClick={copy}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </span>
     </section>
   );
 }
