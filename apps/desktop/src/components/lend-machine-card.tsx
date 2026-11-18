@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Copy, X } from "lucide-react";
 
 import type {
   PairedMachine,
@@ -39,6 +39,7 @@ import {
 import { relativeActivityTime } from "./chat/relative-activity-time";
 import { PersonAvatar } from "./databases/database-cells";
 import { usePeople } from "./databases/use-database";
+import { insetBandClass, insetCardClass } from "./inset-card";
 import { UserAvatar } from "./user-avatar";
 
 const audiences = [
@@ -303,6 +304,21 @@ export function MachineActivityCard({ workspaceId }: { workspaceId: string }) {
  * copied from here. Each has its own key, which can only lend that machine's
  * connection, and removing it here cuts it off at once.
  */
+/**
+ * What a coding agent on the other computer needs to set it up: install,
+ * pair with this one-time command, turn on its browser and keep it running.
+ */
+function machineSetupPrompt(pairCommand: string) {
+  return `Set up this computer as a Chief machine for my workspace, so my agents can browse and fetch the web through it.
+
+1. Install the Chief machine command: curl -fsSL ${RELAY_URL}/install/machine | sh
+2. Pair it (this works once, within 15 minutes): ${pairCommand}
+3. Let my agents use its browser: install Google Chrome (or Chromium) and Cloudflare's cloudflared, then run chief-machine browser enable --chrome <full path to Chrome>.
+4. Keep it running: start chief-machine serve now and on every boot, as a user service (systemd on Linux, launchd on macOS) that restarts if it stops.
+
+When you're done, show me the output of chief-machine status.`;
+}
+
 export function PairedMachinesCard({ workspaceId }: { workspaceId: string }) {
   const { client } = useRelaySession();
   const [machines, setMachines] = useState<PairedMachine[] | null>(null);
@@ -351,45 +367,59 @@ export function PairedMachinesCard({ workspaceId }: { workspaceId: string }) {
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-6 space-y-0">
         <div className="space-y-1.5">
-          <CardTitle>Other machines</CardTitle>
+          <CardTitle>Other computers</CardTitle>
           <CardDescription className="max-w-xl leading-6">
-            Lend another machine the same way. Install with{" "}
-            <code className="font-mono text-xs">
-              curl -fsSL {RELAY_URL}/install/machine | sh
-            </code>
-            , then run the pairing command on it.
+            Lend an always-on computer, like a spare Mac or a Raspberry Pi, so
+            your agents can browse and fetch the web through it.
           </CardDescription>
         </div>
         <Button variant="outline" onClick={() => void add()}>
-          Add a machine
+          Add a computer
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
         {error ? <p className="text-destructive text-xs">{error}</p> : null}
         {command ? (
-          <div className="space-y-2">
-            <div className="bg-muted flex items-center gap-2 rounded-xl px-3 py-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs">
-                {command}
-              </code>
+          <section
+            aria-label="Setup prompt"
+            className={cn(insetBandClass, "block w-full text-left")}
+          >
+            <span className="text-muted-foreground flex h-8 items-center gap-1 pr-1 pl-2.5 text-[12px]">
+              <span className="min-w-0 flex-1 truncate">Setup prompt</span>
               <Button
-                size="sm"
+                size="xs"
                 variant="ghost"
                 onClick={() =>
                   void navigator.clipboard
-                    .writeText(command)
+                    .writeText(machineSetupPrompt(command))
                     .then(() => setCopied(true))
                 }
               >
-                {copied ? <Check size={13} /> : null}
+                {copied ? <Check size={12} /> : <Copy size={12} />}
                 {copied ? "Copied" : "Copy"}
               </Button>
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Works once, for 15 minutes. Then run chief-machine serve to start
-              lending.
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Dismiss"
+                onClick={() => setCommand(null)}
+              >
+                <X size={12} />
+              </Button>
+            </span>
+            <pre
+              className={cn(
+                insetCardClass,
+                "max-h-64 overflow-auto font-sans text-[12.5px] leading-5 whitespace-pre-wrap",
+              )}
+            >
+              {machineSetupPrompt(command)}
+            </pre>
+            <p className="text-muted-foreground px-2.5 pt-1.5 pb-1 text-[12px]">
+              Paste it into a coding agent on that computer, such as Claude Code
+              or Codex. The code works once, for 15 minutes.
             </p>
-          </div>
+          </section>
         ) : null}
         {machines?.length ? (
           <ul className="divide-border border-border divide-y overflow-hidden rounded-xl border">
