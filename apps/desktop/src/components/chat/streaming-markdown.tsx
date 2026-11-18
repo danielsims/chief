@@ -43,16 +43,18 @@ type RemarkPlugin = NonNullable<
   >["remarkPlugins"]
 >[number];
 
+// Loaded as the app starts, so the first message, and the highlighter its
+// code blocks use, are ready before they're needed.
+const streamdownLoaded = Promise.all([
+  import("streamdown"),
+  import("./code-highlighter"),
+]);
+
 const Streamdown = lazy(async () => {
   const [
     { Streamdown: Markdown, defaultRemarkPlugins },
-    { createCodePlugin },
-    themes,
-  ] = await Promise.all([
-    import("streamdown"),
-    import("@streamdown/code"),
-    import("@chief/ui/lib/code-theme"),
-  ]);
+    { chiefCodeHighlighter },
+  ] = await streamdownLoaded;
   // Chat has no indented code blocks: an indented line, as text pasted from
   // elsewhere often has, stays text. Fenced blocks are code.
   const withoutIndentedCode: RemarkPlugin = function () {
@@ -64,11 +66,7 @@ const Streamdown = lazy(async () => {
       ],
     });
   };
-  const plugins = {
-    code: createCodePlugin({
-      themes: [themes.chiefLightCodeTheme, themes.chiefDarkCodeTheme],
-    }),
-  };
+  const plugins = { code: chiefCodeHighlighter };
   const remarkPlugins: RemarkPlugin[] = [
     ...Object.values(defaultRemarkPlugins),
     withoutIndentedCode,
