@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Fragment, useMemo, useRef } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef } from "react";
 
 import type {
   BrowserRunRecord,
@@ -257,6 +257,14 @@ export function ChiefChatAuxiliaryPanels({
       </div>
     </div>
   );
+  // Back from Activity lands at the latest message, as opening a thread does.
+  const activityWasOpen = useRef(activityOpen);
+  useLayoutEffect(() => {
+    const scroller = threadScrollRef.current;
+    if (activityWasOpen.current && !activityOpen && scroller)
+      scroller.scrollTop = scroller.scrollHeight;
+    activityWasOpen.current = activityOpen;
+  }, [activityOpen, threadScrollRef]);
   const closeAuxiliaryWorkspace = () => {
     setActivityOpen(false);
     onCloseChild?.();
