@@ -3,13 +3,37 @@ import {
   workspaceFileSaveSchema,
   workspaceFilesResultSchema,
   workspaceScheduleInputSchema,
+  workspaceSchedulesResultSchema,
 } from "@chief/relay-contracts";
 
 import { optionalString, requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
+import { postHostedCard } from "./cards";
 import { deterministicUuid, workspaceOperation } from "./channels";
 
 export const hostedWorkspaceTools = [
+  defineHostedAgentTool(
+    "automations.show",
+    async (context, input) => {
+      const { env, job, principal } = context;
+      const id = requiredString(input, "id");
+      const { schedules } = workspaceSchedulesResultSchema.parse(
+        await workspaceOperation(env, job, principal, "schedules-list"),
+      );
+      const automation = schedules.find((candidate) => candidate.id === id);
+      if (!automation)
+        throw new Error("No automation has that id. Check automations.list.");
+      await postHostedCard(context, input, "automation", automation.id, {
+        automationId: automation.id,
+        title: automation.title,
+      });
+      return {
+        shown: automation.title,
+        card: "The person can see, edit, and approve this automation on a card in this conversation, so don't repeat its details or link to it.",
+      };
+    },
+    { effect: "idempotent" },
+  ),
   defineHostedAgentTool(
     "automations.list",
     async ({ env, job, principal }) =>
