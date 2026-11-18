@@ -4,16 +4,26 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { AgentBrowserSession } from "@chief/browser/node";
 import { parseJsonString } from "@chief/relay-contracts";
 
+import type { RelayCellTool } from "../tool.js";
+import { clickBrowserDefinition } from "../../tools/toolkits/browser/click-browser.js";
+import { closeBrowserDefinition } from "../../tools/toolkits/browser/close-browser.js";
+import { fillBrowserDefinition } from "../../tools/toolkits/browser/fill-browser.js";
+import { openBrowserDefinition } from "../../tools/toolkits/browser/open-browser.js";
+import { pressBrowserDefinition } from "../../tools/toolkits/browser/press-browser.js";
+import { selectBrowserDefinition } from "../../tools/toolkits/browser/select-browser.js";
+import { snapshotBrowserDefinition } from "../../tools/toolkits/browser/snapshot-browser.js";
 import { requiredEnvironment } from "../context.js";
 import { optionalString, requiredString, requiredStrings } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
-let browser: AgentBrowserSession | null = null;
+// One browser per conversation; a worker runs many conversations' jobs.
+let browser: { conversationId: string; session: AgentBrowserSession } | null =
+  null;
 
 function browserSession() {
-  if (browser) return browser;
   const conversationId = requiredEnvironment("CHIEF_CONVERSATION_ID");
-  browser = new AgentBrowserSession({
+  if (browser?.conversationId === conversationId) return browser.session;
+  const session = new AgentBrowserSession({
     sessionId: `${requiredEnvironment("CHIEF_AGENT_ID")}-${conversationId}`,
     downloadPath: join(
       requiredEnvironment("CHIEF_CELL_ROOT"),
@@ -24,7 +34,8 @@ function browserSession() {
     restore: true,
     colorScheme: "dark",
   });
-  return browser;
+  browser = { conversationId, session };
+  return session;
 }
 
 function publicHttpsUrl(raw: string) {
@@ -69,60 +80,59 @@ async function snapshot() {
   return await browserSession().snapshot();
 }
 
+/**
+ * A browser tool as this agent sees it: the plain definition, without the
+ * conversation and run fields the desktop fills in for its own browser. This
+ * runtime always browses in the run's own conversation.
+ */
+function browserTool(
+  definition: RelayCellTool["definition"],
+  execute: RelayCellTool["execute"],
+): RelayCellTool {
+  return {
+    ...defineRelayCellTool(
+      definition.operation.operationId,
+      "browser.use",
+      execute,
+    ),
+    definition,
+  };
+}
+
 export const relayCellBrowserTools = [
-  defineRelayCellTool(
-    "browser.open",
-    "browser.use",
-    async (_context, input) => {
-      const session = browserSession();
-      if (input.fresh === true) await session.close();
-      await session.open(publicHttpsUrl(requiredString(input, "url")), {
-        width: 1280,
-        height: 800,
-      });
-      return await session.snapshot();
-    },
-  ),
-  defineRelayCellTool("browser.snapshot", "browser.use", snapshot),
-  defineRelayCellTool(
-    "browser.click",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().click(browserTargets(input));
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.fill",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().fill(
-        browserTargets(input),
-        requiredString(input, "value"),
-      );
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.select",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().select(
-        browserTargets(input),
-        requiredStrings(input, "values"),
-      );
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.press",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().press(requiredString(input, "key"));
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool("browser.close", "browser.use", async () => {
+  browserTool(openBrowserDefinition, async (_context, input) => {
+    const session = browserSession();
+    if (input.fresh === true) await session.close();
+    await session.open(publicHttpsUrl(requiredString(input, "url")), {
+      width: 1280,
+      height: 800,
+    });
+    return await session.snapshot();
+  }),
+  browserTool(snapshotBrowserDefinition, snapshot),
+  browserTool(clickBrowserDefinition, async (_context, input) => {
+    await browserSession().click(browserTargets(input));
+    return await snapshot();
+  }),
+  browserTool(fillBrowserDefinition, async (_context, input) => {
+    await browserSession().fill(
+      browserTargets(input),
+      requiredString(input, "value"),
+    );
+    return await snapshot();
+  }),
+  browserTool(selectBrowserDefinition, async (_context, input) => {
+    await browserSession().select(
+      browserTargets(input),
+      requiredStrings(input, "values"),
+    );
+    return await snapshot();
+  }),
+  browserTool(pressBrowserDefinition, async (_context, input) => {
+    await browserSession().press(requiredString(input, "key"));
+    return await snapshot();
+  }),
+  browserTool(closeBrowserDefinition, async () => {
     await browserSession().close();
     return { closed: true };
   }),
