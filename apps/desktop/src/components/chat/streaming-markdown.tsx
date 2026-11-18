@@ -11,6 +11,7 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { z } from "zod";
 
 import { isJsonString } from "@chief/relay-contracts";
 
@@ -31,21 +32,50 @@ import {
 
 // Streamdown and its Shiki highlighter load with the first message, and code
 // blocks use Chief's own light and dark theme.
+// The parser extensions other plugins (such as GFM) registered before ours.
+const processorDataSchema = z.object({
+  micromarkExtensions: z.array(z.looseObject({})).catch([]).default([]),
+});
+
+type RemarkPlugin = NonNullable<
+  ComponentPropsWithoutRef<
+    typeof import("streamdown").Streamdown
+  >["remarkPlugins"]
+>[number];
+
 const Streamdown = lazy(async () => {
-  const [{ Streamdown: Markdown }, { createCodePlugin }, themes] =
-    await Promise.all([
-      import("streamdown"),
-      import("@streamdown/code"),
-      import("@chief/ui/lib/code-theme"),
-    ]);
+  const [
+    { Streamdown: Markdown, defaultRemarkPlugins },
+    { createCodePlugin },
+    themes,
+  ] = await Promise.all([
+    import("streamdown"),
+    import("@streamdown/code"),
+    import("@chief/ui/lib/code-theme"),
+  ]);
+  // Chat has no indented code blocks: an indented line, as text pasted from
+  // elsewhere often has, stays text. Fenced blocks are code.
+  const withoutIndentedCode: RemarkPlugin = function () {
+    const data = this.data();
+    Object.assign(data, {
+      micromarkExtensions: [
+        ...processorDataSchema.parse(data).micromarkExtensions,
+        { disable: { null: ["codeIndented"] } },
+      ],
+    });
+  };
   const plugins = {
     code: createCodePlugin({
       themes: [themes.chiefLightCodeTheme, themes.chiefDarkCodeTheme],
     }),
   };
+  const remarkPlugins: RemarkPlugin[] = [
+    ...Object.values(defaultRemarkPlugins),
+    withoutIndentedCode,
+  ];
   return {
     default: (props: ComponentPropsWithoutRef<typeof Markdown>) => (
-      <Markdown {...props} plugins={plugins} />
+      <Markdown {...props} plugins={plugins} remarkPlugins={remarkPlugins} />
     ),
   };
 });
