@@ -139,11 +139,17 @@ export class AgentBrowserSession {
   ): Promise<BrowserBoundaryValue> {
     await mkdir(this.downloadPath, { recursive: true });
     const runtimePath = join(this.downloadPath, "runtime");
+    // A Unix socket's path must stay under about 104 bytes on macOS, whose
+    // temp folder alone is half of that, so sockets live in a short folder
+    // of this user's own.
     const socketPath =
-      process.env.AGENT_BROWSER_SOCKET_DIR ?? join(tmpdir(), "chief-browser");
+      process.env.AGENT_BROWSER_SOCKET_DIR ??
+      (process.platform === "win32"
+        ? join(tmpdir(), "chief-browser")
+        : `/tmp/chief-browser-${process.getuid?.() ?? "user"}`);
     await Promise.all([
       mkdir(runtimePath, { recursive: true }),
-      mkdir(socketPath, { recursive: true }),
+      mkdir(socketPath, { recursive: true, mode: 0o700 }),
     ]);
     await writeFile(this.configPath, '{"headed":false}\n', {
       flag: "wx",
