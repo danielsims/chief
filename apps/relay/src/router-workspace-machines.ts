@@ -94,9 +94,11 @@ export function routeWorkspaceMachines(
               "x-chief-internal-operation": operation,
               "content-type": "application/json",
             },
-            body: JSON.stringify(
-              pairedMachine ? { machineId: pairedMachine[2] } : {},
-            ),
+            body: viewerTicket
+              ? authenticated.request.body
+              : JSON.stringify(
+                  pairedMachine ? { machineId: pairedMachine[2] } : {},
+                ),
           }),
           { principal, requestId, workspaceId },
         ),
