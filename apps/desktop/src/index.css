@@ -18,6 +18,11 @@
   }
 }
 
+/* Code views and diffs (@pierre/diffs) read their size from the host element. */
+diffs-container {
+  --diffs-font-size: 11px;
+}
+
 .chief-message-notification-target {
   border-radius: 0.75rem;
   animation: chief-message-notification-pulse 2.2s ease-out;

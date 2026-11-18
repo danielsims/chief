@@ -1,5 +1,6 @@
 import { PatchDiff } from "@pierre/diffs/react";
 
+import { codeTheme } from "../../lib/code-theme";
 import { useTheme } from "../../lib/theme";
 
 /** Splits a combined unified diff into one patch string per changed file. */
@@ -25,7 +26,7 @@ export function ProjectDiffView({ patch }: { patch: string }) {
             patch={filePatch}
             disableWorkerPool
             options={{
-              theme: { dark: "github-dark", light: "github-light" },
+              theme: codeTheme,
               themeType: resolved,
               diffStyle: "unified",
               hunkSeparators: "line-info",

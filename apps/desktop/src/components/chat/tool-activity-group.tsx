@@ -14,6 +14,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ActivityToolCall } from "./activity-entries";
 import type { SessionChange } from "./session-work";
+import { codeTheme } from "../../lib/code-theme";
 import { useTheme } from "../../lib/theme";
 import { usePluginTool } from "../../lib/use-plugin-connections";
 import { ProviderLogo } from "../provider-logo";
@@ -29,7 +30,7 @@ export function ChangeDiff({ change }: { change: SessionChange }) {
   const options = {
     diffStyle: "unified" as const,
     overflow: "wrap" as const,
-    theme: { dark: "github-dark", light: "github-light" },
+    theme: codeTheme,
     themeType: resolved,
   };
   return (

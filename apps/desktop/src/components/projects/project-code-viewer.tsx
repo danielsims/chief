@@ -1,5 +1,6 @@
 import { File } from "@pierre/diffs/react";
 
+import { codeTheme } from "../../lib/code-theme";
 import { useTheme } from "../../lib/theme";
 
 export function ProjectCodeViewer({
@@ -20,7 +21,7 @@ export function ProjectCodeViewer({
         }}
         disableWorkerPool
         options={{
-          theme: { dark: "github-dark", light: "github-light" },
+          theme: codeTheme,
           themeType: resolved,
           disableFileHeader: true,
           disableLineNumbers: false,
