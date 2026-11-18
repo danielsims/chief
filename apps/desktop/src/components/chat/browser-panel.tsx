@@ -6,6 +6,7 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import { useRelaySession } from "../../lib/relay-session-context";
 import { useRuntime } from "../../lib/runtime";
 import {
   INLINE_RESULT_CARD_CLASS,
@@ -197,6 +198,9 @@ function BrowserSessionAttachmentContent({
   run: BrowserRunRecord;
 }) {
   const { browserSessions, openBrowser } = useRuntime();
+  // A relay workspace's browsers belong to agents; once one ends it stays in
+  // the conversation as a record and can't be reopened from here.
+  const { client: relay } = useRelaySession();
   const session = browserSessions[run.id];
   const url = session?.url ?? run.url;
 
@@ -218,8 +222,8 @@ function BrowserSessionAttachmentContent({
     return (
       <BrowserSessionCard
         detail={browserDomain(url)}
-        onClick={viewSession}
-        title="Browsing session complete"
+        onClick={relay ? undefined : viewSession}
+        title="Browsing session ended"
         url={url}
       />
     );

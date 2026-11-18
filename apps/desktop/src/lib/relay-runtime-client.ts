@@ -24,6 +24,7 @@ import type {
 import { isChannelMembershipMessage } from "./channel-actions";
 import { hostedProviderModelsMessage } from "./hosted-provider-models";
 import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
+import { BrowserRunLedger } from "./relay-browser-runs";
 import { rememberRelayConversationId } from "./relay-channel-adapter";
 import { relayProjectSnapshots } from "./relay-project-presentation";
 import {
@@ -83,6 +84,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private readonly history: HistoryPages;
   private chatOpenRequests = new Map<string, symbol>();
   private messagesById = new Map<string, ConversationMessage>();
+  private browserRuns = new BrowserRunLedger();
   private readonly devicePubkey = isTauri()
     ? invoke<string>("relay_public_key").catch(() => null)
     : Promise.resolve(null);
@@ -358,13 +360,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
           (reply) => this.emit(reply),
         );
         return;
-      // A cloud workspace has no local browser runs to list or act on.
+      // The browsers agents opened, as their cards in conversations record.
       case "listBrowserRuns":
-        this.emit({
-          type: "browserRuns",
-          workspaceId: this.snapshot.id,
-          runs: [],
-        });
+        this.emit(this.browserRuns.message(this.snapshot.id));
         return;
       case "anchorBrowserRun":
       case "browserNavigateRequest":
@@ -508,6 +506,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
         ...(agentId ? { agentId } : undefined),
       });
       this.emit(historyMessage(this.snapshot.id, chatId, messages));
+      this.emit(this.browserRuns.message(this.snapshot.id));
       await this.subscribeConversation(conversationId);
     } catch (error) {
       // A late response from a closed or replaced view is no longer actionable.
@@ -537,6 +536,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     const messages = await this.history.older(conversationId);
     if (!messages) return;
     this.emit(historyMessage(this.snapshot.id, chatId, messages, true));
+    this.emit(this.browserRuns.message(this.snapshot.id));
     await this.emitChannelEvents(conversationId, messages);
   }
 
@@ -702,6 +702,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private rememberMessage(message: ConversationMessage) {
     this.messagesById.set(message.id, message);
+    this.browserRuns.remember(message);
   }
 
   private async toggleReaction(
