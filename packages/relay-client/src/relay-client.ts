@@ -628,6 +628,7 @@ export class RelayClient extends RelayOnboardingClient {
     onTyping?: (event: RelayTypingEvent) => void;
     onPresence?: (event: WorkspacePresenceEvent) => void;
     onAgentsChanged?: () => void;
+    onMachinesChanged?: () => void;
     onResubscribed?: () => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
@@ -651,6 +652,7 @@ export class RelayClient extends RelayOnboardingClient {
       onTyping: input.onTyping,
       onPresence: input.onPresence,
       onAgentsChanged: input.onAgentsChanged,
+      onMachinesChanged: input.onMachinesChanged,
       onResubscribed: input.onResubscribed,
       onError: input.onError,
     });

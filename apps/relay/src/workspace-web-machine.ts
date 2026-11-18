@@ -77,6 +77,8 @@ export function onlineMachineIds(ctx: DurableObjectState) {
   return new Set(
     ctx
       .getWebSockets(webMachineTag)
+      // A socket that's closing is already offline.
+      .filter((socket) => socket.readyState === openSocket)
       .flatMap((socket) => machineAttachment(socket).machineId ?? []),
   );
 }

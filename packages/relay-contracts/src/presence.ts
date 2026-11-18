@@ -29,3 +29,11 @@ export const agentHostPresenceSchema = z.object({ online: z.boolean() });
 export const workspaceAgentsChangedEventSchema = z
   .object({ type: z.literal("workspace.agents.changed") })
   .strict();
+
+/**
+ * Sent on the workspace socket when a paired computer connects, disconnects,
+ * is paired or is removed. It carries nothing: each member re-reads their own.
+ */
+export const workspaceMachinesChangedEventSchema = z
+  .object({ type: z.literal("workspace.machines.changed") })
+  .strict();

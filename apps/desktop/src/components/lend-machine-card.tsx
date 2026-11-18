@@ -329,12 +329,30 @@ export function PairedMachinesCard({ workspaceId }: { workspaceId: string }) {
     if (!client) return;
     void client.listPairedMachines().then(setMachines, () => setMachines([]));
   }, [client]);
+  // Read on open, then whenever the relay says a computer connected,
+  // disconnected, was paired or removed, and after a reconnect: never polled.
   useEffect(() => {
+    if (!client) return;
     refresh();
-    // Paired machines come and go while this is open, so it keeps current.
-    const timer = setInterval(refresh, 10_000);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    let stopped = false;
+    let subscription: { close: () => void } | null = null;
+    void client
+      .subscribeWorkspace({
+        conversationIds: [],
+        onEvent: () => undefined,
+        onMachinesChanged: refresh,
+        onResubscribed: refresh,
+      })
+      .then((opened) => {
+        if (stopped) opened.close();
+        else subscription = opened;
+      })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+      subscription?.close();
+    };
+  }, [client, refresh]);
 
   const add = async () => {
     if (!client) return;
