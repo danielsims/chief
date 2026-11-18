@@ -18,6 +18,7 @@ import type { AutomationCatalogue } from "../../pages/use-automation-catalogue";
 import type { SelectableAgent } from "../agents/agent-multiselect";
 import { useRelaySession } from "../../lib/relay-session-context";
 import { usePluginConnections } from "../../lib/use-plugin-connections";
+import { useTeamOptions } from "../../pages/automation-builder";
 import {
   insertStep,
   newStep,
@@ -26,7 +27,7 @@ import {
   stepAgents,
   updateStep,
 } from "../../pages/automation-draft";
-import { StepPanel } from "../../pages/automation-inspector";
+import { SettingsPanel, StepPanel } from "../../pages/automation-inspector";
 import { StepPicker } from "../../pages/automation-step-picker";
 import {
   TriggerPanel,
@@ -77,11 +78,7 @@ export function AutomationCardFlow({
       <Rail />
       <TriggerRow context={context} />
       {draft.steps.length === 0 ? (
-        <Row
-          mark={<AgentMark agentId={draft.agentId} agents={agents} />}
-          title={draft.instructions || "Works from its brief"}
-          meta={`${agentLabel(draft.agentId, agents)} · Brief`}
-        />
+        <BriefRow context={context} />
       ) : (
         <Steps steps={draft.steps} context={context} />
       )}
@@ -176,6 +173,36 @@ function TriggerRow({ context }: { context: FlowContext }) {
         <TriggerPanel
           client={client}
           draft={context.draft}
+          onChange={context.onChange}
+          onClose={() => setOpen(false)}
+        />
+      </EditorPopover>
+    </Popover>
+  );
+}
+
+/** An automation without steps works from its brief, edited in place. */
+function BriefRow({ context }: { context: FlowContext }) {
+  const [open, setOpen] = useState(false);
+  const { channels } = useTeamOptions();
+  const { draft, agents } = context;
+  const row = (
+    <Row
+      mark={<AgentMark agentId={draft.agentId} agents={agents} />}
+      title={draft.instructions || "Works from its brief"}
+      meta={`${agentLabel(draft.agentId, agents)} · Brief`}
+      interactive={context.editable}
+    />
+  );
+  if (!context.editable) return row;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{row}</PopoverTrigger>
+      <EditorPopover>
+        <SettingsPanel
+          draft={draft}
+          agents={[...agents]}
+          channels={channels}
           onChange={context.onChange}
           onClose={() => setOpen(false)}
         />
