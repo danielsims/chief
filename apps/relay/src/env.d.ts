@@ -5,6 +5,15 @@ interface Env {
   RELAY_ID: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_EMAIL_API_TOKEN: string;
+  /**
+   * Live machine browser views. With all three, each paired machine gets its
+   * own Cloudflare Tunnel and `m-<id>.<domain>` hostname; without them,
+   * machines don't stream. The token needs Cloudflare Tunnel: Edit on the
+   * account and DNS: Edit on the zone.
+   */
+  CLOUDFLARE_TUNNEL_API_TOKEN?: string;
+  MACHINE_STREAM_ZONE_ID?: string;
+  MACHINE_STREAM_DOMAIN?: string;
   EMAIL_FROM_ADDRESS: string;
   EMAIL_FROM_NAME: string;
   /** Explicit sender: "resend", "cloudflare", or "none". Auto-detected when

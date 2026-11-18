@@ -3,7 +3,10 @@ import { z } from "zod";
 import type { AgentBrowser, AgentBrowserTarget } from "@chief/agent-computer";
 import type { AgentJob } from "@chief/relay-contracts";
 import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
-import { browserSnapshotSchema } from "@chief/relay-contracts";
+import {
+  browserSnapshotSchema,
+  browserStreamSchema,
+} from "@chief/relay-contracts";
 
 import { hostedPrincipal } from "./agent-object-values";
 import { workspaceOperation } from "./hosted-agent-tools/toolkits/channels";
@@ -68,6 +71,22 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
       })
       .parse(await this.command("screenshot"));
     return Uint8Array.from(atob(value.base64), (char) => char.charCodeAt(0));
+  }
+  /** Where the session can be watched live, when its machine streams. */
+  async stream() {
+    try {
+      return browserStreamSchema.parse(
+        await workspaceOperation(
+          this.env,
+          this.job,
+          hostedPrincipal(this.job),
+          "machine-browser-stream",
+          { body: { sessionId: this.job.id } },
+        ),
+      );
+    } catch {
+      return undefined;
+    }
   }
   async close() {
     z.object({ closed: z.literal(true) }).parse(await this.command("close"));

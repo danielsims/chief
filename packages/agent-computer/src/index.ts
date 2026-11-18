@@ -40,7 +40,8 @@ export interface AgentBrowser {
     values: readonly string[],
   ): Promise<AgentBrowserSnapshot>;
   screenshot(): Promise<Uint8Array>;
-  stream?(): Promise<AgentBrowserStream>;
+  /** Where the session can be watched live; undefined when it can't be. */
+  stream?(): Promise<AgentBrowserStream | undefined>;
   close(): Promise<void>;
 }
 

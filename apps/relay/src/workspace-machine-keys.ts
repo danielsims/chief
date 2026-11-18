@@ -4,6 +4,13 @@ import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { randomToken, sha256 } from "./external-agent-channel-security";
 import { HttpError, json } from "./http";
 import { readTrustedContext } from "./internal-context";
+import {
+  createMachineTunnel,
+  deleteMachineTunnel,
+  machineStreamConfig,
+  machineTunnelSchema,
+  machineTunnelToken,
+} from "./machine-stream-tunnels";
 
 /**
  * Machines without the app pair by running a
@@ -26,6 +33,9 @@ const machineSchema = z.object({
   name: z.string(),
   keyHash: z.string(),
   createdAt: z.number(),
+  /** Its tunnel for live browser views, and the secret viewer tickets are
+   * signed with; set the first time the machine asks to stream. */
+  stream: machineTunnelSchema.extend({ secret: z.string() }).optional(),
 });
 const ticketSchema = z.object({
   machineId: z.uuid(),
@@ -127,14 +137,7 @@ export async function createMachineTicket(
   channels: WorkspaceChannelStore,
   request: Request,
 ) {
-  const key = bearer(request);
-  const machineId = key
-    ? await storage.get<string>(keyIndex(await sha256(key)))
-    : undefined;
-  const machine = machineId ? await readMachine(storage, machineId) : undefined;
-  if (!machine)
-    throw new HttpError(401, "machine_unknown", "This machine isn't paired.");
-  requireMember(channels, machine.ownerUserId);
+  const machine = await machineForKey(storage, channels, request);
   const ticket = randomToken();
   await storage.put(ticketKey(await sha256(ticket)), {
     machineId: machine.machineId,
@@ -181,8 +184,165 @@ export async function listMachines(
   return json({ machines });
 }
 
+/** The paired machine a machine key belongs to, if its owner is a member. */
+async function machineForKey(
+  storage: DurableObjectStorage,
+  channels: WorkspaceChannelStore,
+  request: Request,
+) {
+  const key = bearer(request);
+  const machineId = key
+    ? await storage.get<string>(keyIndex(await sha256(key)))
+    : undefined;
+  const machine = machineId ? await readMachine(storage, machineId) : undefined;
+  if (!machine)
+    throw new HttpError(401, "machine_unknown", "This machine isn't paired.");
+  requireMember(channels, machine.ownerUserId);
+  return machine;
+}
+
+/**
+ * A machine asks to stream its browser: it gets its own tunnel, created the
+ * first time, the token `cloudflared` runs it with, and the secret it checks
+ * viewer tickets against.
+ */
+export async function setUpMachineStream(
+  env: Env,
+  storage: DurableObjectStorage,
+  channels: WorkspaceChannelStore,
+  request: Request,
+) {
+  const machine = await machineForKey(storage, channels, request);
+  const config = machineStreamConfig(env);
+  if (!config)
+    throw new HttpError(
+      503,
+      "stream_unavailable",
+      "This relay doesn't stream machine browsers.",
+    );
+  const stream = machine.stream ?? {
+    ...(await createMachineTunnel(config, machine.machineId)),
+    secret: randomToken(),
+  };
+  if (!machine.stream)
+    await storage.put(machineKey(machine.machineId), { ...machine, stream });
+  return json({
+    hostname: stream.hostname,
+    tunnelToken: await machineTunnelToken(config, stream),
+    streamSecret: stream.secret,
+  });
+}
+
+const viewerTicketLifetimeMs = 60_000;
+const pinnedSessionSchema = z.object({ machineId: z.string() });
+
+function base64Url(bytes: Uint8Array) {
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+/** The machine holding one agent's browser session, if it streams. */
+async function streamingMachine(
+  storage: DurableObjectStorage,
+  agentId: string,
+  sessionId: string,
+) {
+  const pinned = pinnedSessionSchema.safeParse(
+    await storage.get(`machine.browser:${agentId}:${sessionId}`),
+  );
+  const machine = pinned.success
+    ? await readMachine(storage, pinned.data.machineId)
+    : undefined;
+  return machine?.stream ? { ...machine, stream: machine.stream } : undefined;
+}
+
+function streamUrl(hostname: string, sessionId: string) {
+  return `wss://${hostname}/stream/${sessionId}`;
+}
+
+/**
+ * Where an agent's browser session can be watched, for its browser card.
+ * The address holds no secret; a viewer still needs a ticket.
+ */
+export async function machineBrowserStream(
+  storage: DurableObjectStorage,
+  request: Request,
+) {
+  const { principal } = readTrustedContext(request);
+  if (principal.kind !== "agent")
+    throw new HttpError(403, "agents_only", "Only agents stream a browser.");
+  const { sessionId } = z
+    .object({ sessionId: z.uuid() })
+    .parse(await request.json());
+  const machine = await streamingMachine(storage, principal.agentId, sessionId);
+  if (!machine)
+    throw new HttpError(404, "stream_unavailable", "No live view to show.");
+  return json({
+    streamUrl: streamUrl(machine.stream.hostname, sessionId),
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  });
+}
+
+/**
+ * A member's one-time ticket to watch an agent's browser session, signed
+ * with the machine's stream secret, which the machine checks itself. Only
+ * the machine's owner may also click and type.
+ */
+export async function createMachineViewerTicket(
+  storage: DurableObjectStorage,
+  channels: WorkspaceChannelStore,
+  request: Request,
+) {
+  const { principal } = readTrustedContext(request);
+  if (
+    principal.kind !== "user" ||
+    !channels.memberRole("user", principal.userId)
+  )
+    throw new HttpError(403, "members_only", "Only members can watch.");
+  const input = z
+    .object({ agentId: z.string().min(1).max(200), sessionId: z.uuid() })
+    .parse(await request.json());
+  const machine = await streamingMachine(
+    storage,
+    input.agentId,
+    input.sessionId,
+  );
+  if (!machine)
+    throw new HttpError(404, "stream_unavailable", "No live view to show.");
+  const payload = base64Url(
+    new TextEncoder().encode(
+      JSON.stringify({
+        v: 1,
+        s: input.sessionId,
+        c: machine.ownerUserId === principal.userId,
+        exp: Date.now() + viewerTicketLifetimeMs,
+        n: randomToken(),
+      }),
+    ),
+  );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(machine.stream.secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = base64Url(
+    new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)),
+    ),
+  );
+  return json({
+    url: streamUrl(machine.stream.hostname, input.sessionId),
+    protocols: ["chief-stream.v1", `chief-ticket.${payload}.${signature}`],
+  });
+}
+
 /** The owner removes a machine; its key stops working at once. */
 export async function revokeMachine(
+  env: Env,
   storage: DurableObjectStorage,
   request: Request,
   onRevoked: (machineId: string) => void,
@@ -200,5 +360,10 @@ export async function revokeMachine(
     throw new HttpError(404, "machine_not_found", "That machine wasn't found.");
   await storage.delete([machineKey(machineId), keyIndex(machine.keyHash)]);
   onRevoked(machineId);
+  const config = machineStreamConfig(env);
+  if (config && machine.stream)
+    await deleteMachineTunnel(config, machine.stream).catch((error: unknown) =>
+      console.error("[machines] tunnel cleanup:", error),
+    );
   return json({ ok: true });
 }

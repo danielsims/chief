@@ -236,6 +236,7 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
       const machine = machineOperation(
+        env,
         ctx,
         () => new WorkspaceChannelStore(ctx.storage, env),
         operation,

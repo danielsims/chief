@@ -9,6 +9,9 @@ import { authorizeWorkspace } from "./workspace-authority";
 const pairingsRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/pairings$/u;
 const claimRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/claim$/u;
 const ticketRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/socket-tickets$/u;
+const streamRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/stream$/u;
+const viewerTicketRoute =
+  /^\/v1\/workspaces\/([^/]+)\/machines\/viewer-tickets$/u;
 const pairedRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/paired$/u;
 const pairedMachineRoute =
   /^\/v1\/workspaces\/([^/]+)\/machines\/paired\/([^/]+)$/u;
@@ -30,8 +33,9 @@ export function routeWorkspaceMachines(
 
     const claim = claimRoute.exec(url.pathname);
     const ticket = ticketRoute.exec(url.pathname);
-    if ((claim || ticket) && request.method === "POST") {
-      const match = claim ?? ticket;
+    const stream = streamRoute.exec(url.pathname);
+    if ((claim || ticket || stream) && request.method === "POST") {
+      const match = claim ?? ticket ?? stream;
       return yield* attempt("relay.machines.machine", () =>
         workspaceFor(match?.[1]).fetch(
           new Request("https://workspace.internal/machines", {
@@ -39,7 +43,9 @@ export function routeWorkspaceMachines(
             headers: {
               "x-chief-internal-operation": claim
                 ? "machine-pairing-claim"
-                : "machine-ticket",
+                : stream
+                  ? "machine-stream-setup"
+                  : "machine-ticket",
               "content-type": "application/json",
               authorization: request.headers.get("authorization") ?? "",
             },
@@ -52,13 +58,15 @@ export function routeWorkspaceMachines(
     const pairings = pairingsRoute.exec(url.pathname);
     const paired = pairedRoute.exec(url.pathname);
     const pairedMachine = pairedMachineRoute.exec(url.pathname);
+    const viewerTicket = viewerTicketRoute.exec(url.pathname);
     const member =
+      (viewerTicket !== null && request.method === "POST") ||
       (pairings !== null && request.method === "POST") ||
       (paired !== null && request.method === "GET") ||
       (pairedMachine !== null && request.method === "DELETE");
     if (!member) return undefined;
     const workspaceId = parseWorkspaceId(
-      (pairings ?? paired ?? pairedMachine)?.[1],
+      (pairings ?? paired ?? pairedMachine ?? viewerTicket)?.[1],
     );
     const authenticated = yield* attempt("relay.authenticate", () =>
       authenticateRelayRequest(request, env),
@@ -70,11 +78,13 @@ export function routeWorkspaceMachines(
         workspaceId,
       }),
     );
-    const operation = pairings
-      ? "machine-pairing-create"
-      : paired
-        ? "machine-list"
-        : "machine-revoke";
+    const operation = viewerTicket
+      ? "machine-viewer-ticket"
+      : pairings
+        ? "machine-pairing-create"
+        : paired
+          ? "machine-list"
+          : "machine-revoke";
     return yield* attempt("relay.machines.member", () =>
       workspaceFor(workspaceId).fetch(
         withTrustedContext(

@@ -3,8 +3,11 @@ import {
   claimMachinePairing,
   createMachinePairing,
   createMachineTicket,
+  createMachineViewerTicket,
   listMachines,
+  machineBrowserStream,
   revokeMachine,
+  setUpMachineStream,
 } from "./workspace-machine-keys";
 import {
   browseThroughWebMachine,
@@ -18,6 +21,7 @@ import {
  * with the span it's traced under, or undefined for any other operation.
  */
 export function machineOperation(
+  env: Env,
   ctx: DurableObjectState,
   channels: () => WorkspaceChannelStore,
   operation: string | null,
@@ -48,9 +52,24 @@ export function machineOperation(
       return {
         span: "workspace.machine.revoke",
         run: () =>
-          revokeMachine(ctx.storage, request, (machineId) =>
+          revokeMachine(env, ctx.storage, request, (machineId) =>
             disconnectMachine(ctx, machineId),
           ),
+      };
+    case "machine-stream-setup":
+      return {
+        span: "workspace.machine.stream_setup",
+        run: () => setUpMachineStream(env, ctx.storage, channels(), request),
+      };
+    case "machine-browser-stream":
+      return {
+        span: "workspace.machine.browser_stream",
+        run: () => machineBrowserStream(ctx.storage, request),
+      };
+    case "machine-viewer-ticket":
+      return {
+        span: "workspace.machine.viewer_ticket",
+        run: () => createMachineViewerTicket(ctx.storage, channels(), request),
       };
     case "machine-browser":
       return {
