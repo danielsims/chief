@@ -44,6 +44,8 @@ pub struct Session {
     chrome: Child,
     _proxy: browser_proxy::Proxy,
     cdp: crate::browser_cdp::Cdp,
+    /// Chrome's own debugging socket, on loopback, for a live viewer.
+    endpoint: String,
     last_used: Instant,
 }
 impl Drop for Session {
@@ -123,6 +125,13 @@ pub async fn cli(args: &[String]) -> Result<(), String> {
 }
 
 impl Sessions {
+    /// Where a live viewer of one session attaches: Chrome's debugging socket
+    /// and the session's page. Only sessions this machine owns are listed.
+    pub fn stream_target(&self, session_id: &str) -> Option<(String, String)> {
+        self.sessions
+            .get(session_id)
+            .map(|session| (session.endpoint.clone(), session.cdp.target.clone()))
+    }
     pub fn reap(&mut self) {
         if !enabled() {
             self.sessions.clear();
@@ -337,6 +346,7 @@ async fn launch(_id: &str, agent: &str) -> Result<Session, String> {
         chrome,
         _proxy: proxy,
         cdp,
+        endpoint,
         last_used: Instant::now(),
     })
 }

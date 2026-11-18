@@ -180,13 +180,21 @@ enum Ended {
 }
 
 pub async fn serve() -> Result<(), String> {
-    load()?;
+    let first = load()?;
     println!("Lending this machine's connection. Ctrl-C to stop.");
+    // Browser sessions outlive a dropped relay socket, and live viewers reach
+    // them through the tunnel rather than the relay.
+    let browsers = Arc::new(tokio::sync::Mutex::new(crate::browser::Sessions::default()));
+    let _tunnel = if crate::browser::enabled() {
+        start_browser_stream(&first, browsers.clone()).await
+    } else {
+        None
+    };
     let mut backoff = Duration::from_secs(1);
     loop {
         let config = load()?;
         let session = tokio::select! {
-            ended = connect(&config) => ended,
+            ended = connect(&config, browsers.clone()) => ended,
             _ = tokio::signal::ctrl_c() => return Ok(()),
         };
         match session {
@@ -211,9 +219,87 @@ pub async fn serve() -> Result<(), String> {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamSetup {
+    hostname: String,
+    tunnel_token: String,
+    stream_secret: String,
+}
+
+/// Live views of this machine's browser sessions: a loopback server behind
+/// this machine's own Cloudflare tunnel, which the relay creates on request.
+/// Streaming is optional; the machine lends its connection without it.
+async fn start_browser_stream(
+    config: &Config,
+    browsers: Arc<tokio::sync::Mutex<crate::browser::Sessions>>,
+) -> Option<tokio::process::Child> {
+    let setup = async {
+        let response = http()?
+            .post(format!(
+                "{}/v1/workspaces/{}/machines/stream",
+                config.relay, config.workspace_id
+            ))
+            .bearer_auth(&config.key)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("the relay answered {}", response.status()));
+        }
+        response
+            .json::<StreamSetup>()
+            .await
+            .map_err(|error| error.to_string())
+    }
+    .await;
+    let setup = match setup {
+        Ok(setup) => setup,
+        Err(error) => {
+            eprintln!("{}  live browser view unavailable: {error}", now());
+            return None;
+        }
+    };
+    let secret = setup.stream_secret.into_bytes();
+    tokio::spawn(async move {
+        if let Err(error) = crate::browser_stream::serve(secret, browsers).await {
+            eprintln!("{}  live browser view stopped: {error}", now());
+        }
+    });
+    match tokio::process::Command::new("cloudflared")
+        .args([
+            "tunnel",
+            "--no-autoupdate",
+            "run",
+            "--token",
+            &setup.tunnel_token,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+    {
+        Ok(child) => {
+            println!("{}  live browser view at {}", now(), setup.hostname);
+            Some(child)
+        }
+        Err(_) => {
+            eprintln!(
+                "{}  live browser view needs cloudflared: install it (brew install cloudflared) and restart",
+                now()
+            );
+            None
+        }
+    }
+}
+
 /// One connection: fetch a ticket with the machine key, open the socket and
 /// answer fetches until it drops.
-async fn connect(config: &Config) -> Ended {
+async fn connect(
+    config: &Config,
+    browsers: Arc<tokio::sync::Mutex<crate::browser::Sessions>>,
+) -> Ended {
     let client = match http() {
         Ok(client) => client,
         Err(error) => return Ended::Dropped(error),
@@ -302,7 +388,6 @@ async fn connect(config: &Config) -> Ended {
     }
     println!("{}  connected", now());
 
-    let browsers = Arc::new(tokio::sync::Mutex::new(crate::browser::Sessions::default()));
     let browser_slot = Arc::new(Semaphore::new(1));
     let mut tasks = tokio::task::JoinSet::new();
     let (replies, mut outgoing) = mpsc::channel::<String>(32);

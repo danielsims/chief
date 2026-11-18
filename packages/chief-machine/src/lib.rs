@@ -22,8 +22,10 @@ pub mod relay_http;
 
 #[cfg(feature = "cli")]
 mod browser_cdp;
+#[cfg(feature = "cli")]
+mod browser_stream;
 
 #[cfg(feature = "cli")]
-pub mod owned_agent;
-#[cfg(feature = "cli")]
 mod agent_identity;
+#[cfg(feature = "cli")]
+pub mod owned_agent;

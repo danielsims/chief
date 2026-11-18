@@ -37,6 +37,7 @@ cli = [
   "dep:k256",
   "dep:sha2",
   "dep:hex",
+  "dep:hmac",
 ]
 
 [dependencies]
@@ -56,6 +57,7 @@ libc = { version = "0.2", optional = true }
 k256 = { version = "0.13", features = ["schnorr"], optional = true }
 sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
+hmac = { version = "0.12", optional = true }
 
 [profile.release]
 opt-level = "z"

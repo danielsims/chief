@@ -10,6 +10,8 @@ pub struct Cdp {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     sequence: u64,
     session: String,
+    /// The page this connection drives, which a live viewer attaches to too.
+    pub target: String,
     refs: HashMap<String, u64>,
     names: HashMap<String, String>,
 }
@@ -26,6 +28,7 @@ impl Cdp {
             socket,
             sequence: 0,
             session: String::new(),
+            target: String::new(),
             refs: HashMap::new(),
             names: HashMap::new(),
         };
@@ -34,14 +37,16 @@ impl Cdp {
             .await?;
         let target = target["targetId"]
             .as_str()
-            .ok_or("Missing owned Chrome target.")?;
+            .ok_or("Missing owned Chrome target.")?
+            .to_string();
         let attached = cdp
             .call(
                 "Target.attachToTarget",
-                json!({"targetId":target,"flatten":true}),
+                json!({"targetId":&target,"flatten":true}),
                 false,
             )
             .await?;
+        cdp.target = target;
         cdp.session = attached["sessionId"]
             .as_str()
             .ok_or("Cannot attach owned target.")?

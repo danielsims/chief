@@ -1,5 +1,5 @@
 //! One host, separately enrolled machine and channel-agent roles.
-use chief_machine::{owned_agent, machine};
+use chief_machine::{machine, owned_agent};
 
 #[tokio::main]
 async fn main() {
