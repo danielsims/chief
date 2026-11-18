@@ -40,19 +40,13 @@ pub struct Target {
 
 pub struct Session {
     agent: String,
-    directory: PathBuf,
     chrome: Child,
+    _directory: tempfile::TempDir,
     _proxy: browser_proxy::Proxy,
     cdp: crate::browser_cdp::Cdp,
     /// Chrome's own debugging socket, on loopback, for a live viewer.
     endpoint: String,
     last_used: Instant,
-}
-impl Drop for Session {
-    fn drop(&mut self) {
-        let _ = self.chrome.start_kill();
-        let _ = std::fs::remove_dir_all(&self.directory);
-    }
 }
 pub struct Sessions {
     sessions: HashMap<String, Session>,
@@ -188,7 +182,7 @@ impl Sessions {
             if self.sessions.len() >= 4 {
                 return Err("All four isolated browser slots are occupied. Close a session before opening another.".into());
             }
-            let session = launch(&request.session_id, &request.agent_id).await?;
+            let session = launch(&request.agent_id).await?;
             self.sessions.insert(request.session_id.clone(), session);
         }
         let session = self
@@ -276,13 +270,21 @@ fn validate_request(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-async fn launch(_id: &str, agent: &str) -> Result<Session, String> {
+async fn launch(agent: &str) -> Result<Session, String> {
     let settings = settings()?;
-    let root = host_storage::root()?.join("browser-sessions");
-    host_storage::directory(&root)?;
-    let directory = root.join(uuid::Uuid::new_v4().to_string());
-    host_storage::directory(&directory)?;
-    let profile = directory.join("profile");
+    // Chrome creates a Unix socket under TMPDIR. Use a short base path even
+    // when the host configuration directory or inherited TMPDIR is deeply nested.
+    let mut temporary = tempfile::Builder::new();
+    temporary.prefix("chief-browser-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = temporary
+        .tempdir_in("/tmp")
+        .map_err(|_| "Cannot create a private Chrome session directory.")?;
+    let profile = directory.path().join("profile");
     host_storage::directory(&profile)?;
     let proxy = browser_proxy::start().await?;
     let mut command = Command::new(&settings.chrome);
@@ -302,8 +304,8 @@ async fn launch(_id: &str, agent: &str) -> Result<Session, String> {
             "--no-default-browser-check",
         ])
         .env_clear()
-        .env("HOME", &directory)
-        .env("TMPDIR", &directory)
+        .env("HOME", directory.path())
+        .env("TMPDIR", directory.path())
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -342,8 +344,8 @@ async fn launch(_id: &str, agent: &str) -> Result<Session, String> {
     let cdp = crate::browser_cdp::Cdp::connect(&endpoint).await?;
     Ok(Session {
         agent: agent.into(),
-        directory,
         chrome,
+        _directory: directory,
         _proxy: proxy,
         cdp,
         endpoint,
@@ -370,7 +372,8 @@ mod integration_tests {
     #[tokio::test]
     #[ignore = "requires CHIEF_TEST_CHROME"]
     async fn isolated_browser_search_and_private_egress() {
-        let root = PathBuf::from(format!("/tmp/chief-host-test-{}", uuid::Uuid::new_v4()));
+        let config = tempfile::tempdir().unwrap();
+        let root = config.path().join("config".repeat(20));
         std::env::set_var("XDG_CONFIG_HOME", &root);
         host_storage::save(
             &settings_path().unwrap(),
@@ -482,7 +485,21 @@ mod integration_tests {
                 .len()
                 > 100
         );
-        let directory = sessions.sessions.get(&id).unwrap().directory.clone();
+        let directory = sessions
+            .sessions
+            .get(&id)
+            .unwrap()
+            ._directory
+            .path()
+            .to_owned();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                directory.metadata().unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         sessions
             .operation(&request("close", None, "chief"))
             .await
@@ -492,6 +509,5 @@ mod integration_tests {
             .operation(&request("snapshot", None, "chief"))
             .await
             .is_err());
-        let _ = std::fs::remove_dir_all(root);
     }
 }
