@@ -128,6 +128,8 @@ export function WebhookFields({
   };
 
   const editingSecret = !webhook?.signed || replacingSecret;
+  // Hold the full layout while the webhook loads, so the popover never grows.
+  const loading = !webhook && !error;
 
   return (
     <>
@@ -149,9 +151,12 @@ export function WebhookFields({
             aria-label="Webhook URL"
             readOnly
             value={webhook?.url ?? ""}
-            placeholder={error ? "" : "Getting a URL…"}
             onFocus={(event) => event.currentTarget.select()}
-            className={cn(controlClass, "font-mono text-[11px]")}
+            className={cn(
+              controlClass,
+              "font-mono text-[11px]",
+              loading && "animate-pulse",
+            )}
           />
           <button
             type="button"
@@ -164,6 +169,11 @@ export function WebhookFields({
           </button>
         </div>
       </PanelSection>
+      {loading ? (
+        <PanelSection title="Signing secret">
+          <div aria-hidden className={cn(controlClass, "animate-pulse")} />
+        </PanelSection>
+      ) : null}
       {webhook ? (
         <PanelSection
           title="Signing secret"
