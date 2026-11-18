@@ -19,11 +19,15 @@ import type { SelectableAgent } from "../agents/agent-multiselect";
 import { useRelaySession } from "../../lib/relay-session-context";
 import { usePluginConnections } from "../../lib/use-plugin-connections";
 import {
+  insertStep,
+  newStep,
   operatorLabels,
   removeStep,
+  stepAgents,
   updateStep,
 } from "../../pages/automation-draft";
 import { StepPanel } from "../../pages/automation-inspector";
+import { StepPicker } from "../../pages/automation-step-picker";
 import {
   TriggerPanel,
   triggerSummary,
@@ -81,6 +85,38 @@ export function AutomationCardFlow({
       ) : (
         <Steps steps={draft.steps} context={context} />
       )}
+      {editable ? (
+        <li className="relative flex list-none items-center px-1.5 py-1">
+          <span className="flex size-7 shrink-0 items-center justify-center">
+            <StepPicker
+              catalogue={catalogue}
+              agents={agents}
+              connectable={[]}
+              onConnect={() => undefined}
+              onPick={(picked) => {
+                const agentId = picked.agentId ?? draft.agentId;
+                const step = newStep(draft.steps, picked.kind, {
+                  agentId,
+                  agentName: agents.find((agent) => agent.id === agentId)?.name,
+                  tool: picked.tool,
+                });
+                const steps = insertStep(
+                  draft.steps,
+                  { index: draft.steps.length },
+                  step,
+                );
+                // The team is exactly the agents taking steps.
+                onChange({
+                  steps,
+                  collaborators: stepAgents(steps).filter(
+                    (id) => id !== draft.agentId,
+                  ),
+                });
+              }}
+            />
+          </span>
+        </li>
+      ) : null}
     </ol>
   );
 }

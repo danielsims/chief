@@ -222,10 +222,10 @@ function LiveAutomationCard({ record }: { record: WorkspaceSchedule }) {
       }
     >
       <span className={cn(insetCardClass, "block")}>
-        <span className="block text-sm leading-5 font-medium">
-          {draft.title || record.title}
-        </span>
-        <span className="mt-2 flex items-center gap-2">
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm leading-5 font-medium">
+            {draft.title || record.title}
+          </span>
           <AutomationInvolved schedule={record} className="size-5" />
         </span>
         <AutomationCardFlow
