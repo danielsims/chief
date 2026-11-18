@@ -158,7 +158,7 @@ const PluginSections = memo(function PluginSections({
             {group.map((plugin) => (
               <article
                 key={`${plugin.source.type}-${plugin.id}`}
-                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-2xl px-4 py-3 transition-colors"
               >
                 <button
                   type="button"
