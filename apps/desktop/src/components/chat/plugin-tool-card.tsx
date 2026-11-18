@@ -21,7 +21,6 @@ import { integrationSetupChannelPath } from "../../lib/integration-setup";
 import { connectRecommendedPlugin } from "../../lib/plugin-connection";
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
-import { pluginActionClassName } from "../plugins/plugin-action";
 import { usePluginAgentAccess } from "../plugins/plugin-agent-access";
 import { PluginApiKeyDialog } from "../plugins/plugin-api-key-dialog";
 import { openPluginDialog } from "../plugins/plugin-dialog-host";
@@ -136,33 +135,35 @@ function PluginRow({
             open();
           }
         }}
-        className="bg-card/60 hover:bg-card flex min-w-0 cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm transition-colors"
+        className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[16px] bg-[color-mix(in_srgb,var(--foreground)_4%,var(--background))] py-2 pr-2 pl-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,var(--background))]"
       >
         <ProviderLogo
           domain={pluginDomain(current)}
           label={current.name}
-          className="size-10 overflow-hidden rounded-xl"
+          className="size-8 overflow-hidden rounded-lg"
         />
         <span className="min-w-0 flex-1">
-          <strong className="block truncate text-sm font-medium">
+          <strong className="block truncate text-[13px] font-medium">
             {current.name}
           </strong>
         </span>
         {current.status === "connected" ? (
           <span
             className={cn(
-              buttonVariants({ variant: "secondary", size: "sm" }),
-              "pointer-events-none rounded-full px-4",
-              needsAccess ? "text-amber-500" : "text-emerald-500",
+              buttonVariants({ variant: "outline", size: "xs" }),
+              "pointer-events-none",
+              needsAccess
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground",
             )}
           >
+            {needsAccess ? null : <Check size={12} />}
             {needsAccess ? "Needs access" : "Connected"}
           </span>
         ) : (
           <Button
-            variant="outline"
-            size="sm"
-            className={pluginActionClassName}
+            size="xs"
+            className="relative"
             disabled={busy}
             onClick={(event) => {
               // The card opens the plugin; its button connects it.
@@ -176,7 +177,7 @@ function PluginRow({
             {busy ? (
               <LoaderCircle
                 className="absolute inset-0 m-auto animate-spin"
-                size={14}
+                size={12}
               />
             ) : null}
           </Button>
@@ -215,7 +216,7 @@ function PluginRecommendationRows({
   agentId?: string;
 }) {
   return (
-    <div className="w-[620px] max-w-full space-y-2">
+    <div className="w-full max-w-lg space-y-1.5">
       {plugins.map((plugin) => (
         <PluginRow
           key={plugin.id}
