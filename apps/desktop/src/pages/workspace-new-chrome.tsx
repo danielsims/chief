@@ -10,7 +10,8 @@ import {
 } from "../components/workspace-setup-chrome";
 import { USING_CUSTOM_RELAY } from "../lib/config";
 import { eveDestinationIsReady } from "./workspace-create-draft";
-import { CreateForm, JoinForm } from "./workspace-new-components";
+import { JoinWorkspaceScreen } from "./workspace-join-screen";
+import { CreateForm } from "./workspace-new-components";
 import { WorkspaceEveStage } from "./workspace-new-eve-stage";
 import {
   eveProgressStep,
@@ -127,6 +128,10 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
       : page.mode === "join"
         ? `join:${page.foreignRelay ? "relay" : page.invitePreview ? "preview" : "invite"}`
         : page.mode;
+
+  // Joining with a link is a setup step like the rest, so it's drawn as one.
+  if (page.mode === "join" && !page.foreignRelay)
+    return <JoinWorkspaceScreen page={page} onExit={exit} />;
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -389,20 +394,6 @@ export function WorkspaceNewView({ page }: { page: WorkspaceNewPageModel }) {
                         page.setActionError(null);
                       }}
                       onContinue={() => void page.connectToInviteRelay()}
-                    />
-                  ) : page.mode === "join" ? (
-                    <JoinForm
-                      invite={page.invite}
-                      preview={page.invitePreview}
-                      working={page.isWorking}
-                      connected={page.connected}
-                      onInviteChange={(value) => {
-                        page.setInvite(value);
-                        page.setInvitePreview(null);
-                        page.setForeignRelay(null);
-                      }}
-                      onPrepare={() => void page.prepareInvite()}
-                      onJoin={() => void page.joinWorkspace()}
                     />
                   ) : null}
                 </motion.div>
