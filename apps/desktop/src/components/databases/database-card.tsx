@@ -1,4 +1,4 @@
-import { ArrowUpRight, Database } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { GenerativeDatabaseData } from "@chief/agent-runtime/types";
@@ -70,7 +70,6 @@ export function DatabaseCard({ data }: { data: GenerativeDatabaseData }) {
           board && "mb-1",
         )}
       >
-        <Database size={12} className="shrink-0" />
         <span className="min-w-0 truncate">
           {database?.name ?? data.title}
           {board ? " · Board" : ""}
