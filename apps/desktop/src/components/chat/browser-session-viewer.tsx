@@ -4,6 +4,7 @@ import { memo, useState } from "react";
 import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useRuntime } from "../../lib/runtime";
@@ -48,11 +49,12 @@ function BrowserSessionViewerImpl({
       <div
         aria-label="Opening browser"
         className={cn(
-          "bg-muted/45 text-muted-foreground flex w-full items-center justify-center rounded-xl text-xs",
+          "bg-muted/45 text-muted-foreground flex w-full items-center justify-center gap-2 rounded-xl text-xs",
           className,
         )}
         role="status"
       >
+        <MatrixLoader size={12} ariaLabel="Opening browser" />
         Opening browser…
       </div>
     );

@@ -3,6 +3,7 @@ import { Component, lazy, memo, Suspense, useState } from "react";
 import { ArrowRight, Globe2 } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useRuntime } from "../../lib/runtime";
@@ -70,11 +71,12 @@ function BrowserSessionLoading({ className }: { className?: string }) {
     <div
       aria-label="Loading browser viewer"
       className={cn(
-        "bg-muted/45 text-muted-foreground flex min-h-28 w-full items-center justify-center rounded-xl text-xs",
+        "bg-muted/45 text-muted-foreground flex min-h-28 w-full items-center justify-center gap-2 rounded-xl text-xs",
         className,
       )}
       role="status"
     >
+      <MatrixLoader size={12} ariaLabel="Opening browser" />
       Opening browser…
     </div>
   );
