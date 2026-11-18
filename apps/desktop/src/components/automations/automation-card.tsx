@@ -21,13 +21,12 @@ import {
   useAutomationRecord,
 } from "../../lib/use-automation-record";
 import { useWorkspaceRole } from "../../lib/workspace-role";
-import { StatusPill, useTeamOptions } from "../../pages/automation-builder";
+import { useTeamOptions } from "../../pages/automation-builder";
 import {
   draftFromWork,
   draftIssueMap,
   draftToInput,
 } from "../../pages/automation-draft";
-import { friendlySchedule } from "../../pages/schedule-editor";
 import { useAutomationRuns } from "../../pages/use-automation-test";
 import { AutomationInvolved } from "../automation-involved";
 import { insetBandClass, insetCardClass } from "../inset-card";
@@ -156,42 +155,41 @@ function LiveAutomationCard({ record }: { record: WorkspaceSchedule }) {
   };
 
   const needsTest = hasSteps && awaitingApproval && !runs.testPassed;
-  const hint = dirty
-    ? "Unsaved changes"
-    : runs.testing
-      ? "Testing…"
-      : awaitingApproval
-        ? needsTest
-          ? runs.testState === "failed" || runs.testState === "blocked"
-            ? "The last test didn't pass. Open a step to see why."
-            : "Test it first. Writes are only previewed."
-          : "Ready for your approval"
-        : record.status === "active"
-          ? record.nextAt
-            ? `Next run ${new Date(record.nextAt).toLocaleString([], {
-                weekday: "short",
-                hour: "numeric",
-                minute: "2-digit",
-              })}`
-            : "Live"
-          : record.status === "paused"
-            ? "Paused"
-            : record.status === "error"
-              ? "Something's wrong. Open it to see what."
-              : "";
+  const hint = runs.testing
+    ? "Testing…"
+    : awaitingApproval
+      ? needsTest
+        ? runs.testState === "failed" || runs.testState === "blocked"
+          ? "The last test didn't pass. Open a step to see why."
+          : "Test it first. Writes are only previewed."
+        : "Ready for your approval"
+      : record.status === "active"
+        ? record.nextAt
+          ? `Next run ${new Date(record.nextAt).toLocaleString([], {
+              weekday: "short",
+              hour: "numeric",
+              minute: "2-digit",
+            })}`
+          : "Live"
+        : record.status === "paused"
+          ? "Paused"
+          : record.status === "error"
+            ? "Something's wrong. Open it to see what."
+            : "";
 
   return (
     <Frame
-      label={friendlySchedule(record)}
-      status={<StatusPill status={record.status} />}
+      label={
+        <span className="flex min-w-0 items-center gap-1.5">
+          {runs.testing ? <MatrixLoader size={12} ariaLabel="Testing" /> : null}
+          <span className="truncate">{hint}</span>
+        </span>
+      }
       onOpen={open}
       footer={
         <>
-          <span className="text-muted-foreground flex min-w-0 flex-1 items-center gap-1.5 truncate">
-            {runs.testing ? (
-              <MatrixLoader size={12} ariaLabel="Testing" />
-            ) : null}
-            <span className="truncate">{hint}</span>
+          <span className="text-muted-foreground min-w-0 flex-1 truncate">
+            {dirty ? "Unsaved changes" : ""}
           </span>
           {dirty ? (
             <>
@@ -315,13 +313,11 @@ function Actions({
 /** The band and its header and footer rows, around the card. */
 function Frame({
   label,
-  status,
   onOpen,
   footer,
   children,
 }: {
-  label: string;
-  status?: React.ReactNode;
+  label: React.ReactNode;
   onOpen?: () => void;
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -333,7 +329,6 @@ function Frame({
     >
       <span className="text-muted-foreground flex h-7 items-center gap-2 px-2.5 text-[12px]">
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        {status}
         {onOpen ? (
           <button
             type="button"
