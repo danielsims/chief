@@ -11,6 +11,7 @@ import {
   machineTunnelSchema,
   machineTunnelToken,
 } from "./machine-stream-tunnels";
+import { requireNativeAgent } from "./workspace-agent-runtime";
 
 /**
  * Machines without the app pair by running a
@@ -234,7 +235,10 @@ export async function setUpMachineStream(
 }
 
 const viewerTicketLifetimeMs = 60_000;
-const pinnedSessionSchema = z.object({ machineId: z.string() });
+const pinnedSessionSchema = z.object({
+  machineId: z.string(),
+  conversationId: z.string().optional(),
+});
 
 function base64Url(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...bytes))
@@ -255,7 +259,13 @@ async function streamingMachine(
   const machine = pinned.success
     ? await readMachine(storage, pinned.data.machineId)
     : undefined;
-  return machine?.stream ? { ...machine, stream: machine.stream } : undefined;
+  return machine?.stream && pinned.success
+    ? {
+        ...machine,
+        stream: machine.stream,
+        conversationId: pinned.data.conversationId,
+      }
+    : undefined;
 }
 
 function streamUrl(hostname: string, sessionId: string) {
@@ -287,8 +297,7 @@ export async function machineBrowserStream(
 
 /**
  * A member's one-time ticket to watch an agent's browser session, signed
- * with the machine's stream secret, which the machine checks itself. Only
- * the machine's owner may also click and type.
+ * with the machine's stream secret, which the machine checks itself.
  */
 export async function createMachineViewerTicket(
   storage: DurableObjectStorage,
@@ -309,14 +318,21 @@ export async function createMachineViewerTicket(
     input.agentId,
     input.sessionId,
   );
-  if (!machine)
+  // Watching needs the conversation the browser is shown in, as reading
+  // it does; clicking and typing is for the agent's owner alone.
+  if (
+    !machine?.conversationId ||
+    !channels.canReadConversation(machine.conversationId, principal)
+  )
     throw new HttpError(404, "stream_unavailable", "No live view to show.");
+  const control =
+    requireNativeAgent(storage, input.agentId).ownerUserId === principal.userId;
   const payload = base64Url(
     new TextEncoder().encode(
       JSON.stringify({
         v: 1,
         s: input.sessionId,
-        c: machine.ownerUserId === principal.userId,
+        c: control,
         exp: Date.now() + viewerTicketLifetimeMs,
         n: randomToken(),
       }),

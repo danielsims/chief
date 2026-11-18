@@ -280,7 +280,11 @@ async function sendMachine(
   });
 }
 
-const pinnedSessionSchema = z.object({ machineId: z.string(), at: z.number() });
+const pinnedSessionSchema = z.object({
+  machineId: z.string(),
+  at: z.number(),
+  conversationId: z.string().optional(),
+});
 const sessionIdleMs = 60 * 60_000;
 
 /** Jobs often end without closing their browser; their pins expire instead. */
@@ -339,11 +343,12 @@ export async function browseThroughWebMachine(
       "browser_denied",
       "Browser access is disabled for this agent.",
     );
-  const input = machineBrowserCommandSchema.parse(await request.json());
+  const { conversationId, ...input } = machineBrowserCommandSchema.parse(
+    await request.json(),
+  );
   const key = `machine.browser:${principal.agentId}:${input.sessionId}`;
-  const pinned = pinnedSessionSchema
-    .optional()
-    .parse(await ctx.storage.get(key))?.machineId;
+  const pin = pinnedSessionSchema.optional().parse(await ctx.storage.get(key));
+  const pinned = pin?.machineId;
   if (!pinned && input.operation === "close") return json({ closed: true });
   if (!pinned && input.operation !== "open")
     throw new HttpError(
@@ -369,7 +374,13 @@ export async function browseThroughWebMachine(
     );
   const machineId = machineAttachment(socket).machineId;
   if (!pinned) await forgetIdleSessions(ctx.storage);
-  await ctx.storage.put(key, { machineId, at: Date.now() });
+  await ctx.storage.put(key, {
+    machineId,
+    at: Date.now(),
+    ...((pin?.conversationId ?? conversationId)
+      ? { conversationId: pin?.conversationId ?? conversationId }
+      : undefined),
+  });
   const requestId = crypto.randomUUID();
   const answer = await sendMachine(
     socket,

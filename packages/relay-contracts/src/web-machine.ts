@@ -128,6 +128,9 @@ export const machineBrowserCommandSchema = z
       .optional(),
     text: z.string().max(16_000).optional(),
     values: z.array(z.string().max(1000)).max(30).optional(),
+    /** Where the session is shown, recorded so only that conversation's
+     * members may watch it. Kept on the relay; the machine never sees it. */
+    conversationId: z.string().min(1).max(200).optional(),
   })
   .strict();
 export const machineBrowserResultSchema = z.discriminatedUnion("ok", [

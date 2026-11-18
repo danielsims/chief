@@ -6,6 +6,7 @@ import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import {
   browserSnapshotSchema,
   browserStreamSchema,
+  jobConversationId,
 } from "@chief/relay-contracts";
 
 import { hostedPrincipal } from "./agent-object-values";
@@ -33,7 +34,14 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
         this.job,
         hostedPrincipal(this.job),
         "machine-browser",
-        { body: { ...body, operation, sessionId: this.job.id } },
+        {
+          body: {
+            ...body,
+            operation,
+            sessionId: this.job.id,
+            conversationId: jobConversationId(this.job),
+          },
+        },
       );
     } catch (error) {
       throw new RecoverableToolError(
