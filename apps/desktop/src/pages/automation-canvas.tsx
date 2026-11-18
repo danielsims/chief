@@ -514,6 +514,39 @@ function TriggerCard({
   );
 }
 
+/**
+ * With no steps, the lead works from the brief, so the brief is the step.
+ * It opens Settings, where the brief is edited.
+ */
+function BriefCard({
+  draft,
+  context,
+}: {
+  draft: AutomationDraft;
+  context: CanvasContext;
+}) {
+  const name = context.agents.get(draft.agentId)?.name ?? draft.agentId;
+  return (
+    <>
+      <Stem className="h-7" />
+      <Node
+        band="Works from its brief"
+        title={name}
+        titleMark={
+          <AgentAvatar
+            agentId={draft.agentId}
+            label={name}
+            className="size-4 rounded-full"
+          />
+        }
+        detail={draft.instructions.trim()}
+        selected={context.selected === "settings"}
+        onClick={() => context.onSelect("settings")}
+      />
+    </>
+  );
+}
+
 const zoomSteps = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25];
 
 export function AutomationCanvas({
@@ -598,6 +631,9 @@ export function AutomationCanvas({
           >
             <div className="flex flex-col items-center">
               <TriggerCard draft={draft} context={context} />
+              {draft.steps.length === 0 && draft.instructions.trim() ? (
+                <BriefCard draft={draft} context={context} />
+              ) : null}
               <StepList steps={draft.steps} owner={{}} context={context} />
               {draft.steps.length > 0 && !ends(draft.steps.at(-1)) ? (
                 <span className="text-muted-foreground bg-background rounded-full px-2 py-px text-[10px] leading-4 font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent)]">

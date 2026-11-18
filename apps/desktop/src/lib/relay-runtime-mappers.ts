@@ -14,6 +14,7 @@ import type {
 import {
   artifactReferencePayloadSchema,
   attachmentLocation,
+  automationCardPayloadSchema,
   isJsonObject,
   isJsonString,
   messageAttachments,
@@ -327,6 +328,7 @@ function messageComponentParts(
     ...pluginRecommendationParts(message),
     ...projectRecommendationParts(message),
     ...questionParts(message),
+    ...automationParts(message),
     ...artifactParts(message),
     ...attachmentParts(message),
   ];
@@ -499,6 +501,32 @@ function questionParts(message: ConversationMessage): ChiefUIMessage["parts"] {
           ...(parsed.data.threadRootId
             ? { threadRootId: parsed.data.threadRootId }
             : undefined),
+        },
+      },
+    ];
+  });
+}
+
+/** One card per automation, however often the agent revised it here. */
+function automationParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  const seen = new Set<string>();
+  return message.components.flatMap((component) => {
+    if (component.kind !== "automation") return [];
+    const parsed = automationCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success || seen.has(parsed.data.automationId)) return [];
+    seen.add(parsed.data.automationId);
+    return [
+      {
+        type: "data-automation" as const,
+        id: parsed.data.automationId,
+        data: {
+          automationId: parsed.data.automationId,
+          title: parsed.data.title,
+          agentId: parsed.data.agentId,
+          messageId: message.id,
         },
       },
     ];

@@ -189,6 +189,20 @@ export interface GenerativeQuestionData {
 }
 
 /**
+ * An automation shown in a conversation. Like an AI SDK data part with an
+ * id, the card is reconciled with the live record: it carries the
+ * automation's id and renders whatever that automation is now, falling back
+ * to the title it was posted with.
+ */
+export interface GenerativeAutomationData {
+  automationId: string;
+  title: string;
+  agentId: string;
+  /** The message the card arrived in. */
+  messageId: string;
+}
+
+/**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
  * can emit the same chart part and every client can render it consistently.
@@ -260,6 +274,7 @@ export type ChiefUIMessage = UIMessage<
     "plugin-recommendations": GenerativePluginRecommendationsData;
     "project-recommendation": GenerativeProjectRecommendationData;
     question: GenerativeQuestionData;
+    automation: GenerativeAutomationData;
   }
 >;
 
@@ -293,6 +308,11 @@ export type GenerativeQuestionBlock = Extract<
   { type: "data-question" }
 >;
 
+export type GenerativeAutomationBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-automation" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -309,6 +329,7 @@ export type ContentBlock =
   | GenerativePluginRecommendationsBlock
   | GenerativeProjectRecommendationBlock
   | GenerativeQuestionBlock
+  | GenerativeAutomationBlock
   | {
       type: "tool_use";
       id: string;

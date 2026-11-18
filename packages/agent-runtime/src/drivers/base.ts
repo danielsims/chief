@@ -216,6 +216,14 @@ export abstract class BaseDriver extends EventEmitter {
     this.emit("state", state);
   }
 
+  /**
+   * Signals the backend is alive without anything to show, such as thinking
+   * or a long-running tool, so the session doesn't mistake it for a stall.
+   */
+  protected heartbeat() {
+    this.emit("activity");
+  }
+
   private createPromptCompletion() {
     let resolve!: () => void;
     let reject!: (error: Error) => void;

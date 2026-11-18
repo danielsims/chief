@@ -96,6 +96,7 @@ export class RelayClient extends RelayOnboardingClient {
   readonly schedules: Pick<
     RelaySchedulesClient,
     | "list"
+    | "build"
     | "save"
     | "act"
     | "delete"

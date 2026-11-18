@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import { redactUrlCredentials } from "./credential-broker.js";
 import { projectIconDataUrl } from "./project-icon.js";
+import { syncOwnedClone } from "./repository-sync.js";
 
 const executeFile = promisify(execFile);
 const GIT_TIMEOUT_MS = 30_000;
@@ -300,6 +301,8 @@ export async function repositorySnapshot(
     };
   }
   try {
+    if (binding.kind !== "attached")
+      await syncOwnedClone(binding.repositoryPath);
     const status = await git(
       ["status", "--porcelain=v2", "--branch"],
       binding.repositoryPath,

@@ -1,3 +1,5 @@
+import type { ZodType } from "zod";
+
 import type {
   JsonObject,
   Principal,
@@ -5,6 +7,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   attachmentLocation,
+  automationCardPayloadSchema,
   messageAttachmentPayloadSchema,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
@@ -13,6 +16,27 @@ import {
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+
+/**
+ * Cards that belong to one place in one conversation. Each is checked
+ * against where it is posted, and only the agent named on it may post it.
+ * A new card kind registers here.
+ */
+const placedComponents = new Map<
+  string,
+  ZodType<{
+    workspaceId: string;
+    conversationId: string;
+    threadRootId?: string;
+    agentId: string;
+  }>
+>([
+  ["plugin.recommendation", pluginRecommendationPayloadSchema],
+  ["plugin.authorization", pluginAuthorizationPayloadSchema],
+  ["project.recommendation", projectRecommendationPayloadSchema],
+  ["question", questionPayloadSchema],
+  ["automation", automationCardPayloadSchema],
+]);
 
 export function validatePluginComponentPlacement(
   components: readonly {
@@ -48,17 +72,9 @@ export function validatePluginComponentPlacement(
         "schedule_component_author",
         "Only the relay can announce scheduled runs.",
       );
-    const parsed =
-      component.kind === "plugin.recommendation"
-        ? pluginRecommendationPayloadSchema.parse(component.payload)
-        : component.kind === "plugin.authorization"
-          ? pluginAuthorizationPayloadSchema.parse(component.payload)
-          : component.kind === "project.recommendation"
-            ? projectRecommendationPayloadSchema.parse(component.payload)
-            : component.kind === "question"
-              ? questionPayloadSchema.parse(component.payload)
-              : undefined;
-    if (!parsed) continue;
+    const schema = placedComponents.get(component.kind);
+    if (!schema) continue;
+    const parsed = schema.parse(component.payload);
     if (
       parsed.workspaceId !== workspaceId ||
       parsed.conversationId !== conversationId ||
@@ -70,15 +86,7 @@ export function validatePluginComponentPlacement(
         "The plugin component does not match its relay placement.",
       );
     }
-    if (
-      (component.kind === "plugin.recommendation" ||
-        component.kind === "plugin.authorization" ||
-        component.kind === "project.recommendation" ||
-        component.kind === "question") &&
-      (principal.kind !== "agent" ||
-        !("agentId" in parsed) ||
-        parsed.agentId !== principal.agentId)
-    ) {
+    if (principal.kind !== "agent" || parsed.agentId !== principal.agentId) {
       throw new HttpError(
         403,
         "plugin_component_author_mismatch",

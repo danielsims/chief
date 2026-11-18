@@ -11,13 +11,13 @@ import { deterministicUuid, workspaceOperation } from "./channels";
 
 export const hostedWorkspaceTools = [
   defineHostedAgentTool(
-    "recurringWork.list",
+    "automations.list",
     async ({ env, job, principal }) =>
       await workspaceOperation(env, job, principal, "schedules-list"),
     { effect: "read_only" },
   ),
   defineHostedAgentTool(
-    "recurringWork.propose",
+    "automations.propose",
     async ({ env, job, principal }, input) =>
       await workspaceOperation(env, job, principal, "schedules-save", {
         body: workspaceScheduleInputSchema.parse({

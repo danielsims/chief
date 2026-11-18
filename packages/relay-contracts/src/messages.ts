@@ -77,6 +77,23 @@ export const projectRecommendationPayloadSchema = z
   })
   .strict();
 
+/**
+ * An automation an agent set up or changed in a conversation. The card holds
+ * a reference, not a copy: whoever renders it reads the automation itself, so
+ * edits and approvals made anywhere show on every card that points at it.
+ * The title is a fallback for readers that cannot see the automation.
+ */
+export const automationCardPayloadSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
+    agentId: agentIdSchema,
+    automationId: z.string().trim().min(1).max(120),
+    title: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
 /** An agent's multiple-choice question. The answer is the user's next reply
  * in the same place, so asking never blocks a run. */
 export const questionPayloadSchema = z
@@ -205,7 +222,9 @@ export const messageComponentSchema = z
                     ? questionPayloadSchema
                     : component.kind === "channel-action"
                       ? channelActionPayloadSchema
-                      : undefined;
+                      : component.kind === "automation"
+                        ? automationCardPayloadSchema
+                        : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {

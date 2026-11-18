@@ -224,20 +224,20 @@ export const eveChiefLocalTools: readonly EveChiefToolSpec[] = [
     },
   },
   {
-    operationId: "recurringWork.list",
+    operationId: "automations.list",
     method: "GET",
     path: "/local-tools/recurring-work",
     execute: "relay",
-    description: "List visible schedules and their approval state.",
+    description: "List visible automations and their approval state.",
     input: {},
   },
   {
-    operationId: "recurringWork.propose",
+    operationId: "automations.propose",
     method: "POST",
     path: "/local-tools/recurring-work",
     execute: "relay",
     description:
-      "Propose recurring or one-time agent work. Reuse a stable id when revising. The agent must belong to the destination channel. The proposal stays awaiting user approval; this tool cannot approve, activate, or run it.",
+      "Propose an automation (recurring, one-time or webhook-triggered agent work). Reuse a stable id when revising. The agent must belong to the destination channel. The proposal stays awaiting user approval; this tool cannot approve, activate, or run it.",
     input: {
       collaborators: "z.array(z.string().min(1).max(120)).max(12).default([])",
       expectedOutcome: 'z.string().max(2000).default("")',

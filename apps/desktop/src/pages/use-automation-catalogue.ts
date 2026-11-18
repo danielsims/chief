@@ -16,7 +16,7 @@ export interface AutomationCatalogue {
 }
 
 /** Every tool an automation step can use: Chief's own and connected plugins'. */
-export function useAutomationCatalogue(): AutomationCatalogue {
+export function useAutomationCatalogue(enabled = true): AutomationCatalogue {
   const { client } = useRelaySession();
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((current) => current + 1), []);
@@ -27,7 +27,7 @@ export function useAutomationCatalogue(): AutomationCatalogue {
     error: "",
   });
   useEffect(() => {
-    if (!client) return;
+    if (!client || !enabled) return;
     let active = true;
     void Promise.all([client.plugins.automationTools(), client.plugins.list()])
       .then(([chief, plugins]) => {
@@ -53,7 +53,7 @@ export function useAutomationCatalogue(): AutomationCatalogue {
     return () => {
       active = false;
     };
-  }, [client, version]);
+  }, [client, enabled, version]);
   return { ...state, reload };
 }
 
@@ -73,7 +73,7 @@ export function chiefToolGroup(name: string) {
     files: "Files",
     projects: "Projects",
     brandProfile: "Brand",
-    recurringWork: "Automations",
+    automations: "Automations",
     web: "Web",
   };
   return labels[group] ?? group.charAt(0).toUpperCase() + group.slice(1);

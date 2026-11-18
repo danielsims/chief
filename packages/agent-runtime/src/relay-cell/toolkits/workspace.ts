@@ -2,20 +2,22 @@ import { createHash } from "node:crypto";
 
 import { workspaceScheduleInputSchema } from "@chief/relay-contracts";
 
+import { postAutomationCard } from "../automation-card.js";
 import { optionalString, requiredString } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
 export const relayCellWorkspaceTools = [
   defineRelayCellTool(
-    "recurringWork.list",
+    "automations.list",
     "workspace.read",
-    async ({ client }) => ({ schedules: await client.schedules.list() }),
+    async ({ client }) => ({ automations: await client.schedules.list() }),
   ),
   defineRelayCellTool(
-    "recurringWork.propose",
+    "automations.propose",
     "workspace.write",
-    async ({ client, conversationId }, input) =>
-      await client.schedules.save(
+    async (context, input) => {
+      const { client, conversationId } = context;
+      const automation = await client.schedules.save(
         workspaceScheduleInputSchema.parse({
           ...input,
           id:
@@ -28,7 +30,27 @@ export const relayCellWorkspaceTools = [
             optionalString(input, "conversationId") ?? conversationId,
           onceAt: input.onceAt,
         }),
-      ),
+      );
+      const card = await postAutomationCard(context, automation);
+      return card ? { automation, card } : { automation };
+    },
+  ),
+  defineRelayCellTool(
+    "automations.show",
+    "workspace.read",
+    async (context, input) => {
+      const id = requiredString(input, "id");
+      const automation = (await context.client.schedules.list()).find(
+        (candidate) => candidate.id === id,
+      );
+      if (!automation)
+        throw new Error("No automation has that id. Check automations.list.");
+      const card = await postAutomationCard(context, automation, {
+        fresh: true,
+      });
+      if (!card) throw new Error("The automation card couldn't be posted.");
+      return { shown: automation.title, card };
+    },
   ),
   defineRelayCellTool(
     "brandProfile.status",

@@ -232,6 +232,11 @@ async function executeJob(
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
     const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}:${project?.projectId ?? "workspace"}`;
+    const driver = normalizeDriver(config.inference.provider);
+    // A session id only means something to the provider that made it, so a
+    // thread that changes provider starts a fresh provider session (the
+    // transcript in events: still carries over).
+    const providerSessionKey = `providerSession:${driver}:${sessionKey}`;
     const storedEvents = await cell.readState(`events:${sessionKey}`);
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnEvents: AgentEvent[] = [];
@@ -262,7 +267,7 @@ async function executeJob(
       },
       conversationId,
       {
-        driver: normalizeDriver(config.inference.provider),
+        driver,
         // With automatic approvals the agent works freely on this device;
         // otherwise Chief's own tools run and anything else is asked of the
         // person in the thread below.
@@ -352,7 +357,7 @@ async function executeJob(
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
+      parseJsonString(await cell.readState(providerSessionKey)),
     );
     const promptContext = {
       threadRootId: activityContext.threadRootId,
@@ -394,10 +399,7 @@ async function executeJob(
     steering = null;
     await activityPublisher.flush();
     if (agentSession.sessionId) {
-      await cell.writeState(
-        `providerSession:${sessionKey}`,
-        agentSession.sessionId,
-      );
+      await cell.writeState(providerSessionKey, agentSession.sessionId);
     }
     await cell.writeState(
       `events:${sessionKey}`,

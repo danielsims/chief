@@ -185,7 +185,7 @@ describe("external agent channel tools", () => {
       proposedToolPatterns: [],
     };
     const proposed = await invokeWorkspace(
-      "recurringWork.propose",
+      "automations.propose",
       proposalInput,
     );
     expect(proposed.status).toBe(200);
@@ -194,7 +194,7 @@ describe("external agent channel tools", () => {
         externalAgentToolResultSchema.parse(await proposed.json()).result,
       ).status,
     ).toBe("needs_approval");
-    const activationAttempt = await invokeWorkspace("recurringWork.propose", {
+    const activationAttempt = await invokeWorkspace("automations.propose", {
       ...proposalInput,
       activate: true,
     });
@@ -207,7 +207,7 @@ describe("external agent channel tools", () => {
     ).toBe("needs_approval");
     expect(
       (
-        await invokeWorkspace("recurringWork.activate", {
+        await invokeWorkspace("automations.activate", {
           id: proposalInput.id,
         })
       ).status,
@@ -219,7 +219,7 @@ describe("external agent channel tools", () => {
         })
       ).status,
     ).toBe(400);
-    expect((await invokeWorkspace("recurringWork.list", {})).status).toBe(200);
+    expect((await invokeWorkspace("automations.list", {})).status).toBe(200);
 
     const listed = await receiveExternalTool(
       ctx,

@@ -182,6 +182,8 @@ export class ClaudeDriver extends BaseDriver {
   }
 
   private handle(msg: SDKMessage) {
+    // Thinking deltas and tool_progress show nothing but prove the turn lives.
+    this.heartbeat();
     switch (msg.type) {
       case "system":
         if (msg.subtype === "init") {

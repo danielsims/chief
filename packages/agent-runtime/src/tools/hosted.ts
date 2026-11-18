@@ -2,6 +2,7 @@ import { automationBuildToolDefinitions } from "./toolkits/automation/build-tool
 import {
   listRecurringWorkDefinition,
   proposeRecurringWorkDefinition,
+  showAutomationDefinition,
 } from "./toolkits/automation/recurring-work-definitions.js";
 import { automationRunToolDefinitions } from "./toolkits/automation/run-tools.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
@@ -55,6 +56,7 @@ export const hostedAgentToolDefinitions = {
     ...pageToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
+    showAutomationDefinition,
     listFilesDefinition,
     readFileDefinition,
     writeFileDefinition,
