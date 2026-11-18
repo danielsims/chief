@@ -189,12 +189,14 @@ export function ChiefChat({
     });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
-      <BrowserSessionAttachment
-        operating={controls.status === "running"}
-        pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
-        pictureInPictureContainerRef={pictureInPictureContainerRef}
-        run={run}
-      />
+      <div className="max-w-2xl">
+        <BrowserSessionAttachment
+          operating={controls.status === "running"}
+          pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={pictureInPictureContainerRef}
+          run={run}
+        />
+      </div>
     </div>
   );
   const {

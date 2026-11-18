@@ -246,13 +246,15 @@ export function ChiefChatAuxiliaryPanels({
       ? statusLabel
       : formatAgentActivityStatus(threadActivityAgents);
   const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
-    <div className="w-full min-w-0 py-1 pl-11">
-      <BrowserSessionAttachment
-        operating={browserOperating}
-        pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
-        pictureInPictureContainerRef={threadPictureInPictureContainerRef}
-        run={run}
-      />
+    <div className="mx-auto w-full max-w-3xl min-w-0 py-1 pl-11">
+      <div className="max-w-2xl">
+        <BrowserSessionAttachment
+          operating={browserOperating}
+          pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={threadPictureInPictureContainerRef}
+          run={run}
+        />
+      </div>
     </div>
   );
   const closeAuxiliaryWorkspace = () => {
