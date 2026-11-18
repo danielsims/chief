@@ -24,15 +24,18 @@ export function SpecialistStatusIndicator({
   status: SessionRecord["status"];
 }) {
   if (status === "idle" || status === "running") {
-    const color = isWorkspaceAgentId(agent)
+    const identityColor = isWorkspaceAgentId(agent)
       ? WORKSPACE_AGENT_IDENTITIES[agent].color
       : undefined;
+    // White follows the text colour, so Chief's loader shows in light mode.
+    const color =
+      identityColor?.toLowerCase() === "#ffffff" ? undefined : identityColor;
     return (
       <MatrixLoader
         ariaLabel={status === "idle" ? "Starting" : "Working"}
         className={cn(
           "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:rounded-[24%]",
-          color ? undefined : "text-slate-300",
+          color ? undefined : "text-foreground",
           className,
         )}
         color={color}
