@@ -177,14 +177,21 @@ async function executeJob(
     throw error;
   }
   let session: AgentSession | null = null;
+  // This run's steering, kept past the run so its messages end with it.
+  let folded: RunSteering | null = null;
   const renew = setInterval(() => {
     void Promise.all([
       cell.leasesManager.renew(cell.id, runId, 5 * 60_000),
       client.renewAgentJob(agentId, lease.leaseToken, 300),
+      folded?.renew(),
     ]).catch(async (error: unknown) => {
       console.error("[cell] lease renewal:", error);
-      if (error instanceof RelayClientError && error.code === "stale_lease")
+      // The relay ended this run, such as on Stop: later messages run as
+      // their own jobs rather than joining it.
+      if (error instanceof RelayClientError && error.code === "stale_lease") {
+        if (steering === folded) steering = null;
         await session?.stop();
+      }
     });
   }, 60_000);
   renew.unref();
@@ -369,7 +376,7 @@ async function executeJob(
           : "",
     };
     if (job.kind === "conversation.message") {
-      steering = new RunSteering(
+      folded = steering = new RunSteering(
         conversationId,
         activityContext.threadRootId,
         client,
@@ -440,6 +447,7 @@ async function executeJob(
               },
       },
     });
+    await folded?.settle();
     console.info(
       "[cell-activity]",
       JSON.stringify({
@@ -451,6 +459,9 @@ async function executeJob(
     );
   } catch (error) {
     steering = null;
+    await folded?.settle(
+      error instanceof Error ? error.message : String(error),
+    );
     console.error(
       "[cell-activity]",
       JSON.stringify({
