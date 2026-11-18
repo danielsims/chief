@@ -20,7 +20,10 @@ import {
   adoptAutomationRecord,
   useAutomationRecord,
 } from "../../lib/use-automation-record";
-import { useWorkspaceRole } from "../../lib/workspace-role";
+import {
+  useWorkspaceRole,
+  useWorkspaceRoleState,
+} from "../../lib/workspace-role";
 import { useTeamOptions } from "../../pages/automation-builder";
 import {
   draftFromWork,
@@ -45,13 +48,26 @@ import { AutomationCardFlow } from "./automation-card-flow";
  */
 export function AutomationCard({ data }: { data: GenerativeAutomationData }) {
   const { record, state } = useAutomationRecord(data.automationId);
-  if (state === "loading")
+  // Waits for the role too, so the controls it decides never pop in.
+  const { loaded: roleLoaded } = useWorkspaceRoleState();
+  if (state === "loading" || (record && !roleLoaded))
     return (
-      <Frame label="Automation">
-        <span className={cn(insetCardClass, "block space-y-2")}>
+      <Frame label={<Skeleton className="h-3 w-28" />}>
+        <span className={cn(insetCardClass, "block")}>
           <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-3 w-1/3" />
+          <span className="mt-4 block space-y-3">
+            {[0, 1].map((row) => (
+              <span key={row} className="flex items-center gap-2">
+                <Skeleton className="size-5 shrink-0 rounded-full" />
+                <span className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-3/4" />
+                  <Skeleton className="h-2.5 w-1/4" />
+                </span>
+              </span>
+            ))}
+          </span>
         </span>
+        <span className="block h-9" />
       </Frame>
     );
   if (!record)
@@ -325,7 +341,7 @@ function Frame({
   return (
     <section
       aria-label="Automation"
-      className={cn(insetBandClass, "block w-full max-w-md text-left")}
+      className={cn(insetBandClass, "block w-full max-w-lg text-left")}
     >
       <span className="text-muted-foreground flex h-7 items-center gap-2 px-2.5 text-[12px]">
         <span className="min-w-0 flex-1 truncate">{label}</span>
