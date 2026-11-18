@@ -62,7 +62,7 @@ export function DatabaseCard({ data }: { data: GenerativeDatabaseData }) {
   return (
     <section
       aria-label={database?.name ?? data.title}
-      className={cn(insetBandClass, "block w-full max-w-2xl text-left")}
+      className={cn(insetBandClass, "block w-full text-left")}
     >
       <span
         className={cn(
