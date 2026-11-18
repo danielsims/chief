@@ -2,6 +2,9 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
+/* `dark:` follows the app's theme (the `.dark` class), not the system's. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * Chief design tokens.
  * Structure follows the Midday convention — warm neutrals in light mode,
