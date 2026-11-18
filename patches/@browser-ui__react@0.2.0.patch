@@ -1,9 +1,27 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 156b64ac2bc9821dc9d0a03cbc6315dc5b1337e7..4d6e88fd92cd17c0e602055f98b6a6bce3ea58b3 100644
+index 156b64ac2bc9821dc9d0a03cbc6315dc5b1337e7..85b3cd7cf9f422aa66ecf9c1962d01c0985ed8c7 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -46,6 +46,27 @@ declare const BrowserFullscreenTrigger: react.ForwardRefExoticComponent<BrowserF
-
+@@ -17,6 +17,8 @@ interface AgentBrowserViewportProps {
+     createWebSocket?: (streamUrl: string, protocols?: string | string[]) => WebSocket;
+     /** Resolves a fresh one-time gateway ticket before every connection attempt. */
+     resolveConnection?: () => Promise<Pick<BrowserSessionConnection, "url" | "protocols">>;
++    /** Automatically reconnect when the stream disconnects. Defaults to true. */
++    autoReconnect?: boolean;
+     viewportSize?: BrowserViewportSize;
+     onStatusChange?: (status: BrowserViewportStatus) => void;
+     /** Requests host-managed control when a viewer first interacts without a lease. */
+@@ -25,7 +27,7 @@ interface AgentBrowserViewportProps {
+     onViewportResize?: (width: number, height: number) => void;
+ }
+ /** View-only by default client for the official agent-browser WebSocket stream protocol. */
+-declare function AgentBrowserViewport({ ariaLabel, className, interactive, access, streamUrl, protocols, createWebSocket, resolveConnection, viewportSize, onStatusChange, onInteractionIntent, onUrlChange, onViewportResize, }: AgentBrowserViewportProps): react.JSX.Element;
++declare function AgentBrowserViewport({ ariaLabel, className, interactive, access, streamUrl, protocols, createWebSocket, resolveConnection, autoReconnect, viewportSize, onStatusChange, onInteractionIntent, onUrlChange, onViewportResize, }: AgentBrowserViewportProps): react.JSX.Element;
+ 
+ type BrowserDisplayMode = "inline" | "picture-in-picture" | "fullscreen";
+ type BrowserDisplayControlsProps = HTMLMotionProps<"div">;
+@@ -46,6 +48,27 @@ declare const BrowserFullscreenTrigger: react.ForwardRefExoticComponent<BrowserF
+ 
  type BrowserVariant = "framed" | "bare";
  type BrowserColorScheme = "light" | "dark" | "system";
 +type BrowserPictureInPictureSnapPoint = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -30,7 +48,7 @@ index 156b64ac2bc9821dc9d0a03cbc6315dc5b1337e7..4d6e88fd92cd17c0e602055f98b6a6bc
  interface BrowserRootProps extends HTMLAttributes<HTMLElement> {
      children: ReactNode;
      variant?: BrowserVariant;
-@@ -53,8 +74,12 @@ interface BrowserRootProps extends HTMLAttributes<HTMLElement> {
+@@ -53,8 +76,12 @@ interface BrowserRootProps extends HTMLAttributes<HTMLElement> {
      mode?: BrowserDisplayMode;
      onModeChange?: (mode: BrowserDisplayMode) => void;
      colorScheme?: BrowserColorScheme;
@@ -43,35 +61,66 @@ index 156b64ac2bc9821dc9d0a03cbc6315dc5b1337e7..4d6e88fd92cd17c0e602055f98b6a6bc
  }
  /** Layout and display-mode root shared by live and custom transports. */
  declare const BrowserRoot: react.ForwardRefExoticComponent<BrowserRootProps & react.RefAttributes<HTMLElement>>;
-@@ -64,7 +89,7 @@ interface BrowserAgentCursorProps extends HTMLAttributes<HTMLDivElement>, Browse
+@@ -64,7 +91,7 @@ interface BrowserAgentCursorProps extends HTMLAttributes<HTMLDivElement>, Browse
  /** A transport-neutral cursor for visualizing recorded or live agent actions. */
  declare function BrowserAgentCursor({ className, backgroundColor, label, pressed, size, style, typing, variant, visible, x, y, ...props }: BrowserAgentCursorProps): react.JSX.Element;
-
+ 
 -interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme" | "defaultMode" | "fullscreenTarget" | "mode" | "onModeChange" | "style" | "variant">, Pick<AgentBrowserViewportProps, "ariaLabel" | "createWebSocket" | "onViewportResize" | "protocols" | "resolveConnection"> {
-+interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme" | "defaultMode" | "fullscreenTarget" | "layoutId" | "mode" | "onModeChange" | "pictureInPicture" | "style" | "variant">, Pick<AgentBrowserViewportProps, "ariaLabel" | "createWebSocket" | "onViewportResize" | "protocols" | "resolveConnection"> {
++interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme" | "defaultMode" | "fullscreenTarget" | "layoutId" | "mode" | "onModeChange" | "pictureInPicture" | "style" | "variant">, Pick<AgentBrowserViewportProps, "ariaLabel" | "autoReconnect" | "createWebSocket" | "onViewportResize" | "protocols" | "resolveConnection"> {
      /** WebSocket URL returned by `agent-browser stream status`. */
      streamUrl?: string;
      /** Host-projected access state. Input requires the viewer's active lease. */
-@@ -97,7 +122,7 @@ interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme
+@@ -97,7 +124,7 @@ interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme
      onUrlChange?: (url: string) => void;
  }
  /** Composed browser viewer for the official agent-browser stream protocol. */
 -declare function Browser({ ariaLabel, access, agentCursor, className, colorScheme, createWebSocket, defaultMode, displayControls, displayControlsClassName, displayAspectRatio, fullscreenTarget, interactive, loadingLabel, onNavigate, onModeChange, onReload, onStatusChange, onTakeControl, onInteractionIntent, onUrlChange, onViewportResize, operating, operatingLabel, protocols, resolveConnection, mode, showControls, showPictureInPicture, showFullscreen, streamUrl, style, url, variant, viewportSize, viewportClassName, }: BrowserProps): react.JSX.Element;
-+declare function Browser({ ariaLabel, access, agentCursor, className, colorScheme, createWebSocket, defaultMode, displayControls, displayControlsClassName, displayAspectRatio, fullscreenTarget, pictureInPicture, interactive, loadingLabel, onNavigate, onModeChange, onReload, onStatusChange, onTakeControl, onInteractionIntent, onUrlChange, onViewportResize, operating, operatingLabel, protocols, resolveConnection, mode, showControls, showPictureInPicture, showFullscreen, streamUrl, style, url, variant, viewportSize, viewportClassName, }: BrowserProps): react.JSX.Element;
-
++declare function Browser({ ariaLabel, access, agentCursor, autoReconnect, className, colorScheme, createWebSocket, defaultMode, displayControls, displayControlsClassName, displayAspectRatio, fullscreenTarget, pictureInPicture, interactive, loadingLabel, onNavigate, onModeChange, onReload, onStatusChange, onTakeControl, onInteractionIntent, onUrlChange, onViewportResize, operating, operatingLabel, protocols, resolveConnection, mode, showControls, showPictureInPicture, showFullscreen, streamUrl, style, url, variant, viewportSize, viewportClassName, }: BrowserProps): react.JSX.Element;
+ 
  interface BrowserRecordingProps extends Omit<BrowserRootProps, "children"> {
      /** WebM or another browser-supported recording produced by agent-browser. */
-@@ -223,4 +248,4 @@ declare function BrowserPrincipalGrantTrigger({ audience, children, onClick, pri
-
+@@ -223,4 +250,4 @@ declare function BrowserPrincipalGrantTrigger({ audience, children, onClick, pri
+ 
  type BrowserCursor = string;
-
+ 
 -export { AgentBrowserViewport, type AgentBrowserViewportProps, Browser, BrowserAccessRoot, type BrowserAccessRootProps, BrowserAgentCursor, type BrowserAgentCursorProps, BrowserAudienceOption, type BrowserAudienceOptionProps, type BrowserColorScheme, BrowserControlStatus, type BrowserControlStatusProps, BrowserControlTrigger, type BrowserControlTriggerProps, type BrowserCursor, BrowserDisplayControls, type BrowserDisplayControlsProps, type BrowserDisplayMode, BrowserDisplayTrigger, type BrowserDisplayTriggerProps, BrowserFullscreenTrigger, type BrowserFullscreenTriggerProps, BrowserLoading, type BrowserLoadingProps, BrowserObserverList, type BrowserObserverListProps, BrowserOperatingOverlay, type BrowserOperatingOverlayProps, BrowserOperatingShader, BrowserPictureInPictureTrigger, type BrowserPictureInPictureTriggerProps, BrowserPolicyRoot, type BrowserPolicyRootProps, BrowserPrincipalGrantTrigger, type BrowserPrincipalGrantTriggerProps, type BrowserProps, BrowserRecording, type BrowserRecordingProps, BrowserRoot, type BrowserRootProps, BrowserSurface, type BrowserSurfaceProps, BrowserToolbar, type BrowserToolbarProps, type BrowserVariant, useBrowserAccess };
 +export { AgentBrowserViewport, type AgentBrowserViewportProps, Browser, BrowserAccessRoot, type BrowserAccessRootProps, BrowserAgentCursor, type BrowserAgentCursorProps, BrowserAudienceOption, type BrowserAudienceOptionProps, type BrowserColorScheme, BrowserControlStatus, type BrowserControlStatusProps, BrowserControlTrigger, type BrowserControlTriggerProps, type BrowserCursor, BrowserDisplayControls, type BrowserDisplayControlsProps, type BrowserDisplayMode, BrowserDisplayTrigger, type BrowserDisplayTriggerProps, BrowserFullscreenTrigger, type BrowserFullscreenTriggerProps, BrowserLoading, type BrowserLoadingProps, BrowserObserverList, type BrowserObserverListProps, BrowserOperatingOverlay, type BrowserOperatingOverlayProps, BrowserOperatingShader, type BrowserPictureInPictureOptions, type BrowserPictureInPictureSnapPoint, BrowserPictureInPictureTrigger, type BrowserPictureInPictureTriggerProps, BrowserPolicyRoot, type BrowserPolicyRootProps, BrowserPrincipalGrantTrigger, type BrowserPrincipalGrantTriggerProps, type BrowserProps, BrowserRecording, type BrowserRecordingProps, BrowserRoot, type BrowserRootProps, BrowserSurface, type BrowserSurfaceProps, BrowserToolbar, type BrowserToolbarProps, type BrowserVariant, useBrowserAccess };
 diff --git a/dist/index.js b/dist/index.js
-index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c778f3e9e 100644
+index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..4664e1c18e4af2b76368b5053a238ce6fec4a559 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -824,23 +824,17 @@ var BrowserFullscreenTrigger = forwardRef(function BrowserFullscreenTrigger2({
+@@ -32,6 +32,7 @@ function AgentBrowserViewport({
+   protocols,
+   createWebSocket,
+   resolveConnection,
++  autoReconnect = true,
+   viewportSize,
+   onStatusChange,
+   onInteractionIntent,
+@@ -160,11 +161,11 @@ function AgentBrowserViewport({
+     };
+     const scheduleReconnect = () => {
+       if (closed) return;
+-      statusChangeRef.current?.("disconnected");
+-      if (reconnectAttempt >= 8) {
++      if (!autoReconnect || reconnectAttempt >= 8) {
+         statusChangeRef.current?.("error");
+         return;
+       }
++      statusChangeRef.current?.("disconnected");
+       reconnectTimer = setTimeout(
+         () => void connect(),
+         Math.min(2e3, 250 * 2 ** reconnectAttempt)
+@@ -275,7 +276,7 @@ function AgentBrowserViewport({
+       socketRef.current?.close();
+       socketRef.current = null;
+     };
+-  }, [createWebSocket, protocols, releaseActivePointer, resolveConnection, streamUrl]);
++  }, [autoReconnect, createWebSocket, protocols, releaseActivePointer, resolveConnection, streamUrl]);
+   const reportsViewportResize = onViewportResize !== void 0;
+   useEffect(() => {
+     if (!reportsViewportResize) return;
+@@ -824,23 +825,17 @@ var BrowserFullscreenTrigger = forwardRef(function BrowserFullscreenTrigger2({
  // src/browser-root.tsx
  import {
    forwardRef as forwardRef2,
@@ -88,7 +137,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
 -import { createPortal } from "react-dom";
  import { motion as motion2, MotionConfig } from "motion/react";
 +import { createPortal } from "react-dom";
-
+ 
  // src/browser-layout.ts
 -import {
 -  useCallback as useCallback2,
@@ -102,7 +151,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
  var fullscreenTargetProperties = [
    "--bui-fullscreen-top",
    "--bui-fullscreen-left",
-@@ -850,34 +844,17 @@ var fullscreenTargetProperties = [
+@@ -850,34 +845,17 @@ var fullscreenTargetProperties = [
  ];
  var bodyScrollLockCount = 0;
  var bodyOverflowBeforeLock = "";
@@ -148,7 +197,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      const inlineHost = inlineHostRef.current;
      if (!portalHost || !inlineHost) return;
      const target = mode === "inline" ? inlineHost : document.body;
-@@ -890,85 +867,32 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+@@ -890,85 +868,32 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
      const top = Math.floor(bounds.top);
      frame.style.setProperty("--bui-fullscreen-top", `${top}px`);
      frame.style.setProperty("--bui-fullscreen-left", `${left}px`);
@@ -257,7 +306,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      };
      updateLayout();
      const observer = new ResizeObserver(updateLayout);
-@@ -977,8 +901,7 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+@@ -977,8 +902,7 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
      if (surface) observer.observe(surface);
      return () => observer.disconnect();
    }, [frameMounted, frameRef, mode]);
@@ -267,7 +316,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      const frame = frameRef.current;
      if (!frame || mode !== "fullscreen" || !fullscreenTarget) return;
      const updateBounds = () => {
-@@ -988,9 +911,18 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+@@ -988,9 +912,18 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
        const top = Math.floor(bounds.top);
        frame.style.setProperty("--bui-fullscreen-top", `${top}px`);
        frame.style.setProperty("--bui-fullscreen-left", `${left}px`);
@@ -289,7 +338,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      };
      updateBounds();
      const observer = new ResizeObserver(updateBounds);
-@@ -1007,13 +939,15 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+@@ -1007,13 +940,15 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
      };
    }, [frameRef, fullscreenTarget, mode]);
    return {
@@ -310,7 +359,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      if (mode !== "inline") {
        if (!previousFocusRef.current && document.activeElement instanceof HTMLElement) {
          previousFocusRef.current = document.activeElement;
-@@ -1026,7 +960,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+@@ -1026,7 +961,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
        requestAnimationFrame(() => previousFocus.focus({ preventScroll: true }));
      }
    }, [mode]);
@@ -319,7 +368,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      if (mode !== "fullscreen") return;
      if (bodyScrollLockCount === 0) {
        bodyOverflowBeforeLock = document.body.style.overflow;
-@@ -1040,7 +974,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+@@ -1040,7 +975,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
        }
      };
    }, [mode]);
@@ -328,10 +377,10 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
      if (mode === "inline") return;
      const exitDisplayMode = (event) => {
        if (event.key !== "Escape") return;
-@@ -1053,102 +987,497 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+@@ -1053,102 +988,497 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
    }, [mode, onExit]);
  }
-
+ 
 -// src/browser-root.tsx
 -import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 -var layoutTransition = { type: "spring", visualDuration: 0.42, bounce: 0.08 };
@@ -561,7 +610,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
 +    previousModeRef.current = mode;
 +    if (mode === "picture-in-picture") {
 +      activeSnapPointRef.current = previousMode === "picture-in-picture" ? snapPoint : controlledSnapPoint ?? defaultSnapPoint;
-+    }
+     }
 +  }, [controlledSnapPoint, defaultSnapPoint, mode, snapPoint]);
 +  useLayoutEffectPictureInPicture(() => {
 +    const container = containerRef?.current;
@@ -582,7 +631,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
 +      for (const property of portalProperties)
 +        portalHost.style.removeProperty(property);
 +      return;
-     }
++    }
 +    if (!container || !frame) return;
 +    const updatePortalBounds = () => {
 +      const bounds = container.getBoundingClientRect();
@@ -915,10 +964,18 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
 +    ) }) });
 +  }
 +);
-
+ 
  // src/browser-surface.tsx
  import { motion as motion3 } from "motion/react";
-@@ -1252,6 +1581,8 @@ function Browser({
+@@ -1244,6 +1574,7 @@ function Browser({
+   ariaLabel,
+   access,
+   agentCursor,
++  autoReconnect,
+   className,
+   colorScheme,
+   createWebSocket,
+@@ -1252,6 +1583,8 @@ function Browser({
    displayControlsClassName,
    displayAspectRatio,
    fullscreenTarget,
@@ -927,7 +984,7 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
    interactive = false,
    loadingLabel = "Opening browser",
    onNavigate,
-@@ -1308,8 +1639,10 @@ function Browser({
+@@ -1308,8 +1641,10 @@ function Browser({
        colorScheme,
        defaultMode,
        fullscreenTarget,
@@ -938,6 +995,14 @@ index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c
        style: rootStyle,
        variant,
        children: [
+@@ -1333,6 +1668,7 @@ function Browser({
+                   streamUrl,
+                   protocols,
+                   resolveConnection,
++                  autoReconnect,
+                   createWebSocket,
+                   ariaLabel,
+                   className: viewportClassName,
 diff --git a/dist/styles.css b/dist/styles.css
 index 6424d74aa70165fa8273efe50c85cc9661873ea2..7d49540666af2ae22523f5d6a811aae9a20a3f72 100644
 --- a/dist/styles.css
@@ -945,7 +1010,7 @@ index 6424d74aa70165fa8273efe50c85cc9661873ea2..7d49540666af2ae22523f5d6a811aae9
 @@ -41,11 +41,6 @@
    transform-origin: top left;
  }
-
+ 
 -.bui-browser-frame[data-mode-transitioning="true"],
 -.bui-browser-frame [data-mode-transitioning="true"] {
 -  transition: transform .42s cubic-bezier(.22, 1, .36, 1);
@@ -962,7 +1027,7 @@ index 6424d74aa70165fa8273efe50c85cc9661873ea2..7d49540666af2ae22523f5d6a811aae9
    box-shadow: 0 28px 90px rgba(0, 0, 0, .32), 0 8px 28px rgba(0, 0, 0, .18);
    will-change: transform;
  }
-
+ 
 +.bui-browser-portal.bui-browser-portal--pip-contained {
 +  position: fixed;
 +  z-index: 2147483000;

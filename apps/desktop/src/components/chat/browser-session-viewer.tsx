@@ -1,6 +1,6 @@
 import type { BrowserDisplayMode } from "@browser-ui/react";
 import type { RefObject } from "react";
-import { memo, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 
@@ -13,12 +13,14 @@ import { useTheme } from "../../lib/theme";
 
 function BrowserSessionViewerImpl({
   className,
+  onConnectionError,
   operating,
   pictureInPictureAvoidRefs,
   pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
+  onConnectionError: () => void;
   operating: boolean;
   pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
   pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
@@ -39,24 +41,25 @@ function BrowserSessionViewerImpl({
   const [windowFullscreen, setWindowFullscreen] = useState(false);
   const session = browserSessions[runId];
 
+  // A machine's browser streams through its own tunnel; each connection
+  // takes a fresh one-time ticket from the relay.
+  const machineAgent =
+    session?.agentId &&
+    /^wss:\/\/m-[0-9a-f-]{36}\./u.test(session.streamUrl ?? "")
+      ? session.agentId
+      : undefined;
+  const resolveMachineConnection = useCallback(() => {
+    if (!machineAgent || !relay)
+      throw new Error("The browser ticket service is unavailable.");
+    return relay.createMachineViewerTicket(machineAgent, runId);
+  }, [machineAgent, relay, runId]);
+
   if (!session) return null;
 
   const displayMode =
     displayOverride?.presentationRevision === session.presentationRevision
       ? displayOverride.mode
       : session.presentation;
-
-  // A machine's browser streams through its own tunnel; each connection
-  // takes a fresh one-time ticket from the relay.
-  const machineAgent =
-    session.agentId &&
-    /^wss:\/\/m-[0-9a-f-]{36}\./u.test(session.streamUrl ?? "")
-      ? session.agentId
-      : undefined;
-  const resolveConnection =
-    machineAgent && relay
-      ? () => relay.createMachineViewerTicket(machineAgent, runId)
-      : undefined;
 
   if (!session.streamUrl) {
     return (
@@ -100,6 +103,7 @@ function BrowserSessionViewerImpl({
   return (
     <Browser
       ariaLabel="Chief browser session"
+      autoReconnect={!machineAgent}
       className={cn(
         "chief-browser group/browser w-full overflow-hidden rounded-xl",
         className,
@@ -128,7 +132,7 @@ function BrowserSessionViewerImpl({
           : undefined
       }
       streamUrl={session.streamUrl}
-      resolveConnection={resolveConnection}
+      resolveConnection={machineAgent ? resolveMachineConnection : undefined}
       url={session.url}
       variant="framed"
       viewportSize={{ width: 1280, height: 800 }}
@@ -142,6 +146,9 @@ function BrowserSessionViewerImpl({
           presentationRevision: session.presentationRevision,
         });
       }}
+      onStatusChange={(status) => {
+        if (machineAgent && status === "error") onConnectionError();
+      }}
       onTakeControl={() => takeBrowserControl(runId)}
       onUrlChange={(url) => reportBrowserUrl(runId, url)}
     />
@@ -153,6 +160,7 @@ export const BrowserSessionViewer = memo(
   (prev, next) =>
     prev.runId === next.runId &&
     prev.operating === next.operating &&
+    prev.onConnectionError === next.onConnectionError &&
     prev.pictureInPictureAvoidRefs === next.pictureInPictureAvoidRefs &&
     prev.pictureInPictureContainerRef === next.pictureInPictureContainerRef &&
     prev.className === next.className,

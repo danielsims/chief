@@ -42,7 +42,7 @@ packageExtensionsChecksum: sha256-MUAuF02PghV0xMkieFn/2KiPdr+SojsO/pk/QuniT1Q=
 
 patchedDependencies:
   "@browser-ui/react@0.2.0":
-    hash: 7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6
+    hash: 62d6203fe30556b7a15de9054d7c8c320163974630939e8f8f2b8f68773c2f33
     path: patches/@browser-ui__react@0.2.0.patch
   "@cloudflare/computer@0.2.1":
     hash: 82a4ee00672081f22e316fa16eaf652e4b79f46ff3f4c9c7d85f65f0f3eaca68
@@ -89,7 +89,7 @@ importers:
         version: 4.0.33(react@19.2.7)(zod@4.6.7)
       "@browser-ui/react":
         specifier: 0.2.0
-        version: 0.2.0(patch_hash=7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 0.2.0(patch_hash=62d6203fe30556b7a15de9054d7c8c320163974630939e8f8f2b8f68773c2f33)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       "@chief/agent-runtime":
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -16128,7 +16128,7 @@ snapshots:
 
   "@browser-ui/core@0.2.0": {}
 
-  "@browser-ui/react@0.2.0(patch_hash=7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
+  "@browser-ui/react@0.2.0(patch_hash=62d6203fe30556b7a15de9054d7c8c320163974630939e8f8f2b8f68773c2f33)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
     dependencies:
       "@browser-ui/core": 0.2.0
       motion: 12.42.2(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
