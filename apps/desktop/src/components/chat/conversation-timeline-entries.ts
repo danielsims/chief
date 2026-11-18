@@ -4,8 +4,16 @@ import type {
   SessionRecord,
 } from "@chief/agent-runtime/types";
 
+import type { MessageSource } from "./message-sources";
+import { mergeSources, messagePageReads } from "./message-sources";
+
 export type TimelineEntry =
-  | { type: "message"; message: ChiefUIMessage }
+  | {
+      type: "message";
+      message: ChiefUIMessage;
+      /** Pages the agent read on its way to this reply. */
+      sources?: readonly MessageSource[];
+    }
   | { type: "browser"; key: string; run: BrowserRunRecord }
   | { type: "specialist"; task: SessionRecord };
 
@@ -33,9 +41,19 @@ export function conversationTimelineEntries(
 ): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   const placed = new Set<string>();
+  // Pages each agent has read since its last reply, credited to the next one.
+  const reading = new Map<string, readonly MessageSource[]>();
   for (const message of messages) {
     if ((message.metadata?.threadRootId ?? null) !== threadRootId) continue;
-    if (!isActivityProjection(message)) {
+    const agentId = message.metadata?.agentId ?? "";
+    if (isActivityProjection(message)) {
+      const reads = messagePageReads(message);
+      if (reads.length > 0)
+        reading.set(agentId, mergeSources(reading.get(agentId) ?? [], reads));
+    } else if (message.role === "assistant" && reading.has(agentId)) {
+      entries.push({ type: "message", message, sources: reading.get(agentId) });
+      reading.delete(agentId);
+    } else {
       entries.push({ type: "message", message });
     }
     for (const run of runs) {

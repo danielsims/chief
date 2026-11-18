@@ -38,6 +38,7 @@ import {
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
 import { withSpecialistTimelineEntries } from "./conversation-timeline-entries";
+import { MessageSourcesPill } from "./message-sources-pill";
 import { ObservedChat } from "./observed-chat";
 import { ScheduledRunMessage } from "./scheduled-run-message";
 import {
@@ -455,6 +456,9 @@ export function ChiefChatAuxiliaryPanels({
                         onOpenChannel={onOpenChannel}
                         onOpenTask={onOpenChild}
                       />
+                      {entry.sources ? (
+                        <MessageSourcesPill sources={entry.sources} />
+                      ) : null}
                     </ChiefMessage>
                   );
                 }}

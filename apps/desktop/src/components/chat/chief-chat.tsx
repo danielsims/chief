@@ -22,6 +22,7 @@ import {
   MessageBlocksContent,
 } from "./chief-chat-message-components";
 import { continuedMessageIds } from "./conversation-timeline-entries";
+import { MessageSourcesPill } from "./message-sources-pill";
 import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionAnswersProvider } from "./question-answers-context";
 import { RecurringWorkComposer } from "./recurring-work-composer";
@@ -362,6 +363,9 @@ export function ChiefChat({
                               onOpenChannel={onOpenChannel}
                               onOpenTask={onOpenChild}
                             />
+                            {entry.sources ? (
+                              <MessageSourcesPill sources={entry.sources} />
+                            ) : null}
                           </ChiefMessage>
                         );
                       }}
