@@ -202,6 +202,93 @@ diffs-container {
   margin-bottom: 0;
 }
 
+/*
+ * Chief's chat prose: text sits close together like a conversation, lists
+ * and headings stay quiet, and spacing comes from here rather than defaults.
+ */
+.chat-markdown .streamdown-root p {
+  margin: 0.5em 0;
+}
+
+.chat-markdown .streamdown-root :is(ul, ol) {
+  margin: 0.5em 0;
+  padding-left: 1.25em;
+}
+
+.chat-markdown .streamdown-root ul {
+  list-style: disc;
+}
+
+.chat-markdown .streamdown-root ol {
+  list-style: decimal;
+}
+
+.chat-markdown .streamdown-root li {
+  margin: 0.2em 0;
+  padding: 0;
+  padding-left: 0.15em;
+}
+
+.chat-markdown .streamdown-root li::marker {
+  color: var(--muted-foreground);
+}
+
+.chat-markdown .streamdown-root li > p {
+  margin: 0;
+}
+
+.chat-markdown .streamdown-root li > :is(ul, ol) {
+  margin: 0.2em 0;
+}
+
+.chat-markdown .streamdown-root :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.chat-markdown .streamdown-root h1 {
+  font-size: 1.15em;
+}
+
+.chat-markdown .streamdown-root h2 {
+  font-size: 1.07em;
+}
+
+.chat-markdown .streamdown-root :is(h3, h4, h5, h6) {
+  font-size: 1em;
+}
+
+.chat-markdown .streamdown-root strong {
+  font-weight: 600;
+}
+
+.chat-markdown .streamdown-root blockquote {
+  margin: 0.6em 0;
+  padding-left: 0.85em;
+  border-left: 2px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  color: var(--muted-foreground);
+  font-style: normal;
+}
+
+.chat-markdown .streamdown-root hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.chat-markdown .streamdown-root :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  font-size: 0.86em;
+}
+
+.chat-markdown .streamdown-root [data-streamdown="code-block"],
+.chat-markdown .streamdown-root table {
+  margin: 0.75em 0;
+}
+
 .chat-markdown .streamdown-root a {
   color: #72aafc;
   text-decoration-line: underline;
