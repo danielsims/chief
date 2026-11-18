@@ -15,6 +15,8 @@ import {
   artifactReferencePayloadSchema,
   attachmentLocation,
   automationCardPayloadSchema,
+  databaseCardPayloadSchema,
+  draftCardPayloadSchema,
   isJsonObject,
   isJsonString,
   messageAttachments,
@@ -329,6 +331,8 @@ function messageComponentParts(
     ...projectRecommendationParts(message),
     ...questionParts(message),
     ...automationParts(message),
+    ...databaseParts(message),
+    ...draftParts(message),
     ...artifactParts(message),
     ...attachmentParts(message),
   ];
@@ -526,6 +530,52 @@ function automationParts(
           automationId: parsed.data.automationId,
           title: parsed.data.title,
           agentId: parsed.data.agentId,
+          messageId: message.id,
+        },
+      },
+    ];
+  });
+}
+
+function databaseParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "database") return [];
+    const parsed = databaseCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-database" as const,
+        id: component.id,
+        data: {
+          databaseId: parsed.data.databaseId,
+          view: parsed.data.view,
+          title: parsed.data.title,
+          agentId: parsed.data.agentId,
+          messageId: message.id,
+        },
+      },
+    ];
+  });
+}
+
+function draftParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "draft") return [];
+    const parsed = draftCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    const { format, to, subject, body, agentId } = parsed.data;
+    return [
+      {
+        type: "data-draft" as const,
+        id: component.id,
+        data: {
+          format,
+          ...(to ? { to } : undefined),
+          ...(subject ? { subject } : undefined),
+          body,
+          agentId,
           messageId: message.id,
         },
       },

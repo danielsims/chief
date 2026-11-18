@@ -1,11 +1,13 @@
 import {
   databaseRowSaveSchema,
   databaseSaveSchema,
+  databaseWithRowsSchema,
 } from "@chief/relay-contracts";
 
 import { isAutomationChat } from "../../workspace-automation-chat";
 import { optionalString, requiredString } from "../input";
 import { defineHostedAgentTool } from "../tool";
+import { postHostedCard } from "./cards";
 import { deterministicUuid, workspaceOperation } from "./channels";
 
 export const hostedDatabaseTools = [
@@ -87,6 +89,40 @@ export const hostedDatabaseTools = [
             : undefined),
         }),
       });
+    },
+    { effect: "idempotent" },
+  ),
+  defineHostedAgentTool(
+    "databases.show",
+    async (context, input) => {
+      const { env, job, principal } = context;
+      const databaseId = requiredString(input, "databaseId");
+      const { database } = databaseWithRowsSchema.parse(
+        await workspaceOperation(env, job, principal, "data-database-get", {
+          headers: { "x-chief-database-id": databaseId },
+        }),
+      );
+      const view =
+        optionalString(input, "view") === "board" &&
+        database.views.some((candidate) => candidate.layout === "board")
+          ? "board"
+          : "table";
+      await postHostedCard(
+        context,
+        input,
+        "database",
+        `${databaseId}:${view}`,
+        {
+          databaseId,
+          view,
+          title: database.name,
+        },
+      );
+      return {
+        shown: database.name,
+        view,
+        card: "The person can see and edit this database on a card in this conversation, so don't repeat its rows.",
+      };
     },
     { effect: "idempotent" },
   ),

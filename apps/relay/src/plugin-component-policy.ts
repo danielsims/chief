@@ -8,6 +8,8 @@ import type {
 import {
   attachmentLocation,
   automationCardPayloadSchema,
+  databaseCardPayloadSchema,
+  draftCardPayloadSchema,
   messageAttachmentPayloadSchema,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
@@ -36,6 +38,8 @@ const placedComponents = new Map<
   ["project.recommendation", projectRecommendationPayloadSchema],
   ["question", questionPayloadSchema],
   ["automation", automationCardPayloadSchema],
+  ["database", databaseCardPayloadSchema],
+  ["draft", draftCardPayloadSchema],
 ]);
 
 export function validatePluginComponentPlacement(

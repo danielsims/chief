@@ -94,6 +94,41 @@ export const automationCardPayloadSchema = z
   })
   .strict();
 
+/**
+ * A workspace database an agent shows in a conversation, as its table or its
+ * board. Like the automation card it is a reference: whoever renders it reads
+ * the database itself, so the card always shows the rows as they are now.
+ */
+export const databaseCardPayloadSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
+    agentId: agentIdSchema,
+    databaseId: z.string().regex(/^[a-z0-9-]{1,64}$/u),
+    view: z.enum(["table", "board"]),
+    title: z.string().trim().min(1).max(80),
+  })
+  .strict();
+
+/**
+ * Something an agent wrote for the person to send themselves: an email or a
+ * message. The card is the draft; the person edits, copies or opens it in
+ * their mail app. Nothing is sent from the card.
+ */
+export const draftCardPayloadSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
+    agentId: agentIdSchema,
+    format: z.enum(["email", "message"]),
+    to: z.string().trim().max(500).optional(),
+    subject: z.string().trim().max(300).optional(),
+    body: z.string().trim().min(1).max(20_000),
+  })
+  .strict();
+
 /** An agent's multiple-choice question. The answer is the user's next reply
  * in the same place, so asking never blocks a run. */
 export const questionPayloadSchema = z
@@ -224,7 +259,11 @@ export const messageComponentSchema = z
                       ? channelActionPayloadSchema
                       : component.kind === "automation"
                         ? automationCardPayloadSchema
-                        : undefined;
+                        : component.kind === "database"
+                          ? databaseCardPayloadSchema
+                          : component.kind === "draft"
+                            ? draftCardPayloadSchema
+                            : undefined;
     if (!schema) return;
     const result = schema.safeParse(component.payload);
     if (component.version !== 1) {

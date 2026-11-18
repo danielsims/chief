@@ -112,4 +112,18 @@ export const databaseToolDefinitions = [
       body: optionalBoundedText(20_000),
     }),
   }),
+  defineAgentTool({
+    method: "POST",
+    path: "/local-tools/databases/show",
+    operation: {
+      operationId: "databases.show",
+      summary: "Show a database",
+      description:
+        "Show a database in this conversation as a card the person can read and edit: its table, or its board when it has a board view. The card shows the rows live, so reply with one line rather than repeating them.",
+    },
+    inputSchema: z.object({
+      databaseId: boundedText(64),
+      view: z.enum(["table", "board"]).default("table"),
+    }),
+  }),
 ];

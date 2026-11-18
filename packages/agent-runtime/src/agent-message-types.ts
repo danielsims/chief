@@ -202,6 +202,25 @@ export interface GenerativeAutomationData {
   messageId: string;
 }
 
+/** A workspace database shown in a conversation, read live by whoever renders it. */
+export interface GenerativeDatabaseData {
+  databaseId: string;
+  view: "table" | "board";
+  title: string;
+  agentId: string;
+  messageId: string;
+}
+
+/** An email or message an agent drafted for the person to send themselves. */
+export interface GenerativeDraftData {
+  format: "email" | "message";
+  to?: string;
+  subject?: string;
+  body: string;
+  agentId: string;
+  messageId: string;
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -275,6 +294,8 @@ export type ChiefUIMessage = UIMessage<
     "project-recommendation": GenerativeProjectRecommendationData;
     question: GenerativeQuestionData;
     automation: GenerativeAutomationData;
+    database: GenerativeDatabaseData;
+    draft: GenerativeDraftData;
   }
 >;
 
@@ -313,6 +334,16 @@ export type GenerativeAutomationBlock = Extract<
   { type: "data-automation" }
 >;
 
+export type GenerativeDatabaseBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-database" }
+>;
+
+export type GenerativeDraftBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-draft" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -330,6 +361,8 @@ export type ContentBlock =
   | GenerativeProjectRecommendationBlock
   | GenerativeQuestionBlock
   | GenerativeAutomationBlock
+  | GenerativeDatabaseBlock
+  | GenerativeDraftBlock
   | {
       type: "tool_use";
       id: string;
