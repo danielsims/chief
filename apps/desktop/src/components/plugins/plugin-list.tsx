@@ -154,11 +154,11 @@ const PluginSections = memo(function PluginSections({
           <h2 className="text-muted-foreground mb-3 text-xs font-medium">
             {label}
           </h2>
-          <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-2 xl:grid-cols-2">
             {group.map((plugin) => (
               <article
                 key={`${plugin.source.type}-${plugin.id}`}
-                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+                className="flex min-w-0 items-center gap-4 rounded-2xl bg-[color-mix(in_srgb,var(--foreground)_4%,var(--background))] px-3 py-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,var(--background))]"
               >
                 <button
                   type="button"
