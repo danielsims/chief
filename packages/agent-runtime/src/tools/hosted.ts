@@ -27,6 +27,7 @@ import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-a
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
 import { databaseToolDefinitions } from "./toolkits/databases/definitions.js";
+import { showDraftDefinition } from "./toolkits/drafts/definitions.js";
 import {
   listFilesDefinition,
   readFileDefinition,
@@ -57,6 +58,7 @@ export const hostedAgentToolDefinitions = {
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
     showAutomationDefinition,
+    showDraftDefinition,
     listFilesDefinition,
     readFileDefinition,
     writeFileDefinition,

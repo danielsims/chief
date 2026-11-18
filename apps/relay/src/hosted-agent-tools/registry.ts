@@ -3,6 +3,7 @@ import { hostedBrowserTools } from "./toolkits/browser";
 import { hostedChannelTools } from "./toolkits/channels";
 import { hostedComputerTools } from "./toolkits/computer";
 import { hostedDatabaseTools } from "./toolkits/databases";
+import { hostedDraftTools } from "./toolkits/drafts";
 import { hostedPageTools } from "./toolkits/pages";
 import { hostedPluginTools } from "./toolkits/plugins";
 import { hostedProjectTools } from "./toolkits/projects";
@@ -14,6 +15,7 @@ import { hostedWorkspaceTools } from "./toolkits/workspace";
 export const hostedAgentTools = [
   ...hostedAutomationTools,
   ...hostedDatabaseTools,
+  ...hostedDraftTools,
   ...hostedPageTools,
   ...hostedComputerTools,
   ...hostedChannelTools,
