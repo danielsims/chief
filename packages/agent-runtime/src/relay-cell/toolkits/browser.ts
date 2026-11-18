@@ -39,6 +39,9 @@ function browserSession() {
     encryptionKey: requiredEnvironment("CHIEF_AGENT_SECRET_KEY"),
     restore: true,
     colorScheme: "dark",
+    // Anyone who can message the agent can steer its browser, so it stays
+    // on the public web, away from this computer and its network.
+    publicWebOnly: true,
   });
   browser = { conversationId, session };
   return session;

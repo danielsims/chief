@@ -25,6 +25,7 @@ import {
   parseJson,
   safeSessionId,
 } from "./node-support.js";
+import { publicWebProxy } from "./public-proxy";
 
 export * from "./node-support.js";
 
@@ -112,6 +113,19 @@ export class AgentBrowserSession {
     return args;
   }
 
+  /** Public-web-only browsing: the proxy, with loopback routed through it. */
+  private async networkArgs() {
+    if (!this.options.publicWebOnly) return [];
+    return [
+      "--proxy",
+      await publicWebProxy(),
+      "--proxy-bypass",
+      "<-loopback>",
+      "--args",
+      "--disable-quic,--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    ];
+  }
+
   command(args: string[], timeout = 30_000): Promise<BrowserBoundaryValue> {
     const task = this.commandQueue
       .catch(() => undefined)
@@ -159,7 +173,7 @@ export class AgentBrowserSession {
     try {
       const { stdout } = await execFileAsync(
         agentBrowserExecutable,
-        [...this.globalArgs(), ...args],
+        [...this.globalArgs(), ...(await this.networkArgs()), ...args],
         {
           encoding: "utf8",
           env: {
