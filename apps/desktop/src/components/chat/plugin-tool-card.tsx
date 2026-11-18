@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import type {
   PluginAuthorizationAction,
 } from "@chief/agent-runtime/types";
 import { Button, buttonVariants } from "@chief/ui/components/button";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
 import type {
@@ -26,6 +27,10 @@ import { PluginApiKeyDialog } from "../plugins/plugin-api-key-dialog";
 import { openPluginDialog } from "../plugins/plugin-dialog-host";
 import { PluginOAuthClientDialog } from "../plugins/plugin-oauth-client-dialog";
 import { ProviderLogo } from "../provider-logo";
+import {
+  INLINE_RESULT_CARD_CLASS,
+  INLINE_RESULT_ICON_CLASS,
+} from "./inline-result-card";
 import {
   pluginAuthorizationFromResult,
   pluginListFromResult,
@@ -318,80 +323,60 @@ function AuthorizationCard({
   };
   return (
     <>
-      <div className="bg-card/70 w-[620px] max-w-full rounded-2xl border p-4 shadow-sm">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className={INLINE_RESULT_CARD_CLASS}>
+        <span className={INLINE_RESULT_ICON_CLASS}>
           <ProviderLogo
             domain={providerDomain}
             label={action.pluginName}
-            className="size-12 overflow-hidden rounded-xl"
+            className="size-6 rounded-[6px]"
           />
-          <span className="min-w-0 flex-1">
-            <strong className="block truncate text-base font-medium">
-              {action.pluginName}
-            </strong>
-            <small className="text-muted-foreground mt-0.5 block truncate text-sm">
-              {action.description}
-            </small>
-          </span>
-          {!waiting && !connected && !failed && !reconnect ? (
-            <Button variant="outline" onClick={() => void open()}>
-              Authorize
-            </Button>
-          ) : null}
-        </div>
-        {waiting || connected || failed || reconnect ? (
-          <div className="mt-4 flex items-center gap-2 border-t pt-3">
-            {connected ? (
-              <>
-                <Check className="text-emerald-500" size={15} />
-                <span className="text-muted-foreground text-sm">
-                  Connected to {action.pluginName}
-                </span>
-              </>
-            ) : failed ? (
-              <>
-                <CircleAlert className="text-amber-500" size={15} />
-                <span className="text-muted-foreground flex-1 text-sm">
-                  {action.pluginName} authorization didn&apos;t finish.
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void restart()}
-                >
-                  Retry
-                </Button>
-              </>
-            ) : reconnect ? (
-              <>
-                <RotateCw className="text-amber-500" size={15} />
-                <span className="text-muted-foreground flex-1 text-sm">
-                  {action.pluginName} needs to reconnect.
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void restart()}
-                >
-                  Reconnect
-                </Button>
-              </>
-            ) : (
-              <>
-                <LoaderCircle
-                  className="text-muted-foreground animate-spin"
-                  size={15}
-                />
-                <span className="text-muted-foreground flex-1 text-sm">
-                  Waiting for {action.pluginName} authorization…
-                </span>
-                <Button variant="ghost" size="sm" onClick={() => void open()}>
-                  <RotateCw size={13} /> Reopen
-                </Button>
-              </>
+        </span>
+        <span className="min-w-0 flex-1">
+          <strong className="block truncate text-[13px] leading-5 font-medium">
+            {connected
+              ? `${action.pluginName} connected`
+              : `${action.pluginName} isn't connected`}
+          </strong>
+          <small
+            className={cn(
+              "text-muted-foreground flex min-w-0 items-center gap-1.5 truncate text-[12px] leading-4 font-normal",
+              (failed || reconnect) && "text-amber-600 dark:text-amber-500",
             )}
-          </div>
-        ) : null}
+          >
+            {waiting && !connected ? (
+              <MatrixLoader size={10} ariaLabel="Waiting" />
+            ) : null}
+            <span className="truncate">
+              {connected
+                ? "Ready to use"
+                : failed
+                  ? "Connection didn't finish"
+                  : reconnect
+                    ? "Needs to reconnect"
+                    : waiting
+                      ? `Finish connecting in ${action.pluginName}`
+                      : `Connect ${action.pluginName} to continue`}
+            </span>
+          </small>
+        </span>
+        {connected ? (
+          <Check className="mr-1 shrink-0 text-emerald-500" size={15} />
+        ) : (
+          <Button
+            size="xs"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void (failed || reconnect ? restart() : open())}
+          >
+            {failed
+              ? "Retry"
+              : reconnect
+                ? "Reconnect"
+                : waiting
+                  ? "Reopen"
+                  : "Connect"}
+          </Button>
+        )}
       </div>
       {oauthClientAction ? (
         <PluginOAuthClientDialog
