@@ -1,11 +1,5 @@
 import type { CodeHighlighterPlugin } from "@streamdown/code";
 import type { BundledLanguage, BundledTheme, HighlighterGeneric } from "shiki";
-import {
-  bundledLanguages,
-  bundledLanguagesInfo,
-  createHighlighter,
-} from "shiki";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
 import {
   chiefCodeThemes,
@@ -13,88 +7,99 @@ import {
   chiefLightCodeTheme,
 } from "@chief/ui/lib/code-theme";
 
-/** The languages agents write most, loaded with the app so they're ready. */
-const commonLanguages: BundledLanguage[] = [
-  "tsx",
-  "typescript",
-  "jsx",
-  "javascript",
-  "json",
-  "bash",
-  "shellscript",
-  "python",
-  "html",
-  "css",
-  "markdown",
-  "yaml",
-  "sql",
-  "rust",
-  "go",
-  "diff",
-];
+type Highlighter = HighlighterGeneric<BundledLanguage, BundledTheme>;
+type Shiki = typeof import("shiki");
 
-const aliases = new Map(
-  bundledLanguagesInfo.flatMap((info) =>
-    (info.aliases ?? []).map((alias) => [alias, info.id] as const),
-  ),
-);
-function isBundledLanguage(id: string): id is BundledLanguage {
-  return id in bundledLanguages;
+let shiki: Shiki | undefined;
+let ready: Highlighter | undefined;
+let starting: Promise<Highlighter> | undefined;
+const loading = new Map<BundledLanguage, Promise<void>>();
+
+/** Shiki and one highlighter for every code block, made on first use. */
+function highlighter() {
+  starting ??= Promise.all([
+    import("shiki"),
+    import("shiki/engine/javascript"),
+  ]).then(async ([module, { createJavaScriptRegexEngine }]) => {
+    shiki = module;
+    ready = await module.createHighlighter({
+      themes: [chiefLightCodeTheme, chiefDarkCodeTheme],
+      langs: [],
+      engine: createJavaScriptRegexEngine({ forgiving: true }),
+    });
+    return ready;
+  });
+  return starting;
+}
+
+function isBundled(module: Shiki, id: string): id is BundledLanguage {
+  return id in module.bundledLanguages;
 }
 
 function bundledLanguage(name: string): BundledLanguage | undefined {
+  if (!shiki) return undefined;
   const id = name.trim().toLowerCase();
-  const resolved = aliases.get(id) ?? id;
-  return isBundledLanguage(resolved) ? resolved : undefined;
+  const alias = shiki.bundledLanguagesInfo.find((info) =>
+    info.aliases?.includes(id),
+  )?.id;
+  const resolved = alias ?? id;
+  return isBundled(shiki, resolved) ? resolved : undefined;
 }
 
-let ready: HighlighterGeneric<BundledLanguage, BundledTheme> | undefined;
-// One highlighter for every code block, created once at start.
-const highlighter = createHighlighter({
-  themes: [chiefLightCodeTheme, chiefDarkCodeTheme],
-  langs: commonLanguages,
-  engine: createJavaScriptRegexEngine({ forgiving: true }),
-}).then((created) => {
-  ready = created;
-  return created;
-});
-const loading = new Map<BundledLanguage, Promise<void>>();
+/** The themes' own text colours, for tokens no grammar coloured. */
+const plainText = {
+  color: chiefLightCodeTheme.colors["editor.foreground"],
+  "--shiki-dark": chiefDarkCodeTheme.colors["editor.foreground"],
+};
 
 function tokens(
-  instance: HighlighterGeneric<BundledLanguage, BundledTheme>,
+  instance: Highlighter,
   code: string,
-  language: BundledLanguage | "text",
+  language?: BundledLanguage,
 ) {
-  return instance.codeToTokens(code, {
-    lang: language,
+  const result = instance.codeToTokens(code, {
+    lang: language ?? "text",
     themes: chiefCodeThemes,
   });
+  // Plain text comes back uncoloured; colouring it marks the block done.
+  return {
+    ...result,
+    tokens: result.tokens.map((line) =>
+      line.map((token) =>
+        token.htmlStyle?.color
+          ? token
+          : { ...token, htmlStyle: { ...token.htmlStyle, ...plainText } },
+      ),
+    ),
+  };
 }
 
 /**
- * Streamdown's code highlighting in Chief's own themes. A block in a loaded
- * language is highlighted as it's drawn, so it never shows uncoloured first;
- * a rarer language loads once, then its blocks colour in.
+ * Streamdown's code highlighting in Chief's own themes. Shiki and each
+ * language load only when a block needs them, so nothing slows the app's
+ * start; until a block's colours arrive it shows as a skeleton (see
+ * `index.css`), and once its language is loaded it colours as it's drawn.
  */
 export const chiefCodeHighlighter: CodeHighlighterPlugin = {
   name: "shiki",
   type: "code-highlighter",
-  supportsLanguage: (language) => bundledLanguage(language) !== undefined,
-  getSupportedLanguages: () =>
-    Object.keys(bundledLanguages).filter(isBundledLanguage),
+  // Unknown languages are shown as plain text, so every block is accepted.
+  supportsLanguage: () => true,
+  getSupportedLanguages: () => [],
   getThemes: () => [chiefLightCodeTheme, chiefDarkCodeTheme],
   highlight({ code, language }, done) {
     const lang = bundledLanguage(language);
     if (ready && (!lang || ready.getLoadedLanguages().includes(lang)))
-      return tokens(ready, code, lang ?? "text");
-    void highlighter
+      return tokens(ready, code, lang);
+    void highlighter()
       .then(async (instance) => {
-        if (lang && !instance.getLoadedLanguages().includes(lang)) {
-          const load = loading.get(lang) ?? instance.loadLanguage(lang);
-          loading.set(lang, load);
+        const resolved = bundledLanguage(language);
+        if (resolved && !instance.getLoadedLanguages().includes(resolved)) {
+          const load = loading.get(resolved) ?? instance.loadLanguage(resolved);
+          loading.set(resolved, load);
           await load;
         }
-        done?.(tokens(instance, code, lang ?? "text"));
+        done?.(tokens(instance, code, resolved));
       })
       .catch((error: unknown) =>
         console.warn("[Code] Couldn't highlight a code block:", error),

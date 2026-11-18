@@ -289,6 +289,27 @@ diffs-container {
   margin: 0.75em 0;
 }
 
+/*
+ * A code block whose colours haven't arrived shows as a skeleton in the
+ * shape of its code, at its final size, rather than as plain text that then
+ * changes colour. Highlighted spans always carry a colour variable.
+ */
+.chat-markdown
+  [data-streamdown="code-block-body"]:not(:has([style*="--sdm-c"]))
+  code
+  span:not(:has(span)) {
+  color: transparent;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  animation: chief-code-pending 1.2s ease-in-out infinite;
+}
+
+@keyframes chief-code-pending {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .chat-markdown .streamdown-root a {
   color: #72aafc;
   text-decoration-line: underline;
