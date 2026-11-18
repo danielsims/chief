@@ -266,14 +266,11 @@ async fn start_browser_stream(
             eprintln!("{}  live browser view stopped: {error}", now());
         }
     });
+    // The token goes in the environment, not the command line, which any
+    // user on the machine can read.
     match tokio::process::Command::new("cloudflared")
-        .args([
-            "tunnel",
-            "--no-autoupdate",
-            "run",
-            "--token",
-            &setup.tunnel_token,
-        ])
+        .args(["tunnel", "--no-autoupdate", "run"])
+        .env("TUNNEL_TOKEN", &setup.tunnel_token)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
