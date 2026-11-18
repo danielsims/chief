@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
+import { toolPartJsonSchema } from "./tool-part-json";
+
 /** A page an agent read while answering. */
 export interface MessageSource {
   url: string;
@@ -50,7 +52,8 @@ export function messagePageReads(message: ChiefUIMessage): MessageSource[] {
     const page = pageSchema.safeParse(part.output);
     if (page.success)
       return [{ url: page.data.url, title: page.data.title.trim() }];
-    const input = pageInputSchema.safeParse(part.input);
+    const json = toolPartJsonSchema.safeParse(part.input);
+    const input = pageInputSchema.safeParse(json.success ? json.data : null);
     return input.success ? [{ url: input.data.url, title: "" }] : [];
   });
 }

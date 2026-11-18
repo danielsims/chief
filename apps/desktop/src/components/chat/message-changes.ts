@@ -1,10 +1,10 @@
 import { parseDiffFromFile, parsePatchFiles } from "@pierre/diffs";
 
 import type { ChiefUIMessage, ContentBlock } from "@chief/agent-runtime/types";
-import { jsonValueSchema } from "@chief/relay-contracts";
 
 import type { SessionChange } from "./session-work";
 import { changeForTool } from "./session-work";
+import { toolPartJsonSchema } from "./tool-part-json";
 
 /** One file an agent changed, with every edit it made to it and its size. */
 export interface FileChanges {
@@ -19,8 +19,8 @@ export function messageFileEdits(message: ChiefUIMessage): SessionChange[] {
   return message.parts.flatMap((part) => {
     if (part.type !== "dynamic-tool" || part.state !== "output-available")
       return [];
-    const input = jsonValueSchema.safeParse(part.input);
-    const output = jsonValueSchema.safeParse(part.output);
+    const input = toolPartJsonSchema.safeParse(part.input);
+    const output = toolPartJsonSchema.safeParse(part.output);
     const use: Extract<ContentBlock, { type: "tool_use" }> = {
       type: "tool_use",
       id: part.toolCallId,
