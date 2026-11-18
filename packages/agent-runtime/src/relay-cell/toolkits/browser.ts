@@ -19,8 +19,12 @@ import { optionalString, requiredString, requiredStrings } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
 // One browser per conversation; a worker runs many conversations' jobs.
-let browser: { conversationId: string; session: AgentBrowserSession } | null =
-  null;
+let browser: {
+  conversationId: string;
+  session: AgentBrowserSession;
+  /** The page last opened, kept on the card once the browser closes. */
+  url?: string;
+} | null = null;
 
 function browserSession() {
   const conversationId = requiredEnvironment("CHIEF_CONVERSATION_ID");
@@ -136,6 +140,7 @@ export const relayCellBrowserTools = [
     if (input.fresh === true) await session.close();
     const url = publicHttpsUrl(requiredString(input, "url"));
     const stream = await session.open(url, { width: 1280, height: 800 });
+    if (browser) browser.url = url;
     await showBrowser(context, {
       status: "active",
       url,
@@ -168,7 +173,10 @@ export const relayCellBrowserTools = [
   }),
   browserTool(closeBrowserDefinition, async (context) => {
     await browserSession().close();
-    await showBrowser(context, { status: "closed" });
+    await showBrowser(context, {
+      status: "closed",
+      ...(browser?.url ? { url: browser.url } : undefined),
+    });
     return { closed: true };
   }),
 ];
