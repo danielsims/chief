@@ -59,7 +59,11 @@ export async function executeObservedHostedAgentTool(
           name,
           rawArguments,
         ),
-      () => execution.browser.close(),
+      // Only a browser tool that overran stops the browser it was driving;
+      // searching and reading never touch the one the person can see.
+      name.startsWith("browser_")
+        ? () => execution.browser.close()
+        : () => Promise.resolve(),
     );
   } catch (error) {
     if (

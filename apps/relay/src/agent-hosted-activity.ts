@@ -25,21 +25,16 @@ import {
 
 import { publishAgentActivity } from "./agent-activity";
 import { runEffect } from "./effect";
+import { threadBrowserSessionId } from "./workspace-machine-browser";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 const browserOpenToolName = agentToolName("browser.open");
 const browserCloseToolName = agentToolName("browser.close");
-const webSearchToolName = agentToolName("web.search");
 
-export function publishesBrowserSession(toolName: string, result?: JsonValue) {
-  return (
-    toolName === browserOpenToolName ||
-    toolName === browserCloseToolName ||
-    toolName === webSearchToolName ||
-    (toolName === agentToolName("web.read") &&
-      isJsonObject(result) &&
-      result.browserUsed === true)
-  );
+/** Only the browser the agent opens to show someone gets a card; searching
+ * and reading happen in sessions nobody is shown. */
+export function publishesBrowserSession(toolName: string) {
+  return toolName === browserOpenToolName || toolName === browserCloseToolName;
 }
 
 export function hostedActivityObserver(
@@ -174,13 +169,15 @@ export async function publishHostedBrowserActivity(
   toolName: string,
   result: JsonValue,
 ) {
-  if (!publishesBrowserSession(toolName, result)) return;
+  if (!publishesBrowserSession(toolName)) return;
   const conversationId = jobConversationId(job);
   const threadRootId = isJsonString(job.payload.threadRootId)
     ? job.payload.threadRootId
     : undefined;
   const closed = toolName === browserCloseToolName;
   const stream = closed ? undefined : await browser.stream?.();
+  // The card follows the thread's browser, which later runs reuse.
+  const browserRunId = await threadBrowserSessionId(job);
   if (!closed && !stream) return;
   const url =
     isJsonObject(result) && isJsonString(result.url) ? result.url : undefined;
@@ -193,7 +190,7 @@ export async function publishHostedBrowserActivity(
       kind: "browser",
       version: 1,
       payload: {
-        browserRunId: job.id,
+        browserRunId,
         status: closed ? "closed" : "active",
         ...(url ? { url } : undefined),
         ...(stream
