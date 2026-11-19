@@ -174,6 +174,8 @@ protocol RelayServing: Sendable {
   func setWorkspaceSecret(workspaceID: String, name: String, value: String) async throws
   func deleteWorkspaceSecret(workspaceID: String, name: String) async throws
   func databases(workspaceID: String) async throws -> [WorkspaceDatabase]
+  func machineViewerTicket(workspaceID: String, agentID: String, sessionID: String) async throws -> MachineViewerTicket
+  func stopMachineBrowser(workspaceID: String, agentID: String, sessionID: String) async throws
   func database(workspaceID: String, databaseID: String) async throws -> WorkspaceDatabaseWithRows
   func saveDatabaseRow(workspaceID: String, databaseID: String, rowID: String, values: [String: JSONValue]) async throws -> WorkspaceDatabaseRow
   func replies(
