@@ -34,7 +34,7 @@ void test("local prompt uses supplied directories without granting unavailable t
   assert.ok(prompt.includes(JSON.stringify(cell.workingDirectory)));
   assert.doesNotMatch(prompt, /This session's sandbox is the cell directory/u);
   assert.doesNotMatch(prompt, /## Repository work/u);
-  assert.doesNotMatch(prompt, /Use the browser for live web pages/u);
+  assert.doesNotMatch(prompt, /The browser is shown to the person/u);
   assert.doesNotMatch(prompt, /CHIEF_INPUT_REQUEST/u);
 });
 

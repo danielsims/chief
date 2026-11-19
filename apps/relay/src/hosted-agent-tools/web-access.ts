@@ -1,5 +1,6 @@
 import type { BrowserWorker } from "@cloudflare/puppeteer";
 
+import { isChallengePage } from "@chief/agent-runtime/web-reading";
 import {
   isJsonString,
   parseJsonObject,
@@ -18,14 +19,6 @@ import { workspaceOperation } from "./toolkits/channels";
 
 export const chromeUserAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
-
-const challengeText =
-  /captcha|unusual traffic|are you a robot|verify you are human|attention required|just a moment\.\.\.|cf-chl|enable javascript and cookies/i;
-
-/** A page that loaded but is a bot wall rather than the content. */
-export function isChallengePage(html: string) {
-  return challengeText.test(html.slice(0, 20_000));
-}
 
 /** Loads a page in a real Chrome and returns its final URL and HTML. */
 export async function readWithChrome(binding: BrowserWorker, url: string) {

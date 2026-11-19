@@ -9,6 +9,7 @@ import { hostedPluginTools } from "./toolkits/plugins";
 import { hostedProjectTools } from "./toolkits/projects";
 import { hostedQuestionTools } from "./toolkits/questions";
 import { hostedSpecialistTools } from "./toolkits/specialists";
+import { hostedTimeTools } from "./toolkits/time";
 import { hostedWebTools } from "./toolkits/web";
 import { hostedWorkspaceTools } from "./toolkits/workspace";
 
@@ -25,5 +26,6 @@ export const hostedAgentTools = [
   ...hostedSpecialistTools,
   ...hostedWorkspaceTools,
   ...hostedWebTools,
+  ...hostedTimeTools,
   ...hostedBrowserTools,
 ];

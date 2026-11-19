@@ -26,7 +26,8 @@
     "./recurring-work": "./src/recurring-work.ts",
     "./mcp-oauth": "./src/mcp-oauth.ts",
     "./mcp-surface": "./src/plugins/mcp-surface.ts",
-    "./channel-message-page": "./src/channel-message-page.ts"
+    "./channel-message-page": "./src/channel-message-page.ts",
+    "./web-reading": "./src/tools/web-reading.ts"
   },
   "scripts": {
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",

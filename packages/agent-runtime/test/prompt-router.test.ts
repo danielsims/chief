@@ -25,7 +25,7 @@ void test("browser and projects rules are trimmed when unlicensed", () => {
     permissions: ["channels.read", "messages.send"],
     deployment: "cloud",
   });
-  assert.doesNotMatch(prompt.text, /Use the browser for live web pages/u);
+  assert.doesNotMatch(prompt.text, /The browser is shown to the person/u);
   assert.doesNotMatch(prompt.text, /## Repository work/u);
 });
 
@@ -46,7 +46,7 @@ void test("browser and projects rules appear when licensed", () => {
   // A cloud agent works in the workspace Git host, not local checkouts.
   assert.match(prompt.text, /projects_create/u);
   assert.doesNotMatch(prompt.text, /projects_create_checkout/u);
-  assert.match(prompt.text, /Use the browser for live web pages/u);
+  assert.match(prompt.text, /The browser is shown to the person/u);
 });
 
 void test("the router reports the included parts for diagnostics", () => {

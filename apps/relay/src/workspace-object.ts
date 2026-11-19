@@ -52,8 +52,15 @@ import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { replayLiveEvents } from "./workspace-live-replay";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
-import { consumeMachineTicket } from "./workspace-machine-keys";
+import {
+  consumeMachineTicket,
+  pairedMachineEnabled,
+} from "./workspace-machine-keys";
 import { machineOperation } from "./workspace-machine-operations";
+import {
+  readMemberTimeZone,
+  setMemberTimeZone,
+} from "./workspace-member-time-zones";
 import { WorkspacePresence } from "./workspace-presence";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
@@ -252,6 +259,16 @@ export class WorkspaceObject extends DurableObject<Env> {
           signalMachineListAfter(ctx, operation, response);
           return response;
         });
+      if (operation === "member-time-zone-set") {
+        return yield* attempt("workspace.member.time_zone_set", () =>
+          setMemberTimeZone(ctx.storage, request),
+        );
+      }
+      if (operation === "member-time-zone-get") {
+        return yield* attempt("workspace.member.time_zone_get", () =>
+          readMemberTimeZone(ctx.storage, request),
+        );
+      }
       if (operation === "agent-host-presence") {
         return yield* attempt("workspace.presence.agent_host", () =>
           presence.receiveHostReport(request),
@@ -544,9 +561,15 @@ export class WorkspaceObject extends DurableObject<Env> {
         context.ticket,
       );
       if (machine) {
+        const enabled = await pairedMachineEnabled(
+          this.ctx.storage,
+          machine.machineId,
+        );
         const accepted = acceptWebMachine(this.ctx, {
           ownerUserId: machine.ownerUserId,
           machineId: machine.machineId,
+          machineName: machine.name,
+          disabled: !enabled,
         });
         signalMachineList(this.ctx);
         return accepted;

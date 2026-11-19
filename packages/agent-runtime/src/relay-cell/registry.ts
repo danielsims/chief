@@ -7,6 +7,7 @@ import { relayCellDraftTools } from "./toolkits/drafts.js";
 import { relayCellMediaTools } from "./toolkits/media.js";
 import { relayCellPluginTools } from "./toolkits/plugins.js";
 import { relayCellProjectTools } from "./toolkits/projects.js";
+import { relayCellWebTools } from "./toolkits/web.js";
 import { relayCellWorkspaceTools } from "./toolkits/workspace.js";
 
 export const relayCellTools = [
@@ -20,4 +21,5 @@ export const relayCellTools = [
   ...relayCellPluginTools,
   ...relayCellProjectTools,
   ...relayCellBrowserTools,
+  ...relayCellWebTools,
 ];

@@ -135,9 +135,30 @@
                             "analyst",
                             "prospector",
                             "ads",
-                            "engineer",
-                            "setup"
+                            "engineer"
                           ]
+                        }
+                      },
+                      "agentNames": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "enum": [
+                            "researcher",
+                            "planner",
+                            "writer",
+                            "brand",
+                            "content",
+                            "analyst",
+                            "prospector",
+                            "ads",
+                            "engineer"
+                          ]
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
                         }
                       },
                       "localProvider": {

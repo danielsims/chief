@@ -42,6 +42,9 @@ export interface AgentBrowser {
   screenshot(): Promise<Uint8Array>;
   /** Where the session can be watched live; undefined when it can't be. */
   stream?(): Promise<AgentBrowserStream | undefined>;
+  /** Loads a page in a separate session nobody is shown, for the agent's own
+   * reading, and closes it again. The shown session is left untouched. */
+  read?(url: string): Promise<AgentBrowserSnapshot>;
   close(): Promise<void>;
 }
 
