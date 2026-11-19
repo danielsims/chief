@@ -184,7 +184,12 @@ pub async fn serve() -> Result<(), String> {
     println!("Lending this machine's connection. Ctrl-C to stop.");
     // Browser sessions outlive a dropped relay socket, and live viewers reach
     // them through the tunnel rather than the relay.
+    crate::browser::sweep_stale_sessions();
     let browsers = Arc::new(tokio::sync::Mutex::new(crate::browser::Sessions::default()));
+    // Live views stream from Linux session hosts.
+    #[cfg(not(target_os = "linux"))]
+    drop(first);
+    #[cfg(target_os = "linux")]
     let _tunnel = if crate::browser::enabled() {
         start_browser_stream(&first, browsers.clone()).await
     } else {
@@ -219,6 +224,7 @@ pub async fn serve() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StreamSetup {
@@ -230,6 +236,7 @@ struct StreamSetup {
 /// Live views of this machine's browser sessions: a loopback server behind
 /// this machine's own Cloudflare tunnel, which the relay creates on request.
 /// Streaming is optional; the machine lends its connection without it.
+#[cfg(target_os = "linux")]
 async fn start_browser_stream(
     config: &Config,
     browsers: Arc<tokio::sync::Mutex<crate::browser::Sessions>>,

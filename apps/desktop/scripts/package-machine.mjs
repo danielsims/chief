@@ -29,6 +29,14 @@ if (process.platform !== "darwin" || !identity) {
   process.exit(0);
 }
 
+// The Linux builds include the browser relay, whose x264 has x86 assembly.
+try {
+  execFileSync("nasm", ["-v"], { stdio: "ignore" });
+} catch {
+  console.error("chief-machine's Linux builds need nasm: brew install nasm");
+  process.exit(1);
+}
+
 const { version } = JSON.parse(
   readFileSync(join(tauri, "tauri.conf.json"), "utf8"),
 );

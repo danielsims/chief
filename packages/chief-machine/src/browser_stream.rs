@@ -1,11 +1,14 @@
 //! A live view of an owned browser session, served on loopback for this
-//! machine's Cloudflare tunnel. The relay never carries the frames: it only
+//! machine's Cloudflare tunnel. The relay never carries the media: it only
 //! signs viewer tickets with this machine's stream secret. A ticket is for one
 //! session, lasts a minute and opens one viewer; without a valid one the
 //! socket is refused before any browser is touched.
 //!
-//! Frames and input use agent-browser's stream protocol, so the app's viewer
-//! draws them as it draws any other agent browser.
+//! The session host's relay sends the screen (H.264) and sound (Opus) as
+//! binary messages; see `chief_browser_relay` for the format. Text from here
+//! is JSON: the relay's `hello`, the agent's `activity` and the page's `url`.
+//! A viewer sends the relay's short commands (`a,…`, `kf`, `v,…`, `au,…`)
+//! and, when it may control the page, browser-ui input as JSON.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +18,6 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
-use serde_json::{json, Value};
 use sha2::Sha256;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -23,7 +25,9 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::browser::Sessions;
+use crate::browser::{Sessions, StreamTarget};
+use crate::browser_media;
+use tokio::io::AsyncWriteExt;
 
 /// The loopback port the tunnel forwards to. Fixed, because the relay sets
 /// the tunnel's route when it creates it.
@@ -38,6 +42,9 @@ struct Claims {
     v: u8,
     /// The browser session this ticket opens.
     s: String,
+    /// The agent that owns that session. Session IDs come from agents, so a
+    /// ticket only opens a session that belongs to the agent it was issued for.
+    a: String,
     /// Whether the viewer may click and type, not just watch.
     c: bool,
     /// Expiry, in milliseconds since the epoch.
@@ -147,163 +154,75 @@ async fn view(
     if !spent.lock().await.spend(&claims.n, claims.exp) {
         return Err("Ticket already used.".into());
     }
-    let (endpoint, target) = sessions
+    let target = sessions
         .lock()
         .await
-        .stream_target(&claims.s)
+        .stream_target(&claims.s, &claims.a)
         .ok_or("That browser session isn't open on this machine.")?;
-    mirror(viewer, &endpoint, &target, claims.c).await
+    mirror(viewer, target, claims.c).await
 }
 
-/// A second debugging connection to the session's page: it screencasts to
-/// the viewer and, when allowed, takes the viewer's clicks and keys.
+/// Relays one viewer: the session's media out, and its commands and (when
+/// allowed) input in. The session host plays input into the page.
 async fn mirror(
     viewer: tokio_tungstenite::WebSocketStream<TcpStream>,
-    endpoint: &str,
-    target: &str,
+    target: crate::browser::StreamTarget,
     control: bool,
 ) -> Result<(), String> {
-    let (chrome, _) = tokio_tungstenite::connect_async(endpoint)
+    let StreamTarget { media, mut activity } = target;
+    let mut media = tokio::net::UnixStream::connect(&media)
         .await
-        .map_err(|_| "Cannot reach the session's browser.")?;
-    let (mut to_chrome, mut from_chrome) = chrome.split();
+        .map_err(|_| "Cannot reach the session's stream.")?;
+    let role = if control { browser_media::ROLE_CONTROL } else { browser_media::ROLE_WATCH };
+    media.write_u8(role).await.map_err(|error| error.to_string())?;
+    let (from_media, mut to_media) = media.into_split();
+    let mut from_media = browser_media::frames(from_media);
     let (mut to_viewer, mut from_viewer) = viewer.split();
-    let mut next_id = 0u64;
-    let mut call = |method: &str, params: Value, session: Option<&str>| {
-        next_id += 1;
-        let mut command = json!({"id": next_id, "method": method, "params": params});
-        if let Some(session) = session {
-            command["sessionId"] = json!(session);
-        }
-        (next_id, Message::text(command.to_string()))
-    };
 
-    let (attach_id, attach) = call(
-        "Target.attachToTarget",
-        json!({"targetId": target, "flatten": true}),
-        None,
-    );
-    to_chrome
-        .send(attach)
-        .await
-        .map_err(|error| error.to_string())?;
-    let session = loop {
-        let Some(Ok(Message::Text(text))) = from_chrome.next().await else {
-            return Err("The browser closed while attaching.".into());
-        };
-        let value: Value = serde_json::from_str(text.as_str()).unwrap_or_default();
-        if value["id"].as_u64() == Some(attach_id) {
-            break value["result"]["sessionId"]
-                .as_str()
-                .ok_or("Cannot attach to the session's page.")?
-                .to_string();
-        }
-    };
-    let (metrics_id, metrics) = call("Page.getLayoutMetrics", json!({}), Some(&session));
-    for (_, message) in [
-        call("Page.enable", json!({}), Some(&session)),
-        (metrics_id, metrics),
-        call(
-            "Page.startScreencast",
-            json!({"format": "jpeg", "quality": 70, "maxWidth": 1280, "maxHeight": 1280}),
-            Some(&session),
-        ),
-    ] {
-        to_chrome
-            .send(message)
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-
-    loop {
+    let opened = std::time::Instant::now();
+    let reason: String = loop {
         tokio::select! {
-            incoming = from_chrome.next() => {
-                let Some(Ok(Message::Text(text))) = incoming else { break };
-                let value: Value = serde_json::from_str(text.as_str()).unwrap_or_default();
-                if value["id"].as_u64() == Some(metrics_id) {
-                    let viewport = &value["result"]["cssLayoutViewport"];
-                    let status = json!({
-                        "type": "status",
-                        "connected": true,
-                        "screencasting": true,
-                        "viewportWidth": viewport["clientWidth"].as_u64().unwrap_or(1280),
-                        "viewportHeight": viewport["clientHeight"].as_u64().unwrap_or(800),
-                    });
-                    if to_viewer.send(Message::text(status.to_string())).await.is_err() { break }
-                    continue;
-                }
-                if value["sessionId"].as_str() != Some(session.as_str()) { continue }
-                match value["method"].as_str() {
-                    Some("Page.screencastFrame") => {
-                        let params = &value["params"];
-                        let frame = json!({"type": "frame", "data": params["data"], "metadata": params["metadata"]});
-                        if to_viewer.send(Message::text(frame.to_string())).await.is_err() { break }
-                        // Acknowledged once sent, so a slow viewer slows the cast.
-                        let (_, ack) = call("Page.screencastFrameAck", json!({"sessionId": params["sessionId"]}), Some(&session));
-                        if to_chrome.send(ack).await.is_err() { break }
+            frame = from_media.recv() => {
+                let message = match frame {
+                    Some(Ok((browser_media::BINARY, bytes))) => Message::binary(bytes),
+                    Some(Ok((_, text))) => match String::from_utf8(text) {
+                        Ok(text) => Message::text(text),
+                        Err(_) => continue,
+                    },
+                    Some(Err(error)) => break format!("the session's stream ended ({error})"),
+                    None => break "the session's stream ended".into(),
+                };
+                if let Err(error) = to_viewer.send(message).await { break format!("sending to the viewer failed ({error})") }
+            }
+            event = activity.recv() => {
+                match event {
+                    Ok(event) => {
+                        if let Err(error) = to_viewer.send(Message::text(event)).await { break format!("sending to the viewer failed ({error})") }
                     }
-                    Some("Page.frameNavigated") if value["params"]["frame"]["parentId"].is_null() => {
-                        let url = json!({"type": "url", "url": value["params"]["frame"]["url"]});
-                        if to_viewer.send(Message::text(url.to_string())).await.is_err() { break }
-                    }
-                    _ => {}
+                    // A slow viewer skips cursor moves; it never stalls the agent.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break "the session ended".into(),
                 }
             }
             incoming = from_viewer.next() => {
-                let Some(Ok(message)) = incoming else { break };
+                let message = match incoming {
+                    Some(Ok(message)) => message,
+                    Some(Err(error)) => break format!("the viewer's connection failed ({error})"),
+                    None => break "the viewer left".into(),
+                };
+                if let Message::Close(frame) = &message {
+                    break format!("the viewer closed ({frame:?})");
+                }
                 let Message::Text(text) = message else { continue };
-                if !control || text.len() > MAX_VIEWER_MESSAGE { continue }
-                let Some((method, params)) = input(text.as_str()) else { continue };
-                let (_, command) = call(method, params, Some(&session));
-                if to_chrome.send(command).await.is_err() { break }
+                // Input is the controller's alone; the host checks it too.
+                if text.len() > MAX_VIEWER_MESSAGE || (!control && text.starts_with('{')) { continue }
+                if let Err(error) = browser_media::write(&mut to_media, browser_media::TEXT, text.as_bytes()).await {
+                    break format!("the session's stream ended ({error})");
+                }
             }
         }
-    }
-    let (_, stop) = call("Page.stopScreencast", json!({}), Some(&session));
-    let _ = to_chrome.send(stop).await;
+    };
+    eprintln!("browser viewer left after {}s: {reason}", opened.elapsed().as_secs());
     let _ = to_viewer.close().await;
     Ok(())
-}
-
-/// A viewer's click or key as the debugging command that replays it. Only
-/// mouse and keyboard input is accepted; nothing else reaches the browser.
-fn input(text: &str) -> Option<(&'static str, Value)> {
-    let value: Value = serde_json::from_str(text).ok()?;
-    let event_type = value["eventType"].as_str()?;
-    match value["type"].as_str()? {
-        "input_mouse"
-            if matches!(
-                event_type,
-                "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel"
-            ) =>
-        {
-            Some((
-                "Input.dispatchMouseEvent",
-                json!({
-                    "type": event_type,
-                    "x": value["x"].as_f64()?,
-                    "y": value["y"].as_f64()?,
-                    "button": value["button"].as_str().unwrap_or("none"),
-                    "clickCount": value["clickCount"].as_u64().unwrap_or(0).min(3),
-                    "deltaX": value["deltaX"].as_f64().unwrap_or(0.0),
-                    "deltaY": value["deltaY"].as_f64().unwrap_or(0.0),
-                    "modifiers": value["modifiers"].as_u64().unwrap_or(0) & 15,
-                }),
-            ))
-        }
-        "input_keyboard" if matches!(event_type, "keyDown" | "keyUp" | "rawKeyDown" | "char") => {
-            let mut params = json!({
-                "type": event_type,
-                "key": value["key"].as_str()?.chars().take(256).collect::<String>(),
-                "code": value["code"].as_str()?.chars().take(256).collect::<String>(),
-                "windowsVirtualKeyCode": value["windowsVirtualKeyCode"].as_u64().unwrap_or(0).min(65_535),
-                "modifiers": value["modifiers"].as_u64().unwrap_or(0) & 15,
-            });
-            if let Some(text) = value["text"].as_str() {
-                params["text"] = json!(text.chars().take(4_096).collect::<String>());
-            }
-            Some(("Input.dispatchKeyEvent", params))
-        }
-        _ => None,
-    }
 }

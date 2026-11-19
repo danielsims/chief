@@ -1,22 +1,21 @@
-//! Browser capacity uses a host-owned Chrome process and empty profile per session.
-//! No API accepts a CDP address, executable, filesystem path, or JavaScript from the relay.
+//! Browser capacity uses a host-owned Chrome process and empty profile per
+//! session, each in its own session host (`browser_host`) on Linux. No API
+//! accepts a CDP address, executable, filesystem path, or JavaScript from the relay.
 use crate::{browser_proxy, host_storage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    process::Stdio,
     time::{Duration, Instant},
 };
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub enabled: bool,
     pub chrome: PathBuf,
-    pub headed: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -39,15 +38,119 @@ pub struct Target {
 }
 
 pub struct Session {
-    agent: String,
-    chrome: Child,
-    _directory: tempfile::TempDir,
-    _proxy: browser_proxy::Proxy,
-    cdp: crate::browser_cdp::Cdp,
-    /// Chrome's own debugging socket, on loopback, for a live viewer.
-    endpoint: String,
-    last_used: Instant,
+    pub(crate) agent: String,
+    /// The session host: Chrome, its display and sound, and the relay.
+    pub(crate) host: Child,
+    /// Removed once the host has exited, so nothing it writes outlives it.
+    pub(crate) directory: Option<tempfile::TempDir>,
+    pub(crate) _proxy: browser_proxy::Proxy,
+    pub(crate) last_used: Instant,
+    /// What the agent is doing, as browser-ui activity, for live viewers.
+    pub(crate) activity: tokio::sync::broadcast::Sender<String>,
+    pub(crate) activity_sequence: u64,
 }
+
+impl Session {
+    /// browser-ui's v1 activity message, carrying the agent's cursor.
+    fn announce(&mut self, id: &str, action: &str, phase: &str, cursor: Option<(f64, f64)>) {
+        self.activity_sequence += 1;
+        let label = match action {
+            "click" => "Clicking",
+            "fill" => "Typing",
+            _ => "Choosing",
+        };
+        let mut message = json!({
+            "type": "activity",
+            "v": 1,
+            "id": id,
+            "action": action,
+            "label": label,
+            "phase": phase,
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0),
+            "eventSequence": self.activity_sequence,
+        });
+        if let Some((x, y)) = cursor {
+            message["agentCursor"] = json!({
+                "x": x,
+                "y": y,
+                "pressed": action == "click" && phase == "started",
+                "typing": action == "fill" && phase == "started",
+            });
+        }
+        // Nobody watching is fine.
+        let _ = self.activity.send(message.to_string());
+    }
+}
+/// Ending a session stops its host and everything the host started, waits
+/// for them to exit, then deletes the session's directory. Nothing is left
+/// running or on disk once a session is gone.
+impl Drop for Session {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.host.id() {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        let _ = self.host.start_kill();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !matches!(self.host.try_wait(), Ok(Some(_))) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if let Some(directory) = self.directory.take() {
+            let path = directory.path().to_owned();
+            if directory.close().is_err() {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
+}
+
+pub const SESSION_PREFIX: &str = "chief-browser-";
+
+/// Session folders left by a machine that stopped without ending its
+/// sessions, such as after a crash or power loss. None are in use at start.
+pub fn sweep_stale_sessions() {
+    let Ok(entries) = std::fs::read_dir("/tmp") else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(suffix) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(SESSION_PREFIX))
+        else {
+            continue;
+        };
+        if suffix.len() != 6 || !suffix.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if metadata.uid() != unsafe { libc::getuid() } {
+                continue;
+            }
+        }
+        if metadata.is_dir() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// A live viewer's way into a session: the session host's socket for its
+/// media and input, and the agent's activity.
+pub struct StreamTarget {
+    pub media: PathBuf,
+    pub activity: tokio::sync::broadcast::Receiver<String>,
+}
+
 pub struct Sessions {
     sessions: HashMap<String, Session>,
 }
@@ -78,8 +181,8 @@ pub async fn cli(args: &[String]) -> Result<(), String> {
                     .and_then(|i| args.get(i + 1))
                     .map(PathBuf::from)
             };
-            if cfg!(windows) {
-                return Err("Browser hosting currently requires Unix process cleanup; Windows support is not enabled.".into());
+            if !cfg!(target_os = "linux") {
+                return Err("Browser hosting needs Linux for now.".into());
             }
             let chrome = option("--chrome")
                 .ok_or("Supply --chrome with the absolute Google Chrome executable path.")?;
@@ -91,10 +194,9 @@ pub async fn cli(args: &[String]) -> Result<(), String> {
                 &Settings {
                     enabled: true,
                     chrome,
-                    headed: args.iter().any(|v| v == "--headed"),
                 },
             )?;
-            println!("Browser role enabled. It uses new, isolated Chrome profiles and public-only egress. Pair this machine, then run chief-machine serve.");
+            println!("Browser role enabled. Each session gets a new, isolated Chrome on its own virtual display, with public-only egress. Pair this machine, then run chief-machine serve.");
             Ok(())
         }
         Some("disable") => {
@@ -112,43 +214,65 @@ pub async fn cli(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         _ => {
-            println!("chief-machine browser enable --chrome <absolute-path> [--headed]\nchief-machine browser disable\nchief-machine browser status\n\nNo personal Chrome profiles, raw CDP attachments, shell, or arbitrary JavaScript are exposed.");
+            println!("chief-machine browser enable --chrome <absolute-path>\nchief-machine browser disable\nchief-machine browser status\n\nNo personal Chrome profiles, raw CDP attachments, shell, or arbitrary JavaScript are exposed.");
             Ok(())
         }
     }
 }
 
 impl Sessions {
-    /// Where a live viewer of one session attaches: Chrome's debugging socket
-    /// and the session's page. Only sessions this machine owns are listed.
-    pub fn stream_target(&self, session_id: &str) -> Option<(String, String)> {
-        self.sessions
-            .get(session_id)
-            .map(|session| (session.endpoint.clone(), session.cdp.target.clone()))
+    /// Where a live viewer of one session attaches. Only sessions this
+    /// machine owns, for the agent that owns them, are found.
+    #[cfg(target_os = "linux")]
+    pub fn stream_target(&self, session_id: &str, agent_id: &str) -> Option<StreamTarget> {
+        let session = self.sessions.get(session_id).filter(|session| session.agent == agent_id)?;
+        Some(StreamTarget {
+            media: session.directory.as_ref()?.path().join("relay.sock"),
+            activity: session.activity.subscribe(),
+        })
     }
     pub fn reap(&mut self) {
         if !enabled() {
             self.sessions.clear();
             return;
         }
-        self.sessions
-            .retain(|_, s| s.last_used.elapsed() < Duration::from_secs(900));
+        // Idle sessions, and ones whose host or Chrome has ended, are ended.
+        self.sessions.retain(|_, s| {
+            if s.last_used.elapsed() >= Duration::from_secs(900) {
+                eprintln!("browser session ended: idle for 15 minutes");
+                return false;
+            }
+            if !matches!(s.host.try_wait(), Ok(None)) {
+                eprintln!("browser session ended: its browser exited");
+                return false;
+            }
+            true
+        });
     }
     pub async fn execute(&mut self, request: Request) -> Value {
         let id = request.request_id.clone();
-        let result = tokio::select! {
-            result=tokio::time::timeout(Duration::from_secs(55),self.operation(&request))=>result.unwrap_or_else(|_|Err("Browser operation deadline exceeded.".into())),
-            _=async{loop{tokio::time::sleep(Duration::from_secs(1)).await;if !enabled(){break;}}}=>Err("Browser role disabled during operation.".into()),
+        // A command that overran or outlived the browser role is abandoned
+        // mid-flight, so its page can't be trusted; other errors (a stale
+        // element reference, a page that wouldn't load) leave the session be.
+        let (result, abandoned) = tokio::select! {
+            result = tokio::time::timeout(Duration::from_secs(35), self.operation(&request)) => match result {
+                Ok(result) => (result, false),
+                Err(_) => (Err("Browser operation deadline exceeded.".into()), true),
+            },
+            _ = async { loop { tokio::time::sleep(Duration::from_secs(1)).await; if !enabled() { break; } } } => {
+                (Err("Browser role disabled during operation.".into()), true)
+            }
         };
-        if result.is_err() {
-            // A timed-out/cancelled command must not continue mutating a live page.
-            if self
+        if abandoned
+            && self
                 .sessions
                 .get(&request.session_id)
                 .is_some_and(|session| session.agent == request.agent_id)
-            {
-                self.sessions.remove(&request.session_id);
+        {
+            if let Err(error) = &result {
+                eprintln!("browser session ended: {} {error}", request.operation);
             }
+            self.sessions.remove(&request.session_id);
         }
 
         match result {
@@ -175,7 +299,9 @@ impl Sessions {
                     return Err("Browser session belongs to another agent.".into());
                 }
             }
-            self.sessions.remove(&request.session_id);
+            if self.sessions.remove(&request.session_id).is_some() {
+                eprintln!("browser session ended: closed by the agent");
+            }
             return Ok(json!({"closed":true}));
         }
         if request.operation == "open" && !self.sessions.contains_key(&request.session_id) {
@@ -193,7 +319,7 @@ impl Sessions {
             return Err("Browser session belongs to another agent.".into());
         }
         if session
-            .chrome
+            .host
             .try_wait()
             .map_err(|_| "Cannot inspect owned browser.")?
             .is_some()
@@ -203,43 +329,73 @@ impl Sessions {
             );
         }
         session.last_used = Instant::now();
-        match request.operation.as_str() {
-            "open" => {
-                let url = request.url.as_deref().ok_or("Missing page URL.")?;
-                browser_proxy::destination(url)?;
-                session.cdp.navigate(url).await?;
+        // Viewers see the agent's cursor move to what it's acting on.
+        let acting = matches!(request.operation.as_str(), "click" | "fill" | "select");
+        let cursor = match (&request.target, acting) {
+            (Some(target), true) => {
+                let located = host_request(session, json!({"operation": "locate", "target": target_json(target)})).await;
+                located.ok().and_then(|at| Some((at["x"].as_f64()?, at["y"].as_f64()?)))
             }
-            "snapshot" => {}
-            "click" => {
-                session
-                    .cdp
-                    .click(request.target.as_ref().ok_or("Missing target.")?)
-                    .await?;
-            }
-            "fill" => {
-                session
-                    .cdp
-                    .fill(
-                        request.target.as_ref().ok_or("Missing target.")?,
-                        request.text.as_deref().ok_or("Missing text.")?,
-                    )
-                    .await?;
-            }
-            "select" => {
-                session
-                    .cdp
-                    .select(
-                        request.target.as_ref().ok_or("Missing target.")?,
-                        request.values.as_ref().ok_or("Missing values.")?,
-                    )
-                    .await?;
-            }
-            "screenshot" => {
-                return session.cdp.screenshot().await;
-            }
-            _ => return Err("Unknown browser operation.".into()),
+            _ => None,
+        };
+        if acting {
+            session.announce(&request.request_id, &request.operation, "started", cursor);
         }
-        session.cdp.snapshot().await
+        let result = Self::act(session, request).await;
+        if acting {
+            session.announce(&request.request_id, &request.operation, "completed", cursor);
+        }
+        result
+    }
+
+    /// The session host carries the action out with agent-browser.
+    async fn act(session: &mut Session, request: &Request) -> Result<Value, String> {
+        if request.operation == "open" {
+            browser_proxy::destination(request.url.as_deref().ok_or("Missing page URL.")?)?;
+        }
+        let mut action = json!({"operation": request.operation});
+        if let Some(url) = &request.url {
+            action["url"] = json!(url);
+        }
+        if let Some(target) = &request.target {
+            action["target"] = target_json(target);
+        }
+        if let Some(text) = &request.text {
+            action["text"] = json!(text);
+        }
+        if let Some(values) = &request.values {
+            action["values"] = json!(values);
+        }
+        let output = host_request(session, action).await?;
+        // The proxy keeps Chrome on the public web; this keeps reports honest.
+        if let Some(url) = output["url"].as_str().filter(|url| *url != "about:blank") {
+            browser_proxy::destination(url)?;
+        }
+        Ok(output)
+    }
+}
+
+fn target_json(target: &Target) -> Value {
+    let mut value = json!({});
+    if let Some(reference) = &target.reference {
+        value["ref"] = json!(reference);
+    }
+    if let Some(labels) = &target.labels {
+        value["labels"] = json!(labels);
+    }
+    value
+}
+
+async fn host_request(session: &Session, action: Value) -> Result<Value, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let directory = session.directory.as_ref().ok_or("The browser session has ended.")?;
+        crate::browser_launch::request(directory.path(), action).await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (session, action);
+        Err("Browser hosting needs Linux for now.".into())
     }
 }
 
@@ -270,88 +426,13 @@ fn validate_request(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-async fn launch(agent: &str) -> Result<Session, String> {
-    let settings = settings()?;
-    // Chrome creates a Unix socket under TMPDIR. Use a short base path even
-    // when the host configuration directory or inherited TMPDIR is deeply nested.
-    let mut temporary = tempfile::Builder::new();
-    temporary.prefix("chief-browser-");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        temporary.permissions(std::fs::Permissions::from_mode(0o700));
-    }
-    let directory = temporary
-        .tempdir_in("/tmp")
-        .map_err(|_| "Cannot create a private Chrome session directory.")?;
-    let profile = directory.path().join("profile");
-    host_storage::directory(&profile)?;
-    let proxy = browser_proxy::start().await?;
-    let mut command = Command::new(&settings.chrome);
-    command
-        .arg(format!("--user-data-dir={}", profile.display()))
-        .arg("--remote-debugging-port=0")
-        .arg("--remote-debugging-address=127.0.0.1")
-        .arg(format!("--proxy-server=http://{}", proxy.address))
-        .arg("--proxy-bypass-list=<-loopback>")
-        .args([
-            "--disable-quic",
-            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            "--disable-extensions",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ])
-        .env_clear()
-        .env("HOME", directory.path())
-        .env("TMPDIR", directory.path())
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    if settings.headed {
-        for key in [
-            "DISPLAY",
-            "WAYLAND_DISPLAY",
-            "XDG_RUNTIME_DIR",
-            "XAUTHORITY",
-        ] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-    } else {
-        command.arg("--headless=new");
-    }
-    command.arg("about:blank");
-    let mut chrome = command
-        .spawn()
-        .map_err(|_| "Cannot launch isolated Google Chrome.")?;
-    let endpoint=tokio::time::timeout(Duration::from_secs(15),async{
-        loop{
-            if chrome.try_wait().map_err(|_|"Cannot inspect Chrome startup.")?.is_some(){return Err("Chrome exited during startup. Check platform support; sandboxing is never disabled automatically.");}
-            if let Ok(text)=std::fs::read_to_string(profile.join("DevToolsActivePort")){
-                let mut lines=text.lines();let port=lines.next().and_then(|v|v.parse::<u16>().ok()).ok_or("Invalid Chrome debugging port.")?;
-                let path=lines.next().ok_or("Missing Chrome debugging endpoint.")?;
-                if !path.starts_with("/devtools/browser/")||path.len()>200||path.contains(['?','#','\r','\n']){return Err("Invalid owned Chrome endpoint.");}
-                return Ok(format!("ws://127.0.0.1:{port}{path}"));
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    }).await.map_err(|_|"Chrome startup deadline exceeded.")?.map_err(String::from)?;
-    let cdp = crate::browser_cdp::Cdp::connect(&endpoint).await?;
-    Ok(Session {
-        agent: agent.into(),
-        chrome,
-        _directory: directory,
-        _proxy: proxy,
-        cdp,
-        endpoint,
-        last_used: Instant::now(),
-    })
+#[cfg(not(target_os = "linux"))]
+async fn launch(_agent: &str) -> Result<Session, String> {
+    Err("Browser hosting needs Linux for now.".into())
 }
+
+#[cfg(target_os = "linux")]
+use crate::browser_launch::launch;
 
 #[cfg(test)]
 mod tests {
@@ -362,152 +443,5 @@ mod tests {
         assert!(serde_json::from_value::<Request>(value).is_err());
         let req:Request=serde_json::from_value(json!({"requestId":uuid::Uuid::new_v4(),"sessionId":uuid::Uuid::new_v4(),"agentId":"chief","operation":"snapshot"})).unwrap();
         assert!(validate_request(&req).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod integration_tests {
-    use super::*;
-    // Explicit opt-in: launches a separate Chrome with a fresh disposable profile.
-    #[tokio::test]
-    #[ignore = "requires CHIEF_TEST_CHROME"]
-    async fn isolated_browser_search_and_private_egress() {
-        let config = tempfile::tempdir().unwrap();
-        let root = config.path().join("config".repeat(20));
-        std::env::set_var("XDG_CONFIG_HOME", &root);
-        host_storage::save(
-            &settings_path().unwrap(),
-            &Settings {
-                enabled: true,
-                chrome: std::env::var("CHIEF_TEST_CHROME").unwrap().into(),
-                headed: false,
-            },
-        )
-        .unwrap();
-        let mut sessions = Sessions::default();
-        let id = uuid::Uuid::new_v4().to_string();
-        let request = |operation: &str, url: Option<&str>, agent: &str| Request {
-            request_id: uuid::Uuid::new_v4().to_string(),
-            session_id: id.clone(),
-            agent_id: agent.into(),
-            operation: operation.into(),
-            url: url.map(String::from),
-            target: None,
-            text: None,
-            values: None,
-        };
-        assert!(sessions
-            .operation(&request("snapshot", None, "chief"))
-            .await
-            .is_err());
-        let response = sessions
-            .execute(request(
-                "open",
-                Some("https://www.google.com/search?q=chief+machine"),
-                "chief",
-            ))
-            .await;
-        assert_eq!(response["ok"], true, "{response}");
-        let opened = &response["output"];
-        assert!(opened["url"]
-            .as_str()
-            .unwrap()
-            .starts_with("https://www.google.com/"));
-        eprintln!(
-            "Google page: {}\n{}",
-            opened["title"],
-            opened["text"]
-                .as_str()
-                .unwrap_or("")
-                .chars()
-                .take(1200)
-                .collect::<String>()
-        );
-        assert!(sessions
-            .operation(&request("snapshot", None, "another-agent"))
-            .await
-            .is_err());
-        assert!(sessions
-            .operation(&request("open", Some("http://127.0.0.1"), "chief"))
-            .await
-            .is_err());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        // Test-only script injection: the public protocol does not expose eval.
-        // Tries page fetches, images, frames and WebSockets through the browser.
-        let script = format!(
-            r#"(()=>{{const u='http://127.0.0.1:{port}';fetch(u).catch(()=>{{}});let i=new Image();i.src=u+'/image';document.body.appendChild(i);let f=document.createElement('iframe');f.src=u+'/frame';document.body.appendChild(f);try{{new WebSocket('ws://127.0.0.1:{port}')}}catch(e){{}}return 'attempted';}})()"#
-        );
-        sessions
-            .sessions
-            .get_mut(&id)
-            .unwrap()
-            .cdp
-            .test_script(&script)
-            .await
-            .unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_secs(2), listener.accept())
-                .await
-                .is_err(),
-            "private canary must never receive a connection"
-        );
-        let session = sessions.sessions.get_mut(&id).unwrap();
-        session.cdp.test_script("(()=>{let i=document.createElement('input');i.id='chief-test-input';i.setAttribute('aria-label','Chief test input');document.body.append(i);let s=document.createElement('select');s.setAttribute('aria-label','Chief test select');let o=document.createElement('option');o.value='one';o.textContent='One';s.append(o);document.body.append(s);return true})()").await.unwrap();
-        session.cdp.snapshot().await.unwrap();
-        let input = Target {
-            reference: None,
-            labels: Some(vec!["Chief test input".into()]),
-        };
-        session
-            .cdp
-            .fill(&input, "--cdp is field data")
-            .await
-            .unwrap();
-        assert_eq!(
-            session
-                .cdp
-                .test_script("document.getElementById('chief-test-input').value")
-                .await
-                .unwrap(),
-            json!("--cdp is field data")
-        );
-        let select = Target {
-            reference: None,
-            labels: Some(vec!["Chief test select".into()]),
-        };
-        session.cdp.select(&select, &["one".into()]).await.unwrap();
-        session.cdp.click(&input).await.unwrap();
-        assert!(
-            session.cdp.screenshot().await.unwrap()["base64"]
-                .as_str()
-                .unwrap()
-                .len()
-                > 100
-        );
-        let directory = sessions
-            .sessions
-            .get(&id)
-            .unwrap()
-            ._directory
-            .path()
-            .to_owned();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                directory.metadata().unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-        }
-        sessions
-            .operation(&request("close", None, "chief"))
-            .await
-            .unwrap();
-        assert!(!directory.exists());
-        assert!(sessions
-            .operation(&request("snapshot", None, "chief"))
-            .await
-            .is_err());
     }
 }
