@@ -105,9 +105,8 @@ void test("thread and panel agent cards share one standalone avatar treatment", 
     createElement(AgentActivityCard, { task, detail: "Complete" }),
   );
 
-  assert.match(html, />Engineer</u);
+  assert.match(html, />Engineer · Engineering setup</u);
   assert.match(html, />Complete</u);
   assert.match(html, /size-8 rounded-lg/u);
-  assert.doesNotMatch(html, /Engineering setup/u);
   assert.doesNotMatch(html, /size-9/u);
 });
