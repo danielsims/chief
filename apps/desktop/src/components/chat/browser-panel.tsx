@@ -1,6 +1,6 @@
 import type { ErrorInfo, ReactNode, RefObject } from "react";
 import { Component, lazy, memo, Suspense, useCallback, useState } from "react";
-import { ArrowRight, Globe2, RotateCcw } from "lucide-react";
+import { ArrowRight, Globe2 } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
@@ -245,16 +245,13 @@ function BrowserSessionAttachmentContent({
     );
   }
 
+  // A paired machine's stream ends with its session, so a lost connection
+  // is shown as the session having ended, as on mobile.
   if (connectionFailed) {
     return (
       <BrowserSessionCard
         detail={browserDomain(url)}
-        action={{
-          label: "Retry browser connection",
-          onClick: () => setConnectionFailed(false),
-          icon: RotateCcw,
-        }}
-        title="Browser connection failed"
+        title="Browsing session ended"
         url={url}
       />
     );

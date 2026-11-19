@@ -14,6 +14,7 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks, useRuntime } from "../../lib/runtime";
+import { agentWorkingIn } from "../../lib/runtime-chat-controls";
 import { workspaceAgentName } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
@@ -185,7 +186,7 @@ export function ChiefChatAuxiliaryPanels({
     () => [threadComposerRef],
     [],
   );
-  const { agents: roster } = useRuntime();
+  const { agents: roster, browserSessions } = useRuntime();
   const threadActivityAgents = useMemo(() => {
     const activityAgentName = (agentId: string) =>
       workspaceAgentName(agentId, roster) ?? agentId;
@@ -245,11 +246,18 @@ export function ChiefChatAuxiliaryPanels({
     threadActivityAgents[0]?.id === activeRootTurn?.agentId
       ? statusLabel
       : formatAgentActivityStatus(threadActivityAgents);
+  // An agent's browser is operating while that agent works in its thread.
+  const threadBrowserOperating = (run: BrowserRunRecord) => {
+    const agentId = browserSessions[run.id]?.agentId;
+    return agentId
+      ? agentWorkingIn(controls.workingAgents, agentId, run.threadRootId)
+      : browserOperating;
+  };
   const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl min-w-0 py-1 pl-11">
       <div className="max-w-2xl">
         <BrowserSessionAttachment
-          operating={browserOperating}
+          operating={threadBrowserOperating(run)}
           pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
           pictureInPictureContainerRef={threadPictureInPictureContainerRef}
           run={run}

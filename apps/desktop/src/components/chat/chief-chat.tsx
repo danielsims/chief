@@ -7,6 +7,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ThreadAgent } from "./chief-chat-auxiliary-panels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
+import { agentWorkingIn } from "../../lib/runtime-chat-controls";
 import { useChannelTyping } from "../../lib/use-channel-typing";
 import { workspaceCardClassName } from "../workspace-content-surface";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -187,11 +188,18 @@ export function ChiefChat({
       scheduleRuns: core.scheduleRuns,
       workingAgents: controls.workingAgents,
     });
+  // An agent's browser is operating while that agent works in its thread.
+  const browserOperating = (run: BrowserRunRecord) => {
+    const agentId = browserSessions[run.id]?.agentId;
+    return agentId
+      ? agentWorkingIn(controls.workingAgents, agentId, run.threadRootId)
+      : controls.status === "running";
+  };
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <div className="max-w-2xl">
         <BrowserSessionAttachment
-          operating={controls.status === "running"}
+          operating={browserOperating(run)}
           pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
           pictureInPictureContainerRef={pictureInPictureContainerRef}
           run={run}

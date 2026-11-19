@@ -2,11 +2,13 @@ import type { BrowserDisplayMode } from "@browser-ui/react";
 import type { RefObject } from "react";
 import { memo, useCallback, useState } from "react";
 import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
+import { toast } from "sonner";
 
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import { parseRelayError } from "../../lib/relay-runtime-errors";
 import { useRelaySession } from "../../lib/relay-session-context";
 import { useRuntime } from "../../lib/runtime";
 import { useTheme } from "../../lib/theme";
@@ -39,6 +41,9 @@ function BrowserSessionViewerImpl({
     presentationRevision: number;
   } | null>(null);
   const [windowFullscreen, setWindowFullscreen] = useState(false);
+  // Sound starts off: browsers only play it after a click, and the toggle is one.
+  const [soundAvailable, setSoundAvailable] = useState(false);
+  const [sound, setSound] = useState(false);
   const session = browserSessions[runId];
 
   // A machine's browser streams through its own tunnel; each connection
@@ -53,6 +58,23 @@ function BrowserSessionViewerImpl({
       throw new Error("The browser ticket service is unavailable.");
     return relay.createMachineViewerTicket(machineAgent, runId);
   }, [machineAgent, relay, runId]);
+
+  // browser-ui's end-session control: a paired machine's session ends on
+  // the machine, through the relay, for the agent's owner; a local one ends
+  // here. Either way the card becomes the ended card.
+  const endSession = useCallback(async () => {
+    if (machineAgent && relay) {
+      try {
+        await relay.stopMachineBrowser(machineAgent, runId);
+      } catch (cause) {
+        toast.error(
+          parseRelayError(cause).message || "The browser couldn't be stopped.",
+        );
+        throw cause;
+      }
+    }
+    closeBrowser(runId);
+  }, [closeBrowser, machineAgent, relay, runId]);
 
   if (!session) return null;
 
@@ -79,6 +101,16 @@ function BrowserSessionViewerImpl({
 
   const displayControls = (
     <>
+      {soundAvailable ? (
+        <BrowserDisplayTrigger
+          aria-label={sound ? "Mute" : "Unmute"}
+          aria-pressed={sound}
+          onClick={() => setSound((current) => !current)}
+          title={sound ? "Mute" : "Unmute"}
+        >
+          {sound ? <Volume2 aria-hidden /> : <VolumeX aria-hidden />}
+        </BrowserDisplayTrigger>
+      ) : null}
       <BrowserDisplayTrigger
         aria-label={windowFullscreen ? "Exit fullscreen" : "Open fullscreen"}
         onClick={() => setWindowFullscreen((current) => !current)}
@@ -89,13 +121,6 @@ function BrowserSessionViewerImpl({
         ) : (
           <Maximize2 aria-hidden />
         )}
-      </BrowserDisplayTrigger>
-      <BrowserDisplayTrigger
-        aria-label="Close browser viewer"
-        onClick={() => closeBrowser(runId)}
-        title="Close browser viewer"
-      >
-        <X aria-hidden />
       </BrowserDisplayTrigger>
     </>
   );
@@ -111,7 +136,8 @@ function BrowserSessionViewerImpl({
       colorScheme={resolved}
       displayAspectRatio="16 / 10"
       displayControls={displayControls}
-      displayControlsClassName="[&_.bui-display-trigger]:size-7 [&_.bui-display-trigger]:rounded-lg [&_.bui-display-trigger]:border-white/15 [&_.bui-display-trigger]:bg-black/70 [&_.bui-display-trigger]:shadow-sm [&_.bui-display-trigger:hover]:scale-100 [&_.bui-display-trigger:hover]:bg-black/85"
+      onEndSession={endSession}
+      displayControlsClassName="[&_.bui-display-trigger]:h-7 [&_.bui-display-trigger:not(.bui-end-session)]:w-7 [&_.bui-display-trigger]:rounded-lg [&_.bui-display-trigger]:border-white/15 [&_.bui-display-trigger]:bg-black/70 [&_.bui-display-trigger]:shadow-sm [&_.bui-display-trigger:hover]:scale-100 [&_.bui-display-trigger:hover]:bg-black/85"
       agentCursor={session.agentCursor ?? undefined}
       interactive
       layoutId={`chief-browser-${runId}`}
@@ -132,6 +158,8 @@ function BrowserSessionViewerImpl({
           : undefined
       }
       streamUrl={session.streamUrl}
+      sound={sound}
+      onSoundAvailable={setSoundAvailable}
       resolveConnection={machineAgent ? resolveMachineConnection : undefined}
       url={session.url}
       variant="framed"

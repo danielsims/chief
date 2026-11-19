@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.33",
-    "@browser-ui/react": "0.2.0",
+    "@browser-ui/react": "file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-react-0.3.1.tgz",
     "@chief/agent-runtime": "workspace:*",
     "@chief/channel-api": "workspace:*",
     "@chief/relay-client": "workspace:*",
