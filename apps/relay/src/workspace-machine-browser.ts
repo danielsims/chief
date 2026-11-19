@@ -6,54 +6,19 @@ import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
 import {
   browserSnapshotSchema,
   browserStreamSchema,
-  isJsonString,
   jobConversationId,
 } from "@chief/relay-contracts";
 
 import { hostedPrincipal } from "./agent-object-values";
 import { workspaceOperation } from "./hosted-agent-tools/toolkits/channels";
 
-/**
- * The browser an agent shows in a thread: one per agent per conversation
- * thread, so a later run carries on in the page the person is already
- * watching rather than opening another, as relay-cell agents' cards do.
- * Derived, not chosen: the model can't pick it, and the session ID carries
- * no secret (viewers still need tickets).
- */
-export async function threadBrowserSessionId(job: AgentJob) {
-  const threadRootId = isJsonString(job.payload.threadRootId)
-    ? job.payload.threadRootId
-    : "";
-  const seed = `browser:${hostedPrincipal(job).agentId}:${jobConversationId(job)}:${threadRootId}`;
-  const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed)),
-  ).slice(0, 16);
-  // RFC 9562 version 8 (custom) and variant bits.
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
-  return [
-    hex.slice(0, 4),
-    hex.slice(4, 6),
-    hex.slice(6, 8),
-    hex.slice(8, 10),
-    hex.slice(10),
-  ]
-    .map((part) => part.join(""))
-    .join("-");
-}
-
-/** The model cannot choose either the agent identity or the session ID sent
- * over the authenticated relay seam. */
+/** One job owns one ephemeral browser session. The model cannot choose either
+ * the agent identity or session ID sent over the authenticated relay seam. */
 export class WorkspaceMachineBrowser implements AgentBrowser {
-  private session?: Promise<string>;
   constructor(
     private readonly env: Env,
     private readonly job: AgentJob,
   ) {}
-  private sessionId() {
-    return (this.session ??= threadBrowserSessionId(this.job));
-  }
   private async command(
     operation: string,
     body: {
@@ -62,9 +27,8 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
       text?: string;
       values?: readonly string[];
     } = {},
-    sessionId?: string,
+    sessionId: string = this.job.id,
   ) {
-    sessionId ??= await this.sessionId();
     try {
       return await workspaceOperation(
         this.env,
@@ -138,7 +102,7 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
           this.job,
           hostedPrincipal(this.job),
           "machine-browser-stream",
-          { body: { sessionId: await this.sessionId() } },
+          { body: { sessionId: this.job.id } },
         ),
       );
     } catch {

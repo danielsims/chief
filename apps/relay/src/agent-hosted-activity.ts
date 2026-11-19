@@ -25,7 +25,6 @@ import {
 
 import { publishAgentActivity } from "./agent-activity";
 import { runEffect } from "./effect";
-import { threadBrowserSessionId } from "./workspace-machine-browser";
 
 type AgentJob = ReturnType<typeof agentJobSchema.parse>;
 const browserOpenToolName = agentToolName("browser.open");
@@ -176,8 +175,6 @@ export async function publishHostedBrowserActivity(
     : undefined;
   const closed = toolName === browserCloseToolName;
   const stream = closed ? undefined : await browser.stream?.();
-  // The card follows the thread's browser, which later runs reuse.
-  const browserRunId = await threadBrowserSessionId(job);
   if (!closed && !stream) return;
   const url =
     isJsonObject(result) && isJsonString(result.url) ? result.url : undefined;
@@ -190,7 +187,7 @@ export async function publishHostedBrowserActivity(
       kind: "browser",
       version: 1,
       payload: {
-        browserRunId,
+        browserRunId: job.id,
         status: closed ? "closed" : "active",
         ...(url ? { url } : undefined),
         ...(stream
