@@ -8,6 +8,7 @@ import {
   conversationEventSchema,
   conversationTypingEventSchema,
   workspaceAgentsChangedEventSchema,
+  workspaceMachinesActivityEventSchema,
   workspaceMachinesChangedEventSchema,
   workspacePresenceEventSchema,
 } from "@chief/relay-contracts";
@@ -43,6 +44,8 @@ export async function openRelayWorkspaceSubscription(input: {
   /** Agents or their join requests changed; re-read them. */
   onAgentsChanged?: () => void;
   onMachinesChanged?: () => void;
+  /** A machine served a page; re-read its activity. */
+  onMachinesActivity?: () => void;
   /**
    * The socket came back after a gap. Signals sent meanwhile were lost, so
    * state kept fresh by signals should be re-read once.
@@ -131,6 +134,10 @@ export async function openRelayWorkspaceSubscription(input: {
         }
         if (workspaceMachinesChangedEventSchema.safeParse(data).success) {
           input.onMachinesChanged?.();
+          return;
+        }
+        if (workspaceMachinesActivityEventSchema.safeParse(data).success) {
+          input.onMachinesActivity?.();
           return;
         }
         const event = conversationEventSchema.parse(data);

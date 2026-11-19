@@ -4,9 +4,11 @@ import {
   createMachinePairing,
   createMachineTicket,
   createMachineViewerTicket,
+  listMachineActivity,
   listMachines,
   machineBrowserStream,
   revokeMachine,
+  setMachineEnabled,
   setUpMachineStream,
 } from "./workspace-machine-keys";
 import {
@@ -14,6 +16,8 @@ import {
   disconnectMachine,
   fetchThroughWebMachine,
   onlineMachineIds,
+  setMachineDisabled,
+  stopMachineBrowser,
 } from "./workspace-web-machine";
 
 /**
@@ -55,6 +59,24 @@ export function machineOperation(
           revokeMachine(env, ctx.storage, request, (machineId) =>
             disconnectMachine(ctx, machineId),
           ),
+      };
+    case "machine-set-enabled":
+      return {
+        span: "workspace.machine.set_enabled",
+        run: () =>
+          setMachineEnabled(ctx.storage, request, (machineId, enabled) =>
+            setMachineDisabled(ctx, machineId, !enabled),
+          ),
+      };
+    case "machine-browser-stop":
+      return {
+        span: "workspace.machine.browser_stop",
+        run: () => stopMachineBrowser(ctx, channels(), request),
+      };
+    case "machine-activity-list":
+      return {
+        span: "workspace.machine.activity_list",
+        run: () => listMachineActivity(ctx.storage, request),
       };
     case "machine-stream-setup":
       return {

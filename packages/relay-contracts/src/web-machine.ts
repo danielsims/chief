@@ -84,11 +84,22 @@ export const pairedMachineSchema = z.object({
   name: z.string(),
   createdAt: z.number(),
   online: z.boolean(),
+  enabled: z.boolean().default(true),
 });
 export type PairedMachine = z.infer<typeof pairedMachineSchema>;
 
 export const pairedMachinesSchema = z.object({
   machines: z.array(pairedMachineSchema),
+});
+
+/** Switches a paired machine on or off without unlinking it. */
+export const pairedMachineUpdateSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const pairedMachineUpdatedSchema = z.object({
+  ok: z.literal(true),
+  enabled: z.boolean(),
 });
 
 export const machineClaimSchema = z.object({
@@ -97,6 +108,27 @@ export const machineClaimSchema = z.object({
 });
 
 export const pairedMachineRemovedSchema = z.object({ ok: z.literal(true) });
+
+/** One site an agent opened through a paired computer. The machine's owner
+ * sees these; they hold the site, not the page. */
+export const machineActivityEntrySchema = z.object({
+  at: z.number(),
+  machineId: z.uuid(),
+  machine: z.string(),
+  agentId: agentIdSchema,
+  requesterUserId: z.string().optional(),
+  site: z.string(),
+  ok: z.boolean(),
+});
+export type MachineActivityEntry = z.infer<typeof machineActivityEntrySchema>;
+
+export const machineActivitySchema = z.object({
+  activity: z.array(machineActivityEntrySchema),
+});
+
+export const machineBrowserStoppedSchema = z.object({
+  stopped: z.literal(true),
+});
 
 /** Where to watch a machine's browser session, with its one-time ticket. */
 export const machineViewerTicketSchema = z.object({

@@ -55,7 +55,7 @@ export function consumeSocketAllowance(
 }
 
 export function workspaceSocketAttachment(
-  socket: WebSocket,
+  socket: Pick<WebSocket, "deserializeAttachment">,
 ): WorkspaceSocketAttachment {
   const value = parseJsonObject(socket.deserializeAttachment());
   if (!value) throw new Error("Workspace socket attachment is invalid.");

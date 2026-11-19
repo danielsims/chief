@@ -132,6 +132,32 @@ describe("channel HTTP surface", () => {
 
     const unsigned = await fetch(new Request(url, { method: "POST", body }));
     expect(unsigned.status).toBe(401);
+
+    const pairedUrl = `https://relay.test/v1/workspaces/${workspaceId}/machines/paired/${machineId}`;
+    const disabled = await fetch(
+      signedRequest(pairedUrl, "PATCH", JSON.stringify({ enabled: false })),
+    );
+    expect(disabled.status, await disabled.clone().text()).toBe(200);
+    expect(await disabled.json()).toEqual({ ok: true, enabled: false });
+    const listed = await fetch(
+      signedRequest(
+        `https://relay.test/v1/workspaces/${workspaceId}/machines/paired`,
+        "GET",
+      ),
+    );
+    expect(await listed.json()).toMatchObject({
+      machines: [expect.objectContaining({ id: machineId, enabled: false })],
+    });
+
+    const otherMachine = crypto.randomUUID();
+    const notOwned = await fetch(
+      signedRequest(
+        `https://relay.test/v1/workspaces/${workspaceId}/machines/paired/${otherMachine}`,
+        "PATCH",
+        JSON.stringify({ enabled: false }),
+      ),
+    );
+    expect(notOwned.status).toBe(404);
   });
 
   it("no longer serves channel guest invites", async () => {

@@ -37,3 +37,14 @@ export const workspaceAgentsChangedEventSchema = z
 export const workspaceMachinesChangedEventSchema = z
   .object({ type: z.literal("workspace.machines.changed") })
   .strict();
+
+/**
+ * Sent when an agent uses a paired computer's browser or connection. It
+ * carries nothing: each member re-reads the activity they may see.
+ */
+export const workspaceMachinesActivityEventSchema = z
+  .object({ type: z.literal("workspace.machines.activity") })
+  .strict();
+
+/** A member's app reports the IANA time zone it's in. */
+export const memberTimeZoneSetSchema = z.object({ ok: z.literal(true) });

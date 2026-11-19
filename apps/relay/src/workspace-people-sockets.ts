@@ -1,15 +1,21 @@
 import type { WorkspaceSocketAttachment } from "./workspace-socket-state";
 import { workspaceSocketAttachment } from "./workspace-socket-state";
-import { isWebMachine } from "./workspace-web-machine";
+
+/** The part of a socket this fan-out needs; lending machines don't parse. */
+export type PeopleSocket = Pick<WebSocket, "deserializeAttachment" | "send">;
+
+export interface PeopleSocketContext {
+  getWebSockets: (tag?: string) => readonly PeopleSocket[];
+}
 
 /** Subscribed sockets of people, never agents or lending machines. */
-export function peopleSockets(ctx: DurableObjectState, except?: WebSocket) {
+export function peopleSockets(ctx: PeopleSocketContext, except?: PeopleSocket) {
   const sockets: {
-    socket: WebSocket;
+    socket: PeopleSocket;
     attachment: WorkspaceSocketAttachment;
   }[] = [];
   for (const socket of ctx.getWebSockets()) {
-    if (socket === except || isWebMachine(ctx, socket)) continue;
+    if (socket === except) continue;
     try {
       const attachment = workspaceSocketAttachment(socket);
       if (attachment.subscribed && attachment.principal.kind === "user")
@@ -22,7 +28,7 @@ export function peopleSockets(ctx: DurableObjectState, except?: WebSocket) {
 }
 
 /** Best-effort fan-out; real deliveries handle a bad socket. */
-export function sendToSocket(socket: WebSocket, event: string) {
+export function sendToSocket(socket: PeopleSocket, event: string) {
   try {
     socket.send(event);
   } catch {
@@ -31,9 +37,9 @@ export function sendToSocket(socket: WebSocket, event: string) {
 }
 
 export function sendToPeople(
-  ctx: DurableObjectState,
+  ctx: PeopleSocketContext,
   event: string,
-  except?: WebSocket,
+  except?: PeopleSocket,
 ) {
   for (const { socket } of peopleSockets(ctx, except))
     sendToSocket(socket, event);

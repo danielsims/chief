@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { machineActivityEntrySchema } from "@chief/relay-contracts";
+
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { randomToken, sha256 } from "./external-agent-channel-security";
 import { HttpError, json } from "./http";
@@ -37,6 +39,9 @@ const machineSchema = z.object({
   /** Its tunnel for live browser views, and the secret viewer tickets are
    * signed with; set the first time the machine asks to stream. */
   stream: machineTunnelSchema.extend({ secret: z.string() }).optional(),
+  /** Absent on older pairings, which are enabled. Disabled machines stay
+   * paired and connected but are never chosen for browsing or fetching. */
+  enabled: z.boolean().optional(),
 });
 const ticketSchema = z.object({
   machineId: z.uuid(),
@@ -176,11 +181,12 @@ export async function listMachines(
         ? [machine.data]
         : [];
     })
-    .map(({ machineId, name, createdAt }) => ({
+    .map(({ machineId, name, createdAt, enabled }) => ({
       id: machineId,
       name,
       createdAt,
       online: online.has(machineId),
+      enabled: enabled !== false,
     }));
   return json({ machines });
 }
@@ -259,13 +265,88 @@ async function streamingMachine(
   const machine = pinned.success
     ? await readMachine(storage, pinned.data.machineId)
     : undefined;
-  return machine?.stream && pinned.success
+  return machine?.stream && machine.enabled !== false && pinned.success
     ? {
         ...machine,
         stream: machine.stream,
         conversationId: pinned.data.conversationId,
       }
     : undefined;
+}
+
+/** Whether a paired machine is currently allowed to serve browsing. */
+export async function pairedMachineEnabled(
+  storage: DurableObjectStorage,
+  machineId: string,
+) {
+  const machine = await readMachine(storage, machineId);
+  return machine ? machine.enabled !== false : false;
+}
+
+/** Switches a paired machine on or off without unlinking it. */
+export async function setMachineEnabled(
+  storage: DurableObjectStorage,
+  request: Request,
+  onChanged: (machineId: string, enabled: boolean) => void,
+) {
+  const { principal } = readTrustedContext(request);
+  const { machineId, enabled } = z
+    .object({ machineId: z.uuid(), enabled: z.boolean() })
+    .parse(await request.json());
+  const machine = await readMachine(storage, machineId);
+  if (
+    !machine ||
+    principal.kind !== "user" ||
+    machine.ownerUserId !== principal.userId
+  )
+    throw new HttpError(404, "machine_not_found", "That machine wasn't found.");
+  await storage.put(machineKey(machineId), { ...machine, enabled });
+  onChanged(machineId, enabled);
+  return json({ ok: true, enabled });
+}
+
+const machineActivityKey = "machine-activity";
+const machineActivityKept = 200;
+const storedMachineActivitySchema = z.array(
+  machineActivityEntrySchema.extend({ ownerUserId: z.string() }),
+);
+type StoredMachineActivity = z.infer<
+  typeof storedMachineActivitySchema
+>[number];
+
+async function readMachineActivity(storage: DurableObjectStorage) {
+  const parsed = storedMachineActivitySchema.safeParse(
+    await storage.get(machineActivityKey),
+  );
+  return parsed.success ? parsed.data : [];
+}
+
+/** Keeps only the latest sites, shared by the machines' owners. */
+export async function recordMachineActivity(
+  storage: DurableObjectStorage,
+  entry: StoredMachineActivity,
+) {
+  const activity = await readMachineActivity(storage);
+  await storage.put(
+    machineActivityKey,
+    [entry, ...activity].slice(0, machineActivityKept),
+  );
+}
+
+/** Paired machines' recent browsing, for the owner of those machines. */
+export async function listMachineActivity(
+  storage: DurableObjectStorage,
+  request: Request,
+) {
+  const { principal } = readTrustedContext(request);
+  if (principal.kind !== "user")
+    throw new HttpError(403, "members_only", "Only members have activity.");
+  const activity = await readMachineActivity(storage);
+  return json({
+    activity: activity
+      .filter((entry) => entry.ownerUserId === principal.userId)
+      .map(({ ownerUserId: _owner, ...entry }) => entry),
+  });
 }
 
 function streamUrl(hostname: string, sessionId: string) {
@@ -304,7 +385,7 @@ export async function createMachineViewerTicket(
   channels: WorkspaceChannelStore,
   request: Request,
 ) {
-  const { principal } = readTrustedContext(request);
+  const { principal, workspaceId } = readTrustedContext(request);
   if (
     principal.kind !== "user" ||
     !channels.memberRole("user", principal.userId)
@@ -325,13 +406,18 @@ export async function createMachineViewerTicket(
     !channels.canReadConversation(machine.conversationId, principal)
   )
     throw new HttpError(404, "stream_unavailable", "No live view to show.");
+  // An agent without an owner of its own belongs to whoever created the
+  // workspace, as everywhere else agents' owners are read.
   const control =
-    requireNativeAgent(storage, input.agentId).ownerUserId === principal.userId;
+    (requireNativeAgent(storage, input.agentId).ownerUserId ??
+      String(channels.requireWorkspace(workspaceId).created_by_user_id)) ===
+    principal.userId;
   const payload = base64Url(
     new TextEncoder().encode(
       JSON.stringify({
         v: 1,
         s: input.sessionId,
+        a: input.agentId,
         c: control,
         exp: Date.now() + viewerTicketLifetimeMs,
         n: randomToken(),

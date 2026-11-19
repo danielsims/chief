@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 
+import { pairedMachineUpdateSchema } from "@chief/relay-contracts";
+
 import { attempt } from "./effect";
 import { withTrustedContext } from "./internal-context";
 import { parseWorkspaceId } from "./router-agent-route-support";
@@ -15,6 +17,9 @@ const viewerTicketRoute =
 const pairedRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/paired$/u;
 const pairedMachineRoute =
   /^\/v1\/workspaces\/([^/]+)\/machines\/paired\/([^/]+)$/u;
+const browserStopRoute =
+  /^\/v1\/workspaces\/([^/]+)\/machines\/browser-stops$/u;
+const machineActivityRoute = /^\/v1\/workspaces\/([^/]+)\/machines\/activity$/u;
 
 /**
  * Paired machines. A member adds and removes their own; a machine claims its
@@ -59,14 +64,24 @@ export function routeWorkspaceMachines(
     const paired = pairedRoute.exec(url.pathname);
     const pairedMachine = pairedMachineRoute.exec(url.pathname);
     const viewerTicket = viewerTicketRoute.exec(url.pathname);
+    const activity = machineActivityRoute.exec(url.pathname);
+    const browserStop = browserStopRoute.exec(url.pathname);
     const member =
       (viewerTicket !== null && request.method === "POST") ||
+      (browserStop !== null && request.method === "POST") ||
       (pairings !== null && request.method === "POST") ||
       (paired !== null && request.method === "GET") ||
-      (pairedMachine !== null && request.method === "DELETE");
+      (pairedMachine !== null &&
+        (request.method === "DELETE" || request.method === "PATCH")) ||
+      (activity !== null && request.method === "GET");
     if (!member) return undefined;
     const workspaceId = parseWorkspaceId(
-      (pairings ?? paired ?? pairedMachine ?? viewerTicket)?.[1],
+      (pairings ??
+        paired ??
+        pairedMachine ??
+        viewerTicket ??
+        activity ??
+        browserStop)?.[1],
     );
     const authenticated = yield* attempt("relay.authenticate", () =>
       authenticateRelayRequest(request, env),
@@ -80,11 +95,36 @@ export function routeWorkspaceMachines(
     );
     const operation = viewerTicket
       ? "machine-viewer-ticket"
-      : pairings
-        ? "machine-pairing-create"
-        : paired
-          ? "machine-list"
-          : "machine-revoke";
+      : browserStop
+        ? "machine-browser-stop"
+        : activity
+          ? "machine-activity-list"
+          : pairings
+            ? "machine-pairing-create"
+            : paired
+              ? "machine-list"
+              : pairedMachine && request.method === "PATCH"
+                ? "machine-set-enabled"
+                : "machine-revoke";
+    const toggle =
+      pairedMachine && request.method === "PATCH"
+        ? yield* attempt("relay.machines.update", async () =>
+            pairedMachineUpdateSchema.parse(
+              await authenticated.request.clone().json(),
+            ),
+          )
+        : undefined;
+    const body =
+      viewerTicket ||
+      browserStop ||
+      (pairedMachine && request.method === "PATCH")
+        ? pairedMachine
+          ? JSON.stringify({
+              ...toggle,
+              machineId: pairedMachine[2],
+            })
+          : authenticated.request.body
+        : JSON.stringify(pairedMachine ? { machineId: pairedMachine[2] } : {});
     return yield* attempt("relay.machines.member", () =>
       workspaceFor(workspaceId).fetch(
         withTrustedContext(
@@ -94,11 +134,7 @@ export function routeWorkspaceMachines(
               "x-chief-internal-operation": operation,
               "content-type": "application/json",
             },
-            body: viewerTicket
-              ? authenticated.request.body
-              : JSON.stringify(
-                  pairedMachine ? { machineId: pairedMachine[2] } : {},
-                ),
+            body,
           }),
           { principal, requestId, workspaceId },
         ),
