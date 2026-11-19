@@ -5,12 +5,14 @@
 use std::{
     net::IpAddr,
     path::Path,
-    time::{Duration, Instant},
 };
+use tokio::task::JoinHandle;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
+#[cfg(unix)]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UnixListener, UnixStream},
-    task::JoinHandle,
 };
 use url::Url;
 
@@ -23,6 +25,7 @@ impl Drop for Proxy {
     }
 }
 
+#[cfg(unix)]
 pub async fn start(socket: &Path) -> Result<Proxy, String> {
     let listener = UnixListener::bind(socket).map_err(|_| "Cannot open the browser egress proxy.")?;
     {
@@ -50,6 +53,11 @@ pub async fn start(socket: &Path) -> Result<Proxy, String> {
         }
     });
     Ok(Proxy { task })
+}
+
+#[cfg(not(unix))]
+pub async fn start(_socket: &Path) -> Result<Proxy, String> {
+    Err("Browser hosting needs Linux for now.".into())
 }
 
 pub fn destination(raw: &str) -> Result<(String, u16), String> {
@@ -81,6 +89,7 @@ pub fn destination(raw: &str) -> Result<(String, u16), String> {
     Ok((host, port))
 }
 
+#[cfg(unix)]
 async fn public_connect(host: &str, port: u16) -> Result<TcpStream, String> {
     let addresses: Vec<_> = tokio::net::lookup_host((host, port))
         .await
@@ -104,11 +113,14 @@ async fn public_connect(host: &str, port: u16) -> Result<TcpStream, String> {
 }
 
 /// How long a request has to arrive, and a plain HTTP exchange to finish.
+#[cfg(unix)]
 const REQUEST_TIME: Duration = Duration::from_secs(90);
 /// An HTTPS tunnel stays open while anything moves through it, as a video's
 /// stream does, and closes after this long with nothing either way.
+#[cfg(unix)]
 const TUNNEL_IDLE: Duration = Duration::from_secs(120);
 
+#[cfg(unix)]
 async fn forward(client: &mut UnixStream) -> Result<(), String> {
     let mut header = Vec::new();
     tokio::time::timeout(REQUEST_TIME, async {
@@ -226,6 +238,7 @@ async fn forward(client: &mut UnixStream) -> Result<(), String> {
 
 /// Copies both ways until both sides finish or nothing has moved for
 /// `TUNNEL_IDLE`.
+#[cfg(unix)]
 async fn tunnel(client: &mut UnixStream, remote: &mut TcpStream) -> std::io::Result<()> {
     use std::sync::atomic::AtomicU64;
     let opened = Instant::now();
@@ -253,6 +266,7 @@ async fn tunnel(client: &mut UnixStream, remote: &mut TcpStream) -> std::io::Res
 }
 
 /// One direction of a tunnel, noting when bytes last moved.
+#[cfg(unix)]
 async fn pump<R, W>(
     reader: &mut R,
     writer: &mut W,
@@ -299,6 +313,7 @@ mod tests {
         }
         assert!(destination("https://example.com/search?q=chief").is_ok());
     }
+    #[cfg(unix)]
     #[tokio::test]
     async fn proxy_does_not_connect_to_loopback() {
         let directory = tempfile::tempdir().unwrap();
