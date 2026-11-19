@@ -66,6 +66,7 @@ if [ -z "$token" ]; then
   exit 0
 fi
 
+if [ "$os" = Linux ]; then
 step "Installing cloudflared, for the live browser view"
 if command -v cloudflared >/dev/null 2>&1; then
   echo "Already installed."
@@ -79,39 +80,68 @@ else
   install_bin "$tmp/cloudflared" cloudflared
   echo "Installed cloudflared to $dir."
 fi
+fi
 
-step "Finding a browser"
-find_chrome() {
-  for candidate in \\
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \\
-    /usr/bin/google-chrome /usr/bin/google-chrome-stable \\
-    /usr/bin/chromium /usr/bin/chromium-browser /snap/bin/chromium; do
-    [ -x "$candidate" ] && { echo "$candidate"; return 0; }
-  done
-  return 0
-}
-chrome=$(find_chrome)
-if [ -z "$chrome" ] && [ "$os" = Linux ] && command -v apt-get >/dev/null 2>&1; then
-  echo "Installing Chromium…"
-  as_root apt-get update -qq >/dev/null
-  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium >/dev/null 2>&1 \\
-    || as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium-browser >/dev/null 2>&1 \\
-    || true
+step "Setting up the browser"
+chrome=""
+if [ "$os" = Linux ]; then
+  find_chrome() {
+    for candidate in /usr/bin/google-chrome /usr/bin/google-chrome-stable \\
+      /usr/bin/chromium /usr/bin/chromium-browser; do
+      [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+    return 0
+  }
+  # Each session runs Chrome on its own virtual display (Xvfb) with its own
+  # sound server (PipeWire and WirePlumber).
+  if command -v apt-get >/dev/null 2>&1; then
+    as_root apt-get update -qq >/dev/null
+    [ -n "$(find_chrome)" ] || as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium >/dev/null 2>&1 || true
+    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \\
+      xvfb pipewire pipewire-pulse wireplumber >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    [ -n "$(find_chrome)" ] || as_root dnf install -y -q chromium >/dev/null 2>&1 || true
+    as_root dnf install -y -q xorg-x11-server-Xvfb pipewire pipewire-pulseaudio wireplumber >/dev/null 2>&1 || true
+  fi
   chrome=$(find_chrome)
+  command -v Xvfb >/dev/null 2>&1 || { echo "Xvfb isn't installed, so agents can fetch pages through this machine but not browse."; chrome=""; }
+  # Agents act in the page with agent-browser, pinned and checked like chief-machine.
+  agent_browser_version=v0.41.2
+  case "$arch" in
+    aarch64|arm64) agent_browser=agent-browser-linux-musl-arm64; agent_browser_sha256=730a5168153e27ad1243ebe960157e69de0f24531fbbac9a040856a491bf491f ;;
+    x86_64|amd64) agent_browser=agent-browser-linux-musl-x64; agent_browser_sha256=5d452d57772330fe4cef9b7aeb5e7137890dde20bbb65e82b990e0bc0b35d9cd ;;
+    *) agent_browser="" ;;
+  esac
+  if [ -z "$agent_browser" ]; then
+    echo "Browsing needs a 64-bit machine; agents can fetch pages through this one but not browse."
+    chrome=""
+  elif [ -n "$chrome" ]; then
+    curl -fsSL "https://github.com/vercel-labs/agent-browser/releases/download/$agent_browser_version/$agent_browser" -o "$tmp/agent-browser"
+    if command -v sha256sum >/dev/null 2>&1; then
+      actual=$(sha256sum "$tmp/agent-browser" | cut -d ' ' -f 1)
+    else
+      actual=$(shasum -a 256 "$tmp/agent-browser" | cut -d ' ' -f 1)
+    fi
+    if [ "$actual" = "$agent_browser_sha256" ]; then
+      chmod 755 "$tmp/agent-browser"
+      install_bin "$tmp/agent-browser" agent-browser
+    else
+      echo "agent-browser didn't match its checksum, so this machine won't browse."
+      chrome=""
+    fi
+  fi
+  [ -n "$chrome" ] && echo "Using $chrome."
+else
+  echo "Browsing runs on Linux machines for now; this one lends its connection."
 fi
-if [ -z "$chrome" ] && [ "$os" = Darwin ] && command -v brew >/dev/null 2>&1; then
-  brew install --cask google-chrome || true
-  chrome=$(find_chrome)
-fi
-[ -n "$chrome" ] && echo "Using $chrome."
 
 step "Pairing with your workspace"
 "$dir/chief-machine" pair "$token" --name "$(hostname -s 2>/dev/null || hostname)"
 if [ -n "$chrome" ]; then
   "$dir/chief-machine" browser enable --chrome "$chrome"
-else
-  echo "No Chrome or Chromium found, so agents can fetch pages through this machine but not browse."
-  echo "Install Google Chrome, then run: chief-machine browser enable --chrome <path to Chrome>"
+elif [ "$os" = Linux ]; then
+  echo "No browser set up, so agents can fetch pages through this machine but not browse."
+  echo "Install Chrome or Chromium and Xvfb, then run: chief-machine browser enable --chrome <path to Chrome>"
 fi
 
 step "Keeping it running"
