@@ -28,9 +28,6 @@ onlyBuiltDependencies:
   - sharp
 
 overrides:
-  # Local browser-ui build until its next release; swap for the version then.
-  "@browser-ui/core": file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-core-0.3.1.tgz
-  "@browser-ui/shaders": file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz
   "get-uri>basic-ftp": 6.2.1
   "miniflare>sharp": 0.35.5
 

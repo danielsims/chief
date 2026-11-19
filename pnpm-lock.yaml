@@ -35,8 +35,6 @@ catalogs:
       version: 4.6.7
 
 overrides:
-  "@browser-ui/core": file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-core-0.3.1.tgz
-  "@browser-ui/shaders": file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz
   get-uri>basic-ftp: 6.2.1
   miniflare>sharp: 0.35.5
 
@@ -87,8 +85,8 @@ importers:
         specifier: 4.0.33
         version: 4.0.33(react@19.2.7)(zod@4.6.7)
       "@browser-ui/react":
-        specifier: file:/Users/danielsims/Documents/Development/browser-ui/.local-packs/browser-ui-react-0.3.1.tgz
-        version: file:../browser-ui/.local-packs/browser-ui-react-0.3.1.tgz(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: ^0.4.0
+        version: 0.4.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       "@chief/agent-runtime":
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -1676,32 +1674,26 @@ packages:
         integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==,
       }
 
-  "@browser-ui/core@file:../browser-ui/.local-packs/browser-ui-core-0.3.1.tgz":
+  "@browser-ui/core@0.4.0":
     resolution:
       {
-        integrity: sha512-j5tj8IjTCQSIBECdOjVF/6+cJG2kJne5jT0Bn4E2Bjk8qnw87niWGbi0OV0Y+7R9pD33r5u5zgulSD7vI6V6vw==,
-        tarball: file:../browser-ui/.local-packs/browser-ui-core-0.3.1.tgz,
+        integrity: sha512-QyrSIJGf3UVW+COTVzD0hs2GnVwCgDxwZRYpyOVxG9Wnnstjkyy2DtkyuYD7iPlaLVl95RiFpLeSU3Ry93+xiQ==,
       }
-    version: 0.3.1
 
-  "@browser-ui/react@file:../browser-ui/.local-packs/browser-ui-react-0.3.1.tgz":
+  "@browser-ui/react@0.4.0":
     resolution:
       {
-        integrity: sha512-xdusGw1kw1eA9YeddRSBa+4eNGjochmoZenkih/HFklCcJi7zpSSXQJsYBNXrqWXXq8A2mV8YNmpcTXRw39CdA==,
-        tarball: file:../browser-ui/.local-packs/browser-ui-react-0.3.1.tgz,
+        integrity: sha512-xa/7ZdsVYCRJTout5yIFvMnYAraOqrdz0blIFuOIDFiHWuG+rQpEKVnww0vAgA9BPcTXCa7HDVt6PePuOy16Cg==,
       }
-    version: 0.3.1
     peerDependencies:
       react: ">=18"
       react-dom: ">=18"
 
-  "@browser-ui/shaders@file:../browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz":
+  "@browser-ui/shaders@0.4.0":
     resolution:
       {
-        integrity: sha512-/LtZbgZyU6cjoAh6o5SkB9ZwoCelvpj/6W2jMnUR/9aY/sleRt/OXhctbJ6TljHPBNe10lOJrfSksncVbReJUA==,
-        tarball: file:../browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz,
+        integrity: sha512-LP8Kt6CrBLZSGccrhTUnOkPXYttYNKITxB8pz/Ruoxv3+ENaOPLnjcgvcga7FcxSnWZpTf4Waw5lTGHThYqtzg==,
       }
-    version: 0.3.1
 
   "@cfworker/json-schema@4.1.1":
     resolution:
@@ -16137,21 +16129,19 @@ snapshots:
 
   "@braintree/sanitize-url@7.1.2": {}
 
-  "@browser-ui/core@file:../browser-ui/.local-packs/browser-ui-core-0.3.1.tgz":
-    {}
+  "@browser-ui/core@0.4.0": {}
 
-  "@browser-ui/react@file:../browser-ui/.local-packs/browser-ui-react-0.3.1.tgz(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
+  "@browser-ui/react@0.4.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
     dependencies:
-      "@browser-ui/core": file:../browser-ui/.local-packs/browser-ui-core-0.3.1.tgz
-      "@browser-ui/shaders": file:../browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz
+      "@browser-ui/core": 0.4.0
+      "@browser-ui/shaders": 0.4.0
       motion: 12.42.2(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
     transitivePeerDependencies:
       - "@emotion/is-prop-valid"
 
-  "@browser-ui/shaders@file:../browser-ui/.local-packs/browser-ui-shaders-0.3.1.tgz":
-    {}
+  "@browser-ui/shaders@0.4.0": {}
 
   "@cfworker/json-schema@4.1.1": {}
 
