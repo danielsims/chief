@@ -5,6 +5,7 @@ import { Check, Copy, ShieldCheck } from "lucide-react";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -70,17 +71,17 @@ export function ConnectionSettings() {
         </CardContent>
       </Card>
       <Card>
-        <CardHeader className="flex-row items-start justify-between gap-6 space-y-0">
-          <div className="space-y-1.5">
-            <CardTitle>Other relays</CardTitle>
-            <CardDescription>
-              Connect a self-hosted relay, or another Chief account, to use its
-              workspaces here too.
-            </CardDescription>
-          </div>
-          <Button variant="outline" onClick={() => setConnecting(true)}>
-            Connect a relay
-          </Button>
+        <CardHeader>
+          <CardTitle>Connect a relay</CardTitle>
+          <CardDescription>
+            Connect a self-hosted relay, or another Chief account, to use its
+            workspaces here too.
+          </CardDescription>
+          <CardAction>
+            <Button variant="outline" onClick={() => setConnecting(true)}>
+              Connect
+            </Button>
+          </CardAction>
         </CardHeader>
       </Card>
       <RelayConnectionDialog open={connecting} onOpenChange={setConnecting} />
