@@ -19,12 +19,12 @@ const excluded = new Set([
   "brandProfile.save",
   // Only meaningful to an agent choosing where to work.
   "channels.join",
-  "recurringWork.list",
+  "automations.list",
   // These start work that finishes later, so a step could not wait for it.
   "specialists.delegate",
   "questions.ask",
   // An automation must not create, test or rework automations.
-  "recurringWork.propose",
+  "automations.propose",
   "automations.tools",
   "automations.inspect",
   "automations.test",

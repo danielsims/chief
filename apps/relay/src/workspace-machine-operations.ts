@@ -3,14 +3,21 @@ import {
   claimMachinePairing,
   createMachinePairing,
   createMachineTicket,
+  createMachineViewerTicket,
+  listMachineActivity,
   listMachines,
+  machineBrowserStream,
   revokeMachine,
+  setMachineEnabled,
+  setUpMachineStream,
 } from "./workspace-machine-keys";
 import {
   browseThroughWebMachine,
   disconnectMachine,
   fetchThroughWebMachine,
   onlineMachineIds,
+  setMachineDisabled,
+  stopMachineBrowser,
 } from "./workspace-web-machine";
 
 /**
@@ -18,6 +25,7 @@ import {
  * with the span it's traced under, or undefined for any other operation.
  */
 export function machineOperation(
+  env: Env,
   ctx: DurableObjectState,
   channels: () => WorkspaceChannelStore,
   operation: string | null,
@@ -48,9 +56,42 @@ export function machineOperation(
       return {
         span: "workspace.machine.revoke",
         run: () =>
-          revokeMachine(ctx.storage, request, (machineId) =>
+          revokeMachine(env, ctx.storage, request, (machineId) =>
             disconnectMachine(ctx, machineId),
           ),
+      };
+    case "machine-set-enabled":
+      return {
+        span: "workspace.machine.set_enabled",
+        run: () =>
+          setMachineEnabled(ctx.storage, request, (machineId, enabled) =>
+            setMachineDisabled(ctx, machineId, !enabled),
+          ),
+      };
+    case "machine-browser-stop":
+      return {
+        span: "workspace.machine.browser_stop",
+        run: () => stopMachineBrowser(ctx, channels(), request),
+      };
+    case "machine-activity-list":
+      return {
+        span: "workspace.machine.activity_list",
+        run: () => listMachineActivity(ctx.storage, request),
+      };
+    case "machine-stream-setup":
+      return {
+        span: "workspace.machine.stream_setup",
+        run: () => setUpMachineStream(env, ctx.storage, channels(), request),
+      };
+    case "machine-browser-stream":
+      return {
+        span: "workspace.machine.browser_stream",
+        run: () => machineBrowserStream(ctx.storage, request),
+      };
+    case "machine-viewer-ticket":
+      return {
+        span: "workspace.machine.viewer_ticket",
+        run: () => createMachineViewerTicket(ctx.storage, channels(), request),
       };
     case "machine-browser":
       return {

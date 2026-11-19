@@ -15,7 +15,7 @@ export function QuestionCard({
   const [picked, setPicked] = useState<string | null>(null);
   const answered = picked ?? answers?.answerFor(question) ?? null;
   return (
-    <div className="flex max-w-md min-w-0 flex-col gap-1.5">
+    <div className="flex max-w-lg min-w-0 flex-col gap-1.5">
       {question.options.map((option) => {
         const chosen = answered === option;
         return (

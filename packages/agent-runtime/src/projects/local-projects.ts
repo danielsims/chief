@@ -26,6 +26,7 @@ import {
   repositoryRoot,
   workspaceSegment,
 } from "./repository-git.js";
+import { syncOwnedClone } from "./repository-sync.js";
 
 const connectionSchema = z.object({
   connectionId: z.string().uuid(),
@@ -256,6 +257,9 @@ export async function prepareLocalProjectCheckout(
       name: binding.project.name,
     };
   await mkdir(join(directory, ".."), { recursive: true, mode: 0o700 });
+  // A new checkout starts from the remote's latest, not a stale clone.
+  if (binding.project.repositoryKind !== "attached")
+    await syncOwnedClone(binding.repositoryPath);
   await git(
     ["worktree", "add", "-b", `chief/${key}`, "--", directory, "HEAD"],
     binding.repositoryPath,

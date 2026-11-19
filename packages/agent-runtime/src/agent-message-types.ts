@@ -189,6 +189,39 @@ export interface GenerativeQuestionData {
 }
 
 /**
+ * An automation shown in a conversation. Like an AI SDK data part with an
+ * id, the card is reconciled with the live record: it carries the
+ * automation's id and renders whatever that automation is now, falling back
+ * to the title it was posted with.
+ */
+export interface GenerativeAutomationData {
+  automationId: string;
+  title: string;
+  agentId: string;
+  /** The message the card arrived in. */
+  messageId: string;
+}
+
+/** A workspace database shown in a conversation, read live by whoever renders it. */
+export interface GenerativeDatabaseData {
+  databaseId: string;
+  view: "table" | "board";
+  title: string;
+  agentId: string;
+  messageId: string;
+}
+
+/** An email or message an agent drafted for the person to send themselves. */
+export interface GenerativeDraftData {
+  format: "email" | "message";
+  to?: string;
+  subject?: string;
+  body: string;
+  agentId: string;
+  messageId: string;
+}
+
+/**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
  * can emit the same chart part and every client can render it consistently.
@@ -260,6 +293,9 @@ export type ChiefUIMessage = UIMessage<
     "plugin-recommendations": GenerativePluginRecommendationsData;
     "project-recommendation": GenerativeProjectRecommendationData;
     question: GenerativeQuestionData;
+    automation: GenerativeAutomationData;
+    database: GenerativeDatabaseData;
+    draft: GenerativeDraftData;
   }
 >;
 
@@ -293,6 +329,21 @@ export type GenerativeQuestionBlock = Extract<
   { type: "data-question" }
 >;
 
+export type GenerativeAutomationBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-automation" }
+>;
+
+export type GenerativeDatabaseBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-database" }
+>;
+
+export type GenerativeDraftBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-draft" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -309,6 +360,9 @@ export type ContentBlock =
   | GenerativePluginRecommendationsBlock
   | GenerativeProjectRecommendationBlock
   | GenerativeQuestionBlock
+  | GenerativeAutomationBlock
+  | GenerativeDatabaseBlock
+  | GenerativeDraftBlock
   | {
       type: "tool_use";
       id: string;

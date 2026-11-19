@@ -90,44 +90,6 @@ function finalAssistantText(events: readonly AgentEvent[]) {
     .at(-1);
 }
 
-function postedFinalToOrigin(
-  events: readonly AgentEvent[],
-  conversationId: string,
-  threadRootId?: string,
-) {
-  return events.some((event) =>
-    event.type === "message" && event.role === "assistant"
-      ? event.content.some((block) => {
-          if (
-            block.type !== "tool_use" ||
-            !block.name.includes("channels_messages_post")
-          ) {
-            return false;
-          }
-          const posted = events.some(
-            (candidate) =>
-              candidate.type === "message" &&
-              candidate.content.some(
-                (result) =>
-                  result.type === "tool_result" &&
-                  result.tool_use_id === block.id &&
-                  !result.is_error,
-              ),
-          );
-          if (!posted) return false;
-          const input = parseJsonObject(block.input);
-          if (
-            input?.channelId !== conversationId ||
-            (parseJsonString(input.threadRootId) ?? undefined) !== threadRootId
-          )
-            return false;
-          const key = parseJsonString(input.idempotencyKey) ?? "";
-          return key.includes("result") || key.includes("handoff");
-        })
-      : false,
-  );
-}
-
 function socketEvent(data: Buffer) {
   try {
     return parseJsonObject(JSON.parse(String(data)));
@@ -177,14 +139,21 @@ async function executeJob(
     throw error;
   }
   let session: AgentSession | null = null;
+  // This run's steering, kept past the run so its messages end with it.
+  let folded: RunSteering | null = null;
   const renew = setInterval(() => {
     void Promise.all([
       cell.leasesManager.renew(cell.id, runId, 5 * 60_000),
       client.renewAgentJob(agentId, lease.leaseToken, 300),
+      folded?.renew(),
     ]).catch(async (error: unknown) => {
       console.error("[cell] lease renewal:", error);
-      if (error instanceof RelayClientError && error.code === "stale_lease")
+      // The relay ended this run, such as on Stop: later messages run as
+      // their own jobs rather than joining it.
+      if (error instanceof RelayClientError && error.code === "stale_lease") {
+        if (steering === folded) steering = null;
         await session?.stop();
+      }
     });
   }, 60_000);
   renew.unref();
@@ -232,6 +201,11 @@ async function executeJob(
     const skillId = parseJsonString(job.payload.skillId);
     const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
     const sessionKey = `${conversationId}:${activityContext.threadRootId ?? "main"}:${project?.projectId ?? "workspace"}`;
+    const driver = normalizeDriver(config.inference.provider);
+    // A session id only means something to the provider that made it, so a
+    // thread that changes provider starts a fresh provider session (the
+    // transcript in events: still carries over).
+    const providerSessionKey = `providerSession:${driver}:${sessionKey}`;
     const storedEvents = await cell.readState(`events:${sessionKey}`);
     const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnEvents: AgentEvent[] = [];
@@ -262,7 +236,7 @@ async function executeJob(
       },
       conversationId,
       {
-        driver: normalizeDriver(config.inference.provider),
+        driver,
         // With automatic approvals the agent works freely on this device;
         // otherwise Chief's own tools run and anything else is asked of the
         // person in the thread below.
@@ -352,7 +326,7 @@ async function executeJob(
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      parseJsonString(await cell.readState(`providerSession:${sessionKey}`)),
+      parseJsonString(await cell.readState(providerSessionKey)),
     );
     const promptContext = {
       threadRootId: activityContext.threadRootId,
@@ -360,11 +334,11 @@ async function executeJob(
       // provider re-applies when a job starts.
       privateInstructions:
         job.kind === "conversation.message" || job.kind === "schedule.step"
-          ? relayCellFinalReply(conversationId, activityContext.threadRootId)
+          ? relayCellFinalReply()
           : "",
     };
     if (job.kind === "conversation.message") {
-      steering = new RunSteering(
+      folded = steering = new RunSteering(
         conversationId,
         activityContext.threadRootId,
         client,
@@ -394,24 +368,16 @@ async function executeJob(
     steering = null;
     await activityPublisher.flush();
     if (agentSession.sessionId) {
-      await cell.writeState(
-        `providerSession:${sessionKey}`,
-        agentSession.sessionId,
-      );
+      await cell.writeState(providerSessionKey, agentSession.sessionId);
     }
     await cell.writeState(
       `events:${sessionKey}`,
       agentSession.events.slice(-500),
     );
     const reply = finalAssistantText(turnEvents);
-    const posted = postedFinalToOrigin(
-      turnEvents,
-      conversationId,
-      activityContext.threadRootId,
-    );
     // A run that ends without a word hasn't done what was asked; it fails
     // and says why rather than claiming it finished.
-    if (!reply && !posted)
+    if (!reply)
       throw new LocalJobBlockedError(
         refused.length
           ? `Stopped without finishing: it wasn't allowed to ${[...new Set(refused)].join(", ")}.`
@@ -423,21 +389,19 @@ async function executeJob(
       leaseToken: lease.leaseToken,
       outcome: {
         status: "completed",
-        result:
-          posted || !reply
-            ? {}
-            : {
-                publishedMessage: {
-                  conversationId,
-                  ...(activityContext.threadRootId
-                    ? { threadRootId: activityContext.threadRootId }
-                    : undefined),
-                  body: reply,
-                  components: [],
-                },
-              },
+        result: {
+          publishedMessage: {
+            conversationId,
+            ...(activityContext.threadRootId
+              ? { threadRootId: activityContext.threadRootId }
+              : undefined),
+            body: reply,
+            components: [],
+          },
+        },
       },
     });
+    await folded?.settle();
     console.info(
       "[cell-activity]",
       JSON.stringify({
@@ -449,6 +413,9 @@ async function executeJob(
     );
   } catch (error) {
     steering = null;
+    await folded?.settle(
+      error instanceof Error ? error.message : String(error),
+    );
     console.error(
       "[cell-activity]",
       JSON.stringify({

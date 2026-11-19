@@ -145,8 +145,18 @@ export function useChiefChatPresentation({
     options?: { threadRoot?: boolean },
   ) => {
     if (!destinationChannelId) return { footer: null };
+    // Only what someone said counts as a reply; an agent's browser card or
+    // working status is part of the thread, not a reply in it.
     const replySummary = summarizeThreadReplies(
-      options?.threadRoot ? [] : (threadReplies.get(message.id) ?? []),
+      options?.threadRoot
+        ? []
+        : (threadReplies.get(message.id) ?? []).filter(
+            (reply) =>
+              reply.role === "user" ||
+              messageBlocks(reply).some(
+                (part) => part.type === "text" && part.text.trim() !== "",
+              ),
+          ),
     );
     const text = messageBlocks(message)
       .flatMap((part) => (part.type === "text" ? [part.text] : []))

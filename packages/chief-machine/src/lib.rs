@@ -20,10 +20,20 @@ pub mod machine;
 #[cfg(feature = "cli")]
 pub mod relay_http;
 
-#[cfg(feature = "cli")]
+#[cfg(all(feature = "cli", target_os = "linux"))]
+mod browser_agent;
+#[cfg(all(feature = "cli", target_os = "linux"))]
 mod browser_cdp;
+#[cfg(all(feature = "cli", target_os = "linux"))]
+pub mod browser_host;
+#[cfg(all(feature = "cli", target_os = "linux"))]
+mod browser_launch;
+#[cfg(all(feature = "cli", target_os = "linux"))]
+mod browser_media;
+#[cfg(all(feature = "cli", target_os = "linux"))]
+mod browser_stream;
 
 #[cfg(feature = "cli")]
-pub mod owned_agent;
-#[cfg(feature = "cli")]
 mod agent_identity;
+#[cfg(feature = "cli")]
+pub mod owned_agent;

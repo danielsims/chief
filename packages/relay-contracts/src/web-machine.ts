@@ -84,11 +84,22 @@ export const pairedMachineSchema = z.object({
   name: z.string(),
   createdAt: z.number(),
   online: z.boolean(),
+  enabled: z.boolean().default(true),
 });
 export type PairedMachine = z.infer<typeof pairedMachineSchema>;
 
 export const pairedMachinesSchema = z.object({
   machines: z.array(pairedMachineSchema),
+});
+
+/** Switches a paired machine on or off without unlinking it. */
+export const pairedMachineUpdateSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const pairedMachineUpdatedSchema = z.object({
+  ok: z.literal(true),
+  enabled: z.boolean(),
 });
 
 export const machineClaimSchema = z.object({
@@ -97,6 +108,33 @@ export const machineClaimSchema = z.object({
 });
 
 export const pairedMachineRemovedSchema = z.object({ ok: z.literal(true) });
+
+/** One site an agent opened through a paired computer. The machine's owner
+ * sees these; they hold the site, not the page. */
+export const machineActivityEntrySchema = z.object({
+  at: z.number(),
+  machineId: z.uuid(),
+  machine: z.string(),
+  agentId: agentIdSchema,
+  requesterUserId: z.string().optional(),
+  site: z.string(),
+  ok: z.boolean(),
+});
+export type MachineActivityEntry = z.infer<typeof machineActivityEntrySchema>;
+
+export const machineActivitySchema = z.object({
+  activity: z.array(machineActivityEntrySchema),
+});
+
+export const machineBrowserStoppedSchema = z.object({
+  stopped: z.literal(true),
+});
+
+/** Where to watch a machine's browser session, with its one-time ticket. */
+export const machineViewerTicketSchema = z.object({
+  url: z.url().refine((url) => url.startsWith("wss://")),
+  protocols: z.array(z.string().min(1).max(2_000)).min(1).max(4),
+});
 
 /** Bounded, browser-only commands. Paths, scripts, CDP endpoints and executable
  * configuration are deliberately absent from the remote protocol. */
@@ -122,6 +160,9 @@ export const machineBrowserCommandSchema = z
       .optional(),
     text: z.string().max(16_000).optional(),
     values: z.array(z.string().max(1000)).max(30).optional(),
+    /** Where the session is shown, recorded so only that conversation's
+     * members may watch it. Kept on the relay; the machine never sees it. */
+    conversationId: z.string().min(1).max(200).optional(),
   })
   .strict();
 export const machineBrowserResultSchema = z.discriminatedUnion("ok", [

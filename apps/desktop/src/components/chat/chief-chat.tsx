@@ -7,6 +7,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ThreadAgent } from "./chief-chat-auxiliary-panels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
+import { agentWorkingIn } from "../../lib/runtime-chat-controls";
 import { useChannelTyping } from "../../lib/use-channel-typing";
 import { workspaceCardClassName } from "../workspace-content-surface";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -21,7 +22,9 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
+import { CodeChangesCard } from "./code-changes-card";
 import { continuedMessageIds } from "./conversation-timeline-entries";
+import { MessageSourcesPill } from "./message-sources-pill";
 import { PeopleTypingRow } from "./people-typing-row";
 import { QuestionAnswersProvider } from "./question-answers-context";
 import { RecurringWorkComposer } from "./recurring-work-composer";
@@ -185,14 +188,23 @@ export function ChiefChat({
       scheduleRuns: core.scheduleRuns,
       workingAgents: controls.workingAgents,
     });
+  // An agent's browser is operating while that agent works in its thread.
+  const browserOperating = (run: BrowserRunRecord) => {
+    const agentId = browserSessions[run.id]?.agentId;
+    return agentId
+      ? agentWorkingIn(controls.workingAgents, agentId, run.threadRootId)
+      : controls.status === "running";
+  };
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
-      <BrowserSessionAttachment
-        operating={controls.status === "running"}
-        pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
-        pictureInPictureContainerRef={pictureInPictureContainerRef}
-        run={run}
-      />
+      <div className="max-w-2xl">
+        <BrowserSessionAttachment
+          operating={browserOperating(run)}
+          pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={pictureInPictureContainerRef}
+          run={run}
+        />
+      </div>
     </div>
   );
   const {
@@ -362,6 +374,12 @@ export function ChiefChat({
                               onOpenChannel={onOpenChannel}
                               onOpenTask={onOpenChild}
                             />
+                            {entry.sources ? (
+                              <MessageSourcesPill sources={entry.sources} />
+                            ) : null}
+                            {entry.changes ? (
+                              <CodeChangesCard edits={entry.changes} />
+                            ) : null}
                           </ChiefMessage>
                         );
                       }}

@@ -324,7 +324,9 @@ export const ComposerRichText = forwardRef<
       StarterKit.configure({ heading: false, horizontalRule: false }),
       Link.configure({ openOnClick: false }),
       placeholderControl.extension,
-      Markdown,
+      // Pasted text is read as Markdown, so a pasted list stays a list rather
+      // than paragraphs whose indented lines send as code blocks.
+      Markdown.configure({ transformPastedText: true }),
       mentionExtension,
     ],
     content: value,

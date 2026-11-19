@@ -37,7 +37,7 @@ import {
   pluginProviderKey,
 } from "../../lib/plugin-presentation";
 import { useWorkspaceRole } from "../../lib/workspace-role";
-import { ProviderLogo } from "../provider-logo";
+import { preloadProviderLogos, ProviderLogo } from "../provider-logo";
 import { PluginAction } from "./plugin-action";
 import { usePluginConnectFlow } from "./plugin-connect-flow";
 
@@ -132,6 +132,15 @@ const PluginSections = memo(function PluginSections({
   const canManage = canManagePlugins(useWorkspaceRole());
   const sentinel = useRef<HTMLDivElement>(null);
   const total = grouped.reduce((sum, [, group]) => sum + group.length, 0);
+  // Logos for what's shown and the next page load ahead of the scroll.
+  useEffect(() => {
+    preloadProviderLogos(
+      grouped
+        .flatMap(([, group]) => group)
+        .slice(0, limit + 48)
+        .map(pluginDomain),
+    );
+  }, [grouped, limit]);
   useEffect(() => {
     const element = sentinel.current;
     if (!element || limit >= total) return;
@@ -139,7 +148,7 @@ const PluginSections = memo(function PluginSections({
       ([entry]) => {
         if (entry?.isIntersecting) setLimit((current) => current + 48);
       },
-      { rootMargin: "200px" },
+      { rootMargin: "1200px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
@@ -158,7 +167,7 @@ const PluginSections = memo(function PluginSections({
             {group.map((plugin) => (
               <article
                 key={`${plugin.source.type}-${plugin.id}`}
-                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+                className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-2xl px-4 py-3 transition-colors"
               >
                 <button
                   type="button"

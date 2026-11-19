@@ -267,7 +267,7 @@ export function DatabaseRowPanel({
                         field={field}
                         value={value}
                         people={people}
-                        className="hover:bg-foreground/[0.03] flex min-h-7 w-full items-center rounded-md py-1 text-left text-[13px]"
+                        className="hover:bg-foreground/[0.03] -mx-2 flex min-h-7 w-[calc(100%+1rem)] items-center rounded-md px-2 py-1 text-left text-[13px]"
                         placeholder="Empty"
                         onChange={(next) => setValue(field.id, next)}
                       />

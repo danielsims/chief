@@ -5,16 +5,19 @@ import { Check, Copy, ShieldCheck } from "lucide-react";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@chief/ui/components/card";
 
+import { RelayConnectionDialog } from "../../components/relay-connection-control";
 import { CHIEF_CLOUD_RELAY_URL, RELAY_URL } from "../../lib/config";
 
 export function ConnectionSettings() {
   const [copied, setCopied] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const relayUrl = new URL(RELAY_URL).origin;
   const chiefHosted = relayUrl === new URL(CHIEF_CLOUD_RELAY_URL).origin;
 
@@ -67,6 +70,21 @@ export function ConnectionSettings() {
           </ConnectionRow>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Connect a relay</CardTitle>
+          <CardDescription>
+            Connect a self-hosted relay, or another Chief account, to use its
+            workspaces here too.
+          </CardDescription>
+          <CardAction>
+            <Button variant="outline" onClick={() => setConnecting(true)}>
+              Connect
+            </Button>
+          </CardAction>
+        </CardHeader>
+      </Card>
+      <RelayConnectionDialog open={connecting} onOpenChange={setConnecting} />
     </div>
   );
 }

@@ -15,6 +15,8 @@ type Lease = NonNullable<Awaited<ReturnType<RelayClient["claimAgentJob"]>>>;
 export class RunSteering {
   private readonly waiting: string[] = [];
   private readonly held: Lease[] = [];
+  /** Messages folded into the turn, answered once the run itself is. */
+  private readonly steered: Lease[] = [];
   private folding = Promise.resolve();
   /** Set while the run waits on a person's answer, such as an approval. */
   private answering: ((answer: string) => void) | null = null;
@@ -94,7 +96,42 @@ export class RunSteering {
       return;
     }
     session.steer(instruction);
-    await this.complete(lease);
+    this.steered.push(lease);
+  }
+
+  /** Keeps folded messages' leases alive for as long as the run's. */
+  renew() {
+    return Promise.all(
+      this.steered.map((lease) =>
+        this.client.renewAgentJob(this.agentId, lease.leaseToken, 300),
+      ),
+    );
+  }
+
+  /**
+   * Ends the folded messages with the run: answered when it succeeds,
+   * otherwise handed back to run again, so a failed run never loses one.
+   */
+  async settle(error?: string) {
+    await this.folding;
+    const leases = [...this.steered.splice(0), ...this.held.splice(0)];
+    await Promise.all(
+      leases.map((lease) =>
+        (error === undefined
+          ? this.complete(lease)
+          : this.client.completeAgentJob(this.agentId, {
+              leaseToken: lease.leaseToken,
+              outcome: {
+                status: "failed",
+                error,
+                retryAt: new Date().toISOString(),
+              },
+            })
+        ).catch((cause: unknown) =>
+          console.error("[cell] steered message:", cause),
+        ),
+      ),
+    );
   }
 
   private claim(jobId: string) {

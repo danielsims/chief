@@ -23,7 +23,12 @@ export function CardHeader({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-col space-y-1.5 p-5", className)}
+      className={cn(
+        // A header with an action lays it out beside the title, so every
+        // card's title and description render the same way.
+        "grid auto-rows-min items-start gap-1.5 p-5 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-action]:gap-x-6",
+        className,
+      )}
       {...props}
     />
   );
@@ -37,6 +42,23 @@ export function CardTitle({
     <div
       className={cn(
         "text-lg leading-none font-medium tracking-tight",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** A button or switch at the header's right, level with the title. */
+export function CardAction({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
         className,
       )}
       {...props}

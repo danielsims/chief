@@ -61,6 +61,7 @@ void test("hosted browser activity opens the existing browser UI stream", () => 
     browserRunId: "job-1",
     workspaceId: "workspace-a",
     conversationId: "marketing",
+    agentId: "advertising",
     anchorMessageId: "activity-1",
     url: "https://example.com/",
     streamUrl: "wss://computer.example/v1/browser/stream?ticket=signed",
@@ -287,6 +288,40 @@ void test("project recommendation components become connect cards", () => {
       remoteUrl: "https://github.com/acme/program.git",
     },
   });
+});
+
+void test("automation components become one live card per automation", () => {
+  const card = (id: string) => ({
+    id: `automation-card-${id}`,
+    kind: "automation",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-a",
+      conversationId: "marketing",
+      agentId: "advertising",
+      automationId: "weekly-review",
+      title: "Weekly review",
+    },
+  });
+  const posted = message([card("1"), card("2")], "");
+
+  assert.deepEqual(
+    toChiefMessage(posted).parts.filter(
+      (part) => part.type === "data-automation",
+    ),
+    [
+      {
+        type: "data-automation",
+        id: "weekly-review",
+        data: {
+          automationId: "weekly-review",
+          title: "Weekly review",
+          agentId: "advertising",
+          messageId: posted.id,
+        },
+      },
+    ],
+  );
 });
 
 void test("working state follows the relay's run row, not its steps", () => {

@@ -47,8 +47,8 @@ describe("hosted web tools", () => {
   });
 });
 
-it("uses the selected workspace browser when a source rejects plain fetching", async () => {
-  const open = vi.fn().mockResolvedValue({
+it("reads in a background browser session when a source rejects plain fetching", async () => {
+  const read = vi.fn().mockResolvedValue({
     url: "https://example.com/public",
     title: "Rendered source",
     text: "Readable JavaScript page evidence.",
@@ -61,33 +61,36 @@ it("uses the selected workspace browser when a source rejects plain fetching", a
   try {
     const { hostedWebTools } =
       await import("../src/hosted-agent-tools/toolkits/web");
-    const read = hostedWebTools[0];
-    if (!read) throw new Error("Missing web read tool");
-    const context: Parameters<typeof read.execute>[0] = {
+    const webRead = hostedWebTools[0];
+    if (!webRead) throw new Error("Missing web read tool");
+    const open = vi.fn();
+    const context: Parameters<typeof webRead.execute>[0] = {
       env: {} as Env,
       job: {
         id: "selected-browser-fallback",
         workspaceId: "test",
         agentId: "prospector",
         payload: {},
-      } as Parameters<typeof read.execute>[0]["job"],
-      principal: {} as Parameters<typeof read.execute>[0]["principal"],
+      } as Parameters<typeof webRead.execute>[0]["job"],
+      principal: {} as Parameters<typeof webRead.execute>[0]["principal"],
       browser: {
         open,
-        snapshot: open,
-        click: open,
-        type: open,
-        select: open,
+        snapshot: vi.fn(),
+        click: vi.fn(),
+        type: vi.fn(),
+        select: vi.fn(),
+        read,
         screenshot: vi.fn().mockResolvedValue(new Uint8Array()),
         close: vi.fn().mockResolvedValue(undefined),
       },
-      computer: {} as Parameters<typeof read.execute>[0]["computer"],
+      computer: {} as Parameters<typeof webRead.execute>[0]["computer"],
       computerEnabled: false,
     };
-    const result = await read.execute(context, {
+    const result = await webRead.execute(context, {
       url: "https://example.com/public",
     });
-    expect(open).toHaveBeenCalledWith("https://example.com/public");
+    expect(read).toHaveBeenCalledWith("https://example.com/public");
+    expect(open).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       title: "Rendered source",
       text: "Readable JavaScript page evidence.",

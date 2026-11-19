@@ -55,10 +55,10 @@ export const proposeRecurringWorkDefinition = defineAgentTool({
   method: "POST",
   path: "/local-tools/recurring-work",
   operation: {
-    operationId: "recurringWork.propose",
-    summary: "Propose recurring or one-time agent work for user approval",
+    operationId: "automations.propose",
+    summary: "Propose an automation for user approval",
     description:
-      "Configure the complete scheduled team: lead agentId, collaborators, instructions, optional outcome/constraints/run limit, and a cron, onceAt or webhook trigger. Set newChannel to {} to create a dedicated channel automatically, or provide its name and inviteUserIds. Otherwise use conversationId; missing teammates are added with membership permission. Supply timezone and optionally skipDates. Use a stable id to revise a proposal. The user must approve the latest proposal before execution; a webhook trigger gets its URL from the trigger card in Automations.",
+      "Configure the complete automation: lead agentId, collaborators, instructions, optional outcome/constraints/run limit, and a cron, onceAt or webhook trigger. Set newChannel to {} to create a dedicated channel automatically, or provide its name and inviteUserIds. Otherwise use conversationId; missing teammates are added with membership permission. Supply timezone and optionally skipDates. Use a stable id to revise a proposal. The user must approve the latest proposal before execution; a webhook trigger gets its URL from the trigger card in Automations.",
   },
   inputSchema: recurringWorkInputSchema,
 });
@@ -66,8 +66,19 @@ export const listRecurringWorkDefinition = defineAgentTool({
   method: "GET",
   path: "/local-tools/recurring-work",
   operation: {
-    operationId: "recurringWork.list",
+    operationId: "automations.list",
     summary: "List automations",
-    description: "List schedules and their approval state.",
+    description: "List automations and their approval state.",
   },
+});
+export const showAutomationDefinition = defineAgentTool({
+  method: "POST",
+  path: "/local-tools/automations/show",
+  operation: {
+    operationId: "automations.show",
+    summary: "Show an automation",
+    description:
+      "Show an existing automation as a card in this conversation, where the person can review and edit it. Nothing is saved or run. Find its id with automations.list.",
+  },
+  inputSchema: z.object({ id: boundedText(120) }),
 });

@@ -31,13 +31,17 @@ export function taskAgentActivityPresence(
 ) {
   return mergeAgentActivityPresence(
     undefined,
-    tasks.filter(taskIsActivelyWorking).map((task) => ({
-      id: task.agent,
-      label: labelFor(task.agent),
-      // A relay job has no local transcript to open. Its tool calls and
-      // thinking arrive as conversation activity, shown in the Activity panel.
-      ...(task.provider === "relay" ? undefined : { taskId: task.id }),
-    })),
+    tasks
+      // A relay job's run row says live whether it's working, and clears the
+      // moment it ends; the job list is a snapshot read on open, so counting
+      // it too left finished runs showing as working.
+      .filter((task) => task.provider !== "relay")
+      .filter(taskIsActivelyWorking)
+      .map((task) => ({
+        id: task.agent,
+        label: labelFor(task.agent),
+        taskId: task.id,
+      })),
   );
 }
 

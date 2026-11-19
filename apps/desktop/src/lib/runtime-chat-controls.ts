@@ -53,6 +53,20 @@ function withWorkingAgent(
     : others;
 }
 
+/** Whether an agent has a turn in progress in a thread. A turn not tagged
+ * with a thread counts for any of the agent's threads. */
+export function agentWorkingIn(
+  workingAgents: readonly WorkingAgent[],
+  agentId: string,
+  threadRootId: string | null | undefined,
+) {
+  return workingAgents.some(
+    (entry) =>
+      entry.agentId === agentId &&
+      (!entry.threadRootId || entry.threadRootId === threadRootId),
+  );
+}
+
 /** Prevents process state from one conversation appearing on another while
  * React is switching the active chat and its subscription. */
 export function controlsForConversation(

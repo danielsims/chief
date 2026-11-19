@@ -4,14 +4,20 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agentIdSchema,
   machineBrowserCommandSchema,
+  userIdSchema,
 } from "@chief/relay-contracts";
 
 import type { MachineSocket } from "../src/workspace-web-machine";
 import { withTrustedContext } from "../src/internal-context";
 import { WorkspaceChannelStore } from "../src/workspace-channel-store";
 import {
+  listMachineActivity,
+  setMachineEnabled,
+} from "../src/workspace-machine-keys";
+import {
   browseThroughWebMachine,
   receiveWebMachineMessage,
+  setMachineDisabled,
 } from "../src/workspace-web-machine";
 import { setupChannelTest, testAgentPrincipal } from "./channel-test-helpers";
 
@@ -19,6 +25,8 @@ function socket(owner: string, id: string) {
   let attachment: {
     ownerUserId: string;
     machineId: string;
+    machineName?: string;
+    disabled?: boolean;
     policy: { allow: string };
     servedAt?: number[];
   } = {
@@ -44,6 +52,11 @@ function socket(owner: string, id: string) {
   };
 }
 
+type TestRequestBody =
+  | { machineId: string; enabled: boolean }
+  | { operation: string; sessionId: string; url?: string }
+  | { listActivity: true };
+
 describe("workspace browser security", () => {
   it("does not admit scripts, CDP endpoints or host paths into its contract", () => {
     const input = {
@@ -59,6 +72,119 @@ describe("workspace browser security", () => {
         }).success,
       ).toBe(false);
     }
+  });
+  it("stops a disabled machine and records which machine served a page", async () => {
+    const test = await setupChannelTest();
+    const stub = test.env.WORKSPACES.get(
+      test.env.WORKSPACES.idFromName(test.workspaceId),
+    );
+    await runInDurableObject(stub, async (_instance, state) => {
+      const machineId = crypto.randomUUID();
+      await state.storage.put(`machine:${machineId}`, {
+        machineId,
+        ownerUserId: test.principal.userId,
+        name: "Loom",
+        keyHash: "unused-key-hash",
+        createdAt: Date.now(),
+        enabled: true,
+      });
+      const selected = socket(test.principal.userId, machineId);
+      selected.ws.serializeAttachment({
+        ...selected.ws.deserializeAttachment(),
+        machineId,
+        machineName: "Loom",
+      });
+      const ctx = {
+        storage: state.storage,
+        getWebSockets: () => [selected.ws],
+      };
+      const channels = new WorkspaceChannelStore(state.storage, test.env);
+      const principal = testAgentPrincipal(
+        test,
+        agentIdSchema.parse("chief"),
+        test.principal.pubkey,
+      );
+      const request = (
+        body: TestRequestBody,
+        who: typeof principal | typeof test.principal = principal,
+      ) =>
+        withTrustedContext(
+          new Request("https://workspace.internal", {
+            method: "POST",
+            body: JSON.stringify(body),
+          }),
+          {
+            principal: who,
+            requestId: crypto.randomUUID(),
+            workspaceId: test.workspaceId,
+          },
+        );
+      const toggle = (enabled: boolean) =>
+        request({ machineId, enabled }, test.principal);
+      const setEnabled = (enabled: boolean) =>
+        setMachineEnabled(state.storage, toggle(enabled), (id, on) =>
+          setMachineDisabled(ctx, id, !on),
+        );
+      await setEnabled(false);
+      await expect(
+        browseThroughWebMachine(
+          ctx,
+          channels,
+          request({
+            operation: "open",
+            sessionId: crypto.randomUUID(),
+            url: "https://example.com",
+          }),
+        ),
+      ).rejects.toMatchObject({ status: 503 });
+      await setEnabled(true);
+      selected.onSend((value) => {
+        const command = JSON.parse(value) as { requestId: string };
+        receiveWebMachineMessage(
+          selected.ws,
+          JSON.stringify({
+            type: "browser.result",
+            requestId: command.requestId,
+            ok: true,
+            output: { url: "https://example.com" },
+          }),
+        );
+      });
+      const response = await browseThroughWebMachine(
+        ctx,
+        channels,
+        request({
+          operation: "open",
+          sessionId: crypto.randomUUID(),
+          url: "https://example.com",
+        }),
+      );
+      expect(await response.json()).toEqual({ url: "https://example.com" });
+      const activity = await listMachineActivity(
+        state.storage,
+        request({ listActivity: true }, test.principal),
+      );
+      expect(await activity.json()).toEqual({
+        activity: [
+          expect.objectContaining({
+            machineId,
+            machine: "Loom",
+            agentId: "chief",
+            site: "example.com",
+            ok: true,
+          }),
+        ],
+      });
+      const otherMember = {
+        ...test.principal,
+        userId: userIdSchema.parse("another-member"),
+      };
+      const hidden = await listMachineActivity(
+        state.storage,
+        request({ listActivity: true }, otherMember),
+      );
+      expect(await hidden.json()).toEqual({ activity: [] });
+    });
   });
   it("requires membership and permission and binds replies to the selected machine", async () => {
     const test = await setupChannelTest();

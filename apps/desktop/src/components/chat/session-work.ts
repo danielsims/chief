@@ -24,6 +24,7 @@ const editTools = new Set([
   "str_replace_editor",
   "apply_patch",
   "computer.edit",
+  "computer_edit",
 ]);
 const writeTools = new Set([
   "write",
@@ -31,6 +32,7 @@ const writeTools = new Set([
   "create_file",
   "createfile",
   "computer.write",
+  "computer_write",
 ]);
 
 function text(value: JsonValue | undefined): string {

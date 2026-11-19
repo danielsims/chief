@@ -37,5 +37,4 @@ packageExtensions:
       drizzle-orm: 1.0.0-rc.4
 
 patchedDependencies:
-  "@browser-ui/react@0.2.0": patches/@browser-ui__react@0.2.0.patch
   "@cloudflare/computer@0.2.1": patches/@cloudflare__computer@0.2.1.patch

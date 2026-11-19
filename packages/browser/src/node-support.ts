@@ -150,6 +150,12 @@ export interface AgentBrowserSessionOptions {
   profile?: string;
   restore?: boolean | string;
   colorScheme?: "dark" | "light" | "no-preference";
+  /**
+   * Reach only the public web: every request, this computer's own included,
+   * goes through a proxy that refuses private and local addresses. For any
+   * browser an agent drives.
+   */
+  publicWebOnly?: boolean;
 }
 
 export interface AgentBrowserStream {

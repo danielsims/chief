@@ -65,6 +65,14 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
     initialRelaySessionState(accountId, sessionToken),
   );
   useWebMachineHost(state.client, state.snapshot?.id);
+  // Agents tell the time where their person is; the zone is sent once per
+  // workspace opened, never polled.
+  const timeZoneClient = state.snapshot ? state.client : null;
+  useEffect(() => {
+    if (!timeZoneClient) return;
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    void timeZoneClient.setMemberTimeZone(timeZone).catch(() => undefined);
+  }, [timeZoneClient]);
   // Access tokens refresh routinely. Connections read the latest one when
   // they need it, so a refresh never reconnects or resets the workspace;
   // only signing in or out, or another account, does.

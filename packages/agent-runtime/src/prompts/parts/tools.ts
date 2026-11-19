@@ -1,7 +1,7 @@
 import { always, hasPermission } from "../types.js";
 import { definePromptPart } from "./define.js";
 
-const browser = `Use the browser for live web pages. Take a snapshot before acting, work from what's actually on the page, and take another afterwards to confirm the result. Hand over to the person for sign-ins, multi-factor authentication, passkeys, consent or anything they should approve themselves. Keep the browser open while they do, and close it once you're finished.`;
+const browser = `The browser is shown to the person, so open it only when they should see a page or a page needs clicking and typing. Take a snapshot before acting, work from what's actually on the page, and take another afterwards to confirm the result. Hand over to the person for sign-ins, multi-factor authentication, passkeys, consent or anything they should approve themselves. Keep the browser open while they do, and close it once you're finished.`;
 
 export const tools = definePromptPart({
   id: "tools",

@@ -16,7 +16,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { DatabasePersonOption } from "./database-model";
 import type { DatabaseState } from "./use-database";
-import { CellValue, InlineField } from "./database-cells";
+import { CellEditor, InlineField } from "./database-cells";
 import { DatabaseFieldDialog } from "./database-field-dialog";
 import { fieldIcon } from "./database-model";
 
@@ -26,7 +26,10 @@ const cellClass =
 const headerCellClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 px-2.5 text-left text-[12px] text-muted-foreground outline-none hover:bg-foreground/[0.03] data-[state=open]:bg-foreground/[0.04]";
 
-/** Rows as a grid of cells, each edited in place, with fields as columns. */
+/**
+ * Rows as a grid of cells, each edited in place from a menu or field like
+ * the row panel's, with fields as columns. A row opens from its corner.
+ */
 export function DatabaseTable({
   state,
   rows,
@@ -144,20 +147,19 @@ export function DatabaseTable({
           >
             {fields.map((field, index) => (
               <div key={field.id} role="cell" className="relative min-w-0">
-                <button
-                  type="button"
-                  aria-label={`Open ${field.name} for row ${row.id}`}
+                <CellEditor
+                  field={field}
+                  value={row.values[field.id]}
+                  people={people}
                   className={cn(cellClass, index === 0 && "pr-9 font-medium")}
-                  onClick={() => onOpenRow(row, field.id)}
-                >
-                  <CellValue
-                    field={field}
-                    value={row.values[field.id]}
-                    people={people}
-                    linked={false}
-                  />
-                  {index === 0 && !row.values[field.id] ? "Untitled" : null}
-                </button>
+                  placeholder={index === 0 ? "Untitled" : null}
+                  onChange={(value) =>
+                    void state.saveRow({
+                      id: row.id,
+                      values: { [field.id]: value },
+                    })
+                  }
+                />
                 {index === 0 ? (
                   <button
                     type="button"

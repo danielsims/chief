@@ -76,7 +76,7 @@ export function StatusPill({
   );
 }
 
-function useTeamOptions() {
+export function useTeamOptions() {
   const { snapshot } = useRelaySession();
   return useMemo(() => {
     const channels =

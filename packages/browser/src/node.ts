@@ -25,6 +25,7 @@ import {
   parseJson,
   safeSessionId,
 } from "./node-support.js";
+import { publicWebProxy } from "./public-proxy";
 
 export * from "./node-support.js";
 
@@ -112,6 +113,19 @@ export class AgentBrowserSession {
     return args;
   }
 
+  /** Public-web-only browsing: the proxy, with loopback routed through it. */
+  private async networkArgs() {
+    if (!this.options.publicWebOnly) return [];
+    return [
+      "--proxy",
+      await publicWebProxy(),
+      "--proxy-bypass",
+      "<-loopback>",
+      "--args",
+      "--disable-quic,--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    ];
+  }
+
   command(args: string[], timeout = 30_000): Promise<BrowserBoundaryValue> {
     const task = this.commandQueue
       .catch(() => undefined)
@@ -139,11 +153,17 @@ export class AgentBrowserSession {
   ): Promise<BrowserBoundaryValue> {
     await mkdir(this.downloadPath, { recursive: true });
     const runtimePath = join(this.downloadPath, "runtime");
+    // A Unix socket's path must stay under about 104 bytes on macOS, whose
+    // temp folder alone is half of that, so sockets live in a short folder
+    // of this user's own.
     const socketPath =
-      process.env.AGENT_BROWSER_SOCKET_DIR ?? join(tmpdir(), "chief-browser");
+      process.env.AGENT_BROWSER_SOCKET_DIR ??
+      (process.platform === "win32"
+        ? join(tmpdir(), "chief-browser")
+        : `/tmp/chief-browser-${process.getuid?.() ?? "user"}`);
     await Promise.all([
       mkdir(runtimePath, { recursive: true }),
-      mkdir(socketPath, { recursive: true }),
+      mkdir(socketPath, { recursive: true, mode: 0o700 }),
     ]);
     await writeFile(this.configPath, '{"headed":false}\n', {
       flag: "wx",
@@ -153,7 +173,7 @@ export class AgentBrowserSession {
     try {
       const { stdout } = await execFileAsync(
         agentBrowserExecutable,
-        [...this.globalArgs(), ...args],
+        [...this.globalArgs(), ...(await this.networkArgs()), ...args],
         {
           encoding: "utf8",
           env: {

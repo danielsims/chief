@@ -9,6 +9,8 @@ export interface RuntimeBrowserSession {
   runId: string;
   url: string;
   streamUrl: string | null;
+  /** The agent driving it, when known: a machine's live view needs it. */
+  agentId?: string;
   conversationId: string;
   parentConversationId: string | null;
   workspaceId: string;

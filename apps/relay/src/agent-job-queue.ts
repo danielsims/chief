@@ -116,6 +116,10 @@ export class AgentJobQueue {
     } else {
       await this.scheduleNextAlarm();
     }
+    // 👀 as soon as the message is the agent's, even while an earlier run
+    // keeps it waiting; its run's end takes it off.
+    const conversationId = parseJsonString(job.payload.conversationId);
+    if (conversationId) await this.markWorking(job, conversationId, true);
     return json({ duplicate: false, job });
   }
 
@@ -300,7 +304,7 @@ export class AgentJobQueue {
     }).catch(() => undefined);
   }
 
-  /** Shows 👀 on the message an agent is answering until its run ends. */
+  /** Shows 👀 on a message from when it's queued until its run ends. */
   private async markWorking(
     job: AgentJob,
     conversationId: string,
@@ -414,6 +418,11 @@ export class AgentJobQueue {
       });
       if (previous.status === "leased") {
         await this.publishRun(previous, "completed");
+      } else {
+        // Replaced before it ran: no run will take its 👀 off.
+        const conversationId = parseJsonString(previous.payload.conversationId);
+        if (conversationId)
+          await this.markWorking(previous, conversationId, false);
       }
     }
     return inScope.map((job) => job.id);

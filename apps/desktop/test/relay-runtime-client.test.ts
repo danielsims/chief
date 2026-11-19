@@ -75,7 +75,7 @@ for (const chatId of ["channel:workspace-a:engineering", "on-device"]) {
     await setImmediate();
     assert.deepEqual(
       events.map((event) => event.type),
-      ["chatOpened", "history"],
+      ["chatOpened", "history", "browserRuns"],
     );
 
     pending[0]?.reject(new Error("Old request failed after navigation"));
@@ -83,7 +83,7 @@ for (const chatId of ["channel:workspace-a:engineering", "on-device"]) {
     await setImmediate();
     assert.deepEqual(
       events.map((event) => event.type),
-      ["chatOpened", "history"],
+      ["chatOpened", "history", "browserRuns"],
     );
     client.send({ type: "closeChat", ...scope });
     client.send({ type: "closeChat", ...scope });

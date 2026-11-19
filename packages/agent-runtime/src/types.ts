@@ -192,6 +192,8 @@ export type ServerMessage =
       browserRunId: string;
       workspaceId: string;
       conversationId: string;
+      /** The agent driving it, whose machine a live view is fetched from. */
+      agentId?: string;
       parentConversationId?: string;
       threadRootId?: string;
       anchorMessageId?: string;

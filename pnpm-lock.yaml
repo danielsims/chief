@@ -41,9 +41,6 @@ overrides:
 packageExtensionsChecksum: sha256-MUAuF02PghV0xMkieFn/2KiPdr+SojsO/pk/QuniT1Q=
 
 patchedDependencies:
-  "@browser-ui/react@0.2.0":
-    hash: 7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6
-    path: patches/@browser-ui__react@0.2.0.patch
   "@cloudflare/computer@0.2.1":
     hash: 82a4ee00672081f22e316fa16eaf652e4b79f46ff3f4c9c7d85f65f0f3eaca68
     path: patches/@cloudflare__computer@0.2.1.patch
@@ -88,8 +85,8 @@ importers:
         specifier: 4.0.33
         version: 4.0.33(react@19.2.7)(zod@4.6.7)
       "@browser-ui/react":
-        specifier: 0.2.0
-        version: 0.2.0(patch_hash=7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: ^0.4.0
+        version: 0.4.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       "@chief/agent-runtime":
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -132,6 +129,9 @@ importers:
       "@pierre/diffs":
         specifier: ^1.3.5
         version: 1.3.5(@shikijs/themes@4.3.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      "@streamdown/code":
+        specifier: 1.1.1
+        version: 1.1.1(react@19.2.7)
       "@t3-oss/env-core":
         specifier: ^0.13.8
         version: 0.13.11(typescript@5.9.3)(zod@4.6.7)
@@ -225,6 +225,9 @@ importers:
       recharts:
         specifier: ^3.9.2
         version: 3.9.2(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react-is@18.3.1)(react@19.2.7)(redux@5.0.1)
+      shiki:
+        specifier: 3.23.0
+        version: 3.23.0
       simple-icons:
         specifier: ^16.25.0
         version: 16.25.0
@@ -1671,20 +1674,26 @@ packages:
         integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==,
       }
 
-  "@browser-ui/core@0.2.0":
+  "@browser-ui/core@0.4.0":
     resolution:
       {
-        integrity: sha512-mxj7c38nDi/OXwhbhEF7ZNPwPF+5pY+kCBco2zLpTh3xdXpP7anS1b6fdh3WxqTpmXqDIoD2BzFrTsWMIMS25A==,
+        integrity: sha512-QyrSIJGf3UVW+COTVzD0hs2GnVwCgDxwZRYpyOVxG9Wnnstjkyy2DtkyuYD7iPlaLVl95RiFpLeSU3Ry93+xiQ==,
       }
 
-  "@browser-ui/react@0.2.0":
+  "@browser-ui/react@0.4.0":
     resolution:
       {
-        integrity: sha512-sFaa+21LrU2o0/ZAeskRgyaKoax/Fhj0s9U1A2ITniPjpB76EVOAJtcCum+muwvlXHVbyrwPDEEchZaoqZg5xg==,
+        integrity: sha512-xa/7ZdsVYCRJTout5yIFvMnYAraOqrdz0blIFuOIDFiHWuG+rQpEKVnww0vAgA9BPcTXCa7HDVt6PePuOy16Cg==,
       }
     peerDependencies:
       react: ">=18"
       react-dom: ">=18"
+
+  "@browser-ui/shaders@0.4.0":
+    resolution:
+      {
+        integrity: sha512-LP8Kt6CrBLZSGccrhTUnOkPXYttYNKITxB8pz/Ruoxv3+ENaOPLnjcgvcga7FcxSnWZpTf4Waw5lTGHThYqtzg==,
+      }
 
   "@cfworker/json-schema@4.1.1":
     resolution:
@@ -7149,6 +7158,14 @@ packages:
       }
     peerDependencies:
       react: ">= 16.3.0"
+
+  "@streamdown/code@1.1.1":
+    resolution:
+      {
+        integrity: sha512-i7HTNuDgZWb+VdrNVOam9gQhIc5MSSDXKWXgbUrn/4vSRaSMM+Rtl10MQj4wLWPNpF7p80waJsAqFP8HZfb0Jg==,
+      }
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
 
   "@superradcompany/microsandbox-darwin-arm64@0.6.6":
     resolution:
@@ -16112,16 +16129,19 @@ snapshots:
 
   "@braintree/sanitize-url@7.1.2": {}
 
-  "@browser-ui/core@0.2.0": {}
+  "@browser-ui/core@0.4.0": {}
 
-  "@browser-ui/react@0.2.0(patch_hash=7d65c8cefc289828dd08a8b3f8c77e5d747a4f37092474bb2516044703a10db6)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
+  "@browser-ui/react@0.4.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
     dependencies:
-      "@browser-ui/core": 0.2.0
+      "@browser-ui/core": 0.4.0
+      "@browser-ui/shaders": 0.4.0
       motion: 12.42.2(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
     transitivePeerDependencies:
       - "@emotion/is-prop-valid"
+
+  "@browser-ui/shaders@0.4.0": {}
 
   "@cfworker/json-schema@4.1.1": {}
 
@@ -19309,6 +19329,11 @@ snapshots:
   "@stitches/react@1.2.8(react@19.2.7)":
     dependencies:
       react: 19.2.7
+
+  "@streamdown/code@1.1.1(react@19.2.7)":
+    dependencies:
+      react: 19.2.7
+      shiki: 3.23.0
 
   "@superradcompany/microsandbox-darwin-arm64@0.6.6":
     optional: true

@@ -44,15 +44,21 @@ import {
   localProviderModelsSchema,
   logPageSchema,
   logReceiptSchema,
+  machineActivitySchema,
+  machineBrowserStoppedSchema,
   machineCreateSchema,
   machineDeleteResultSchema,
   machinePairingSchema,
   machineSchema,
   machinesResultSchema,
   machineUpdateSchema,
+  machineViewerTicketSchema,
+  memberTimeZoneSetSchema,
   messagePageSchema,
   pairedMachineRemovedSchema,
   pairedMachinesSchema,
+  pairedMachineUpdatedSchema,
+  pairedMachineUpdateSchema,
   reactToMessageResultSchema,
   registerAgentKeyResultSchema,
   renewAgentJobResultSchema,
@@ -96,6 +102,7 @@ export class RelayClient extends RelayOnboardingClient {
   readonly schedules: Pick<
     RelaySchedulesClient,
     | "list"
+    | "build"
     | "save"
     | "act"
     | "delete"
@@ -576,6 +583,37 @@ export class RelayClient extends RelayOnboardingClient {
     );
   }
 
+  /**
+   * A one-time ticket to watch an agent's browser session live on its
+   * machine: the address to open and the protocols that carry the ticket.
+   */
+  async createMachineViewerTicket(agentId: string, sessionId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl("machines/viewer-tickets"),
+      machineViewerTicketSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, sessionId }),
+      },
+    );
+  }
+
+  /** Ends an agent's browser session on its machine; the agent's owner only. */
+  async stopMachineBrowser(agentId: string, sessionId: string) {
+    await this.fetchJson(
+      this.workspaceUrl("machines/browser-stops"),
+      machineBrowserStoppedSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, sessionId }),
+      },
+    );
+  }
+
   /** This member's paired machines, and whether each is serving now. */
   async listPairedMachines() {
     return (
@@ -594,6 +632,45 @@ export class RelayClient extends RelayOnboardingClient {
       true,
       { method: "DELETE" },
     );
+  }
+
+  /** Keeps a computer paired, but stops or resumes agents using it. */
+  async setPairedMachineEnabled(machineId: string, enabled: boolean) {
+    return await this.fetchJson(
+      this.workspaceUrl(`machines/paired/${encodeURIComponent(machineId)}`),
+      pairedMachineUpdatedSchema,
+      true,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pairedMachineUpdateSchema.parse({ enabled })),
+      },
+    );
+  }
+
+  /** Tells the workspace which time zone this member is in. */
+  async setMemberTimeZone(timeZone: string) {
+    await this.fetchJson(
+      this.workspaceUrl("members/me/time-zone"),
+      memberTimeZoneSetSchema,
+      true,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ timeZone }),
+      },
+    );
+  }
+
+  /** Sites agents opened through this member's paired computers. */
+  async listMachineActivity() {
+    return (
+      await this.fetchJson(
+        this.workspaceUrl("machines/activity"),
+        machineActivitySchema,
+        true,
+      )
+    ).activity;
   }
 
   /** Lends this computer's connection to the workspace's agents. */
@@ -627,6 +704,8 @@ export class RelayClient extends RelayOnboardingClient {
     onTyping?: (event: RelayTypingEvent) => void;
     onPresence?: (event: WorkspacePresenceEvent) => void;
     onAgentsChanged?: () => void;
+    onMachinesChanged?: () => void;
+    onMachinesActivity?: () => void;
     onResubscribed?: () => void;
     onError?: (error: Error) => void;
   }): Promise<WorkspaceSubscription> {
@@ -650,6 +729,8 @@ export class RelayClient extends RelayOnboardingClient {
       onTyping: input.onTyping,
       onPresence: input.onPresence,
       onAgentsChanged: input.onAgentsChanged,
+      onMachinesChanged: input.onMachinesChanged,
+      onMachinesActivity: input.onMachinesActivity,
       onResubscribed: input.onResubscribed,
       onError: input.onError,
     });

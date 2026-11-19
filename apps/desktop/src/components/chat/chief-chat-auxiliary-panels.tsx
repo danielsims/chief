@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Fragment, useMemo, useRef } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef } from "react";
 
 import type {
   BrowserRunRecord,
@@ -14,6 +14,7 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks, useRuntime } from "../../lib/runtime";
+import { agentWorkingIn } from "../../lib/runtime-chat-controls";
 import { workspaceAgentName } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
@@ -31,6 +32,7 @@ import {
   ChiefMessage,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
+import { CodeChangesCard } from "./code-changes-card";
 import {
   ConversationAuxiliaryBreadcrumb,
   ConversationAuxiliaryPanel,
@@ -38,6 +40,7 @@ import {
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
 import { withSpecialistTimelineEntries } from "./conversation-timeline-entries";
+import { MessageSourcesPill } from "./message-sources-pill";
 import { ObservedChat } from "./observed-chat";
 import { ScheduledRunMessage } from "./scheduled-run-message";
 import {
@@ -183,7 +186,7 @@ export function ChiefChatAuxiliaryPanels({
     () => [threadComposerRef],
     [],
   );
-  const { agents: roster } = useRuntime();
+  const { agents: roster, browserSessions } = useRuntime();
   const threadActivityAgents = useMemo(() => {
     const activityAgentName = (agentId: string) =>
       workspaceAgentName(agentId, roster) ?? agentId;
@@ -243,16 +246,33 @@ export function ChiefChatAuxiliaryPanels({
     threadActivityAgents[0]?.id === activeRootTurn?.agentId
       ? statusLabel
       : formatAgentActivityStatus(threadActivityAgents);
+  // An agent's browser is operating while that agent works in its thread.
+  const threadBrowserOperating = (run: BrowserRunRecord) => {
+    const agentId = browserSessions[run.id]?.agentId;
+    return agentId
+      ? agentWorkingIn(controls.workingAgents, agentId, run.threadRootId)
+      : browserOperating;
+  };
   const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
-    <div className="w-full min-w-0 py-1 pl-11">
-      <BrowserSessionAttachment
-        operating={browserOperating}
-        pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
-        pictureInPictureContainerRef={threadPictureInPictureContainerRef}
-        run={run}
-      />
+    <div className="mx-auto w-full max-w-3xl min-w-0 py-1 pl-11">
+      <div className="max-w-2xl">
+        <BrowserSessionAttachment
+          operating={threadBrowserOperating(run)}
+          pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={threadPictureInPictureContainerRef}
+          run={run}
+        />
+      </div>
     </div>
   );
+  // Back from Activity lands at the latest message, as opening a thread does.
+  const activityWasOpen = useRef(activityOpen);
+  useLayoutEffect(() => {
+    const scroller = threadScrollRef.current;
+    if (activityWasOpen.current && !activityOpen && scroller)
+      scroller.scrollTop = scroller.scrollHeight;
+    activityWasOpen.current = activityOpen;
+  }, [activityOpen, threadScrollRef]);
   const closeAuxiliaryWorkspace = () => {
     setActivityOpen(false);
     onCloseChild?.();
@@ -455,6 +475,12 @@ export function ChiefChatAuxiliaryPanels({
                         onOpenChannel={onOpenChannel}
                         onOpenTask={onOpenChild}
                       />
+                      {entry.sources ? (
+                        <MessageSourcesPill sources={entry.sources} />
+                      ) : null}
+                      {entry.changes ? (
+                        <CodeChangesCard edits={entry.changes} />
+                      ) : null}
                     </ChiefMessage>
                   );
                 }}

@@ -1,12 +1,13 @@
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import { createExecutionContext } from "cloudflare:test";
+import { createExecutionContext, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
   agentRuntimeDescriptorSchema,
   appendMessageCommandSchema,
   createWorkspaceCommandSchema,
+  machineViewerTicketSchema,
   provisionWorkspaceCommandSchema,
   userIdSchema,
   workspaceSnapshotSchema,
@@ -76,6 +77,89 @@ describe("channel HTTP surface", () => {
       ]),
     });
   });
+  it("issues browser viewer tickets only for signed requests to visible sessions", async () => {
+    const workspaceId = await setupWorkspace();
+    const relay = relayEnv();
+    const stub = relay.WORKSPACES.get(relay.WORKSPACES.idFromName(workspaceId));
+    const machineId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const hiddenSessionId = crypto.randomUUID();
+    const hostname = `m-${machineId}.example.test`;
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.put(`machine:${machineId}`, {
+        machineId,
+        ownerUserId: owner.userId,
+        name: "Test machine",
+        keyHash: "unused-key-hash",
+        createdAt: Date.now(),
+        stream: {
+          hostname,
+          tunnelId: "test-tunnel",
+          dnsRecordId: "test-record",
+          secret: "test-stream-secret",
+        },
+      });
+      await state.storage.put(`machine.browser:chief:${sessionId}`, {
+        machineId,
+        conversationId: "general",
+        at: Date.now(),
+      });
+      await state.storage.put(`machine.browser:chief:${hiddenSessionId}`, {
+        machineId,
+        conversationId: "unavailable-conversation",
+        at: Date.now(),
+      });
+    });
+    const url = `https://relay.test/v1/workspaces/${workspaceId}/machines/viewer-tickets`;
+    const body = JSON.stringify({ agentId: "chief", sessionId });
+    const fetch = (request: Request) =>
+      worker.fetch(request, relay, createExecutionContext());
+    const visible = await fetch(signedRequest(url, "POST", body));
+    expect(visible.status, await visible.clone().text()).toBe(200);
+    expect(machineViewerTicketSchema.parse(await visible.json())).toEqual({
+      url: `wss://${hostname}/stream/${sessionId}`,
+      protocols: ["chief-stream.v1", expect.stringMatching(/^chief-ticket\./u)],
+    });
+
+    const hidden = await fetch(
+      signedRequest(
+        url,
+        "POST",
+        JSON.stringify({ agentId: "chief", sessionId: hiddenSessionId }),
+      ),
+    );
+    expect(hidden.status).toBe(404);
+
+    const unsigned = await fetch(new Request(url, { method: "POST", body }));
+    expect(unsigned.status).toBe(401);
+
+    const pairedUrl = `https://relay.test/v1/workspaces/${workspaceId}/machines/paired/${machineId}`;
+    const disabled = await fetch(
+      signedRequest(pairedUrl, "PATCH", JSON.stringify({ enabled: false })),
+    );
+    expect(disabled.status, await disabled.clone().text()).toBe(200);
+    expect(await disabled.json()).toEqual({ ok: true, enabled: false });
+    const listed = await fetch(
+      signedRequest(
+        `https://relay.test/v1/workspaces/${workspaceId}/machines/paired`,
+        "GET",
+      ),
+    );
+    expect(await listed.json()).toMatchObject({
+      machines: [expect.objectContaining({ id: machineId, enabled: false })],
+    });
+
+    const otherMachine = crypto.randomUUID();
+    const notOwned = await fetch(
+      signedRequest(
+        `https://relay.test/v1/workspaces/${workspaceId}/machines/paired/${otherMachine}`,
+        "PATCH",
+        JSON.stringify({ enabled: false }),
+      ),
+    );
+    expect(notOwned.status).toBe(404);
+  });
+
   it("no longer serves channel guest invites", async () => {
     const workspaceId = await setupWorkspace();
     const response = await worker.fetch(

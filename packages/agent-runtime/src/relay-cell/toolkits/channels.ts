@@ -131,9 +131,19 @@ export const relayCellChannelTools = [
   defineRelayCellTool(
     "channels.messages.post",
     "messages.send",
-    async ({ client, agentId }, input) => {
+    async (context, input) => {
+      const { client, agentId } = context;
       const conversationId = requiredString(input, "channelId");
       const body = requiredString(input, "content");
+      // The run's reply is posted to its own thread when it finishes, so
+      // posting there too would say everything twice.
+      if (
+        conversationId === context.conversationId &&
+        optionalString(input, "threadRootId") === context.threadRootId
+      )
+        throw new Error(
+          "Your reply is posted here when you finish. Return it instead.",
+        );
       const components = artifactMessageComponents(
         input.artifactIds,
         input.artifactIds ? await client.listWorkspaceFiles() : [],

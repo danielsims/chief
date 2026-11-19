@@ -125,6 +125,36 @@ function needsLightBacking(image: HTMLImageElement) {
   return coverage < 0.62 && luminance / visible < 150;
 }
 
+const preloaded = new Set<string>();
+
+/**
+ * Fetches and measures logos before their rows mount, so a list scrolled into
+ * view shows each logo at once instead of fading them in one by one. Uses
+ * the same CORS mode as the visible image, so the browser reuses the fetch.
+ */
+export function preloadProviderLogos(domains: readonly string[]) {
+  for (const domain of domains) {
+    if (preloaded.has(domain)) continue;
+    preloaded.add(domain);
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.decoding = "async";
+    image.onload = () => {
+      if (backingCache.has(domain)) return;
+      try {
+        const scale = coverScale(image);
+        rememberBacking(domain, {
+          scale,
+          light: scale === 1 && needsLightBacking(image),
+        });
+      } catch {
+        rememberBacking(domain, { scale: 1, light: true });
+      }
+    };
+    image.src = integrationLogoUrl(domain);
+  }
+}
+
 export function ProviderLogo({
   domain,
   label,

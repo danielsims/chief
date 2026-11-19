@@ -126,7 +126,7 @@ export async function routeAutomationAgent(
     throw new HttpError(
       404,
       "schedule_not_found",
-      "This automation doesn't exist. Save it with recurringWork.propose first.",
+      "This automation doesn't exist. Save it with automations.propose first.",
     );
   channels.requireChannelVisible(
     stored.schedule.conversationId,

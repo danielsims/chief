@@ -10,6 +10,7 @@ import {
   automationWebhookRequestSchema,
   automationWebhookRevokedSchema,
   automationWebhookSchema,
+  jsonObjectSchema,
   scheduleRunCollaboratorSchema,
   scheduleRunListSchema,
   scheduleRunReportSchema,
@@ -72,6 +73,26 @@ export class RelaySchedulesClient extends RelayClientBase {
       },
     );
   }
+  /**
+   * How an agent builds an automation: the tools a step can use, a test run
+   * of a saved draft, and a read-back of results and blockers.
+   */
+  build(
+    operation: "tools" | "inspect" | "test",
+    input: { query?: string; agentId?: string } | { id: string },
+  ) {
+    return this.fetchJson(
+      this.workspaceUrl(`automations/${operation}`),
+      jsonObjectSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
   reportStep(input: {
     runId: string;
     stepId: string;

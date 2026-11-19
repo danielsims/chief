@@ -4,8 +4,20 @@ import type {
   SessionRecord,
 } from "@chief/agent-runtime/types";
 
+import type { MessageSource } from "./message-sources";
+import type { SessionChange } from "./session-work";
+import { messageFileEdits } from "./message-changes";
+import { mergeSources, messagePageReads } from "./message-sources";
+
 export type TimelineEntry =
-  | { type: "message"; message: ChiefUIMessage }
+  | {
+      type: "message";
+      message: ChiefUIMessage;
+      /** Pages the agent read on its way to this reply. */
+      sources?: readonly MessageSource[];
+      /** File edits the agent made on its way to this reply. */
+      changes?: readonly SessionChange[];
+    }
   | { type: "browser"; key: string; run: BrowserRunRecord }
   | { type: "specialist"; task: SessionRecord };
 
@@ -33,9 +45,30 @@ export function conversationTimelineEntries(
 ): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   const placed = new Set<string>();
+  // Pages read and files edited by each agent since its last reply, credited
+  // to the next one.
+  const reading = new Map<string, readonly MessageSource[]>();
+  const editing = new Map<string, readonly SessionChange[]>();
   for (const message of messages) {
     if ((message.metadata?.threadRootId ?? null) !== threadRootId) continue;
-    if (!isActivityProjection(message)) {
+    const agentId = message.metadata?.agentId ?? "";
+    if (isActivityProjection(message)) {
+      const reads = messagePageReads(message);
+      if (reads.length > 0)
+        reading.set(agentId, mergeSources(reading.get(agentId) ?? [], reads));
+      const edits = messageFileEdits(message);
+      if (edits.length > 0)
+        editing.set(agentId, [...(editing.get(agentId) ?? []), ...edits]);
+    } else if (message.role === "assistant") {
+      entries.push({
+        type: "message",
+        message,
+        sources: reading.get(agentId),
+        changes: editing.get(agentId),
+      });
+      reading.delete(agentId);
+      editing.delete(agentId);
+    } else {
       entries.push({ type: "message", message });
     }
     for (const run of runs) {

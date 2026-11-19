@@ -157,7 +157,7 @@ export async function routeExternalWorkspaceTool(
           "schedules-runs-report",
         ),
       );
-    case "recurringWork.list":
+    case "automations.list":
       return readResult(
         await routeWorkspaceSchedule(
           host.storage,
@@ -166,7 +166,7 @@ export async function routeExternalWorkspaceTool(
           "schedules-list",
         ),
       );
-    case "recurringWork.propose": {
+    case "automations.propose": {
       const schedule = workspaceScheduleInputSchema.parse({
         ...input,
         id:

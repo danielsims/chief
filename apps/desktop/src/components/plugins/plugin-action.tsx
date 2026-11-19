@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Check, LoaderCircle } from "lucide-react";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
+import { Button, buttonVariants } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
 /** The raised pill used for a card's one action. */
@@ -20,11 +20,11 @@ function PluginState({
   return (
     <span
       className={cn(
-        "inline-flex min-w-[84px] items-center justify-center gap-1.5 px-4 text-[13px] font-medium",
-        tone === "connected" ? "text-emerald-600" : "text-muted-foreground",
+        buttonVariants({ variant: "outline", size: "xs" }),
+        "text-muted-foreground pointer-events-none",
       )}
     >
-      {tone === "connected" ? <Check size={14} strokeWidth={2.25} /> : null}
+      {tone === "connected" ? <Check size={12} /> : null}
       {children}
     </span>
   );
@@ -56,9 +56,8 @@ export function PluginAction({
   const label = plugin.status === "reconnect" ? "Reconnect" : "Install";
   return (
     <Button
-      variant="outline"
-      size="sm"
-      className={pluginActionClassName}
+      size="xs"
+      className="relative"
       disabled={busy}
       onClick={
         plugin.status === "available" || plugin.status === "error"
@@ -70,7 +69,7 @@ export function PluginAction({
       {busy ? (
         <LoaderCircle
           className="absolute inset-0 m-auto animate-spin"
-          size={14}
+          size={12}
         />
       ) : null}
     </Button>

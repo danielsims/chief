@@ -68,6 +68,8 @@ const webMachineVisitSchema = z.object({
   at: z.number(),
   agentId: z.string(),
   requesterUserId: z.string().optional(),
+  /** Absent on visits recorded before computers were named in the log. */
+  machine: z.string().optional(),
   site: z.string(),
   ok: z.boolean(),
 });
@@ -150,6 +152,7 @@ export function useWebMachineHost(
             at: Date.now(),
             agentId,
             ...(requesterUserId ? { requesterUserId } : undefined),
+            machine: "This computer",
             site: new URL(url).hostname.replace(/^www\./u, ""),
           };
           try {

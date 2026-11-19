@@ -49,7 +49,6 @@ import { forgetActiveWorkspaceSetup } from "../pages/onboarding/model";
 import { AvatarImage } from "./avatar-image";
 import { ChiefMark } from "./chief-mark";
 import { OrgLogo } from "./org-logo";
-import { RelayConnectionDialog } from "./relay-connection-control";
 import { SetStatusDialog } from "./set-status-dialog";
 import {
   nextWorkspaceMenuId,
@@ -65,7 +64,6 @@ export function SidebarProfileMenu({
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [identities, setIdentities] = useState(sortedRelayIdentities);
   const relay = useRelaySession();
   const userStatus = useUserStatus(cloudOrganizationId, user?.id ?? null);
@@ -114,6 +112,33 @@ export function SidebarProfileMenu({
       console.error("[Workspace] Switch failed:", error);
       setSwitchingTo(null);
     }
+  };
+
+  // A new workspace is made on the relay this app is connected to now.
+  const activeIdentity =
+    identities.find(
+      (identity) => identity.relayUrl === new URL(RELAY_URL).origin,
+    ) ?? identities[0];
+  const addWorkspace = async (intent: "create" | "join") => {
+    if (!activeIdentity) return;
+    window.sessionStorage.setItem(
+      pendingCreateRelayKey,
+      activeIdentity.relayUrl,
+    );
+    window.sessionStorage.setItem(pendingWorkspaceEntryIntentKey, intent);
+    if (activeIdentity.relayUrl !== new URL(RELAY_URL).origin) {
+      const connection = resolveRelayConnection(
+        activeIdentity.relayUrl,
+        knownRelayConnections(),
+        chiefAccountConnection,
+      );
+      if (!connection) return;
+      await connectRelay(connection);
+      return;
+    }
+    setProfileMenuOpen(false);
+    forgetActiveWorkspaceSetup();
+    void navigate(`/workspaces/new?intent=${intent}`);
   };
 
   return (
@@ -205,29 +230,6 @@ export function SidebarProfileMenu({
                 setWorkspaceMenuId={setWorkspaceMenuId}
                 onSwitchWorkspace={switchWorkspace}
                 onClose={() => setProfileMenuOpen(false)}
-                onAddWorkspace={async (intent) => {
-                  window.sessionStorage.setItem(
-                    pendingCreateRelayKey,
-                    identity.relayUrl,
-                  );
-                  window.sessionStorage.setItem(
-                    pendingWorkspaceEntryIntentKey,
-                    intent,
-                  );
-                  if (identity.relayUrl !== new URL(RELAY_URL).origin) {
-                    const connection = resolveRelayConnection(
-                      identity.relayUrl,
-                      knownRelayConnections(),
-                      chiefAccountConnection,
-                    );
-                    if (!connection) return;
-                    await connectRelay(connection);
-                    return;
-                  }
-                  setProfileMenuOpen(false);
-                  forgetActiveWorkspaceSetup();
-                  void navigate(`/workspaces/new?intent=${intent}`);
-                }}
                 onSignOut={() => {
                   setProfileMenuOpen(false);
                   signOut(identity.relayUrl);
@@ -238,14 +240,18 @@ export function SidebarProfileMenu({
 
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => {
-              setProfileMenuOpen(false);
-              setConnectionDialogOpen(true);
-            }}
+            onSelect={() => void addWorkspace("create")}
             className="h-9 gap-2.5"
           >
             <Plus className="text-muted-foreground size-4 shrink-0" />
-            Connect another relay
+            Create a workspace
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => void addWorkspace("join")}
+            className="h-9 gap-2.5"
+          >
+            <Plus className="text-muted-foreground size-4 shrink-0" />
+            Join a workspace
           </DropdownMenuItem>
           <button
             type="button"
@@ -260,10 +266,6 @@ export function SidebarProfileMenu({
           </button>
         </DropdownMenuContent>
       </DropdownMenu>
-      <RelayConnectionDialog
-        open={connectionDialogOpen}
-        onOpenChange={setConnectionDialogOpen}
-      />
       {statusDialogOpen ? (
         <SetStatusDialog
           open
@@ -285,7 +287,6 @@ function RelaySection({
   setWorkspaceMenuId,
   onSwitchWorkspace,
   onClose,
-  onAddWorkspace,
   onSignOut,
 }: {
   identity: RelayAccountIdentity;
@@ -298,7 +299,6 @@ function RelaySection({
     location: ConnectedWorkspace,
   ) => Promise<void>;
   onClose: () => void;
-  onAddWorkspace: (intent: "create" | "join") => Promise<void>;
   onSignOut: () => void;
 }) {
   const navigate = useNavigate();
@@ -385,20 +385,6 @@ function RelaySection({
             </Popover>
           );
         })}
-        <DropdownMenuItem
-          onSelect={() => void onAddWorkspace("create")}
-          className="h-9"
-        >
-          <Plus className="text-muted-foreground size-4" />
-          Create a workspace
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void onAddWorkspace("join")}
-          className="h-9"
-        >
-          <Plus className="text-muted-foreground size-4" />
-          Join a workspace
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={onSignOut}

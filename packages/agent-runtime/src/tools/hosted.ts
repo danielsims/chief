@@ -2,6 +2,7 @@ import { automationBuildToolDefinitions } from "./toolkits/automation/build-tool
 import {
   listRecurringWorkDefinition,
   proposeRecurringWorkDefinition,
+  showAutomationDefinition,
 } from "./toolkits/automation/recurring-work-definitions.js";
 import { automationRunToolDefinitions } from "./toolkits/automation/run-tools.js";
 import { clickBrowserDefinition } from "./toolkits/browser/click-browser.js";
@@ -26,6 +27,7 @@ import { computerPublishArtifactDefinition } from "./toolkits/computer/publish-a
 import { computerReadFileDefinition } from "./toolkits/computer/read-file.js";
 import { computerWriteFileDefinition } from "./toolkits/computer/write-file.js";
 import { databaseToolDefinitions } from "./toolkits/databases/definitions.js";
+import { showDraftDefinition } from "./toolkits/drafts/definitions.js";
 import {
   listFilesDefinition,
   readFileDefinition,
@@ -42,6 +44,7 @@ import {
 } from "./toolkits/projects/hosted.js";
 import { recommendProjectDefinition } from "./toolkits/projects/recommend-project.js";
 import { delegateSpecialistDefinition } from "./toolkits/specialists/delegate-specialist-definition.js";
+import { currentTimeDefinition } from "./toolkits/time/current-time.js";
 import { readWebPageDefinition } from "./toolkits/web/read-web-page.js";
 import { searchWebDefinition } from "./toolkits/web/search-web.js";
 import { getBrandProfileStatusDefinition } from "./toolkits/workspace/get-brand-profile-status.js";
@@ -55,6 +58,8 @@ export const hostedAgentToolDefinitions = {
     ...pageToolDefinitions,
     listRecurringWorkDefinition,
     proposeRecurringWorkDefinition,
+    showAutomationDefinition,
+    showDraftDefinition,
     listFilesDefinition,
     readFileDefinition,
     writeFileDefinition,
@@ -85,6 +90,7 @@ export const hostedAgentToolDefinitions = {
     delegateSpecialistDefinition,
     readWebPageDefinition,
     searchWebDefinition,
+    currentTimeDefinition,
   ],
   browser: [
     openBrowserDefinition,

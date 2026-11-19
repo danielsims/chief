@@ -1,18 +1,20 @@
 //! Chrome's only web egress: resolve, validate and connect the same public IP.
 //! This catches redirects/subresources too, without trusting page scripts or DNS twice.
+//! It listens on a Unix socket in the session's private directory, which the
+//! session host bridges into Chrome's own network.
 use std::{
-    net::{IpAddr, SocketAddr},
-    time::Duration,
+    net::IpAddr,
+    path::Path,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::{TcpStream, UnixListener, UnixStream},
     task::JoinHandle,
 };
 use url::Url;
 
 pub struct Proxy {
-    pub address: SocketAddr,
     task: JoinHandle<()>,
 }
 impl Drop for Proxy {
@@ -21,13 +23,13 @@ impl Drop for Proxy {
     }
 }
 
-pub async fn start() -> Result<Proxy, String> {
-    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        .await
-        .map_err(|_| "Cannot bind browser egress proxy.")?;
-    let address = listener
-        .local_addr()
-        .map_err(|_| "Cannot inspect proxy address.")?;
+pub async fn start(socket: &Path) -> Result<Proxy, String> {
+    let listener = UnixListener::bind(socket).map_err(|_| "Cannot open the browser egress proxy.")?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| "Cannot protect the browser egress proxy.")?;
+    }
     let task = tokio::spawn(async move {
         let limit = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
         let mut tasks = tokio::task::JoinSet::new();
@@ -38,7 +40,7 @@ pub async fn start() -> Result<Proxy, String> {
                     let Ok(permit)=limit.clone().try_acquire_owned() else {continue};
                     tasks.spawn(async move {
                         let _permit=permit;
-                        if tokio::time::timeout(Duration::from_secs(90),forward(&mut stream)).await.is_err() {
+                        if forward(&mut stream).await.is_err() {
                             let _=stream.shutdown().await;
                         }
                     });
@@ -47,7 +49,7 @@ pub async fn start() -> Result<Proxy, String> {
             }
         }
     });
-    Ok(Proxy { address, task })
+    Ok(Proxy { task })
 }
 
 pub fn destination(raw: &str) -> Result<(String, u16), String> {
@@ -101,21 +103,31 @@ async fn public_connect(host: &str, port: u16) -> Result<TcpStream, String> {
     Err("Cannot reach public browser destination.".into())
 }
 
-async fn forward(client: &mut TcpStream) -> Result<(), String> {
+/// How long a request has to arrive, and a plain HTTP exchange to finish.
+const REQUEST_TIME: Duration = Duration::from_secs(90);
+/// An HTTPS tunnel stays open while anything moves through it, as a video's
+/// stream does, and closes after this long with nothing either way.
+const TUNNEL_IDLE: Duration = Duration::from_secs(120);
+
+async fn forward(client: &mut UnixStream) -> Result<(), String> {
     let mut header = Vec::new();
-    loop {
-        let byte = client
-            .read_u8()
-            .await
-            .map_err(|_| "Proxy connection ended.")?;
-        header.push(byte);
-        if header.ends_with(b"\r\n\r\n") {
-            break;
+    tokio::time::timeout(REQUEST_TIME, async {
+        loop {
+            let byte = client
+                .read_u8()
+                .await
+                .map_err(|_| "Proxy connection ended.")?;
+            header.push(byte);
+            if header.ends_with(b"\r\n\r\n") {
+                return Ok(());
+            }
+            if header.len() > 16_384 {
+                return Err("Proxy header too large.");
+            }
         }
-        if header.len() > 16_384 {
-            return Err("Proxy header too large.".into());
-        }
-    }
+    })
+    .await
+    .map_err(|_| "Proxy request timed out.")??;
     let text = std::str::from_utf8(&header).map_err(|_| "Invalid proxy header.")?;
     let mut parts = text
         .lines()
@@ -181,34 +193,27 @@ async fn forward(client: &mut TcpStream) -> Result<(), String> {
             // another host, so nothing past this body is forwarded.
             let (read_client, mut write_client) = client.split();
             let (read_remote, mut write_remote) = remote.split();
-            tokio::io::copy(
-                &mut read_client.take(body_length.min(8 * 1024 * 1024)),
-                &mut write_remote,
-            )
+            return tokio::time::timeout(REQUEST_TIME, async {
+                tokio::io::copy(
+                    &mut read_client.take(body_length.min(8 * 1024 * 1024)),
+                    &mut write_remote,
+                )
+                .await
+                .map_err(|_| "Public request failed.")?;
+                tokio::io::copy(&mut read_remote.take(8 * 1024 * 1024), &mut write_client)
+                    .await
+                    .map_err(|_| "Browser proxy stream ended.")?;
+                write_client
+                    .shutdown()
+                    .await
+                    .map_err(|_| "Browser proxy stream ended.".into())
+            })
             .await
-            .map_err(|_| "Public request failed.")?;
-            tokio::io::copy(&mut read_remote.take(8 * 1024 * 1024), &mut write_client)
-                .await
-                .map_err(|_| "Browser proxy stream ended.")?;
-            write_client
-                .shutdown()
-                .await
-                .map_err(|_| "Browser proxy stream ended.")?;
-            return Ok(());
+            .map_err(|_| "Public request timed out.".to_string())?;
         }
-        let (read_client, mut write_client) = client.split();
-        let (read_remote, mut write_remote) = remote.split();
-        // Bound both directions; no unlimited transfers or long-lived tunnels.
-        let a = async {
-            tokio::io::copy(&mut read_client.take(8 * 1024 * 1024), &mut write_remote).await?;
-            write_remote.shutdown().await
-        };
-        let b = async {
-            tokio::io::copy(&mut read_remote.take(8 * 1024 * 1024), &mut write_client).await?;
-            write_client.shutdown().await
-        };
-        tokio::try_join!(a, b).map_err(|_| "Browser proxy stream ended.")?;
-        Ok(())
+        tunnel(client, &mut remote)
+            .await
+            .map_err(|_| "Browser proxy stream ended.".into())
     }
     .await;
     if result.is_err() {
@@ -217,6 +222,56 @@ async fn forward(client: &mut TcpStream) -> Result<(), String> {
             .await;
     }
     result
+}
+
+/// Copies both ways until both sides finish or nothing has moved for
+/// `TUNNEL_IDLE`.
+async fn tunnel(client: &mut UnixStream, remote: &mut TcpStream) -> std::io::Result<()> {
+    use std::sync::atomic::AtomicU64;
+    let opened = Instant::now();
+    let moved = AtomicU64::new(0);
+    let (mut read_client, mut write_client) = client.split();
+    let (mut read_remote, mut write_remote) = remote.split();
+    let idle = async {
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            let quiet = opened.elapsed().as_secs() - moved.load(std::sync::atomic::Ordering::Relaxed);
+            if quiet >= TUNNEL_IDLE.as_secs() {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        result = async {
+            tokio::try_join!(
+                pump(&mut read_client, &mut write_remote, opened, &moved),
+                pump(&mut read_remote, &mut write_client, opened, &moved),
+            )
+        } => result.map(|_| ()),
+        _ = idle => Ok(()),
+    }
+}
+
+/// One direction of a tunnel, noting when bytes last moved.
+async fn pump<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    opened: Instant,
+    moved: &std::sync::atomic::AtomicU64,
+) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buffer = vec![0u8; 16 * 1024];
+    loop {
+        let n = reader.read(&mut buffer).await?;
+        if n == 0 {
+            return writer.shutdown().await;
+        }
+        writer.write_all(&buffer[..n]).await?;
+        moved.store(opened.elapsed().as_secs(), std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]
@@ -246,8 +301,10 @@ mod tests {
     }
     #[tokio::test]
     async fn proxy_does_not_connect_to_loopback() {
-        let proxy = start().await.unwrap();
-        let mut socket = TcpStream::connect(proxy.address).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("proxy.sock");
+        let _proxy = start(&path).await.unwrap();
+        let mut socket = UnixStream::connect(&path).await.unwrap();
         socket
             .write_all(b"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
             .await

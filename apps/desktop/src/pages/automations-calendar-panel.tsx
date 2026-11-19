@@ -78,17 +78,13 @@ export function AutomationsCalendarPanel({ onClose }: { onClose: () => void }) {
   const { capability } = useWorkspaceCapability();
   useEffect(() => {
     if (!cloudOrganizationId || !capability || status !== "connected") return;
-    const refresh = () => {
-      if (document.visibilityState === "visible")
-        client.send({
-          type: "listWorkspaceData",
-          workspaceId: cloudOrganizationId,
-          executorCapability: capability,
-        });
-    };
-    refresh();
-    const timer = window.setInterval(refresh, 30_000);
-    return () => window.clearInterval(timer);
+    // Read on open and after each reconnect; saving, running or deleting
+    // work re-reads it, so nothing here polls the relay.
+    client.send({
+      type: "listWorkspaceData",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
   }, [client, status, cloudOrganizationId, capability]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);

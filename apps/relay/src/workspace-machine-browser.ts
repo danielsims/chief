@@ -3,7 +3,11 @@ import { z } from "zod";
 import type { AgentBrowser, AgentBrowserTarget } from "@chief/agent-computer";
 import type { AgentJob } from "@chief/relay-contracts";
 import { RecoverableToolError } from "@chief/agent-runtime/durable-turn";
-import { browserSnapshotSchema } from "@chief/relay-contracts";
+import {
+  browserSnapshotSchema,
+  browserStreamSchema,
+  jobConversationId,
+} from "@chief/relay-contracts";
 
 import { hostedPrincipal } from "./agent-object-values";
 import { workspaceOperation } from "./hosted-agent-tools/toolkits/channels";
@@ -23,6 +27,7 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
       text?: string;
       values?: readonly string[];
     } = {},
+    sessionId: string = this.job.id,
   ) {
     try {
       return await workspaceOperation(
@@ -30,7 +35,14 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
         this.job,
         hostedPrincipal(this.job),
         "machine-browser",
-        { body: { ...body, operation, sessionId: this.job.id } },
+        {
+          body: {
+            ...body,
+            operation,
+            sessionId,
+            conversationId: jobConversationId(this.job),
+          },
+        },
       );
     } catch (error) {
       throw new RecoverableToolError(
@@ -68,6 +80,34 @@ export class WorkspaceMachineBrowser implements AgentBrowser {
       })
       .parse(await this.command("screenshot"));
     return Uint8Array.from(atob(value.base64), (char) => char.charCodeAt(0));
+  }
+  async read(url: string) {
+    // Its own session, so reading never navigates the page a person is
+    // watching, and no browser card is published for it.
+    const sessionId = crypto.randomUUID();
+    try {
+      return browserSnapshotSchema.parse(
+        await this.command("open", { url }, sessionId),
+      );
+    } finally {
+      await this.command("close", {}, sessionId).catch(() => undefined);
+    }
+  }
+  /** Where the session can be watched live, when its machine streams. */
+  async stream() {
+    try {
+      return browserStreamSchema.parse(
+        await workspaceOperation(
+          this.env,
+          this.job,
+          hostedPrincipal(this.job),
+          "machine-browser-stream",
+          { body: { sessionId: this.job.id } },
+        ),
+      );
+    } catch {
+      return undefined;
+    }
   }
   async close() {
     z.object({ closed: z.literal(true) }).parse(await this.command("close"));

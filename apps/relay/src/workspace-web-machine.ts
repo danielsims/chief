@@ -20,7 +20,9 @@ import {
 import type { WorkspaceChannelStore } from "./workspace-channel-store";
 import { HttpError, json } from "./http";
 import { readTrustedContext } from "./internal-context";
+import { signalMachineActivity } from "./machine-list-signal";
 import { requireNativeAgent } from "./workspace-agent-runtime";
+import { recordMachineActivity } from "./workspace-machine-keys";
 
 /**
  * A member's desktop lends this workspace's agents its internet connection.
@@ -51,6 +53,9 @@ const webMachineAttachmentSchema = z.object({
   ownerUserId: z.string(),
   /** Set for a paired machine; a member's desktop has none. */
   machineId: z.string().optional(),
+  machineName: z.string().optional(),
+  /** Disabled machines stay connected but serve no browsing requests. */
+  disabled: z.boolean().optional(),
   policy: webMachinePolicySchema,
   /** Recent fetches, oldest first, for the machine's rate limits. */
   servedAt: z.array(z.number()).optional(),
@@ -60,16 +65,40 @@ type WebMachineAttachment = z.infer<typeof webMachineAttachmentSchema>;
 
 export function acceptWebMachine(
   ctx: DurableObjectState,
-  owner: { ownerUserId: string; machineId?: string },
+  owner: {
+    ownerUserId: string;
+    machineId?: string;
+    machineName?: string;
+    disabled?: boolean;
+  },
 ) {
   const pair = new WebSocketPair();
   ctx.acceptWebSocket(pair[1], [webMachineTag]);
   // Until the machine says otherwise, only its owner's agents may use it.
   pair[1].serializeAttachment({
-    ...owner,
+    ownerUserId: owner.ownerUserId,
+    ...(owner.machineId ? { machineId: owner.machineId } : undefined),
+    ...(owner.machineName ? { machineName: owner.machineName } : undefined),
+    ...(owner.disabled ? { disabled: true } : undefined),
     policy: { allow: "mine" },
   } satisfies WebMachineAttachment);
   return new Response(null, { status: 101, webSocket: pair[0] });
+}
+
+/** Applies a toggle to live sockets, so a disabled machine stops at once. */
+export function setMachineDisabled(
+  ctx: { getWebSockets: (tag?: string) => readonly MachineSocket[] },
+  machineId: string,
+  disabled: boolean,
+) {
+  for (const socket of ctx.getWebSockets(webMachineTag)) {
+    const attachment = machineAttachment(socket);
+    if (attachment.machineId === machineId)
+      socket.serializeAttachment({
+        ...attachment,
+        disabled,
+      } satisfies WebMachineAttachment);
+  }
 }
 
 /** Paired machines with a lending socket open right now. */
@@ -77,6 +106,8 @@ export function onlineMachineIds(ctx: DurableObjectState) {
   return new Set(
     ctx
       .getWebSockets(webMachineTag)
+      // A socket that's closing is already offline.
+      .filter((socket) => socket.readyState === openSocket)
       .flatMap((socket) => machineAttachment(socket).machineId ?? []),
   );
 }
@@ -103,6 +134,7 @@ function admits(
   agentOwnerId: string,
   requesterUserId: string | undefined,
 ) {
+  if (machine.disabled) return false;
   const { policy } = machine;
   // The owner's own agents can always use their machine.
   if (agentOwnerId === machine.ownerUserId) return true;
@@ -232,8 +264,23 @@ export async function fetchThroughWebMachine(
     },
     answerWithinMs,
   );
-  if (!result) return json({ error: "machine_timeout" }, { status: 504 });
-  return json(webMachineFetchResultSchema.parse(result));
+  if (!result) {
+    await recordPairedActivity(ctx, socket, {
+      agentId,
+      requesterUserId,
+      url,
+      ok: false,
+    });
+    return json({ error: "machine_timeout" }, { status: 504 });
+  }
+  const answer = webMachineFetchResultSchema.parse(result);
+  await recordPairedActivity(ctx, socket, {
+    agentId,
+    requesterUserId,
+    url,
+    ok: answer.ok,
+  });
+  return json(answer);
 }
 
 /** Correlate a reply with the exact socket that received the request. Another
@@ -280,7 +327,11 @@ async function sendMachine(
   });
 }
 
-const pinnedSessionSchema = z.object({ machineId: z.string(), at: z.number() });
+const pinnedSessionSchema = z.object({
+  machineId: z.string(),
+  at: z.number(),
+  conversationId: z.string().optional(),
+});
 const sessionIdleMs = 60 * 60_000;
 
 /** Jobs often end without closing their browser; their pins expire instead. */
@@ -313,6 +364,98 @@ export function pairedMachines(
   });
 }
 
+/** Records one site for a paired machine's owner; desktops lending directly
+ * keep their own log. */
+async function recordPairedActivity(
+  ctx: Pick<DurableObjectState, "storage"> & {
+    getWebSockets: (tag?: string) => readonly MachineSocket[];
+  },
+  socket: MachineSocket,
+  visit: {
+    agentId: string;
+    requesterUserId?: string;
+    url: string;
+    ok: boolean;
+  },
+) {
+  const machine = machineAttachment(socket);
+  if (!machine.machineId) return;
+  // Agents choose the address, so only a bounded host is ever stored.
+  let site = visit.url.slice(0, 253);
+  try {
+    site = new URL(visit.url).hostname.replace(/^www\./u, "");
+  } catch {
+    // Keep the (truncated) raw address when it isn't a full URL.
+  }
+  await recordMachineActivity(ctx.storage, {
+    at: Date.now(),
+    machineId: machine.machineId,
+    machine: machine.machineName ?? "Computer",
+    ownerUserId: machine.ownerUserId,
+    agentId: agentIdSchema.parse(visit.agentId),
+    ...(visit.requesterUserId
+      ? { requesterUserId: visit.requesterUserId }
+      : undefined),
+    site,
+    ok: visit.ok,
+  });
+  signalMachineActivity(ctx);
+}
+
+/**
+ * The agent's owner ends its browser session on the machine from a viewer,
+ * as they can take it over: Chrome stops and the session's pin goes, so
+ * viewers see it as closed and the agent has to open a new one.
+ */
+export async function stopMachineBrowser(
+  ctx: Pick<DurableObjectState, "storage"> & {
+    getWebSockets: (tag?: string) => MachineSocket[];
+  },
+  channels: WorkspaceChannelStore,
+  request: Request,
+) {
+  const { principal, workspaceId } = readTrustedContext(request);
+  const { agentId, sessionId } = z
+    .object({ agentId: agentIdSchema, sessionId: z.uuid() })
+    .parse(await request.json());
+  const owner =
+    requireNativeAgent(ctx.storage, agentId).ownerUserId ??
+    String(channels.requireWorkspace(workspaceId).created_by_user_id);
+  if (principal.kind !== "user" || owner !== principal.userId)
+    throw new HttpError(
+      403,
+      "browser_owner_only",
+      "Only the agent's owner can stop its browser.",
+    );
+  const key = `machine.browser:${agentId}:${sessionId}`;
+  const pin = pinnedSessionSchema.safeParse(await ctx.storage.get(key));
+  await ctx.storage.delete(key);
+  if (!pin.success) return json({ stopped: true });
+  const socket = ctx
+    .getWebSockets(webMachineTag)
+    .find(
+      (candidate) =>
+        candidate.readyState === openSocket &&
+        machineAttachment(candidate).machineId === pin.data.machineId,
+    );
+  if (socket) {
+    const requestId = crypto.randomUUID();
+    await sendMachine(
+      socket,
+      requestId,
+      {
+        type: "browser.request",
+        requestId,
+        agentId,
+        sessionId,
+        operation: "close",
+      },
+      10_000,
+    );
+  }
+  return json({ stopped: true });
+}
+
 /** Only the trusted native runtime can dispatch browser operations. Session
  * affinity persists across DO wakeups; an offline machine never causes a
  * session to attach to a different machine's tab. */
@@ -339,11 +482,12 @@ export async function browseThroughWebMachine(
       "browser_denied",
       "Browser access is disabled for this agent.",
     );
-  const input = machineBrowserCommandSchema.parse(await request.json());
+  const { conversationId, ...input } = machineBrowserCommandSchema.parse(
+    await request.json(),
+  );
   const key = `machine.browser:${principal.agentId}:${input.sessionId}`;
-  const pinned = pinnedSessionSchema
-    .optional()
-    .parse(await ctx.storage.get(key))?.machineId;
+  const pin = pinnedSessionSchema.optional().parse(await ctx.storage.get(key));
+  const pinned = pin?.machineId;
   if (!pinned && input.operation === "close") return json({ closed: true });
   if (!pinned && input.operation !== "open")
     throw new HttpError(
@@ -369,7 +513,13 @@ export async function browseThroughWebMachine(
     );
   const machineId = machineAttachment(socket).machineId;
   if (!pinned) await forgetIdleSessions(ctx.storage);
-  await ctx.storage.put(key, { machineId, at: Date.now() });
+  await ctx.storage.put(key, {
+    machineId,
+    at: Date.now(),
+    ...((pin?.conversationId ?? conversationId)
+      ? { conversationId: pin?.conversationId ?? conversationId }
+      : undefined),
+  });
   const requestId = crypto.randomUUID();
   const answer = await sendMachine(
     socket,
@@ -380,8 +530,13 @@ export async function browseThroughWebMachine(
       requestId,
       agentId: principal.agentId,
     },
-    60_000,
+    // Inside the hosted tool's 45s, and after the machine's own 35s, so a
+    // slow page comes back as the machine's error rather than a dropped call.
+    40_000,
   );
+  // A session that never opened keeps no pin: a pin is what viewer tickets
+  // trust, and the machine may have refused this ID as another agent's.
+  if (!pinned && (!answer || !answer.ok)) await ctx.storage.delete(key);
   if (!answer)
     throw new HttpError(
       504,
@@ -389,6 +544,12 @@ export async function browseThroughWebMachine(
       "Browser machine did not answer in time.",
     );
   const result = machineBrowserResultSchema.parse(answer);
+  if (input.operation === "open" && input.url)
+    await recordPairedActivity(ctx, socket, {
+      agentId: principal.agentId,
+      url: input.url,
+      ok: result.ok,
+    });
   if (!result.ok) throw new HttpError(502, "browser_failed", result.error);
   if (input.operation === "close") await ctx.storage.delete(key);
   return json(result.output);

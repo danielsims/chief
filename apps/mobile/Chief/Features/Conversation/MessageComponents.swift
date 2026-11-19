@@ -19,7 +19,10 @@ struct MessageComponentList: View {
   private var visibleComponents: [MessageComponent] {
     message.components.filter { component in
       switch component.kind {
-      case "artifact.reference", "question", "attachment", "plugin.recommendation", "plugin.authorization", "project.recommendation": true
+      case "artifact.reference", "question", "attachment", "plugin.recommendation",
+        "plugin.authorization", "project.recommendation", "browser", "automation",
+        "database", "draft":
+        true
       case "tool":
         component.payload["name"] == BrowserReleaseTool.name
           && component.payload["status"] == "completed"
@@ -61,6 +64,14 @@ struct MessageComponentList: View {
       PluginAuthorizationMessageComponent(message: message, component: component)
     case "project.recommendation":
       ProjectRecommendationMessageComponent(component: component)
+    case "browser":
+      BrowserActivityMessageComponent(message: message, component: component)
+    case "automation":
+      AutomationMessageComponent(component: component)
+    case "database":
+      DatabaseMessageComponent(component: component)
+    case "draft":
+      DraftMessageComponent(component: component)
     default:
       EmptyView()
     }

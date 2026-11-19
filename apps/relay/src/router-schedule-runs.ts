@@ -33,30 +33,38 @@ export async function routeScheduleRunRequest(
     /^\/v1\/workspaces\/([^/]+)\/schedule-runs\/(report|collaborators)$/u.exec(
       url.pathname,
     );
-  if (!hooks && !hook && !delivery && !runs && !report) return undefined;
+  // What an agent builds automations with: find tools, test, read back.
+  const build =
+    /^\/v1\/workspaces\/([^/]+)\/automations\/(tools|inspect|test)$/u.exec(
+      url.pathname,
+    );
+  if (!hooks && !hook && !delivery && !runs && !report && !build)
+    return undefined;
   const workspaceId = workspaceIdSchema.parse(
     decodeURIComponent(
-      (hooks ?? hook ?? delivery ?? runs ?? report)?.[1] ?? "",
+      (hooks ?? hook ?? delivery ?? runs ?? report ?? build)?.[1] ?? "",
     ),
   );
   const scheduleId = (hook ?? delivery ?? runs)?.[2];
-  const operation = report
-    ? report[2] === "collaborators"
-      ? "schedules-runs-add-collaborator"
-      : "schedules-runs-report"
-    : delivery
-      ? "webhooks-deliver"
-      : hooks
-        ? "webhooks-list"
-        : hook
-          ? hook[3]
-            ? "webhooks-events"
-            : request.method === "DELETE"
-              ? "webhooks-revoke"
-              : "webhooks-issue"
-          : runs?.[3]
-            ? "schedules-runs-action"
-            : "schedules-runs-list";
+  const operation = build
+    ? `automations-${build[2]}`
+    : report
+      ? report[2] === "collaborators"
+        ? "schedules-runs-add-collaborator"
+        : "schedules-runs-report"
+      : delivery
+        ? "webhooks-deliver"
+        : hooks
+          ? "webhooks-list"
+          : hook
+            ? hook[3]
+              ? "webhooks-events"
+              : request.method === "DELETE"
+                ? "webhooks-revoke"
+                : "webhooks-issue"
+            : runs?.[3]
+              ? "schedules-runs-action"
+              : "schedules-runs-list";
   const method =
     operation.endsWith("-list") || operation === "webhooks-events"
       ? "GET"

@@ -10,7 +10,7 @@ export const readWebPageDefinition = defineAgentTool({
     operationId: "web.read",
     summary: "Read web page",
     description:
-      "Fetches a public HTTP or HTTPS page and returns bounded readable text and links without opening an interactive browser. Use this for ordinary public research. Use browser tools only when interaction, authentication, screenshots, or user takeover is required.",
+      "Reads a public HTTP or HTTPS page and returns bounded readable text and links. Nothing is shown to the user. Use this whenever you only need to know what a page says.",
   },
   inputSchema: z.object({
     url: boundedText(2_000),

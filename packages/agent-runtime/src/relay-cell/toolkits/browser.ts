@@ -4,16 +4,32 @@ import type { JsonObject } from "@chief/relay-contracts";
 import { AgentBrowserSession } from "@chief/browser/node";
 import { parseJsonString } from "@chief/relay-contracts";
 
+import type { RelayCellContext } from "../context.js";
+import type { RelayCellTool } from "../tool.js";
+import { deterministicUuid } from "../../relay-cell-ids.js";
+import { clickBrowserDefinition } from "../../tools/toolkits/browser/click-browser.js";
+import { closeBrowserDefinition } from "../../tools/toolkits/browser/close-browser.js";
+import { fillBrowserDefinition } from "../../tools/toolkits/browser/fill-browser.js";
+import { openBrowserDefinition } from "../../tools/toolkits/browser/open-browser.js";
+import { pressBrowserDefinition } from "../../tools/toolkits/browser/press-browser.js";
+import { selectBrowserDefinition } from "../../tools/toolkits/browser/select-browser.js";
+import { snapshotBrowserDefinition } from "../../tools/toolkits/browser/snapshot-browser.js";
 import { requiredEnvironment } from "../context.js";
 import { optionalString, requiredString, requiredStrings } from "../input.js";
 import { defineRelayCellTool } from "../tool.js";
 
-let browser: AgentBrowserSession | null = null;
+// One browser per conversation; a worker runs many conversations' jobs.
+let browser: {
+  conversationId: string;
+  session: AgentBrowserSession;
+  /** The page last opened, kept on the card once the browser closes. */
+  url?: string;
+} | null = null;
 
 function browserSession() {
-  if (browser) return browser;
   const conversationId = requiredEnvironment("CHIEF_CONVERSATION_ID");
-  browser = new AgentBrowserSession({
+  if (browser?.conversationId === conversationId) return browser.session;
+  const session = new AgentBrowserSession({
     sessionId: `${requiredEnvironment("CHIEF_AGENT_ID")}-${conversationId}`,
     downloadPath: join(
       requiredEnvironment("CHIEF_CELL_ROOT"),
@@ -23,8 +39,12 @@ function browserSession() {
     encryptionKey: requiredEnvironment("CHIEF_AGENT_SECRET_KEY"),
     restore: true,
     colorScheme: "dark",
+    // Anyone who can message the agent can steer its browser, so it stays
+    // on the public web, away from this computer and its network.
+    publicWebOnly: true,
   });
-  return browser;
+  browser = { conversationId, session };
+  return session;
 }
 
 function publicHttpsUrl(raw: string) {
@@ -69,61 +89,97 @@ async function snapshot() {
   return await browserSession().snapshot();
 }
 
+/**
+ * The conversation's browser card, which shows the page live to the person
+ * on this computer. One card per thread: opening again updates it in place,
+ * and closing marks it closed.
+ */
+async function showBrowser(
+  context: RelayCellContext,
+  state:
+    { status: "active"; url: string; streamUrl: string } | { status: "closed" },
+) {
+  const key = `${context.agentId}:${context.conversationId}:${context.threadRootId ?? ""}:browser`;
+  const browserRunId = deterministicUuid(key);
+  await context.client
+    .upsertAgentActivity(context.conversationId, {
+      messageId: browserRunId,
+      ...(context.threadRootId
+        ? { threadRootId: context.threadRootId }
+        : undefined),
+      component: {
+        id: deterministicUuid(`${key}:component`),
+        kind: "browser",
+        version: 1,
+        payload: { browserRunId, ...state },
+      },
+    })
+    // The page is open either way; a card that can't be posted isn't fatal.
+    .catch((error: unknown) => console.error("[cell] browser card:", error));
+}
+
+/**
+ * A browser tool as this agent sees it: the plain definition, without the
+ * conversation and run fields the desktop fills in for its own browser. This
+ * runtime always browses in the run's own conversation.
+ */
+function browserTool(
+  definition: RelayCellTool["definition"],
+  execute: RelayCellTool["execute"],
+): RelayCellTool {
+  return {
+    ...defineRelayCellTool(
+      definition.operation.operationId,
+      "browser.use",
+      execute,
+    ),
+    definition,
+  };
+}
+
 export const relayCellBrowserTools = [
-  defineRelayCellTool(
-    "browser.open",
-    "browser.use",
-    async (_context, input) => {
-      const session = browserSession();
-      if (input.fresh === true) await session.close();
-      await session.open(publicHttpsUrl(requiredString(input, "url")), {
-        width: 1280,
-        height: 800,
-      });
-      return await session.snapshot();
-    },
-  ),
-  defineRelayCellTool("browser.snapshot", "browser.use", snapshot),
-  defineRelayCellTool(
-    "browser.click",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().click(browserTargets(input));
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.fill",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().fill(
-        browserTargets(input),
-        requiredString(input, "value"),
-      );
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.select",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().select(
-        browserTargets(input),
-        requiredStrings(input, "values"),
-      );
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool(
-    "browser.press",
-    "browser.use",
-    async (_context, input) => {
-      await browserSession().press(requiredString(input, "key"));
-      return await snapshot();
-    },
-  ),
-  defineRelayCellTool("browser.close", "browser.use", async () => {
+  browserTool(openBrowserDefinition, async (context, input) => {
+    const session = browserSession();
+    if (input.fresh === true) await session.close();
+    const url = publicHttpsUrl(requiredString(input, "url"));
+    const stream = await session.open(url, { width: 1280, height: 800 });
+    if (browser) browser.url = url;
+    await showBrowser(context, {
+      status: "active",
+      url,
+      streamUrl: stream.url,
+    });
+    return await session.snapshot();
+  }),
+  browserTool(snapshotBrowserDefinition, snapshot),
+  browserTool(clickBrowserDefinition, async (_context, input) => {
+    await browserSession().click(browserTargets(input));
+    return await snapshot();
+  }),
+  browserTool(fillBrowserDefinition, async (_context, input) => {
+    await browserSession().fill(
+      browserTargets(input),
+      requiredString(input, "value"),
+    );
+    return await snapshot();
+  }),
+  browserTool(selectBrowserDefinition, async (_context, input) => {
+    await browserSession().select(
+      browserTargets(input),
+      requiredStrings(input, "values"),
+    );
+    return await snapshot();
+  }),
+  browserTool(pressBrowserDefinition, async (_context, input) => {
+    await browserSession().press(requiredString(input, "key"));
+    return await snapshot();
+  }),
+  browserTool(closeBrowserDefinition, async (context) => {
     await browserSession().close();
+    await showBrowser(context, {
+      status: "closed",
+      ...(browser?.url ? { url: browser.url } : undefined),
+    });
     return { closed: true };
   }),
 ];

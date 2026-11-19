@@ -6,7 +6,7 @@ import { boundedText } from "../../input.js";
 /**
  * How an agent builds an automation until it works: find the tools a step can
  * use, test a draft, then read back each step's input, output and error and
- * what is still blocking it. Drafts are saved with recurringWork.propose.
+ * what is still blocking it. Drafts are saved with automations.propose.
  */
 export const automationBuildToolDefinitions = [
   defineAgentTool({

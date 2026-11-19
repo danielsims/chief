@@ -54,6 +54,8 @@ export class AgentSession extends EventEmitter {
   private promptBootstrap: string | undefined;
   private workingDirectory: string | undefined;
   private stallTimer: NodeJS.Timeout | null = null;
+  /** Tool calls the backend started and hasn't returned yet. */
+  private readonly openTools = new Set<string>();
   private readonly stallTimeoutMs: number;
   private activeReplyContext:
     | {
@@ -157,8 +159,10 @@ export class AgentSession extends EventEmitter {
         }
         if (enriched.type === "thinkingStream") {
           this.emit("event", enriched);
+          if (this.status === "running") this.armStallWatchdog();
           continue;
         }
+        this.trackOpenTools(enriched);
         if (enriched.type === "init") this.sessionId = enriched.sessionId;
         if (enriched.type === "status") this.status = enriched.status;
         if (
@@ -174,6 +178,9 @@ export class AgentSession extends EventEmitter {
         if (this.status === "running") this.armStallWatchdog();
         else this.clearStallWatchdog();
       }
+    });
+    this.driver.on("activity", () => {
+      if (this.status === "running") this.armStallWatchdog();
     });
     this.driver.on("state", (state) => {
       this.driverState = state;
@@ -293,6 +300,23 @@ export class AgentSession extends EventEmitter {
     return [];
   }
 
+  private trackOpenTools(event: AgentEvent) {
+    if (
+      event.type === "result" ||
+      event.type === "error" ||
+      event.type === "exit"
+    ) {
+      this.openTools.clear();
+      return;
+    }
+    if (event.type !== "message") return;
+    for (const block of event.content) {
+      if (block.type === "tool_use") this.openTools.add(block.id);
+      if (block.type === "tool_result")
+        this.openTools.delete(block.tool_use_id);
+    }
+  }
+
   private clearStallWatchdog() {
     if (this.stallTimer) clearTimeout(this.stallTimer);
     this.stallTimer = null;
@@ -302,6 +326,11 @@ export class AgentSession extends EventEmitter {
     this.clearStallWatchdog();
     this.stallTimer = setTimeout(() => {
       if (!this.isBusy) return;
+      // A running tool isn't a stall; the tool's own timeout bounds it.
+      if (this.openTools.size > 0) {
+        this.armStallWatchdog();
+        return;
+      }
       void this.driver.interrupt().catch(() => undefined);
       this.status = "idle";
       this.record({

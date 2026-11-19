@@ -4,6 +4,7 @@ import { KeyRound, LockKeyhole, Search, Trash2 } from "lucide-react";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -144,17 +145,17 @@ export function EnvironmentSettings() {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-start justify-between gap-6 space-y-0">
-        <div className="space-y-1.5">
-          <CardTitle>Environment variables</CardTitle>
-          <CardDescription className="max-w-xl leading-6">
-            Credentials and configuration available to agents in this workspace.
-            Values requested by an agent appear here automatically.
-          </CardDescription>
-        </div>
-        <Button onClick={openAdd} disabled={!connected}>
-          Add environment variable
-        </Button>
+      <CardHeader>
+        <CardTitle>Environment variables</CardTitle>
+        <CardDescription>
+          Credentials and configuration available to agents in this workspace.
+          Values requested by an agent appear here automatically.
+        </CardDescription>
+        <CardAction>
+          <Button onClick={openAdd} disabled={!connected}>
+            Add environment variable
+          </Button>
+        </CardAction>
       </CardHeader>
 
       <CardContent>

@@ -21,6 +21,10 @@ import {
   readTrustedWorkspaceSocketTicket,
   trustedTelemetryAttributes,
 } from "./internal-context";
+import {
+  signalMachineList,
+  signalMachineListAfter,
+} from "./machine-list-signal";
 import { routeMcpConnections } from "./mcp/route";
 import { OwnedAgentService } from "./owned-agent-service";
 import { metered, meterSql, requestOperation } from "./sql-metering";
@@ -48,8 +52,15 @@ import { isMembershipGrantForPrincipal } from "./workspace-live-delivery";
 import { replayLiveEvents } from "./workspace-live-replay";
 import { WorkspaceLiveStore } from "./workspace-live-store";
 import { WorkspaceLogService } from "./workspace-log-service";
-import { consumeMachineTicket } from "./workspace-machine-keys";
+import {
+  consumeMachineTicket,
+  pairedMachineEnabled,
+} from "./workspace-machine-keys";
 import { machineOperation } from "./workspace-machine-operations";
+import {
+  readMemberTimeZone,
+  setMemberTimeZone,
+} from "./workspace-member-time-zones";
 import { WorkspacePresence } from "./workspace-presence";
 import { routeScheduleRuns } from "./workspace-schedule-run-service";
 import { routeWorkspaceSchedule } from "./workspace-schedule-service";
@@ -236,12 +247,28 @@ export class WorkspaceObject extends DurableObject<Env> {
         );
       }
       const machine = machineOperation(
+        env,
         ctx,
         () => new WorkspaceChannelStore(ctx.storage, env),
         operation,
         request,
       );
-      if (machine) return yield* attempt(machine.span, machine.run);
+      if (machine)
+        return yield* attempt(machine.span, async () => {
+          const response = await machine.run();
+          signalMachineListAfter(ctx, operation, response);
+          return response;
+        });
+      if (operation === "member-time-zone-set") {
+        return yield* attempt("workspace.member.time_zone_set", () =>
+          setMemberTimeZone(ctx.storage, request),
+        );
+      }
+      if (operation === "member-time-zone-get") {
+        return yield* attempt("workspace.member.time_zone_get", () =>
+          readMemberTimeZone(ctx.storage, request),
+        );
+      }
       if (operation === "agent-host-presence") {
         return yield* attempt("workspace.presence.agent_host", () =>
           presence.receiveHostReport(request),
@@ -533,11 +560,20 @@ export class WorkspaceObject extends DurableObject<Env> {
         this.ctx.storage,
         context.ticket,
       );
-      if (machine)
-        return acceptWebMachine(this.ctx, {
+      if (machine) {
+        const enabled = await pairedMachineEnabled(
+          this.ctx.storage,
+          machine.machineId,
+        );
+        const accepted = acceptWebMachine(this.ctx, {
           ownerUserId: machine.ownerUserId,
           machineId: machine.machineId,
+          machineName: machine.name,
+          disabled: !enabled,
         });
+        signalMachineList(this.ctx);
+        return accepted;
+      }
     }
     const live = new WorkspaceLiveStore(this.ctx.storage);
     const principalJson = await live.consumeSocketTicket(context.ticket);
@@ -586,12 +622,14 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   webSocketClose(socket: WebSocket) {
+    if (isWebMachine(this.ctx, socket)) signalMachineList(this.ctx);
     return metered("WorkspaceObject", "websocket.close", () =>
       this.presence.closed(socket),
     );
   }
 
   webSocketError(socket: WebSocket) {
+    if (isWebMachine(this.ctx, socket)) signalMachineList(this.ctx);
     return metered("WorkspaceObject", "websocket.error", () =>
       this.presence.closed(socket),
     );

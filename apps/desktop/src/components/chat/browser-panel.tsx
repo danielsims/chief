@@ -1,10 +1,12 @@
 import type { ErrorInfo, ReactNode, RefObject } from "react";
-import { Component, lazy, memo, Suspense, useState } from "react";
+import { Component, lazy, memo, Suspense, useCallback, useState } from "react";
 import { ArrowRight, Globe2 } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import { useRelaySession } from "../../lib/relay-session-context";
 import { useRuntime } from "../../lib/runtime";
 import {
   INLINE_RESULT_CARD_CLASS,
@@ -70,11 +72,12 @@ function BrowserSessionLoading({ className }: { className?: string }) {
     <div
       aria-label="Loading browser viewer"
       className={cn(
-        "bg-muted/45 text-muted-foreground flex min-h-28 w-full items-center justify-center rounded-xl text-xs",
+        "bg-muted/45 text-muted-foreground flex min-h-28 w-full items-center justify-center gap-2 rounded-xl text-xs",
         className,
       )}
       role="status"
     >
+      <MatrixLoader size={12} ariaLabel="Opening browser" />
       Opening browser…
     </div>
   );
@@ -82,12 +85,14 @@ function BrowserSessionLoading({ className }: { className?: string }) {
 
 function SafeBrowserSessionViewer({
   className,
+  onConnectionError,
   operating,
   pictureInPictureAvoidRefs,
   pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
+  onConnectionError: () => void;
   operating: boolean;
   pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
   pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
@@ -98,6 +103,7 @@ function SafeBrowserSessionViewer({
       <Suspense fallback={<BrowserSessionLoading className={className} />}>
         <BrowserSessionViewer
           className={className}
+          onConnectionError={onConnectionError}
           operating={operating}
           pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
           pictureInPictureContainerRef={pictureInPictureContainerRef}
@@ -146,12 +152,12 @@ function BrowserFavicon({ url }: { url: string }) {
 
 function BrowserSessionCard({
   detail,
-  onClick,
+  action,
   title,
   url,
 }: {
   detail: string;
-  onClick?: () => void;
+  action?: { label: string; onClick: () => void; icon: typeof ArrowRight };
   title: string;
   url: string;
 }) {
@@ -167,15 +173,15 @@ function BrowserSessionCard({
         </span>
       </div>
       <div className="relative z-10 flex shrink-0 items-center gap-1">
-        {onClick ? (
+        {action ? (
           <button
-            aria-label="Reopen browsing session"
+            aria-label={action.label}
             className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/30 flex size-7 items-center justify-center rounded-lg transition-colors outline-none focus-visible:ring-2"
-            title="Reopen browsing session"
+            title={action.label}
             type="button"
-            onClick={onClick}
+            onClick={action.onClick}
           >
-            <ArrowRight aria-hidden size={14} strokeWidth={1.7} />
+            <action.icon aria-hidden size={14} strokeWidth={1.7} />
           </button>
         ) : null}
       </div>
@@ -195,6 +201,14 @@ function BrowserSessionAttachmentContent({
   run: BrowserRunRecord;
 }) {
   const { browserSessions, openBrowser } = useRuntime();
+  const [connectionFailed, setConnectionFailed] = useState(false);
+  const showConnectionFailure = useCallback(
+    () => setConnectionFailed(true),
+    [],
+  );
+  // A relay workspace's browsers belong to agents; once one ends it stays in
+  // the conversation as a record and can't be reopened from here.
+  const { client: relay } = useRelaySession();
   const session = browserSessions[run.id];
   const url = session?.url ?? run.url;
 
@@ -216,8 +230,28 @@ function BrowserSessionAttachmentContent({
     return (
       <BrowserSessionCard
         detail={browserDomain(url)}
-        onClick={viewSession}
-        title="Browsing session complete"
+        action={
+          relay
+            ? undefined
+            : {
+                label: "Reopen browsing session",
+                onClick: viewSession,
+                icon: ArrowRight,
+              }
+        }
+        title="Browsing session ended"
+        url={url}
+      />
+    );
+  }
+
+  // A paired machine's stream ends with its session, so a lost connection
+  // is shown as the session having ended, as on mobile.
+  if (connectionFailed) {
+    return (
+      <BrowserSessionCard
+        detail={browserDomain(url)}
+        title="Browsing session ended"
         url={url}
       />
     );
@@ -228,6 +262,7 @@ function BrowserSessionAttachmentContent({
       <div className="chief-browser-attachment-shell overflow-visible">
         <SafeBrowserSessionViewer
           className={INLINE_BROWSER_VIEWPORT_CLASS}
+          onConnectionError={showConnectionFailure}
           operating={operating}
           pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
           pictureInPictureContainerRef={pictureInPictureContainerRef}
@@ -246,7 +281,7 @@ function BrowserSessionAttachmentImpl(
       className={INLINE_BROWSER_VIEWPORT_CLASS}
       resetKey={props.run.id}
     >
-      <BrowserSessionAttachmentContent {...props} />
+      <BrowserSessionAttachmentContent key={props.run.id} {...props} />
     </BrowserSessionErrorBoundary>
   );
 }

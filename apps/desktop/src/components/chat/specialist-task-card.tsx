@@ -42,6 +42,40 @@ export function taskActivitySubtitle(
   return `${subject} · ${specialistStatusLabel(task.status)}`;
 }
 
+function minutes(from?: number, to?: number) {
+  if (!from) return "";
+  const elapsed = Math.max(1, Math.round(((to ?? Date.now()) - from) / 60_000));
+  return `${elapsed} min`;
+}
+
+/** What the card says under the task: live while working, the outcome after. */
+function taskDetail(task: SessionRecord): {
+  text: string;
+  tone?: "attention" | "error";
+} {
+  if (task.status === "idle") return { text: "Starting" };
+  if (task.status === "running")
+    return {
+      text: ["Working", minutes(task.startedAt)].filter(Boolean).join(" · "),
+    };
+  if (task.status === "waiting")
+    return { text: "Waiting for you", tone: "attention" };
+  if (task.status === "needs_approval")
+    return { text: "Waiting for approval", tone: "attention" };
+  if (task.status === "failed") {
+    const error = task.error?.trim();
+    if (error) return { text: error, tone: "error" };
+    return { text: "Couldn't finish", tone: "error" };
+  }
+  const summary = task.summary?.trim();
+  if (summary) return { text: summary };
+  return {
+    text: ["Finished", minutes(task.startedAt, task.finishedAt)]
+      .filter(Boolean)
+      .join(" in "),
+  };
+}
+
 export function AgentActivityCard({
   task,
   detail,
@@ -49,16 +83,23 @@ export function AgentActivityCard({
   onOpenTask,
 }: {
   task: SessionRecord;
-  detail: string;
+  detail?: string;
   className?: string;
   onOpenTask?: (taskId: string) => void;
 }) {
   const working = specialistIsStartingOrWorking(task.status);
+  const agent = taskAgentLabel(task.agent);
+  const title =
+    task.title.trim() &&
+    task.title.trim().toLocaleLowerCase() !== agent.toLocaleLowerCase()
+      ? `${agent} · ${task.title.trim()}`
+      : agent;
+  const status = detail ? { text: detail } : taskDetail(task);
   return (
     <button
       type="button"
       onClick={() => onOpenTask?.(task.id)}
-      className={cn(INLINE_RESULT_CARD_CLASS, "min-h-14 text-xs", className)}
+      className={cn(INLINE_RESULT_CARD_CLASS, "min-h-14", className)}
     >
       <SpecialistStatusIndicator
         agent={task.agent}
@@ -67,11 +108,17 @@ export function AgentActivityCard({
         status={task.status}
       />
       <span className="min-w-0 flex-1">
-        <strong className="block truncate font-medium">
-          {taskAgentLabel(task.agent)}
+        <strong className="block truncate text-[13px] leading-5 font-medium">
+          {title}
         </strong>
-        <small className="text-muted-foreground mt-0.5 block truncate text-[11px] leading-4 font-normal">
-          {detail}
+        <small
+          className={cn(
+            "text-muted-foreground block truncate text-[12px] leading-4 font-normal",
+            status.tone === "attention" && "text-amber-600 dark:text-amber-500",
+            status.tone === "error" && "text-destructive",
+          )}
+        >
+          {status.text}
         </small>
       </span>
       <ArrowRight
@@ -93,13 +140,7 @@ export function SpecialistTaskCard({
   task: SessionRecord;
   onOpenTask?: (taskId: string) => void;
 }) {
-  return (
-    <AgentActivityCard
-      task={task}
-      detail={specialistStatusLabel(task.status)}
-      onOpenTask={onOpenTask}
-    />
-  );
+  return <AgentActivityCard task={task} onOpenTask={onOpenTask} />;
 }
 
 export function ThreadSpecialistTaskCard({

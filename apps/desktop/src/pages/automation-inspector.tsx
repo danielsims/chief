@@ -226,7 +226,7 @@ function stepHeader(
   step: AutomationStep,
   agents: readonly SelectableAgent[],
   catalogue: AutomationCatalogue,
-): { icon: ReactNode; eyebrow: string } {
+): { icon: ReactNode; eyebrow: ReactNode } {
   if (step.type === "agent")
     return {
       icon: (
@@ -252,6 +252,16 @@ function stepHeader(
   if (step.tool.source === "plugin") {
     const { connectionId } = step.tool;
     const plugin = catalogue.plugins.find((item) => item.id === connectionId);
+    // Hold the header's shape until the plugin is known, so nothing jumps.
+    if (!plugin && catalogue.loading)
+      return {
+        icon: (
+          <span className="bg-foreground/[0.06] block size-6 animate-pulse rounded-[7px]" />
+        ),
+        eyebrow: (
+          <span className="bg-foreground/[0.06] inline-block h-[0.9em] w-14 animate-pulse rounded align-middle" />
+        ),
+      };
     return {
       icon: plugin?.domain ? (
         <ProviderLogo

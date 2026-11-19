@@ -31,6 +31,7 @@ import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
 import { routeIdentityAndPush } from "./router-identity";
+import { routeMemberTimeZone } from "./router-member-time-zone";
 import { routeOnboardingTelemetry } from "./router-onboarding";
 import { routeOwnedAgents } from "./router-owned-agents";
 import { routeProfileImage } from "./router-profile-image";
@@ -613,6 +614,8 @@ function routeWorkspaceRequest(
       url,
     );
     if (machines) return machines;
+    const timeZone = yield* routeMemberTimeZone(env, request, requestId, url);
+    if (timeZone) return timeZone;
     const secrets = workspaceSecretsRoute.exec(url.pathname);
     if (secrets && url.pathname === `/v1/workspaces/${secrets[1]}/secrets`) {
       return yield* routeWorkspaceSecrets(env, request, requestId, secrets[1]);

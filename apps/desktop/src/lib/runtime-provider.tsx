@@ -310,6 +310,11 @@ export function RuntimeCoreProvider({
             runId: msg.browserRunId,
             url: msg.url,
             streamUrl: msg.type === "browserNavigate" ? msg.streamUrl : null,
+            ...(msg.type === "browserNavigate" && msg.agentId
+              ? { agentId: msg.agentId }
+              : existing?.agentId
+                ? { agentId: existing.agentId }
+                : undefined),
             conversationId: msg.conversationId,
             parentConversationId: msg.parentConversationId ?? null,
             workspaceId: msg.workspaceId,

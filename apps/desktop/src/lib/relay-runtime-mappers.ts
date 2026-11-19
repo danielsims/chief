@@ -14,6 +14,9 @@ import type {
 import {
   artifactReferencePayloadSchema,
   attachmentLocation,
+  automationCardPayloadSchema,
+  databaseCardPayloadSchema,
+  draftCardPayloadSchema,
   isJsonObject,
   isJsonString,
   messageAttachments,
@@ -71,6 +74,7 @@ export function browserRuntimeEvent(
     browserRunId,
     workspaceId: message.workspaceId,
     conversationId: message.conversationId,
+    agentId: message.author.id,
     anchorMessageId: message.id,
     url,
     streamUrl,
@@ -327,6 +331,9 @@ function messageComponentParts(
     ...pluginRecommendationParts(message),
     ...projectRecommendationParts(message),
     ...questionParts(message),
+    ...automationParts(message),
+    ...databaseParts(message),
+    ...draftParts(message),
     ...artifactParts(message),
     ...attachmentParts(message),
   ];
@@ -499,6 +506,78 @@ function questionParts(message: ConversationMessage): ChiefUIMessage["parts"] {
           ...(parsed.data.threadRootId
             ? { threadRootId: parsed.data.threadRootId }
             : undefined),
+        },
+      },
+    ];
+  });
+}
+
+/** One card per automation, however often the agent revised it here. */
+function automationParts(
+  message: ConversationMessage,
+): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  const seen = new Set<string>();
+  return message.components.flatMap((component) => {
+    if (component.kind !== "automation") return [];
+    const parsed = automationCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success || seen.has(parsed.data.automationId)) return [];
+    seen.add(parsed.data.automationId);
+    return [
+      {
+        type: "data-automation" as const,
+        id: parsed.data.automationId,
+        data: {
+          automationId: parsed.data.automationId,
+          title: parsed.data.title,
+          agentId: parsed.data.agentId,
+          messageId: message.id,
+        },
+      },
+    ];
+  });
+}
+
+function databaseParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "database") return [];
+    const parsed = databaseCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    return [
+      {
+        type: "data-database" as const,
+        id: component.id,
+        data: {
+          databaseId: parsed.data.databaseId,
+          view: parsed.data.view,
+          title: parsed.data.title,
+          agentId: parsed.data.agentId,
+          messageId: message.id,
+        },
+      },
+    ];
+  });
+}
+
+function draftParts(message: ConversationMessage): ChiefUIMessage["parts"] {
+  if (message.author.kind !== "agent") return [];
+  return message.components.flatMap((component) => {
+    if (component.kind !== "draft") return [];
+    const parsed = draftCardPayloadSchema.safeParse(component.payload);
+    if (!parsed.success) return [];
+    const { format, to, subject, body, agentId } = parsed.data;
+    return [
+      {
+        type: "data-draft" as const,
+        id: component.id,
+        data: {
+          format,
+          ...(to ? { to } : undefined),
+          ...(subject ? { subject } : undefined),
+          body,
+          agentId,
+          messageId: message.id,
         },
       },
     ];

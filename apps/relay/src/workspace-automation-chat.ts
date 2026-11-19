@@ -97,6 +97,6 @@ export function automationChatBrief(
     title
       ? `You're on the page of the automation "${title}" (id ${id}), with the person building it.`
       : `You're on the page of a new automation (id ${id}), with the person building it.`,
-    "Build or change it as they ask: save it with recurring_work_propose and that id, find tools for steps with automations_tools, then test it with automations_test and read the results with automations_inspect. Keep replies short.",
+    "Build or change it as they ask: save it with automations_propose and that id, find tools for steps with automations_tools, then test it with automations_test and read the results with automations_inspect. Keep replies short.",
   ].join(" ");
 }
